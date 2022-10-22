@@ -14,9 +14,12 @@ namespace Kans
 		static VkInstance GetInstance() { return s_Instance; }
 		const Ref<VulkanDevice>& GetVulkanDevice() { return m_Device; }
 	private:
+		// Vulkan instance
 		inline static VkInstance s_Instance ;
+		// Devices
 		Ref<VulkanPhysicalDevice> m_PhysicalDevice;
 		Ref<VulkanDevice> m_Device;
+		//debug Messenger
 		VkDebugUtilsMessengerEXT m_DebugUtilsMessenger = VK_NULL_HANDLE;
 	};
 }

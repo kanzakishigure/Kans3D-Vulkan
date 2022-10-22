@@ -93,4 +93,29 @@ namespace Kans {
 
 
 
+	OpenGLTextureCube::OpenGLTextureCube(const std::string& path)
+	{
+
+	}
+
+	OpenGLTextureCube::OpenGLTextureCube(uint32_t width, uint32_t height)
+	{
+
+	}
+
+	OpenGLTextureCube::~OpenGLTextureCube()
+	{
+
+	}
+
+	void OpenGLTextureCube::Bind(uint32_t slot /*= 0*/) const
+	{
+
+	}
+
+	void OpenGLTextureCube::SetData(void* data, uint32_t size)
+	{
+
+	}
+
 }

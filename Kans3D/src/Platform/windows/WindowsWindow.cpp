@@ -57,7 +57,7 @@ namespace Kans {
 			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		{
 			HZ_PROFILE_SCOPE("glfwCreateWindow");
-			m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), NULL, NULL);
+			m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
 			s_GLFWWindowsCount++;			
 
 		}

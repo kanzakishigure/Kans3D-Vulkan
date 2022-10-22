@@ -38,6 +38,9 @@ namespace Kans
 	public:
 		VulkanDevice(const Ref<VulkanPhysicalDevice>& physicalDevice);
 		~VulkanDevice();
+
+		void Destroy();
+
 		const Ref<VulkanPhysicalDevice>& GetPhysicalDevice() { return m_PhysicalDevice; }
 
 		VkQueue GetGraphicsQueue() { return m_GraphicsQueue; }
@@ -45,5 +48,6 @@ namespace Kans
 		Ref<VulkanPhysicalDevice> m_PhysicalDevice;
 		VkDevice m_Device;
 		VkQueue m_GraphicsQueue;
+		VkQueue m_PresentsQueue;
 	};
 }

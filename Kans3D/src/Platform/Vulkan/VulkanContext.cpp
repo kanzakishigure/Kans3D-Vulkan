@@ -38,17 +38,21 @@ namespace Kans
 		VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerCreateInfoEXT* pcreateinfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger)
 		{
 			auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-			if (func != nullptr) {
+			if (func != nullptr) 
+			{
 				return func(instance, pcreateinfo, pAllocator, pDebugMessenger);
 			}
-			else {
+			else 
+			{
 				return VK_ERROR_EXTENSION_NOT_PRESENT;
 			}	
 		}
 
-		void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
+		void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) 
+		{
 			auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
-			if (func != nullptr) {
+			if (func != nullptr) 
+			{
 				func(instance, debugMessenger, pAllocator);
 			}
 		}
@@ -103,6 +107,8 @@ namespace Kans
 
 	VulkanContext::~VulkanContext()
 	{
+		//release the resource In reverse order
+		m_Device->Destroy();
 		if (s_Validation) {
 			Utils::DestroyDebugUtilsMessengerEXT(s_Instance, m_DebugUtilsMessenger, nullptr);
 		}
@@ -150,6 +156,7 @@ namespace Kans
 			instanceInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 			instanceInfo.ppEnabledLayerNames = validationLayers.data();	
 
+			//填充debugmessenger的createInfo
 			Utils::PopulateDebugMessengerCreateInfo(debugCreateInfo);
 			instanceInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 		}
@@ -188,9 +195,7 @@ namespace Kans
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			//因为vkCreateDebugUtilsMessengerEXT 是一个扩展函数，所以我们需要自行查找该函数的函数指针地址
 			//使用我们自己的代理函数，再在代理函数中调用实际的创建函数
-			if (Utils::CreateDebugUtilsMessengerEXT(s_Instance, &createInfo, nullptr, &m_DebugUtilsMessenger) != VK_SUCCESS) {
-				throw std::runtime_error("failed to set up debug messenger!");
-			}
+			VK_CHECK_RESULT(Utils::CreateDebugUtilsMessengerEXT(s_Instance, &createInfo, nullptr, &m_DebugUtilsMessenger))
 		}
 
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

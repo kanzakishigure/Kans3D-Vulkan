@@ -129,7 +129,7 @@ namespace Kans {
 			uint32_t shader = glCreateShader(type);
 			GLint isCompiled = 0;
 			const GLchar* sourceStr = source.c_str();
-			glShaderSource(shader, 1, &sourceStr, NULL);
+			glShaderSource(shader, 1, &sourceStr, nullptr);
 			glCompileShader(shader);
 			//查看是否编译成功
 			glGetShaderiv(shader, GL_COMPILE_STATUS, &isCompiled);

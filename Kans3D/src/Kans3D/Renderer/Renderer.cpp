@@ -151,6 +151,8 @@ namespace Kans {
 	{
 		delete s_RendererData;
 		HZ_INFO("delete rendererdata");
+		delete RenderCommand::s_RendererAPI;
+		HZ_INFO("delete renderer-rhi");
 	}
 
 	void Renderer::BeginScene(const Camera& camera, const glm::mat4& transform)

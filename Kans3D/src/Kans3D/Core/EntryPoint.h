@@ -10,7 +10,7 @@ int main(int argc,char** argv)
 	Kans::Log::Init();
 
 	HZ_PROFILE_BEGIN_SESSION("startup","ProfileSpecication/startup-profile.json");
-	auto app = Kans::createApplication();
+	Kans::Application* app = Kans::createApplication();
 	HZ_PROFILE_END_SESSION();
 
 	//谨慎使用void*和this指针，以及认识到构造函数编写的严谨性
