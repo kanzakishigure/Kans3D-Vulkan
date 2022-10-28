@@ -29,4 +29,13 @@ namespace Kans {
 
 	};
 
+	class TextureCube :public Texture
+	{
+
+	public:
+		static	Ref<TextureCube> Create(const std::string& path);
+		static	Ref<TextureCube> Create(uint32_t width, uint32_t height);
+
+	};
+
 }

@@ -353,3 +353,8 @@ bin-int/
 **.user
 #Vulkan sdk
 Kans3D/vendor/VulkanSDK/
+#ProfileSpecication
+KansEditor/ProfileSpecication
+#project Asset
+KansEditor/assets/model
+KansEditor/assets/textures

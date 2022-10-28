@@ -20,7 +20,7 @@ namespace Kans
 
 		HZ_PROFILE_FUCTION();
 		s_Instance = this;
-		RendererAPI::SetAPI(RendererAPIType::OPENGL);
+		RendererAPI::SetAPI(RendererAPIType::Vulkan);
 		m_Window = Window::Create();
 		Renderer::Init();
 		m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));

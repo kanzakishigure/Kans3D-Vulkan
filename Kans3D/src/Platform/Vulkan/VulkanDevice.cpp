@@ -16,18 +16,18 @@ namespace Kans
 	
 	VulkanPhysicalDevice::VulkanPhysicalDevice()
 	{
-		uint32_t deviceCount = 0;
-		auto s_instance = VulkanContext::GetInstance();
+		uint32_t gpuCount = 0;
+		VkInstance s_instance = VulkanContext::GetInstance();
 
 		VkPhysicalDevice PhysicalDevice = VK_NULL_HANDLE;
-		vkEnumeratePhysicalDevices(s_instance, &deviceCount, nullptr);
+		vkEnumeratePhysicalDevices(s_instance, &gpuCount, nullptr);
 
-		HZ_CORE_ASSERT(deviceCount > 0, "failed to find GPUs with Vulkan support!");
+		HZ_CORE_ASSERT(gpuCount > 0, "failed to find GPUs with Vulkan support!");
 
-		std::vector<VkPhysicalDevice> devices(deviceCount);
-		vkEnumeratePhysicalDevices(s_instance, &deviceCount, devices.data());
+		std::vector<VkPhysicalDevice> devices(gpuCount);
+		vkEnumeratePhysicalDevices(s_instance, &gpuCount, devices.data());
 
-		for (const auto& device : devices) 
+		for (VkPhysicalDevice& device : devices)
 		{
 			if (Utils::isDeviceSuitable(device)) 
 			{
@@ -73,7 +73,7 @@ namespace Kans
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		VkPhysicalDeviceFeatures deviceFeatures{};
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//  Create Vulkan Device createInfo
+		//  Vulkan Device createInfo
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		VkDeviceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -99,6 +99,11 @@ namespace Kans
 	}
 
 	VulkanDevice::~VulkanDevice()
+	{
+		
+	}
+
+	void VulkanDevice::Destroy()
 	{
 		vkDestroyDevice(m_Device, nullptr);
 	}

@@ -19,7 +19,7 @@ namespace Kans
 	MeshSource::MeshSource(const std::string& path)
 		:m_LoadPath(path)
 	{
-		auto index =  m_LoadPath.find_last_of("/");
+		size_t index =  m_LoadPath.find_last_of("/");
 		m_LoadPath =  m_LoadPath.substr(0, index);
 
 		Scope<Assimp::Importer>m_Importer = std::make_unique<Assimp::Importer>();
@@ -131,7 +131,7 @@ namespace Kans
 			{
 				aiMaterial* aimaterial = scene->mMaterials[mesh->mMaterialIndex];
 				std::string mtlName = aimaterial->GetName().C_Str();
-				auto mtl = Material::Create(m_MeshShader, mtlName);
+				Ref<Material> mtl = Material::Create(m_MeshShader, mtlName);
 				//BlingPhong material
 				{
 
@@ -145,17 +145,17 @@ namespace Kans
 							aimaterial->GetTexture(aiTextureType_DIFFUSE, 0, &aistr);
 							HZ_TRACE("{0} DIFFUSE texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
-							auto texture = Texture2D::Create(texturepath);
+							Ref<Texture2D> texture = Texture2D::Create(texturepath);
 							mtl->Set(MaterialAsset::GetDiffuseMapLocation(), texture);
 							
 							{
 								//LightMap
 								std::string Lightmappath = texturepath;
-								auto index = Lightmappath.find_last_of(".");
+								size_t index = Lightmappath.find_last_of(".");
 								Lightmappath.insert(index, "_Light");
 								if (KansFileSystem::Exists(texturepath))
 								{
-									auto lighttexture = Texture2D::Create(texturepath);
+									Ref<Texture2D> lighttexture = Texture2D::Create(texturepath);
 									mtl->Set(MaterialAsset::GetToneLightMapLocation(), lighttexture);
 									HZ_TRACE("{0} Light texture: {1} ", mtlName.c_str(), Lightmappath.c_str());
 								}
@@ -168,12 +168,12 @@ namespace Kans
 							{
 								//RampMap
 								std::string Rampmappath = texturepath;
-								auto index = Rampmappath.find_last_of(".");
+								size_t index = Rampmappath.find_last_of(".");
 								Rampmappath.insert(index, "_Ramp");
 
 								if (KansFileSystem::Exists(Rampmappath))
 								{
-									auto ramptexture = Texture2D::Create(Rampmappath);
+									Ref<Texture2D> ramptexture = Texture2D::Create(Rampmappath);
 									mtl->Set(MaterialAsset::GetToneRampMapLocation(), ramptexture);
 									HZ_TRACE("{0} Ramp texture: {1} ", mtlName.c_str(), Rampmappath.c_str());
 								}
@@ -200,7 +200,7 @@ namespace Kans
 							aimaterial->GetTexture(aiTextureType_SPECULAR, 0, &aistr);
 							HZ_TRACE("{0} SPECULAR texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
-							auto texture = Texture2D::Create(texturepath);
+							Ref<Texture2D> texture = Texture2D::Create(texturepath);
 							mtl->Set(MaterialAsset::GetSpecularMapLocation(), texture);
 
 						}
@@ -224,7 +224,7 @@ namespace Kans
 								aimaterial->GetTexture(aiTextureType_NORMALS, 0, &aistr);
 								HZ_INFO("{0} Normal texture: {1} ", mtlName.c_str(), aistr.C_Str());
 								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
-								auto texture = Texture2D::Create(texturepath);
+								Ref<Texture2D> texture = Texture2D::Create(texturepath);
 								mtl->Set("U_NormalTexture", texture);
 							}
 						}
@@ -324,7 +324,7 @@ namespace Kans
 		}
 		else
 		{
-			const auto& SourceSubmesh = m_MeshSource->GetSubMesh();
+			const std::vector<SubMesh>& SourceSubmesh = m_MeshSource->GetSubMesh();
 			m_SubMesh.clear();
 			m_SubMesh.resize(SourceSubmesh.size());
 			for (size_t i = 0; i < SourceSubmesh.size(); i++)

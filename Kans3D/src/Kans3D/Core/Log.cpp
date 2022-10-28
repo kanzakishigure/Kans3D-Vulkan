@@ -14,10 +14,10 @@ namespace Kans
 		//颜色开始标记 时间戳 logger类型 实际文本 颜色结束标记
 		
 		
-		s_CoreLogger = spdlog::stdout_color_mt("HAZEL");
+		s_CoreLogger = spdlog::stdout_color_mt("KANS3D-CORE");
 		s_CoreLogger->set_level(spdlog::level::trace);
 
-		s_ClientLogger = spdlog::stdout_color_mt("APP");
+		s_ClientLogger = spdlog::stdout_color_mt("APPLICATION");
 		s_ClientLogger->set_level(spdlog::level::trace);
 
     }

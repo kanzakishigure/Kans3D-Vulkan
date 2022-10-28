@@ -46,7 +46,7 @@ project "Kans3D"
     { 
         "%{prj.name}/vendor/spdlog/include",
         "%{prj.name}/src",
-        "%{prj.name}/src/Hazel",
+        "%{prj.name}/src/Kans3D",
         "%{IncludeDir.GLFW}",
         "%{IncludeDir.Glad}",
         "%{IncludeDir.ImGui}",

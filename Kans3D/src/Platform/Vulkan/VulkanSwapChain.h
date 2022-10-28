@@ -13,6 +13,7 @@ namespace Kans
 		void InitSurface(GLFWwindow* windows);
 		void Cleanup();
 	private:
+		//
 		VkSurfaceKHR m_Surface;
 		Ref<VulkanDevice> m_Device;
 		VkInstance m_Instance = VK_NULL_HANDLE;
