@@ -7,12 +7,12 @@
 namespace Kans
 {
 	//窗口的抽象化属性
-	struct WindowProps
+	struct WindowSpecification
 	{
 		std::string Title;
 		unsigned int Width;
 		unsigned int Height;
-		WindowProps(const std::string& title = "Kans Engine",
+		WindowSpecification(const std::string& title = "Kans Engine",
 			unsigned int width = 1920,
 			unsigned int height = 1080)
 			:Title(title), Width(width), Height(height){}
@@ -32,7 +32,7 @@ namespace Kans
 		virtual bool IsVSync() const = 0;
 		virtual inline void* GetNativeWindow() const = 0;
 		//这些部分需要在实际的平台上实现，这里应该将依赖隔离，只提供接口
-		static Scope<Window> Create(const WindowProps& props = WindowProps());
+		static Scope<Window> Create(const WindowSpecification& props = WindowSpecification());
 		//使用结构体构造函数对结构体引用赋值
 	};
 }

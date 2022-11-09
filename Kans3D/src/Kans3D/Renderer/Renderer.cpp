@@ -55,7 +55,7 @@ namespace Kans {
 		//shader
 		{
 			{
-				auto StaticShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/StaticMeshShader.glsl");
+				auto StaticShader = Shader::Create("assets/shaders/StaticMeshShader.glsl");
 				StaticShader->SetShaderBuffer({
 						{ShaderDataType::Float3,MaterialAsset::GetDiffuseLocation()},
 						{ShaderDataType::Float3,MaterialAsset::GetSpecularLocation()},
@@ -75,25 +75,25 @@ namespace Kans {
 			}
 
 			{
-				auto StencilShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/StencilShader.glsl");
+				auto StencilShader = Shader::Create("assets/shaders/StencilShader.glsl");
 				StencilShader->SetShaderBuffer({});
 				s_RendererData->m_ShaderLibrary->Add(StencilShader);
 			}
 
 			{
-				auto PostShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/PostShader.glsl");
+				auto PostShader = Shader::Create("assets/shaders/PostShader.glsl");
 				PostShader->SetShaderBuffer({});
 				s_RendererData->m_ShaderLibrary->Add(PostShader);
 			}
 			
 			{
-				auto OutLineShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/OutLineShader.glsl");
+				auto OutLineShader = Shader::Create("assets/shaders/OutLineShader.glsl");
 				OutLineShader->SetShaderBuffer({});
 				s_RendererData->m_ShaderLibrary->Add(OutLineShader);
 			}
 
 			{
-				auto ToneShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/ToneShader.glsl");
+				auto ToneShader = Shader::Create("assets/shaders/ToneShader.glsl");
 				ToneShader->SetShaderBuffer({
 						{ShaderDataType::Float3,MaterialAsset::GetDiffuseLocation()},
 						{ShaderDataType::Float3,MaterialAsset::GetSpecularLocation()},
@@ -104,7 +104,7 @@ namespace Kans {
 			}
 
 			{
-				auto DebugShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/DebugShader.glsl");
+				auto DebugShader = Shader::Create("assets/shaders/DebugShader.glsl");
 				DebugShader->SetShaderBuffer({
 						{ShaderDataType::Float,MaterialAsset::GetShininessLocation()},
 						{ShaderDataType::Float,"U_Debug"},
@@ -117,14 +117,14 @@ namespace Kans {
 			
 
 			{
-				auto DebugnormalShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/DebugNormalShader.glsl");
+				auto DebugnormalShader = Shader::Create("assets/shaders/DebugNormalShader.glsl");
 				DebugnormalShader->SetShaderBuffer({
 					});
 				s_RendererData->m_ShaderLibrary->Add(DebugnormalShader);
 			}
 			
 			{
-				auto ToneCharactorShader = Shader::Create("J:/Vulkan_Engine/KansEditor/assets/shaders/GenShin_Shader/ToneCharactorShader.glsl");
+				auto ToneCharactorShader = Shader::Create("assets/shaders/GenShin_Shader/ToneCharactorShader.glsl");
 				ToneCharactorShader->SetShaderBuffer({
 					{ShaderDataType::Color4,"U_ShadowMultColor"},
 					{ShaderDataType::Color4,"U_DarkShadowMultColor"},

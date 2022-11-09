@@ -122,13 +122,12 @@ namespace Kans
 		for (auto& mesh : mesh->GetSubMesh())
 		{
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-			subMtl->SetShader(shader);
-			subMtl->Invalidate();
 			auto& VA = VAOs[mesh];
+			subMtl->UseDefaultShader(false);
+			subMtl->Invalidate();
 			VA->Bind();
 			RenderCommand::DrawIndexed(VA);
 		}
-
 	}
 
 	void SceneRenderer::SubmitStaticMeshToneshading(Ref<StaticMesh> mesh, glm::mat4 transform)
@@ -193,7 +192,7 @@ namespace Kans
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
 			auto VA = VAOs[mesh];
 			VA->Bind();
-			subMtl->SetShader(shader);
+			//subMtl->SetShader(shader);
 			subMtl->Invalidate();
 			RenderCommand::DrawIndexed(VA);
 		}
@@ -246,7 +245,8 @@ namespace Kans
 	void SceneRenderer::SubmitToneCharactorShader(Ref<StaticMesh> mesh, glm::mat4 transform)
 	{
 		auto& VAOs = mesh->GetMeshSource()->GetVertexArray();
-		auto& shader = Renderer::GetShaderLibrary()->Get("ToneCharactorShader");;
+		
+		auto& shader = Renderer::GetShaderLibrary()->Get("ToneCharactorShader");
 		auto& material = mesh->GetMaterials();
 		shader->Bind();
 
@@ -280,7 +280,11 @@ namespace Kans
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
 			auto VA = VAOs[mesh];
 			VA->Bind();
+			//TODO: DrawCommand应该和Shader绑定，不和默认材质绑定
 			//subMtl->SetShader(shader);
+			//TODO:材质系统需要重写，渲染使用可提供材质用来渲染mesh和使用默认材质渲染mesh,材质和模型脱离绑定关系
+			subMtl->UseDefaultShader(true);
+			shader->Bind();
 			subMtl->Invalidate();
 			RenderCommand::DrawIndexed(VA);
 		}

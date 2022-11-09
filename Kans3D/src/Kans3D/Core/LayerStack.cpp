@@ -42,6 +42,7 @@ void Kans::LayerStack::PopLayer(Layer* layer)
 void Kans::LayerStack::PopOverlay(Layer* overlay)
 {
 	auto it = std::find(m_Layers.begin(), m_Layers.end(), overlay);//查找传入的layer
+	
 	if (it != m_Layers.end())
 	{
 		overlay->OnDetach();

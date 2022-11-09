@@ -10,27 +10,32 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "EditorLayer.h"
 
-namespace Kans {
 
-	class KansEditor : public Kans::Application
+class KansEditor : public Kans::Application
+{
+public:
+	KansEditor(Kans::ApplicationSpecification spec)
+		: Application(spec)
 	{
-	public:
-
-		KansEditor()
-		{
-			//PushLayer(new ExampleLayer());
-			PushLayer(new EditorLayer());
-		}
-		~KansEditor()
-		{
-
-		}
-
-	};
-	Kans::Application* Kans::createApplication()
+		//PushLayer(new ExampleLayer());
+		PushLayer(new Kans::EditorLayer());
+	}
+	~KansEditor()
 	{
-		return new KansEditor();
+
 	}
 
+};
+	Kans::Application* Kans::createApplication(int argc, char** argv)
+	{
 
-}
+		ApplicationSpecification spec;
+		spec.Name = "Kans3D-Editor";
+		spec.WorkDirectory = "../KansEditor";
+		spec.Height = 1080;
+		spec.Width = 1920;
+
+
+		return new KansEditor(spec);
+	}
+

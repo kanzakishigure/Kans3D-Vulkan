@@ -6,6 +6,7 @@
 #include "kans3D/Renderer/Renderer.h"
 #include "Kans3D/Core/KeyCodes.h"
 
+#include <filesystem>
 #include <GLFW/glfw3.h>
 namespace Kans
 {
@@ -14,14 +15,28 @@ namespace Kans
 	//使用在bind中使用this指针会永久的将函数this指针绑定为第一个参数
 	
 
-	Application::Application()
+	Application::Application(const ApplicationSpecification& spec)
+		:m_Specification(spec)
 	{
-		HZ_CORE_ASSERT(!s_Instance,"Application already exist!");
+		HZ_CORE_ASSERT(!s_Instance, "Application already exist!");
+
+
+		if (!spec.WorkDirectory.empty())
+		{
+			std::filesystem::current_path(spec.WorkDirectory);
+		}
+
+		HZ_CORE_INFO("Application <{0}> is Create :\n", spec.Name);
+		HZ_CORE_INFO("WorkDirectory: <{0}>\n", std::filesystem::current_path());
 
 		HZ_PROFILE_FUCTION();
 		s_Instance = this;
-		RendererAPI::SetAPI(RendererAPIType::Vulkan);
-		m_Window = Window::Create();
+		RendererAPI::SetAPI(RendererAPIType::OPENGL);
+
+		WindowSpecification windowProps(spec.Name);
+		m_Window = Window::Create(windowProps);
+
+
 		Renderer::Init();
 		m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
 

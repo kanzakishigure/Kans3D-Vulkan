@@ -74,5 +74,6 @@ void main()
     
     vec4 Texcolor = texture2D(material.U_DiffuseTexture,V_TexCroods);
     float Bright = 0.299*Texcolor.r + 0.587*Texcolor.g + 0.114*Texcolor.b;
-    O_Color =vec4(Texcolor.rgb*Bright,1.0);
+    //O_Color =vec4(Texcolor.rgb*Bright,1.0);
+    O_Color =vec4(vec3(0.0,0.0,0.0),1.0);
 }

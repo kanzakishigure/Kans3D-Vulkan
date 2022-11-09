@@ -16,7 +16,7 @@
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Components.h"
 //------UI---------------
-#include "Kans3D/Utilities/KansUI.h"
+#include "Kans3D/Utilities/UI/KansUI.h"
 //------renderer---------------
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
@@ -37,7 +37,7 @@
 #include "Kans3D/Scene/ScriptableEntity.h"
 
 //------渲染效果---------------
-#include "Kans3D/Renderer/ParticleSystem.h"
+#include "Kans3D/Physics/ParticleSystem.h"
 //------辅助工具---------------
 #include "Kans3D/Debug/Instrumentor.h"
 #include "Kans3D/Math/Math.h"

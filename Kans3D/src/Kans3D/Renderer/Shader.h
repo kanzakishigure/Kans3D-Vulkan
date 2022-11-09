@@ -11,7 +11,10 @@ namespace Kans
 		ShaderUniform() = default;
 		ShaderUniform(const std::string& name, uint32_t size, uint32_t offset, ShaderDataType type)
 			:Name(name), Size(size),Offset(offset),Type(type) {}
-		const std::string& GetName() { return Name; }
+		
+		std::string& GetName() { return Name; }
+		const std::string& GetName() const{ return Name; }
+
 		uint32_t GetSize() { return Size; }
 		const  uint32_t GetSize() const { return Size; }
 

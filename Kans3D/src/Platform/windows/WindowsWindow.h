@@ -10,7 +10,7 @@ namespace Kans {
 	{
 	public:
 		
-		WindowsWindow(const WindowProps& props);
+		WindowsWindow(const WindowSpecification& props);
 		virtual ~WindowsWindow();
 		void OnUpdate() override;
 		inline unsigned int GetWidth() const override		{ return m_Data.Width; }
@@ -22,7 +22,7 @@ namespace Kans {
 		bool IsVSync() const override ;
 		virtual inline void* GetNativeWindow() const override { return m_Window; }
 	private:
-		virtual void Init(const WindowProps& props);
+		virtual void Init(const WindowSpecification& props);
 		virtual void Shutdown ();
 
 	private:

@@ -114,7 +114,7 @@ namespace Kans {
 	void OpenGLFrameBuffer::Invalidata()
 	{
 
-		HZ_INFO("call invalidata");
+		HZ_CORE_TRACE("FrameBuffer invalidata");
 		if (m_RendererID != 0)
 		{
 			glDeleteFramebuffers(1, &m_RendererID);

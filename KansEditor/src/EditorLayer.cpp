@@ -4,6 +4,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+//TestInclude
+#include <Kans3D/Core/UUID.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static const int S_mapwidth = 24;
 static const char* S_mapTiles= "";
@@ -25,6 +27,7 @@ namespace Kans
 
 		//FrameBuffer init
 		{
+			
 			FrameBufferSpecification spec;
 			spec.Width = Application::Get().GetWindow().GetWidth();
 			spec.Height = Application::Get().GetWindow().GetHeight();
@@ -36,6 +39,8 @@ namespace Kans
 
 		// scene init
 		{
+
+			
 			//Create Scene
 			{
 				m_ActiveScene = CreateRef<Scene>();
@@ -57,7 +62,7 @@ namespace Kans
 			{
 				auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 				auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
-				spritCMP.Texture = Kans::Texture2D::Create("J:/Vulkan_Engine/KansEditor/assets/textures/GY.png");
+				spritCMP.Texture = Kans::Texture2D::Create("assets/textures/GY.png");
 				auto& transformCMP = RefEntity.GetComponent<TransformComponent>();
 				transformCMP.Scale = { 19.2f,10.8f,1.0f };
 				transformCMP.Position = { 2.3f,0.0f,-12.0f };
@@ -78,28 +83,23 @@ namespace Kans
 			}
 
 			// createMesh test
-#if 1
+#if 0
 			{
+				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
+				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
+				auto& materialCMP = GY_LightEntity.AddComponent<MaterialComponent>();
+				auto meshSrouce = CreateRef<MeshSource>("assets/model/GY_Light/GY_Light.fbx");
+				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
+				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
+				materialCMP.MaterialTable = meshCMP.MaterialTable;
+				auto& TransformCMP = GY_LightEntity.GetComponent<TransformComponent>();
+				TransformCMP.Position = { 0.0f,-1.2f,-3.0f };
+				TransformCMP.Rotation = { glm::radians(-20.0f),0.0f,glm::radians(0.0f) };
+				TransformCMP.Scale = { glm::vec3(0.15f) };
 
-
-				if (1)
-				{
-					auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
-					auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
-					auto& materialCMP = GY_LightEntity.AddComponent<MaterialComponent>();
-					auto meshSrouce = CreateRef<MeshSource>("J:/Vulkan_Engine/KansEditor/assets/model/GY_Light/GY_Light.fbx");
-					meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
-					meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
-					materialCMP.MaterialTable = meshCMP.MaterialTable;
-					auto& TransformCMP = GY_LightEntity.GetComponent<TransformComponent>();
-					TransformCMP.Position = { 0.0f,-1.2f,-3.0f };
-					TransformCMP.Rotation = { glm::radians(-20.0f),0.0f,glm::radians(0.0f) };
-					TransformCMP.Scale = { glm::vec3(0.15f) };
-
-					//Init Material
-					MaterialUtil::InitMaterial(materialCMP.MaterialTable);
-				}
-
+				//Init Material
+				MaterialUtil::InitMaterial(materialCMP.MaterialTable);
+			}
 #endif
 
 
@@ -151,7 +151,7 @@ namespace Kans
 					}
 				}
 
-			}
+			
 
 
 		}
@@ -172,7 +172,7 @@ namespace Kans
 		{
 			if (FrameBufferSpecification spec = m_Framebuffer->GetSpecification();
 				m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f &&
-				(spec.Width != m_ViewportSize.x || spec.Height != m_ViewportSize.y))
+				(spec.Width !=(uint32_t) m_ViewportSize.x || spec.Height != (uint32_t)m_ViewportSize.y))
 			{
 				m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 				m_CameraController.OnResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
@@ -230,8 +230,8 @@ namespace Kans
 		if (opt_fullscreen)
 		{
 			ImGuiViewport* viewport = ImGui::GetMainViewport();
-			ImGui::SetNextWindowPos(viewport->GetWorkPos());
-			ImGui::SetNextWindowSize(viewport->GetWorkSize());
+			ImGui::SetNextWindowPos(viewport->Pos);
+			ImGui::SetNextWindowSize(viewport->Size);
 			ImGui::SetNextWindowViewport(viewport->ID);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -306,18 +306,17 @@ namespace Kans
 		ImGui::End();
 #endif
 
-
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-	
+//Editor UI
+#if 1
+	//ProjectSpecication
 	{
 		ImGui::Begin("ProjectSpecication");
 
 		//BlockEvent
 		m_ViewportFocused = ImGui::IsWindowFocused();
 		m_viewprotHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportFocused||m_viewprotHovered);
+		Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportFocused || m_viewprotHovered);
 		//renderStats
-		ImGui::Separator();
 		ImGui::Text("Render2DStats");
 		ImGui::Text("DrawCalls: %d", Renderer2D::GetStats().DrawCalls);
 		ImGui::Text("QuadCount: %d", Renderer2D::GetStats().QuadCount);
@@ -348,7 +347,7 @@ namespace Kans
 		}
 
 		//Depth FrameBuffer
-		if(1)
+		if(0)
 		{
 			ImGui::Begin("ViewPort2");
 			ImVec2 viewportsize = ImGui::GetContentRegionAvail();
@@ -366,11 +365,9 @@ namespace Kans
 
 			ImGui::End();
 		}
+#endif	
 
-	ImGui::PopStyleVar(1);
 		
-
-
 	}
 
 }

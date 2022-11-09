@@ -1,7 +1,10 @@
 #include "SceneHierachyPanel.h"
 #include "kans3D/Scene/Components.h"
 #include <glm/gtc/type_ptr.hpp>
-#include "kans3D/Utilities/KansUI.h"
+#include "kans3D/Utilities/UI/KansUI.h"
+
+//temp
+#include "Kans3D/Renderer/Renderer.h"
 namespace Kans
 {
 
@@ -45,6 +48,7 @@ namespace Kans
 			ImGui::Begin("Properties");
 			if (m_SelectionContext)
 			{
+
 				DrawComponents(m_SelectionContext);
 				ImGui::Separator();
 				ImGui::SameLine(ImGui::GetWindowWidth()/3);
@@ -57,13 +61,13 @@ namespace Kans
 					if (ImGui::MenuItem("Sprite Component"))
 					{
 						auto& spritCMP = m_SelectionContext.AddComponent<SpriteRendererComponent>();
-						spritCMP.Texture = Kans::Texture2D::Create("J:/Vulkan_Engine/KansEditor/assets/textures/Checkerboard.png");
+						spritCMP.Texture = Kans::Renderer::GetWhiteTexture();
 						ImGui::CloseCurrentPopup();
 					}
 					if (ImGui::MenuItem("Mesh Component"))
 					{
 						auto& meshCMP = m_SelectionContext.AddComponent<StaticMeshComponent>();
-						auto meshSrouce = CreateRef<MeshSource>("J:/Vulkan_Engine/KansEditor/assets/model/ht/ht.fbx");
+						auto meshSrouce = CreateRef<MeshSource>("assets/model/GY_Light/GY_Light.fbx");
 						meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 					}
 					if (ImGui::MenuItem("Camera Component"))
@@ -130,10 +134,11 @@ namespace Kans
 	const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_DefaultOpen;
 	void SceneHierachyPanel::DrawComponents(Entity entity)
 	{
+
 		if (entity.HasComponent<TagComponent>())
 		{
-			ImGui::Separator();
-
+			
+			ImGui::Text("Entity Tag :");
 			auto& tag = entity.GetComponent<TagComponent>().Tag;
 			char buffer[256];
 			memset(buffer, 0, sizeof(buffer));
@@ -146,21 +151,18 @@ namespace Kans
 			
 		}
 
-		KansUI::DrawComponent<TransformComponent>("Transform", entity, [](TransformComponent& component) {
-			
-			ImGui::Separator();
-		
-			KansUI::DrawVec3Control("Position", component.Position);
+		UI::DrawComponent<TransformComponent>("Transform", entity, [](TransformComponent& component) {
+					
+			UI::DrawVec3Control("Position", component.Position);
 
 			glm::vec3  rotation = glm::degrees(component.Rotation);
-			KansUI::DrawVec3Control("Rotation", rotation);
+			UI::DrawVec3Control("Rotation", rotation);
 			component.Rotation = glm::radians(rotation);
 
-			KansUI::DrawVec3Control("Scale", component.Scale, 1.0f);
+			UI::DrawVec3Control("Scale", component.Scale, 1.0f);
 			});	
-		KansUI::DrawComponent<CameraComponent>("Camera", entity, [](CameraComponent& component) {
+		UI::DrawComponent<CameraComponent>("Camera", entity, [](CameraComponent& component) {
 			auto& camera = component.SceneCamera;
-			ImGui::Separator();
 			ImGui::Checkbox("Isprimary", &component.Primary);
 			ImGui::Checkbox("FixedAspectRatio", &component.FixedAspectRatio);
 			char* projectiontype[] = { "Perspective","Orthographic" };
@@ -256,39 +258,33 @@ namespace Kans
 
 			}
 			});
-		KansUI::DrawComponent<SpriteRendererComponent>("SpriteRenderer", entity, [](SpriteRendererComponent& component) {
-			ImGui::Separator();
+		UI::DrawComponent<SpriteRendererComponent>("SpriteRenderer", entity, [](SpriteRendererComponent& component) {
 			auto& color = component.Color;
 			ImGui::ColorEdit4("Color:", glm::value_ptr(color));
 			ImGui::Separator();
 			ImGui::Text("Texture path is : %s", component.Texture->GetPath().c_str());
 		});
-		
-		KansUI::DrawComponent<DirLightComponent>("DirLight", entity, [](DirLightComponent& component) {
-			ImGui::Separator();
-			KansUI::DrawVec3Control("Direction", component.Direction);
+		UI::DrawComponent<DirLightComponent>("DirLight", entity, [](DirLightComponent& component) {
+			UI::DrawVec3Control("Direction", component.Direction);
 			ImGui::ColorEdit3("Diffuse_Intensity",glm::value_ptr(component.Diffuse_Intensity));
 			ImGui::ColorEdit3("Specular_Intensity", glm::value_ptr(component.Specular_Intensity));
 			ImGui::ColorEdit3("Ambient_Intensity", glm::value_ptr(component.Ambient_Intensity));
 			});
-		KansUI::DrawComponent<PointLightComponent>("PointLight", entity, [](PointLightComponent& component) {
-			ImGui::Separator();
+		UI::DrawComponent<PointLightComponent>("PointLight", entity, [](PointLightComponent& component) {
 			ImGui::ColorEdit3("Diffuse_Intensity", glm::value_ptr(component.Diffuse_Intensity));
 			ImGui::ColorEdit3("Specular_Intensity", glm::value_ptr(component.Specular_Intensity));
 			ImGui::ColorEdit3("Ambient_Intensity", glm::value_ptr(component.Ambient_Intensity));
 			});
-		KansUI::DrawComponent<StaticMeshComponent>("Mesh", entity, [](StaticMeshComponent& component) {
-			ImGui::Separator();
+		UI::DrawComponent<StaticMeshComponent>("Mesh", entity, [](StaticMeshComponent& component) {
 			ImGui::Text("Mesh load path is: %s", component.StaticMesh->GetMeshSource()->GetLoadPath().c_str());
 			});
-		KansUI::DrawComponent<MaterialComponent>("Material", entity, [](MaterialComponent& component) {
-			ImGui::Separator();
+		UI::DrawComponent<MaterialComponent>("Material", entity, [](MaterialComponent& component) {
 			const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_Framed
 				| ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
 			auto materialCount = component.MaterialTable->GetMaterialCount();
 			for (uint32_t i = 0; i < materialCount; i++)
 			{
-				ImGui::Separator();
+				
 				auto& material = component.MaterialTable->GetMaterialAsset(i)->GetMaterial();
 				auto& materialBuffer = material->GetShaderBuffer();
 
@@ -312,7 +308,8 @@ namespace Kans
 							float value = 0.0f;
 							value = material->GetFloat(uniformName);
 							std::string label = material->GetName() + "   " + uniformName;
-							KansUI::DrawFloatControl(label, value);
+							
+							UI::DrawFloatControl(label, value);
 							material->Set(uniformName, value);
 						}
 						break;
@@ -321,7 +318,7 @@ namespace Kans
 							glm::vec2 value = glm::vec2(1.0);
 							value = material->GetVec2(uniformName);
 							std::string label = material->GetName() + "   " + uniformName;
-							KansUI::DrawVec2Control(label, value);
+							UI::DrawVec2Control(label, value);
 							material->Set(uniformName, value);
 						}
 						break;
@@ -330,7 +327,7 @@ namespace Kans
 							glm::vec3 value = glm::vec3(1.0);
 							value = material->GetVec3(uniformName);
 							std::string label = material->GetName() + "   " + uniformName;
-							KansUI::DrawVec3Control(label, value);
+							UI::DrawVec3Control(label, value);
 							material->Set(uniformName, value);
 						}
 						break;
@@ -339,7 +336,7 @@ namespace Kans
 							glm::vec4 value = glm::vec4(1.0);
 							value = material->GetVec4(uniformName);
 							std::string label = material->GetName() + "   " + uniformName;
-							KansUI::DrawVec4Control(label, value);
+							UI::DrawVec4Control(label, value);
 							material->Set(uniformName, value);
 						}
 						break;
@@ -372,10 +369,10 @@ namespace Kans
 						break;
 
 						}
-						ImGui::NewLine();
 					}
 					ImGui::TreePop();
 				}
+				ImGui::Separator();
 			}
 			});
 	}

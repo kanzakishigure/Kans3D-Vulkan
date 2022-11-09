@@ -18,24 +18,26 @@ namespace Kans {
 	{
 		HZ_CORE_ERROR("GLFW Error ({0}):{1}", error, description);
 	}
-	Scope<Window> Window::Create(const WindowProps& props)
+	Scope<Window> Window::Create(const WindowSpecification& props)
 	{
 		return CreateScope<WindowsWindow>(props);
 		
 	}
-	WindowsWindow::WindowsWindow(const WindowProps& props)
+	WindowsWindow::WindowsWindow(const WindowSpecification& props)
 	{
 		Init(props);
 	}
 
 	WindowsWindow::~WindowsWindow()
 	{
-		
-		m_SwapChain.Cleanup();
+		if (RendererAPI::GetAPI() == RendererAPIType::Vulkan)
+		{
+			m_SwapChain.Cleanup();
+		}
 		WindowsWindow::Shutdown();
 	}
 
-	void WindowsWindow::Init(const WindowProps& props)
+	void WindowsWindow::Init(const WindowSpecification& props)
 	{
 		HZ_PROFILE_FUCTION();
 		m_Data.Title = props.Title;

@@ -46,7 +46,7 @@ namespace Kans {
 		virtual glm::vec4& GetVec4(const std::string& name)  override;
 		virtual int& GetInt(const std::string& name)         override;
 		virtual glm::ivec2& GetIVec2(const std::string& name) override;
-		
+		virtual void UseDefaultShader(bool enable) override;
 	public:
 		
 		template <typename T>
@@ -77,7 +77,9 @@ namespace Kans {
 		std::string m_Name;
 
 		StorageBuffer m_UniformBuffer;
-		//texure 
+		//texture 
 		std::map<std::string, Ref<Texture2D>> m_Texture;
+		//Setting
+		bool m_UseDefaultShader = true;
 	};
 }

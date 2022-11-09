@@ -48,6 +48,11 @@ namespace Kans {
 		return Get<glm::ivec2>(name);
 	}
 
+	void OpenGLMaterial::UseDefaultShader(bool enable)
+	{
+		m_UseDefaultShader = enable;
+	}
+
 	const std::string& OpenGLMaterial::GetName() const
 	{
 		return m_Name;
@@ -65,8 +70,12 @@ namespace Kans {
 	{
 
 		//Set shader uniform 
-		auto shaderUnifrom = m_Shader->GetShaderBuffer().ShaderUniforms;
-		m_Shader->Bind();
+		auto& shaderUnifrom = m_Shader->GetShaderBuffer().ShaderUniforms;
+		if (m_UseDefaultShader)
+		{
+			m_Shader->Bind();
+		}
+		
 		for (auto& key:shaderUnifrom)
 		{
 			auto& uniformbuffer = key.second;
@@ -83,7 +92,7 @@ namespace Kans {
 				case ShaderDataType::Color3: m_Shader->SetFloat3(name, m_UniformBuffer.Read<glm::vec3>(offset));  break;
 				case ShaderDataType::Color4: m_Shader->SetFloat4(name, m_UniformBuffer.Read<glm::vec4>(offset));  break;
 				case ShaderDataType::Int:	 m_Shader->SetInt(name,   m_UniformBuffer.Read<int>(offset));		  break;
-				case ShaderDataType::Int2:	 m_Shader->SetInt2(name, m_UniformBuffer.Read<glm::ivec2>(offset));		  break;
+				case ShaderDataType::Int2:	 m_Shader->SetInt2(name, m_UniformBuffer.Read<glm::ivec2>(offset));	  break;
 				case ShaderDataType::Bool:	 m_Shader->SetBool(name, m_UniformBuffer.Read<bool>(offset));		  break;
 
 			}

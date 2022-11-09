@@ -1,10 +1,10 @@
 #include "hzpch.h"
-#include "KansUI.h"
+#include "Kans3D/Utilities/UI/KansUI.h"
 
-namespace Kans
+namespace Kans::UI
 {
 
-	void KansUI::DrawVec4Control(const std::string& label, glm::vec4& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
+	void DrawVec4Control(const std::string& label, glm::vec4& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
 	{
 		auto boldFont = ImGui::GetIO().Fonts->Fonts[1];
 		//label
@@ -21,9 +21,10 @@ namespace Kans
 		ImVec2 buttonsize = { lineHeight + 3.0f,lineHeight };
 		//X
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(197 / 256.0f, 19 / 256.0f, 104 / 256.0f, 1.0f));
+
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("X", buttonsize))
@@ -38,9 +39,9 @@ namespace Kans
 		}
 		//Y
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(43 / 256.0f, 159 / 256.0f, 15 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 159 / 256.0f, 15 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(39 / 256.0f, 108 / 256.0f, 10 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(64 / 256.0f, 192 / 256.0f, 87 / 256.0f, 0.8f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
 
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("Y", buttonsize))
@@ -57,9 +58,9 @@ namespace Kans
 
 		//Z
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(18 / 256.0f, 186 / 256.0f, 190 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(18 / 256.0f, 186 / 256.0f, 190 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(22 / 256.0f, 229 / 256.0f, 228 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(51 / 256.0f, 154 / 256.0f, 240 / 256.0f, 0.8f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
 
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("Z", buttonsize))
@@ -92,8 +93,7 @@ namespace Kans
 		ImGui::Columns(1);
 		ImGui::PopID();
 	}
-
-	void KansUI::DrawVec3Control(const std::string& label, glm::vec3& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
+	void DrawVec3Control(const std::string& label, glm::vec3& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
 	{
 
 		auto boldFont = ImGui::GetIO().Fonts->Fonts[1];
@@ -111,10 +111,10 @@ namespace Kans
 		ImVec2 buttonsize = { lineHeight + 3.0f,lineHeight };
 		//X
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(197 / 256.0f, 19 / 256.0f, 104 / 256.0f, 1.0f));
-			
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
+
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("X", buttonsize))
 				value.x = resetvalue;
@@ -128,29 +128,31 @@ namespace Kans
 		}
 		//Y
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(43 /256.0f, 159 /256.0f, 15 /256.0f,0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 159 / 256.0f, 15 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(39 / 256.0f, 108 / 256.0f, 10 / 256.0f, 1.0f));
-			
+
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(64 / 256.0f, 192 / 256.0f, 87 / 256.0f, 0.8f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
+
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("Y", buttonsize))
 				value.y = resetvalue;
 			ImGui::PopFont();
 
 			ImGui::SameLine();
-			
-			ImGui::DragFloat("##Y", &value.y, 0.1f,0.0f,0.0f,"%.2f");
+
+			ImGui::DragFloat("##Y", &value.y, 0.1f, 0.0f, 0.0f, "%.2f");
 			ImGui::PopItemWidth();
 			ImGui::SameLine();
 			ImGui::PopStyleColor(3);
 		}
-		
+
 		//Z
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(18 / 256.0f, 186 / 256.0f, 190 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(18 / 256.0f, 186 / 256.0f, 190 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(22 / 256.0f, 229 / 256.0f, 228 / 256.0f, 1.0f));
-			
+
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(51 / 256.0f, 154 / 256.0f, 240 / 256.0f, 0.8f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
+
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("Z", buttonsize))
 				value.z = resetvalue;
@@ -161,14 +163,13 @@ namespace Kans
 			ImGui::PopItemWidth();
 			ImGui::PopStyleColor(3);
 		}
-		
+
 
 		ImGui::PopStyleVar();
 		ImGui::Columns(1);
 		ImGui::PopID();
 	}
-
-	void KansUI::DrawVec2Control(const std::string& label, glm::vec2& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
+	void DrawVec2Control(const std::string& label, glm::vec2& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
 	{
 		auto boldFont = ImGui::GetIO().Fonts->Fonts[1];
 		//label
@@ -185,9 +186,9 @@ namespace Kans
 		ImVec2 buttonsize = { lineHeight + 3.0f,lineHeight };
 		//X
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(197 / 256.0f, 19 / 256.0f, 104 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("X", buttonsize))
@@ -202,9 +203,9 @@ namespace Kans
 		}
 		//Y
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(43 / 256.0f, 159 / 256.0f, 15 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 159 / 256.0f, 15 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(39 / 256.0f, 108 / 256.0f, 10 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(64 / 256.0f, 192 / 256.0f, 87 / 256.0f, 0.8f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
 
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("Y", buttonsize))
@@ -222,8 +223,7 @@ namespace Kans
 		ImGui::Columns(1);
 		ImGui::PopID();
 	}
-
-	void KansUI::DrawFloatControl(const std::string& label, float& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
+	void DrawFloatControl(const std::string& label, float& value, float resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
 	{
 		auto boldFont = ImGui::GetIO().Fonts->Fonts[1];
 		//label
@@ -237,12 +237,12 @@ namespace Kans
 		ImGui::PushMultiItemsWidths(1, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 		float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
-		ImVec2 buttonsize = { ImGui::CalcItemWidth()/3,lineHeight };
+		ImVec2 buttonsize = { ImGui::CalcItemWidth() / 3,lineHeight };
 		//X
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(197 / 256.0f, 19 / 256.0f, 104 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("Value", buttonsize))
@@ -254,13 +254,12 @@ namespace Kans
 			ImGui::SameLine();
 			ImGui::PopStyleColor(3);
 		}
-		
+
 		ImGui::PopStyleVar();
 		ImGui::Columns(1);
 		ImGui::PopID();
 	}
-
-	void KansUI::DrawIntControl(const std::string& label,int& value, int resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
+	void DrawIntControl(const std::string& label, int& value, int resetvalue /*= 0.0f*/, float columwidth /*= 100.0f*/)
 	{
 		auto boldFont = ImGui::GetIO().Fonts->Fonts[1];
 		//label
@@ -277,9 +276,9 @@ namespace Kans
 		ImVec2 buttonsize = { lineHeight + 3.0f,lineHeight };
 		//X
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 0.8f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(221 / 256.0f, 15 / 256.0f, 116 / 256.0f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(197 / 256.0f, 19 / 256.0f, 104 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
 			ImGui::PushFont(boldFont);
 			if (ImGui::Button("Value", buttonsize))
@@ -297,5 +296,6 @@ namespace Kans
 		ImGui::Columns(1);
 		ImGui::PopID();
 	}
+
 
 }

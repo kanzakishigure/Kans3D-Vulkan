@@ -39,6 +39,9 @@ namespace Kans
 		virtual const ShaderBuffer& GetShaderBuffer() const = 0;
 
 		virtual void Invalidate() = 0;
+		//temp function
+		virtual void UseDefaultShader(bool enable) = 0;
+		
 		
 	};
 }
