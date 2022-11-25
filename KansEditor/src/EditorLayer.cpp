@@ -63,7 +63,7 @@ namespace Kans
 				dirCMP.Specular_Intensity = glm::vec3(1.0);
 				dirCMP.Ambient_Intensity = glm::vec3(1.0);
 			}
-			if(0)
+			if(1)
 			{
 				auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 				auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
