@@ -2,25 +2,27 @@ include "dependencies.lua"
 workspace "Kans3D"
     architecture"x64"
     startproject "KansEditor"
-configurations 
-{ 
-    "Debug", 
-    "Release",
-    "Dist" 
-}
+
+    configurations 
+    { 
+        "Debug", 
+        "Release",
+        "Dist" 
+    }
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 
 
 
 
-
+group"Dependencies"
 include "Kans3D/vendor/GLFW"
 include "Kans3D/vendor/Glad"
 include "Kans3D/vendor/imgui"
-
-
+include "Kans3D/vendor/yaml-cpp"
+group""
 --相当于将Hazel/vendor/GLFW下的remake5文件直接复制粘贴到此处
+group"Core"
 project "Kans3D"    
     location"Kans3D"
     kind "StaticLib"
@@ -31,8 +33,8 @@ project "Kans3D"
 
     targetdir ("bin/" ..outputdir.. "/%{prj.name}")
     objdir ("bin-int/" ..outputdir.. "/%{prj.name}")
-    pchheader "hzpch.h"
-    pchsource "Kans3D/src/hzpch.cpp"
+    pchheader "kspch.h"
+    pchsource "Kans3D/src/kspch.cpp"
     files 
     { 
         "%{prj.name}/src/**.h", 
@@ -54,7 +56,9 @@ project "Kans3D"
         "%{IncludeDir.stb_image}",
         "%{IncludeDir.entt}",
         "%{IncludeDir.assimp}",
-        "%{IncludeDir.VulkanSDK}"
+        "%{IncludeDir.VulkanSDK}",
+        "%{IncludeDir.yaml_cpp}",
+        "%{IncludeDir.mono}"
         
     }
     links
@@ -63,7 +67,9 @@ project "Kans3D"
         "Glad",
         "ImGui",
         "opengl32.lib",
-        "%{Library.Vulkan}"
+        "yaml-cpp",
+        "%{Library.Vulkan}",
+        "%{Library.mono}"
         
     }
     filter "system:windows" 
@@ -92,8 +98,21 @@ project "Kans3D"
         defines  "HZ_DIST" 
         runtime "Release"
         optimize "on"
-        
+project "KansScriptCore"
+	location "KansScriptCore"
+	kind "SharedLib"
+	language "C#"
+	dotnetframework "4.5"
+	
+	targetdir ("KansEditor/Resources/Scripts")
+	objdir ("KansEditor/Resources/Scripts/obj")
 
+	files 
+	{
+		"%{prj.name}/Source/**.cs", 
+	}        
+group""
+group"Editor"
 project "KansEditor"
         location"KansEditor"  
         kind "ConsoleApp"
@@ -117,8 +136,8 @@ project "KansEditor"
             "%{IncludeDir.GLM}",
             "%{IncludeDir.ImGui}",
             "%{IncludeDir.entt}",
-            "%{IncludeDir.assimp}"
-
+            "%{IncludeDir.assimp}",
+            "%{IncludeDir.yaml_cpp}"
         }
         links
         {
@@ -144,7 +163,8 @@ project "KansEditor"
             }
             postbuildcommands 
             {
-                '{COPY} "%{Binaries.Assimp_Debug}" "%{cfg.targetdir}"'
+                '{COPY} "%{Binaries.Assimp_Debug}" "%{cfg.targetdir}"',
+                '{COPY} "../kans3D/vendor/mono/bin/Debug/mono-2.0-sgen.dll" "%{cfg.targetdir}"'
             }
            
         filter "configurations:Release"
@@ -157,7 +177,8 @@ project "KansEditor"
             }
             postbuildcommands 
             {
-                '{COPY} "%{Binaries.Assimp_Release}" "%{cfg.targetdir}"'
+                '{COPY} "%{Binaries.Assimp_Release}" "%{cfg.targetdir}"',
+                '{COPY} "../kans3D/vendor/mono/bin/Release/mono-2.0-sgen.dll" "%{cfg.targetdir}"'
             }
             
         filter "configurations:Dist"
@@ -170,5 +191,7 @@ project "KansEditor"
             }
             postbuildcommands 
             {
-                '{COPY} "%{Binaries.Assimp_Release}" "%{cfg.targetdir}"'
+                '{COPY} "%{Binaries.Assimp_Release}" "%{cfg.targetdir}"',
+                '{COPY} "../kans3D/vendor/mono/bin/Release/mono-2.0-sgen.dll" "%{cfg.targetdir}"'
             }
+group""
