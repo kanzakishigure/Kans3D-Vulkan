@@ -1,9 +1,9 @@
-#include "hzpch.h"
+#include "kspch.h"
 
 #include "Mesh.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Utilities/KansUtils.h"
-#include "Kans3D/Utilities/FileSystem/FileSystem.h"
+#include "Kans3D/FileSystem/FileSystem.h"
 const uint32_t importFlag = aiProcess_CalcTangentSpace  //计算切线空间
 |aiProcess_Triangulate //保证一定每个图元的基本单位是三角形，会出现多个索引
 |aiProcess_JoinIdenticalVertices 
@@ -34,11 +34,61 @@ namespace Kans
 
 		m_MeshShader = Renderer::GetShaderLibrary()->Get("ToneCharactorShader");
 		
+	
 		m_SubMeshes.reserve(m_Scene->mNumMeshes);
 		ProcessNode(m_Scene->mRootNode, m_Scene);
 		GenVertexArry();
 
 	}
+
+	MeshSource::MeshSource(const std::vector<Vertex>& verteices, const std::vector<Index>& indices)
+		:m_Verteices(verteices), m_Indices(indices)
+	{
+		m_MeshShader = Renderer::GetShaderLibrary()->Get("StandardShader");
+
+		Ref<Material> mtl = Material::Create(m_MeshShader, "Default Material");
+		
+		mtl->Set("material.U_Color",glm::vec4(1.0f));
+		
+		m_Material.push_back(mtl);
+
+		SubMesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = (uint32_t)indices.size();
+		submesh.Transform = m_Transform;
+		m_SubMeshes.reserve(1);
+		m_SubMeshes.push_back(submesh);
+
+
+		Ref<VertexBuffer> vertexb = VertexBuffer::Create((float*)m_Verteices.data(), (uint32_t)(m_Verteices.size() * sizeof(Vertex)));
+		Ref<IndexBuffer>indexb = IndexBuffer::Create((uint32_t*)m_Indices.data(), indices.size() * 3u);
+
+
+		BufferLayout layout = {
+			{ShaderDataType::Float3,"a_Position"},
+			{ShaderDataType::Float3,"a_Normal"},
+			{ShaderDataType::Float2,"a_TextureCroods"},
+			{ShaderDataType::Float4,"a_BaseColor"},
+			{ShaderDataType::Float3,"a_Tangent"},
+			{ShaderDataType::Float3,"a_Bitangent"}
+		};
+
+		vertexb->SetBufferLayout(layout);
+
+		m_VertexArray.push_back(VertexArray::Create());
+		m_VertexArray[0]->AddVertexBuffer(vertexb);
+		m_VertexArray[0]->SetIndexBuffer(indexb);
+
+		
+
+	}
+
+	MeshSource::~MeshSource()
+	{
+		
+	}
+
 #if 1
 
 	void MeshSource::ProcessNode(const aiNode* node, const aiScene* scene)

@@ -55,8 +55,8 @@ namespace Kans
 		MeshSource(const std::string& path);
 		MeshSource() = default;
 
-		MeshSource(const Vertex* verteices, const Index* indices);
-
+		MeshSource(const std::vector<Vertex>& verteices, const std::vector<Index>& indices);
+		~MeshSource();
 		void ProcessNode(const aiNode* node, const aiScene* scene);
 		SubMesh ProcessMesh(const aiMesh* mesh, const aiScene* scene,float meshoffset);
 
@@ -87,7 +87,7 @@ namespace Kans
 		Ref<Shader> m_MeshShader;
 
 		const aiScene* m_Scene;
-		glm::mat4 transform;
+		glm::mat4 m_Transform;
 
 		std::string m_LoadPath;
 		//用于物理碰撞计算，光线追踪加速
