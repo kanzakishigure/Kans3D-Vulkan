@@ -356,5 +356,6 @@ Kans3D/vendor/VulkanSDK/
 #ProfileSpecication
 KansEditor/ProfileSpecication
 #project Asset
-KansEditor/assets/model
-KansEditor/assets/textures
+KansEditor/assets/
+#c# bin file
+KansEditor/Resources/Scripts/
