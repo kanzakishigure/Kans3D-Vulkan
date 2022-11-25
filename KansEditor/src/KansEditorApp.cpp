@@ -28,14 +28,16 @@ public:
 };
 	Kans::Application* Kans::createApplication(int argc, char** argv)
 	{
+		std::filesystem::path executable_path(argv[0]);
+		std::filesystem::path config_file_path = std::filesystem::current_path() / "KansEditor.ini";
 
 		ApplicationSpecification spec;
 		spec.Name = "Kans3D-Editor";
-		spec.WorkDirectory = "../KansEditor";
+		spec.ConfigPath = config_file_path.string();
 		spec.Height = 1080;
 		spec.Width = 1920;
 
-
+		
 		return new KansEditor(spec);
 	}
 

@@ -296,6 +296,8 @@ namespace Kans
 				
 				if (open)
 				{
+					ImGui::Text("Shader : %s", material->GetShader()->GetName().c_str());
+					ImGui::NewLine();
 					for (auto& UniformMap : materialBuffer.ShaderUniforms)
 					{
 						ImGui::Separator();

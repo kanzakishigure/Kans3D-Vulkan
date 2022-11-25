@@ -4,8 +4,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+
 //TestInclude
 #include <Kans3D/Core/UUID.h>
+#include <Kans3D/ImGui/Colors.h>
+#include <Kans3D/Renderer/MeshFactory.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static const int S_mapwidth = 24;
 static const char* S_mapTiles= "";
@@ -43,7 +46,8 @@ namespace Kans
 			
 			//Create Scene
 			{
-				m_ActiveScene = CreateRef<Scene>();
+				m_ActiveScene = CreateRef<Scene>("TestDemo");
+			
 				auto pointlight = m_ActiveScene->CreateEntity("PointLight");
 
 				auto& plightCMP = pointlight.AddComponent<PointLightComponent>();
@@ -59,6 +63,7 @@ namespace Kans
 				dirCMP.Specular_Intensity = glm::vec3(1.0);
 				dirCMP.Ambient_Intensity = glm::vec3(1.0);
 			}
+			if(0)
 			{
 				auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 				auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
@@ -82,7 +87,7 @@ namespace Kans
 				cmp.SceneCamera.SetViewportSize(1920, 1080);
 			}
 
-			// createMesh test
+			// load Mesh test
 #if 0
 			{
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
@@ -97,12 +102,50 @@ namespace Kans
 				TransformCMP.Rotation = { glm::radians(-20.0f),0.0f,glm::radians(0.0f) };
 				TransformCMP.Scale = { glm::vec3(0.15f) };
 
+				//Temp Function
 				//Init Material
 				MaterialUtil::InitMaterial(materialCMP.MaterialTable);
 			}
 #endif
+			// createMesh test
+#if 0
+			{
 
+				{
 
+					auto CubeEntity = m_ActiveScene->CreateEntity("Cube1");
+					auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
+					auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
+					meshCMP.StaticMesh = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
+					meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
+					materialCMP.MaterialTable = meshCMP.MaterialTable;
+					auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
+					TransformCMP.Position = { 1.0f,0.0f,0.0f };
+					TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
+					TransformCMP.Scale = { 0.3f,0.3f,0.3f };
+
+				}
+
+			}
+#endif		
+			// spotCloud test
+
+#if 0
+			{
+				auto CubeEntity = m_ActiveScene->CreateEntity("Cloud");
+				auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
+				auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
+
+				meshCMP.StaticMesh = Kans::MeshFactory::CreatCloudSpot(10000, {1,1,1});
+				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
+				materialCMP.MaterialTable = meshCMP.MaterialTable;
+				auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
+				TransformCMP.Position = { 0.0f,1.0f,-5.0f };
+				TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
+				TransformCMP.Scale =    { 1.0f,1.0f,1.0f };
+
+			}
+#endif
 				//Native Script
 				{
 					class CameracontorlScript : public ScriptableEntity
@@ -152,15 +195,22 @@ namespace Kans
 				}
 
 			
-
+	
+				
 
 		}
 }
 	void EditorLayer::OnDetach()
 	{
+
+		SceneSerializer s(m_ActiveScene);
+		s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");
+
 		HZ_PROFILE_FUCTION();
-		HZ_CORE_INFO("call detach");
+		HZ_CORE_INFO("{0} call detach",Application::Get().GetSpecification().Name);
 		Renderer2D::Shutdown();
+
+
 		
 	}
 
@@ -185,8 +235,12 @@ namespace Kans
 			if(!m_ViewportFocused)
 			m_CameraController.OnUpdate(ts);
 
+			
+
 		}
 		//renderer
+
+
 		Renderer2D::ResetStats();
 		m_Framebuffer->Bind();
 		RenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
@@ -195,6 +249,7 @@ namespace Kans
 		//updateScene
 		{
 			m_ActiveScene->OnUpdate(ts);
+
 		}
 
 		//rendering
@@ -318,10 +373,14 @@ namespace Kans
 		Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportFocused || m_viewprotHovered);
 		//renderStats
 		ImGui::Text("Render2DStats");
+		
 		ImGui::Text("DrawCalls: %d", Renderer2D::GetStats().DrawCalls);
 		ImGui::Text("QuadCount: %d", Renderer2D::GetStats().QuadCount);
 		ImGui::Text("TotalVertexCount: %d", Renderer2D::GetStats().GetTotalVertexCount());
 		ImGui::Separator();
+		ImGui::Text("Render3DStats");
+		ImGui::Text("ViePort Size: %f , %f", m_ViewportSize.x, m_ViewportSize.y);
+
 		ImGui::End();
 
 	}

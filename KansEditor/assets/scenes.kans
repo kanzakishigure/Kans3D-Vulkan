@@ -1,0 +1,13 @@
+Scene: ""
+? Entity: 956507474
+  TagComponent:
+    Tag: mainCamera
+: Entity: 2261245884
+  TagComponent:
+    Tag: RefEntity
+? Entity: 1619498615
+  TagComponent:
+    Tag: DirLight
+: Entity: 4158389201
+  TagComponent:
+    Tag: PointLight
