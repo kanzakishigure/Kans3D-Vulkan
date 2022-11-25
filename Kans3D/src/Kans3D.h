@@ -15,6 +15,7 @@
 #include "Kans3D/Scene/Scene.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Components.h"
+#include "Kans3D/Scene/SceneSerializer.h"
 //------UI---------------
 #include "Kans3D/Utilities/UI/KansUI.h"
 //------renderer---------------
