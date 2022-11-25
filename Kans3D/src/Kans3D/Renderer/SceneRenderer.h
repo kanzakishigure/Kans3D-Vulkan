@@ -39,6 +39,9 @@ namespace Kans
 			void SubmitStaticMeshOutLine(Ref<StaticMesh> mesh, glm::mat4 transform);
 			void SubmitStaticMeshToneshading(Ref<StaticMesh> mesh, glm::mat4 transform);
 
+			void SubmitSpotCloud(Ref<StaticMesh> mesh, Ref<MaterialTable> material, glm::mat4 transform);
+
+			
 
 
 			//temp method

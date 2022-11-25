@@ -4,18 +4,18 @@
 #include <glm/glm.hpp>
 namespace Kans
 {
-	struct StorageBuffer
+	struct Buffer
 	{
 		void* Data;
 		uint32_t Size;
 
-		StorageBuffer(void* data ,uint32_t size)
+		Buffer(void* data ,uint32_t size)
 		:Data(data),Size(size)
 		{
 
 			
 		}
-		StorageBuffer()
+		Buffer()
 			:Data(nullptr), Size(0)
 		{
 
@@ -48,6 +48,11 @@ namespace Kans
 		T& Read(uint32_t offset)
 		{
 			return *(T*)((byte*)Data + offset);
+		}
+		template <typename T>
+		T* As()
+		{
+			return (T*)Data;
 		}
 	};
 }

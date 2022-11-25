@@ -1,4 +1,4 @@
-#include "hzpch.h"
+#include "kspch.h"
 #include "Renderer2D.h"
 
 #include "VertexArray.h"
@@ -56,6 +56,7 @@ namespace Kans {
 	{
 		HZ_PROFILE_FUCTION();
 
+
 		//vertex array
 		s_Data.QuadVertexArray = VertexArray::Create();
 		//动态申请内存用户存储数据
@@ -97,7 +98,7 @@ namespace Kans {
 		//此处没有考虑到线程安全性，如果别渲染的线程上仍然有对该资源的引用，那么此处进行的delete操作就会导致该引用指向一个空资源
 
 		//Shader Program
-		s_Data.s_ShaderLibrary.Add(Kans::Shader::Create("assets/shaders/TextureShader.glsl"));
+		s_Data.s_ShaderLibrary.Add(Kans::Shader::Create("Resources/Shaders/TextureShader.glsl"));
 		
 		s_Data.TextureShader = s_Data.s_ShaderLibrary.Get("TextureShader");
 		

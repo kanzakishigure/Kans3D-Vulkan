@@ -1,9 +1,11 @@
-#include "hzpch.h"
+#include "kspch.h"
 #include "Renderer.h"
 #include "Renderer2D.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Renderer/SceneCamera.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
+
+#include "Kans3D/FileSystem/FileSystem.h"
 namespace Kans {
 	
 	
@@ -54,8 +56,10 @@ namespace Kans {
 		}
 		//shader
 		{
+			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string();
 			{
-				auto StaticShader = Shader::Create("assets/shaders/StaticMeshShader.glsl");
+				
+				auto StaticShader = Shader::Create(shaderpath + "/StaticMeshShader.glsl");
 				StaticShader->SetShaderBuffer({
 						{ShaderDataType::Float3,MaterialAsset::GetDiffuseLocation()},
 						{ShaderDataType::Float3,MaterialAsset::GetSpecularLocation()},
@@ -75,25 +79,25 @@ namespace Kans {
 			}
 
 			{
-				auto StencilShader = Shader::Create("assets/shaders/StencilShader.glsl");
+				auto StencilShader = Shader::Create(shaderpath + "/StencilShader.glsl");
 				StencilShader->SetShaderBuffer({});
 				s_RendererData->m_ShaderLibrary->Add(StencilShader);
 			}
 
 			{
-				auto PostShader = Shader::Create("assets/shaders/PostShader.glsl");
+				auto PostShader = Shader::Create(shaderpath + "/PostShader.glsl");
 				PostShader->SetShaderBuffer({});
 				s_RendererData->m_ShaderLibrary->Add(PostShader);
 			}
 			
 			{
-				auto OutLineShader = Shader::Create("assets/shaders/OutLineShader.glsl");
+				auto OutLineShader = Shader::Create(shaderpath + "/OutLineShader.glsl");
 				OutLineShader->SetShaderBuffer({});
 				s_RendererData->m_ShaderLibrary->Add(OutLineShader);
 			}
 
 			{
-				auto ToneShader = Shader::Create("assets/shaders/ToneShader.glsl");
+				auto ToneShader = Shader::Create(shaderpath + "/ToneShader.glsl");
 				ToneShader->SetShaderBuffer({
 						{ShaderDataType::Float3,MaterialAsset::GetDiffuseLocation()},
 						{ShaderDataType::Float3,MaterialAsset::GetSpecularLocation()},
@@ -104,7 +108,7 @@ namespace Kans {
 			}
 
 			{
-				auto DebugShader = Shader::Create("assets/shaders/DebugShader.glsl");
+				auto DebugShader = Shader::Create(shaderpath + "/DebugShader.glsl");
 				DebugShader->SetShaderBuffer({
 						{ShaderDataType::Float,MaterialAsset::GetShininessLocation()},
 						{ShaderDataType::Float,"U_Debug"},
@@ -117,14 +121,14 @@ namespace Kans {
 			
 
 			{
-				auto DebugnormalShader = Shader::Create("assets/shaders/DebugNormalShader.glsl");
+				auto DebugnormalShader = Shader::Create(shaderpath + "/DebugNormalShader.glsl");
 				DebugnormalShader->SetShaderBuffer({
 					});
 				s_RendererData->m_ShaderLibrary->Add(DebugnormalShader);
 			}
 			
 			{
-				auto ToneCharactorShader = Shader::Create("assets/shaders/GenShin_Shader/ToneCharactorShader.glsl");
+				auto ToneCharactorShader = Shader::Create(shaderpath + "/GenShin_Shader/ToneCharactorShader.glsl");
 				ToneCharactorShader->SetShaderBuffer({
 					{ShaderDataType::Color4,"U_ShadowMultColor"},
 					{ShaderDataType::Color4,"U_DarkShadowMultColor"},
@@ -142,6 +146,28 @@ namespace Kans {
 					{ShaderDataType::Float2,"U_RampSilk"}
 					});
 				s_RendererData->m_ShaderLibrary->Add(ToneCharactorShader);
+			}
+
+
+			{
+				auto StandardShader = Shader::Create(shaderpath + "/StandardShader.glsl");
+				StandardShader->SetShaderBuffer({
+					{ShaderDataType::Color4,"material.U_Color"}
+					
+					});
+				s_RendererData->m_ShaderLibrary->Add(StandardShader);
+			}
+				
+			{
+				auto SpotCloudShader = Shader::Create(shaderpath + "/SpotCloud/SpotCloudShader.glsl");
+				SpotCloudShader->SetShaderBuffer({});
+				s_RendererData->m_ShaderLibrary->Add(SpotCloudShader);
+
+				SpotCloudShader->SetShaderBuffer({
+						{ShaderDataType::Float,"U_PerlinBias"},
+						{ShaderDataType::Float3,"U_Effect"},
+
+					});
 			}
 		}
 

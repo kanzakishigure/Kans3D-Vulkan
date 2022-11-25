@@ -12,7 +12,7 @@ namespace Kans{
 	struct ApplicationSpecification
 	{
 		std::string Name = "Kans3D";
-		std::string WorkDirectory;
+		std::string ConfigPath;
 
 
 		//the Windows Specification

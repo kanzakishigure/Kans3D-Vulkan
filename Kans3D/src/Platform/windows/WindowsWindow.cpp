@@ -1,4 +1,4 @@
-#include"hzpch.h"
+#include"kspch.h"
 #include"Platform/windows/WindowsWindow.h"
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "Platform/Vulkan/VulkanContext.h"
@@ -37,14 +37,14 @@ namespace Kans {
 		WindowsWindow::Shutdown();
 	}
 
-	void WindowsWindow::Init(const WindowSpecification& props)
+	void WindowsWindow::Init(const WindowSpecification& spec)
 	{
 		HZ_PROFILE_FUCTION();
-		m_Data.Title = props.Title;
-		m_Data.Width = props.Width;
-		m_Data.Height = props.Height;
+		m_Data.Title = spec.Title;
+		m_Data.Width = spec.Width;
+		m_Data.Height = spec.Height;
 
-		HZ_CORE_INFO("创建窗口{0}({1},{2})", props.Title, props.Width, props.Height);
+		HZ_CORE_INFO("创建窗口{0}({1},{2})", spec.Title, spec.Width, spec.Height);
 		if (!s_GLiFWIntialized)
 		{
 			//TODO：glfwterminate on system shutdown
@@ -68,15 +68,15 @@ namespace Kans {
 		m_Context->Init();
 		if(RendererAPI::GetAPI() == RendererAPIType::Vulkan)
 		{
-			auto&  context = std::dynamic_pointer_cast<VulkanContext>(m_Context);
-			m_SwapChain.Init(context->GetInstance(), context->GetVulkanDevice());
+			auto context = std::dynamic_pointer_cast<VulkanContext>(m_Context);
+			m_SwapChain.Init(VulkanContext::GetInstance(), context->GetVulkanDevice());
 			m_SwapChain.InitSurface(m_Window);
 		}
 
-
+		//Set GLFW Event Callback data
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 		SetVSync(true);
-		//设置窗口回调函数
+		//Set GLFW Event Callback
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window,int width,int height) 
 			{
 

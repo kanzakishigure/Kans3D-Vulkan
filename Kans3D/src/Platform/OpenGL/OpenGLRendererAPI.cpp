@@ -1,4 +1,4 @@
-#include "hzpch.h"
+#include "kspch.h"
 #include "OpenGLRendererAPI.h"
 
 #include <glad/glad.h>
@@ -79,6 +79,12 @@ namespace Kans {
 		glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);
 
 		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	void OpenGLRendererAPI::DrawArray(const Ref<VertexArray>& vertexArray, uint32_t vertexCount /*= 0*/)
+	{
+		glPointSize(1.0f);
+		glDrawArrays(GL_POINTS, 0, vertexCount);
 	}
 
 	void OpenGLRendererAPI::SetViewPort(uint32_t x, uint32_t y, uint32_t width, uint32_t height)

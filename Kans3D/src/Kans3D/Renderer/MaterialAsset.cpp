@@ -1,4 +1,4 @@
-#include "hzpch.h"
+#include "kspch.h"
 #include "MaterialAsset.h"
 #include "Kans3D/Renderer/Renderer.h"
 namespace Kans
@@ -47,7 +47,7 @@ namespace Kans
 
 	MaterialAsset::MaterialAsset()
 	{
-		Ref<Shader> shader = Shader::Create("F:/Kans3D/Kans/KansEditor/assets/shaders/StaticMeshShader.glsl");
+		Ref<Shader> shader = Shader::Create("Resources/Shaders/StaticMeshShader.glsl");
 		m_Material = Material::Create(shader);
 		//set value
 		SetShininess(0.0f);

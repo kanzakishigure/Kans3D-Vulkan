@@ -1,4 +1,4 @@
-#include "hzpch.h"
+#include "kspch.h"
 
 #include <glm/glm.hpp>
 #include "Scene.h"
@@ -11,7 +11,8 @@
 namespace Kans
 {	
 
-	Scene::Scene()	
+	Scene::Scene(const std::string& name)
+		:m_Name(name)
 	{
 	
 		
@@ -119,7 +120,7 @@ namespace Kans
 				//renderer->SubmitStaticMesh(meshCMP.StaticMesh, meshCMP.MaterialTable, transformCMP.GetTransform());
 				//ToneShader
 				//RenderCommand::EnableCullFace(false);
-				if(1)
+				if(0)
 				{
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();
@@ -127,7 +128,7 @@ namespace Kans
 					//renderer->SubmitStaticMeshDebug(meshCMP.StaticMesh, transformCMP.GetTransform());
 					renderer->SubmitToneCharactorShader(meshCMP.StaticMesh, transformCMP.GetTransform());
 				}
-				//RenderCommand::EnableCullFace(true);
+				RenderCommand::EnableCullFace(true);
 
 
 				//Outline
@@ -157,7 +158,27 @@ namespace Kans
 				{
 					renderer->SubmitStaticMeshDebugNormal(meshCMP.StaticMesh, transformCMP.GetTransform());
 				}
-				
+
+				//StaticMesh
+				if (1)
+				{
+					Entity e = { entity,this };
+					auto& materialCMP = e.GetComponent<MaterialComponent>();
+
+					RenderCommand::EnableCullFace(true);
+					renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable,transformCMP.GetTransform());
+					RenderCommand::EnableCullFace(false);
+				}
+				//Spot cloud
+				if (0)
+				{
+					Entity e = { entity,this };
+					auto& materialCMP = e.GetComponent<MaterialComponent>();
+
+					RenderCommand::EnableCullFace(true);
+					renderer->SubmitSpotCloud(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
+					RenderCommand::EnableCullFace(false);
+				}
 				//renderer->SubmitMeshPost()
 			}
 			renderer->EndScene();

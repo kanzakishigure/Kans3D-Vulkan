@@ -27,7 +27,7 @@ namespace  Kans
 	{
 
 	public:
-		Scene();
+		Scene(const std::string& name = "UntitledScene");
 		~Scene();
 
 		const entt::registry& Reg() const { return m_Registry; }
@@ -41,12 +41,17 @@ namespace  Kans
 		void DeleteEntity(Entity entity);
 
 		Entity GetCameraEntity();
+
+		const std::string GetName() const { return m_Name; }
+		void SetName(const std::string& name ) { m_Name = name; }
+
 	private:
 		template<typename T>
 		void OnComponentAdd(Entity entity, T& component );
 	private:
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
+		std::string m_Name;
 	private:
 		DirLight dirLight;
 		PointLight pointLight;
@@ -55,6 +60,7 @@ namespace  Kans
 		friend class Entity;
 		friend class SceneHierachyPanel;
 		friend class SceneRenderer;
+		friend class SceneSerializer;
 	};
 
 	

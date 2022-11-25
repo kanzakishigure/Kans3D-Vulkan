@@ -1,4 +1,4 @@
-#include "hzpch.h"
+#include "kspch.h"
 #include "Kans3D/Renderer/VertexArray.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLVertexArray.h"

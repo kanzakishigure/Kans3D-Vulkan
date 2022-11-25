@@ -2,7 +2,7 @@
 
 #include <functional>
 #include <filesystem>
-#include "Kans3D/Core/Buffer.h"
+#include "Kans3D/Core/byteBuffer.h"
 namespace Kans
 {
 	struct FileSystemSpecification

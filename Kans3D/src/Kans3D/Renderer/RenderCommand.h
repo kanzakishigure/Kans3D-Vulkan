@@ -18,6 +18,10 @@ namespace Kans {
 		{
 			s_RendererAPI->DrawIndexed(vertexArray,indexCount);
 		}
+		inline static void  DrawArray(const Ref<VertexArray>& vertexArray, uint32_t vertexCount = 0)
+		{
+			s_RendererAPI->DrawArray(vertexArray, vertexCount);
+		}
 		inline static void Init() 
 		{
 			s_RendererAPI->Init();

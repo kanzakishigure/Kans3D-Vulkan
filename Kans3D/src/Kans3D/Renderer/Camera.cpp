@@ -1,4 +1,4 @@
-#include "hzpch.h"
+#include "kspch.h"
 #include "Kans3D/Renderer/Camera.h"
 
 namespace Kans {

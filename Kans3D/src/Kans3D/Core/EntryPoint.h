@@ -11,7 +11,7 @@ namespace Kans
 	int Main(int argc, char** argv)
 	{
 		Log::Init();
-
+		
 		HZ_PROFILE_BEGIN_SESSION("startup", "ProfileSpecication/startup-profile.json");
 		Application* app = Kans::createApplication(argc,argv);
 		HZ_PROFILE_END_SESSION();

@@ -1,7 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include "kans3D/Renderer/Material.h"
-#include "Kans3D/Core/StorageBuffer.h"
+#include "Kans3D/Core/ByteBuffer.h"
 #include "Kans3D/Renderer/Texture.h"
 namespace Kans {
 	//参照cherno的vulkan版材质类进行进行改写
@@ -76,7 +76,7 @@ namespace Kans {
 		Ref<Shader> m_Shader;
 		std::string m_Name;
 
-		StorageBuffer m_UniformBuffer;
+		Buffer m_UniformBuffer;
 		//texture 
 		std::map<std::string, Ref<Texture2D>> m_Texture;
 		//Setting

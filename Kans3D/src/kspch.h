@@ -19,11 +19,10 @@
 
 #include <optional>
 
-
+#include "Kans3D/Core/Base.h"
 #include "Kans3D/Core/Log.h"
 
 #include "Kans3D/Debug/Instrumentor.h"
-
 #ifdef HZ_PLATFORM_WINDOWS
 	#include<Windows.h>
 #endif // HZ_PLATFORM_WINDOWS

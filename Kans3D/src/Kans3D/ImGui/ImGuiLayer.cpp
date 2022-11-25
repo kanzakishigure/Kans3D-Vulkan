@@ -1,4 +1,4 @@
-#include"hzpch.h"
+#include"kspch.h"
 #include"ImGuiLayer.h"
 
 #include <imgui.h>
@@ -47,10 +47,10 @@ namespace Kans
 		//Kans:
 		//Set the default font
 		{
-			//io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/OpenSans/OpenSans-VariableFont_wdth,wght.ttf", 18.0f);
-			std::filesystem::path Dfontpath= "assets/fonts/Roboto/Roboto-Regular.ttf";
+			
+			std::filesystem::path Dfontpath= "Resources/Fonts/Roboto/Roboto-Regular.ttf";
 			io.FontDefault = io.Fonts->AddFontFromFileTTF(Dfontpath.generic_string().c_str(),16.0f);
-			std::filesystem::path fontpath = "assets/fonts/Roboto/Roboto-Bold.ttf";
+			std::filesystem::path fontpath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
 			io.Fonts->AddFontFromFileTTF(fontpath.generic_string().c_str(), 16.0f);
 		}
 
@@ -66,10 +66,10 @@ namespace Kans
 		}
 
 		//kans
-		//use Default theme
-		{	
-			SetDarkThemeColors();
-		}
+		//use custom theme
+			
+		SetDarkThemeColors();
+	
 
 		Application& app = Application::Get();
 		GLFWwindow* window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());

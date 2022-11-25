@@ -1,4 +1,4 @@
-#include "hzpch.h"
+#include "kspch.h"
 #include "SubTexture2D.h"
 
 namespace Kans
