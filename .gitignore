@@ -18,10 +18,10 @@ bin-int/
 #vscode file
 .vscode/
 #Vulkan sdk
-Kans3D/vendor/VulkanSDK
+Kans3D/vendor/VulkanSDK/
 #ProfileSpecication
-KansEditor/ProfileSpecication
+KansEditor/ProfileSpecication/
 #project Asset
-KansEditor/assets/
+#KansEditor/assets/model/
 #c# bin file
 KansEditor/Resources/Scripts
