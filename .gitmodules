@@ -10,6 +10,3 @@
 [submodule "Kans3D/vendor/GLFW"]
 	path = Kans3D/vendor/GLFW
 	url = https://github.com/TheCherno/glfw
-[submodule "kans3D/vendor/yaml-cpp"]
-	path = Kans3D/vendor/yaml-cpp
-	url = https://github.com/TheCherno/yaml-cpp
