@@ -108,7 +108,7 @@ namespace Kans
 			}
 #endif
 			// createMesh test
-#if 0
+#if 1
 			{
 
 				{
@@ -120,9 +120,9 @@ namespace Kans
 					meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
 					materialCMP.MaterialTable = meshCMP.MaterialTable;
 					auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
-					TransformCMP.Position = { 1.0f,0.0f,0.0f };
+					TransformCMP.Position = { 0.0f,0.0f,-3.0f };
 					TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
-					TransformCMP.Scale = { 0.3f,0.3f,0.3f };
+					TransformCMP.Scale = { 0.5f,0.5f,0.5f };
 
 				}
 
