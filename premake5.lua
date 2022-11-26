@@ -28,7 +28,7 @@ project "Kans3D"
     kind "StaticLib"
     language "C++"
     cppdialect"c++17"
-    staticruntime"on"
+    staticruntime"off"
 
 
     targetdir ("bin/" ..outputdir.. "/%{prj.name}")
@@ -118,7 +118,7 @@ project "KansEditor"
         kind "ConsoleApp"
         language "C++"
         cppdialect "c++17"     
-        staticruntime "on"
+        staticruntime "off"
              
         targetdir ("bin/" ..outputdir.. "/%{prj.name}")
         objdir ("bin-int/" ..outputdir.. "/%{prj.name}")

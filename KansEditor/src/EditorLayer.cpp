@@ -63,7 +63,8 @@ namespace Kans
 				dirCMP.Specular_Intensity = glm::vec3(1.0);
 				dirCMP.Ambient_Intensity = glm::vec3(1.0);
 			}
-			if(0)
+			// ref plane test
+#if 1
 			{
 				auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 				auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
@@ -72,7 +73,7 @@ namespace Kans
 				transformCMP.Scale = { 19.2f,10.8f,1.0f };
 				transformCMP.Position = { 2.3f,0.0f,-12.0f };
 			}
-
+#endif
 			//Scene Renderer Init
 			{
 				m_StaticMeshRenderer = CreateRef<SceneRenderer>(m_ActiveScene);
@@ -88,7 +89,7 @@ namespace Kans
 			}
 
 			// load Mesh test
-#if 0
+#if 1
 			{
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();

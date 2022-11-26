@@ -1,10 +1,16 @@
 Scene: TestDemo
-? Entity: 585939961
+? Entity: 4282720643
+  TagComponent:
+    Tag: GY_Light
+: Entity: 2744023859
   TagComponent:
     Tag: mainCamera
-: Entity: 1540654451
+? Entity: 1785045387
+  TagComponent:
+    Tag: RefEntity
+: Entity: 1670684451
   TagComponent:
     Tag: DirLight
-? Entity: 1751791879
+? Entity: 4057064581
   TagComponent:
     Tag: PointLight
