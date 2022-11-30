@@ -21,7 +21,7 @@ bin-int/
 Kans3D/vendor/VulkanSDK/
 #ProfileSpecication
 KansEditor/ProfileSpecication/
-#project Asset
+# project Asset
 #KansEditor/assets/model/
-#c# bin file
-KansEditor/Resources/Scripts
+# c# bin file
+Intermediates/

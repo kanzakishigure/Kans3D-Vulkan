@@ -35,7 +35,7 @@ namespace Kans{
 				}
 				else if (key == "ScriptDLL")
 				{
-					s_Specification->ScriptDLLPath = value;
+					s_Specification->ScriptAssemblyPath = value;
 				}
 				else if (key == "assetsDir")
 				{

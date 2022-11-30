@@ -1,9 +1,17 @@
 #pragma once
 #include"Kans3D/Core/Base.h"
+
+#include<glm/gtx/string_cast.hpp>
+
+
+
 //spdlogÍ·ÎÄ¼þ¿â
-#include"spdlog/spdlog.h"
-#include"spdlog/fmt/ostr.h"
-#include"spdlog/fmt/fmt.h"
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
+#include <spdlog/fmt/fmt.h>
+#include "spdlog/fmt/bundled/format.h"
+
+
 namespace Kans {
 
 	class  Log
@@ -20,6 +28,18 @@ namespace Kans {
 	};
 	
 }
+
+#ifdef DEBUG
+template<typename OStream, glm::length_t L, typename T, glm::qualifier Q>
+inline OStream& operator<< (OStream& os, const glm::vec<L, T, Q>& vector)
+{
+	return os << glm::to_string(vector);
+}
+
+#endif // DEBUG
+
+
+
 //core logging marcos
 #define HZ_CORE_TRACE(...)      ::Kans::Log::GetCoreLogger()->trace(__VA_ARGS__)
 #define HZ_CORE_INFO(...)       ::Kans::Log::GetCoreLogger()->info(__VA_ARGS__)

@@ -105,7 +105,7 @@ project "KansScriptCore"
 	dotnetframework "4.5"
 	
 	targetdir ("KansEditor/Resources/Scripts")
-	objdir ("KansEditor/Resources/Scripts/obj")
+	objdir ("KansEditor/Resources/Scripts/Intermediates")
 
 	files 
 	{

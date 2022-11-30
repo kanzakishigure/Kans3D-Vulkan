@@ -11,7 +11,7 @@ namespace Kans
 		std::filesystem::path ResoucesDir;
 		std::filesystem::path ShaderDir;
 		std::filesystem::path FontsDir;
-		std::filesystem::path ScriptDLLPath;
+		std::filesystem::path ScriptAssemblyPath;
 		std::filesystem::path AssetsDir;
 		std::filesystem::path ProfileSpecicationDir;
 	};
@@ -28,7 +28,7 @@ namespace Kans
 			static const std::filesystem::path& GetShaderFolder() { return s_Specification->ShaderDir;}
 			static const std::filesystem::path& GetAssetFolder() { return s_Specification->AssetsDir; }
 			static const std::filesystem::path& GetFontsFolder() { return s_Specification->FontsDir; }
-			static const std::filesystem::path& GetScriptDLLPath() { return s_Specification->ScriptDLLPath; }
+			static const std::filesystem::path& GetScriptAssemblyPath() { return s_Specification->ScriptAssemblyPath; }
 		private:
 			static FileSystemSpecification* s_Specification;
 

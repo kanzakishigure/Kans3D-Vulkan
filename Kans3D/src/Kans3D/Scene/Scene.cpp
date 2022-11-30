@@ -8,6 +8,9 @@
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Scene/ScriptableEntity.h"
+#include "Kans3D/Script/ScriptEngine.h"
+
 namespace Kans
 {	
 
@@ -42,7 +45,13 @@ namespace Kans
 				nsc.Instance->OnDestory();
 				nsc.DestoryInstanceFunction(&nsc);
 				});
-		
+		}
+		//update Script
+		auto view = m_Registry.view<ScriptCompoenet>();
+		for (auto entity : view)
+		{
+			Entity e = { entity,this };
+			ScriptEngine::OnUpdateEntity(e,ts);
 		}
 
 		
@@ -213,16 +222,55 @@ namespace Kans
 
 	Entity Scene::CreateEntity(const std::string name)
 	{
-		Entity e = { m_Registry.create(),this };
-		e.AddComponent<TransformComponent>();
-		auto& tag = e.AddComponent<TagComponent>();
-		tag.Tag = name.empty() ? "Entity": name;
-		return e;
+		UUID id = UUID();
+		return CreateEntityWithID(id, name,false);
+	}
+	Kans::Entity Scene::CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap)
+	{
+		Entity entity = { m_Registry.create(),this };
+		entity.AddComponent<TransformComponent>();
+		entity.AddComponent<IDComponent>(uuid);
+		auto& tag = entity.AddComponent<TagComponent>();
+		tag.Tag = name.empty() ? "Entity" : name;
+
+		HZ_CORE_ASSERT(m_EntityMap.find(uuid)== m_EntityMap.end(),nullptr);
+		m_EntityMap[uuid] = entity;
+		return entity;
+	}
+	void Scene::DestroyEntity(Entity entity)
+	{
+		auto&id = entity.GetComponent<IDComponent>().ID;
+		m_EntityMap.erase(id);
+		m_Registry.destroy(entity);
 	}
 
-	void Scene::DeleteEntity(Entity entity)
+	Kans::Entity Scene::GetEntityByUUID(UUID uuid) const
 	{
-		m_Registry.destroy(entity);
+		if (m_EntityMap.find(uuid) != m_EntityMap.end())
+		{
+			return m_EntityMap.at(uuid);
+		}
+		return {};
+	}
+
+	void Scene::OnRuntimeStart()
+	{
+	
+		//Init 
+		ScriptEngine::OnRuntimeStart(this);
+		auto view = m_Registry.view<ScriptCompoenet>();
+		for (auto entity : view)
+		{
+			Entity e = { entity,this };
+			ScriptEngine::OnCreateEntity(e);
+
+		}
+	}
+
+	void Scene::OnRuntimeStop()
+	{
+		ScriptEngine::OnRuntimeEnd();
+		m_EntityMap.clear();
 	}
 
 	Kans::Entity Scene::GetCameraEntity()
@@ -244,7 +292,7 @@ namespace Kans
 	template<typename T>
 	void Scene::OnComponentAdd(Entity entity, T& component)
 	{
-		static_assert(false);
+		static_assert(sizeof(T)==0);
 	}
 
 
@@ -297,4 +345,17 @@ namespace Kans
 	{
 
 	}
+	template<>
+	void Scene::OnComponentAdd<IDComponent>(Entity entity, IDComponent& component)
+	{
+
+	}
+	template<>
+	void Scene::OnComponentAdd<ScriptCompoenet>(Entity entity, ScriptCompoenet& component)
+	{
+
+	}
+
+	
+
 }

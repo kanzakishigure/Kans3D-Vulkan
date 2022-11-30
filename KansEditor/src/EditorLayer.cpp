@@ -123,7 +123,7 @@ namespace Kans
 					TransformCMP.Position = { 0.0f,0.0f,-3.0f };
 					TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
 					TransformCMP.Scale = { 0.5f,0.5f,0.5f };
-
+					CubeEntity.AddComponent<ScriptCompoenet>("Sandbox.Player");
 				}
 
 			}
@@ -146,7 +146,9 @@ namespace Kans
 
 			}
 #endif
-				//Native Script
+			//Native Script
+#if 0
+				
 				{
 					class CameracontorlScript : public ScriptableEntity
 					{
@@ -188,20 +190,21 @@ namespace Kans
 
 					m_CameraEntity.AddComponent<NativeScriptComponent>().Bind<CameracontorlScript>();
 
-					//HierachyPanel
-					{
-						m_SceneHierachyPanel = { m_ActiveScene };
-					}
+					
 				}
-
+#endif
 			
-	
+			//HierachyPanel
+			{
+				m_SceneHierachyPanel = { m_ActiveScene };
+			}
 				
-
+			m_ActiveScene->OnRuntimeStart();
 		}
 }
 	void EditorLayer::OnDetach()
 	{
+		m_ActiveScene->OnRuntimeStop();
 
 		SceneSerializer s(m_ActiveScene);
 		s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");

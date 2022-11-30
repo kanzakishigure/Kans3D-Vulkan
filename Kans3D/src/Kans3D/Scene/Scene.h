@@ -1,12 +1,15 @@
 #pragma once
 #include <entt.hpp>
 #include "Kans3D/Core/TimeStep.h"
+#include "Kans3D/Core/UUID.h"
+
 #include "Kans3D/Renderer/Mesh.h"
 namespace  Kans
 {
 	class SceneRenderer;
 	class Entity;
 	
+	using EntityMap = std::unordered_map<UUID, Entity>;
 	//BlingPhong Material
 	struct DirLight
 	{
@@ -30,15 +33,18 @@ namespace  Kans
 		Scene(const std::string& name = "UntitledScene");
 		~Scene();
 
-		const entt::registry& Reg() const { return m_Registry; }
-		entt::registry& Reg() { return m_Registry; }
-
 		void OnUpdate(TimeStep ts);
 		void OnRenderer(Ref<SceneRenderer> renderer, TimeStep ts);
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		Entity CreateEntity(const std::string name = std::string());
-		void DeleteEntity(Entity entity);
+		Entity Scene::CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap);
+		void DestroyEntity(Entity entity);
+		Entity GetEntityByUUID(UUID uuid) const;
+
+		void OnRuntimeStart();
+		void OnRuntimeStop();
+		
 
 		Entity GetCameraEntity();
 
@@ -52,6 +58,7 @@ namespace  Kans
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 		std::string m_Name;
+		EntityMap m_EntityMap;
 	private:
 		DirLight dirLight;
 		PointLight pointLight;

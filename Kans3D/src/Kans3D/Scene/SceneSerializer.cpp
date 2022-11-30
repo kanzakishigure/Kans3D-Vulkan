@@ -24,11 +24,11 @@ namespace Kans
 		auto entities = m_Scene->m_Registry.view<TagComponent>();
 		for (entt::entity entity : entities)
 		{
+			Entity e = { entity,m_Scene.get() };
 			yamlos << YAML::BeginMap;
 			yamlos << YAML::Key << "Entity";
-			UUID id ;
-			yamlos << YAML::Value << (uint32_t)id;
-			Entity e ={ entity,m_Scene.get()};
+			yamlos << YAML::Value << (uint64_t)e.GetComponent<IDComponent>().ID;
+			
 			if (e.HasComponent<TagComponent>())
 			{
 				yamlos << YAML::Key << "TagComponent";

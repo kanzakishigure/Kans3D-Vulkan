@@ -2,13 +2,19 @@
 #include <string.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+
+#include "Kans3D/Core/UUID.h"
 #include "Kans3D/Renderer/SceneCamera.h"
-#include "Kans3D/Scene/ScriptableEntity.h"
 #include "Kans3D/Renderer/Texture.h"
 #include "Kans3D/Renderer/Mesh.h"
 namespace Kans 
 {
-
+	struct IDComponent
+	{
+		UUID ID = 0;
+		IDComponent() = default;
+		IDComponent(const IDComponent&) = default;
+	};
 	struct  TagComponent
 	{
 		std::string Tag;
@@ -77,6 +83,8 @@ namespace Kans
 		}
 	};
 
+
+	class ScriptableEntity;
 	struct NativeScriptComponent
 	{
 		ScriptableEntity* Instance = nullptr;
@@ -130,5 +138,18 @@ namespace Kans
 		MaterialComponent(const MaterialComponent&) = default;
 
 		Ref<MaterialTable>  MaterialTable;
+	};
+
+	struct ScriptCompoenet
+	{
+		ScriptCompoenet() = default;
+		ScriptCompoenet(const ScriptCompoenet&) = default;
+		ScriptCompoenet(const std::string& name)
+			:ClassName(name)
+		{
+
+		}
+
+		std::string ClassName;
 	};
 }
