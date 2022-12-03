@@ -82,7 +82,7 @@ namespace Kans
 					}
 					if (ImGui::MenuItem("Script Component"))
 					{
-						m_SelectionContext.AddComponent<ScriptCompoenet>();
+						m_SelectionContext.AddComponent<ScriptComponent>();
 						ImGui::CloseCurrentPopup();
 					}
 					ImGui::EndPopup();
@@ -399,7 +399,7 @@ namespace Kans
 				ImGui::Separator();
 			}
 			});
-		UI::DrawComponent<ScriptCompoenet>("Script", entity, [](ScriptCompoenet& component) {
+		UI::DrawComponent<ScriptComponent>("Script", entity, [](ScriptComponent& component) {
 			ImGui::Text("Class :");
 			char buffer[256] = {0};
 			auto& name = component.ClassName;
@@ -420,6 +420,7 @@ namespace Kans
 
 			ImGui::PopStyleColor();
 			});
+		
 	}
 	
 

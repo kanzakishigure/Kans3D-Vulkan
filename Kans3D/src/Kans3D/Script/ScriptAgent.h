@@ -5,7 +5,9 @@ namespace Kans
 	{
 	public: 
 		static void RegisterFunctions();
+		static void RegisterComponents(); 
 	private:
 
 	};
+
 }

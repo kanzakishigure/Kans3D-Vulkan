@@ -21,4 +21,11 @@ namespace Kans
 		s_ClientLogger->set_level(spdlog::level::trace);
 
     }
+
+	void Log::ShutDown()
+	{
+		s_ClientLogger.reset();
+		s_ClientLogger.reset();
+	}
+
 }

@@ -28,8 +28,8 @@ namespace Kans
 		KansFileSystem::Init(spec.ConfigPath);
 	
 
-		HZ_CORE_INFO("Application <{0}> is Create :\n", spec.Name);
-		HZ_CORE_INFO("WorkDirectory: <{0}>\n", std::filesystem::current_path());
+		HZ_CORE_INFO("Application [{:>8}]  is Create :", spec.Name);
+		HZ_CORE_INFO("WorkDirectory: {:>8} ", std::filesystem::current_path());
 
 		HZ_PROFILE_FUCTION();
 		s_Instance = this;

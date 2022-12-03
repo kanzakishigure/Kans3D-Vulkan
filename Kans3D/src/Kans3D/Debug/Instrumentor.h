@@ -122,8 +122,11 @@ namespace KansTools
 }
 
 
-#define HZ_PROFILE 1
-#if  HZ_PROFILE
+#ifdef HZ_DEBUG 
+#define HZ_PROFILE 
+#endif // HZ_DEBUG NATIVE PROFILE
+
+#ifdef  HZ_PROFILE
 #define HZ_PROFILE_BEGIN_SESSION(name,filepath) ::KansTools::Instrumentor::Get().BeginSession(name,filepath);
 #define HZ_PROFILE_END_SESSION() ::KansTools::Instrumentor::Get().EndSession();
 #define HZ_PROFILE_SCOPE(name) ::KansTools::InstrumentationTimer timer##__Line__(name);

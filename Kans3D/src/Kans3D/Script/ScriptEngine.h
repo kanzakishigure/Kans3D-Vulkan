@@ -8,6 +8,7 @@ extern "C" {
 	typedef struct _MonoClass MonoClass;
 	typedef struct _MonoMethod MonoMethod;
 	typedef struct _MonoAssembly MonoAssembly;
+	typedef struct _MonoImage MonoImage;
 }
 
 namespace Kans
@@ -29,6 +30,8 @@ namespace Kans
 		static void  OnUpdateEntity(Entity entity, TimeStep ts);
 
 		static Scene* GetSceneContext();
+		static MonoImage* GetCoreAssemblyImage();
+	
 	private:
 		static void InitMono();
 		static void ShutDownMono();
@@ -36,11 +39,8 @@ namespace Kans
 
 		static MonoObject* InstantiateClass(MonoClass* monoclass);
 		
-		
 
 		friend class ScriptClass;
-
-
 	};
 
 	class ScriptClass

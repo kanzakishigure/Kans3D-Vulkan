@@ -20,7 +20,7 @@ namespace Kans
 
 	EditorLayer::EditorLayer()
 		:m_CameraController(1920.0f / 1080.0f), Layer("EditorLayer")
-	{
+	{	
 
 	}
 	void EditorLayer::OnAttach()
@@ -109,21 +109,24 @@ namespace Kans
 #endif
 			// createMesh test
 #if 1
+			// the performance is sucks
 			{
-
+				for (int i = 0; i <1 ; i++)
 				{
-
-					auto CubeEntity = m_ActiveScene->CreateEntity("Cube1");
-					auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
-					auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
-					meshCMP.StaticMesh = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
-					meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
-					materialCMP.MaterialTable = meshCMP.MaterialTable;
-					auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
-					TransformCMP.Position = { 0.0f,0.0f,-3.0f };
-					TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
-					TransformCMP.Scale = { 0.5f,0.5f,0.5f };
-					CubeEntity.AddComponent<ScriptCompoenet>("Sandbox.Player");
+					{
+						std::string name = fmt::format("Cube_{0}", i);
+						auto CubeEntity = m_ActiveScene->CreateEntity(name);
+						auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
+						auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
+						meshCMP.StaticMesh = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
+						meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
+						materialCMP.MaterialTable = meshCMP.MaterialTable;
+						auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
+						TransformCMP.Position = { 0.0f,0.0f,-3.0f };
+						TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
+						TransformCMP.Scale = { 0.5f,0.5f,0.5f };
+						CubeEntity.AddComponent<ScriptComponent>("Sandbox.Player");
+					}
 				}
 
 			}
@@ -238,31 +241,27 @@ namespace Kans
 			if(!m_ViewportFocused)
 			m_CameraController.OnUpdate(ts);
 
-			
-
 		}
-		//renderer
 
-
-		Renderer2D::ResetStats();
-		m_Framebuffer->Bind();
-		RenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
-		RenderCommand::Clear();
-		
 		//updateScene
 		{
 			m_ActiveScene->OnUpdate(ts);
 
 		}
-
+		//renderer
+		Renderer2D::ResetStats();
+		m_Framebuffer->Bind();
+		RenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
+		RenderCommand::Clear();
+	
 		//rendering
 		//此处应该有renderpass
 		{
 			HZ_PROFILE_SCOPE("rendering")
-			m_ActiveScene->OnRenderer(m_StaticMeshRenderer,ts);
-			m_Framebuffer->Unbind();
-
+			m_ActiveScene->OnRenderer(m_StaticMeshRenderer, ts);
 		}
+		m_Framebuffer->Unbind();
+
 	}
 
 	void EditorLayer::OnEvent(Event& e)

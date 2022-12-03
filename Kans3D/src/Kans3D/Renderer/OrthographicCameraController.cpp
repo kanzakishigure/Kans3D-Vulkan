@@ -36,6 +36,7 @@ namespace Kans {
 		}
 		m_Camera.SetPosition(m_CameraPos);
 		
+		
 	}
 
 	void OrthographicCameraController::OnEvent(Event& e)

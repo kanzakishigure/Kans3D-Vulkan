@@ -43,9 +43,10 @@ namespace std {
 	{
 		typedef size_t resualt_type;
 		typedef Kans::UUID argyment_type;
+		//uuid:id is able and should be use to identify a entity;
 		size_t operator()(const Kans::UUID& id) const
 		{
-			return std::hash<uint64_t>()((uint64_t)id);
+			return (uint64_t)id;
 		}
 	};
 	template <>
@@ -55,7 +56,7 @@ namespace std {
 		typedef Kans::UUID32 argyment_type;
 		size_t operator()(const Kans::UUID32& id) const
 		{
-			return std::hash<uint32_t>()((uint32_t)id);
+			return hash<uint32_t>()((uint32_t)id);
 		}
 	};
 

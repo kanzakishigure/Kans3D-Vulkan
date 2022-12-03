@@ -9,13 +9,18 @@
 #include "Kans3D/Renderer/Mesh.h"
 namespace Kans 
 {
+	class ScriptableEntity;
+
+
+
 	struct IDComponent
 	{
 		UUID ID = 0;
 		IDComponent() = default;
 		IDComponent(const IDComponent&) = default;
 	};
-	struct  TagComponent
+	
+	struct TagComponent
 	{
 		std::string Tag;
 		TagComponent() = default;
@@ -25,7 +30,8 @@ namespace Kans
 		{}
 		operator std::string& () { return Tag; }
 	};
-	struct  TransformComponent
+	
+	struct TransformComponent
 	{
 
 		glm::vec3 Position = glm::vec3(0.0f);
@@ -53,6 +59,7 @@ namespace Kans
 		}
 
 	};
+	
 	struct CameraComponent
 	{
 		Kans::SceneCamera SceneCamera;
@@ -62,6 +69,7 @@ namespace Kans
 		CameraComponent(const CameraComponent&) = default;
 	
 	};
+	
 	struct SpriteRendererComponent
 	{
 		glm::vec4 Color = { 1.0f ,1.0f ,1.0f ,1.0f };
@@ -83,8 +91,6 @@ namespace Kans
 		}
 	};
 
-
-	class ScriptableEntity;
 	struct NativeScriptComponent
 	{
 		ScriptableEntity* Instance = nullptr;
@@ -115,6 +121,7 @@ namespace Kans
 		//Ref<Material> MeshMaterial;
 
 	};
+	
 	struct DirLightComponent
 	{
 		glm::vec3 Direction;
@@ -124,6 +131,7 @@ namespace Kans
 		DirLightComponent() = default;
 		DirLightComponent(const DirLightComponent&) = default;
 	};
+	
 	struct PointLightComponent
 	{
 		glm::vec3 Diffuse_Intensity;
@@ -132,6 +140,7 @@ namespace Kans
 		PointLightComponent() = default;
 		PointLightComponent(const PointLightComponent&) = default;
 	};
+	
 	struct MaterialComponent
 	{
 		MaterialComponent() = default;
@@ -140,11 +149,11 @@ namespace Kans
 		Ref<MaterialTable>  MaterialTable;
 	};
 
-	struct ScriptCompoenet
+	struct ScriptComponent
 	{
-		ScriptCompoenet() = default;
-		ScriptCompoenet(const ScriptCompoenet&) = default;
-		ScriptCompoenet(const std::string& name)
+		ScriptComponent() = default;
+		ScriptComponent(const ScriptComponent&) = default;
+		ScriptComponent(const std::string& name)
 			:ClassName(name)
 		{
 
@@ -152,4 +161,15 @@ namespace Kans
 
 		std::string ClassName;
 	};
+
+
+
+	//Component Type Register
+	template <typename ... Component>
+	struct ComponentGroup
+	{
+	};
+	using AllComponents = ComponentGroup<IDComponent,TagComponent,TransformComponent,CameraComponent,SpriteRendererComponent,
+										NativeScriptComponent,StaticMeshComponent,DirLightComponent, PointLightComponent, 
+										MaterialComponent, ScriptComponent >;
 }

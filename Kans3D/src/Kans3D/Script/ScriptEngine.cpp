@@ -65,10 +65,10 @@ namespace Kans
 		s_Context->EntityClass = ScriptClass("Kans", "Entity");
 		LoadAssemblyClasses(s_Context->CoreAssembly);
 		
+		//reg Component
+		ScriptAgent::RegisterComponents();
 		//reg Internal call
 		ScriptAgent::RegisterFunctions();
-		//Load Class in current Assembly
-
 #if 0
 		s_Context->CoreAssemblyImage = mono_assembly_get_image(s_Context->CoreAssembly);
 		s_Context->EntityClass = ScriptClass("Kans","Entity");
@@ -133,7 +133,7 @@ namespace Kans
 
 	void ScriptEngine::OnCreateEntity(Entity entity)
 	{
-		auto&scriptCMP = entity.GetComponent<ScriptCompoenet>();
+		auto&scriptCMP = entity.GetComponent<ScriptComponent>();
 		if (EntityClassExists(scriptCMP.ClassName))
 		{
 			auto& id = entity.GetUUID();
@@ -149,12 +149,12 @@ namespace Kans
 
 	void ScriptEngine::OnUpdateEntity(Entity entity, TimeStep ts)
 	{
-		auto& scriptCMP = entity.GetComponent<ScriptCompoenet>();
+		auto& scriptCMP = entity.GetComponent<ScriptComponent>();
 		auto& id = entity.GetUUID();
 		if (EntityClassExists(scriptCMP.ClassName))
 		{
 			
-			Ref<ScriptInstance> instance = s_Context->EntityInstances[id];
+			Ref<ScriptInstance> instance = s_Context->EntityInstances.at(id);
 			instance->InvokeOnUpdate((float)ts);
 		}
 		else
@@ -230,7 +230,10 @@ namespace Kans
 
 				s_Context->EntityClasses[fullname] = CreateRef<ScriptClass>(nameSpace, name);
 			}
-			HZ_CORE_WARN("Assembly class: {0} cacheed {1}", fullname, isEntityClass);
+
+			std::string logstr= fmt::format("Assembly class: {:<18}  cacheed: {:>8}", fullname, isEntityClass);
+			HZ_CORE_TRACE("{}", logstr);
+			//HZ_CORE_TRACE("Assembly class: {0}  cacheed {1}", fullname, isEntityClass);
 			//spdlog::info(spdlog::fmt_lib::format(std::locale("en_US.UTF-8"), "Multi threaded: {:L} threads, {:L} messages", threads, iters))
 		}
 		HZ_CORE_WARN("**************************************************************");
@@ -241,6 +244,12 @@ namespace Kans
 		MonoObject* instance = mono_object_new(s_Context->AppDomain, monoclass);
 		mono_runtime_object_init(instance);	// Call the parameterless (default) constructor
 		return instance;
+	}
+
+	MonoImage* ScriptEngine::GetCoreAssemblyImage()
+	{
+		HZ_CORE_ASSERT(s_Context->CoreAssemblyImage, "Script Engine is not Inited");
+		return s_Context->CoreAssemblyImage;
 	}
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -266,7 +275,6 @@ namespace Kans
 	MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** parameter /*=nullptr*/)
 	{
 		return mono_runtime_invoke(method, instance, parameter, nullptr);
-
 	}
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

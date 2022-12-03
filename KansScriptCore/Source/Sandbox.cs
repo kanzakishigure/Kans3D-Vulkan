@@ -32,29 +32,35 @@ namespace Sandbox
             Console.WriteLine($"{name}: call function with value: {value}");
         }
 
-        void OnCreate()
+        protected override void OnCreate()
         {
             Console.WriteLine($"call OnCreate,m id is {ID}");
         }
-        void OnUpdate(float ts)
+        protected override void OnUpdate(float ts)
         {
             // Console.WriteLine("call OnUpdate");
-           Vector3 position =  Translation;
-            if (Input.IsKeyPressed(KeyCode.W))
-                position.Y += ts;
+            if(HasComponent<TransformComponent>())
+            {
+                Vector3 position =  GetComponent<TransformComponent>().Translation;
 
-            if (Input.IsKeyPressed(KeyCode.S))
-                position.Y -= ts;
+    
+                    if (Input.IsKeyPressed(KeyCode.W))
+                        position.Y += ts;
 
+                    if (Input.IsKeyPressed(KeyCode.S))
+                        position.Y -= ts;
 
-            if (Input.IsKeyPressed(KeyCode.A))
-                position.X -= ts;
+                    if (Input.IsKeyPressed(KeyCode.A))
+                        position.X -= ts;
 
+                    if (Input.IsKeyPressed(KeyCode.D))
+                        position.X += ts;
 
-            if (Input.IsKeyPressed(KeyCode.D))
-                position.X += ts;
+                GetComponent<TransformComponent>().Translation = position;
 
-            Translation = position;
+            }
+           
+            
         }
 
     }

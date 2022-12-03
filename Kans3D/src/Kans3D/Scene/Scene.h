@@ -52,7 +52,7 @@ namespace  Kans
 		void SetName(const std::string& name ) { m_Name = name; }
 
 	private:
-		template<typename T>
+		template<typename T> 
 		void OnComponentAdd(Entity entity, T& component );
 	private:
 		entt::registry m_Registry;

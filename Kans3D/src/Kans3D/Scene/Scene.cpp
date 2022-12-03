@@ -47,7 +47,7 @@ namespace Kans
 				});
 		}
 		//update Script
-		auto view = m_Registry.view<ScriptCompoenet>();
+		auto view = m_Registry.view<ScriptComponent>();
 		for (auto entity : view)
 		{
 			Entity e = { entity,this };
@@ -244,7 +244,7 @@ namespace Kans
 		m_Registry.destroy(entity);
 	}
 
-	Kans::Entity Scene::GetEntityByUUID(UUID uuid) const
+	Entity Scene::GetEntityByUUID(UUID uuid) const
 	{
 		if (m_EntityMap.find(uuid) != m_EntityMap.end())
 		{
@@ -258,7 +258,7 @@ namespace Kans
 	
 		//Init 
 		ScriptEngine::OnRuntimeStart(this);
-		auto view = m_Registry.view<ScriptCompoenet>();
+		auto view = m_Registry.view<ScriptComponent>();
 		for (auto entity : view)
 		{
 			Entity e = { entity,this };
@@ -351,11 +351,8 @@ namespace Kans
 
 	}
 	template<>
-	void Scene::OnComponentAdd<ScriptCompoenet>(Entity entity, ScriptCompoenet& component)
+	void Scene::OnComponentAdd<ScriptComponent>(Entity entity, ScriptComponent& component)
 	{
 
 	}
-
-	
-
 }

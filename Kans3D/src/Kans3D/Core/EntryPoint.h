@@ -26,7 +26,7 @@ namespace Kans
 		delete app;
 		HZ_PROFILE_END_SESSION();
 
-
+		Log::ShutDown();
 		return 0;
 	}
 }
