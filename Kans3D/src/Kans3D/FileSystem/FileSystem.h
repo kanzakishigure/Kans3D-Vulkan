@@ -29,6 +29,8 @@ namespace Kans
 			static const std::filesystem::path& GetAssetFolder() { return s_Specification->AssetsDir; }
 			static const std::filesystem::path& GetFontsFolder() { return s_Specification->FontsDir; }
 			static const std::filesystem::path& GetScriptAssemblyPath() { return s_Specification->ScriptAssemblyPath; }
+
+			static const std::filesystem::path& GetResoucesFolder() { return s_Specification->ResoucesDir; }
 		private:
 			static FileSystemSpecification* s_Specification;
 

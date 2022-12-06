@@ -23,8 +23,8 @@ namespace Kans {
 			HZ_CORE_ASSERT(data, "texture load failure ");
 
 		}
-								 
-		
+
+
 		m_Height = height;
 		m_Width = width;
 		

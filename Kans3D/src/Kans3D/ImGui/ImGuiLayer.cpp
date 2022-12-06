@@ -218,6 +218,8 @@ namespace Kans
 			style.FrameBorderSize = 1.2f;
 			style.IndentSpacing = 11.0f;
 			style.WindowPadding = ImVec2(1.1, 1.4);
+			style.GrabRounding = 3.0;
+			style.ScrollbarRounding = 12.0;
 
 			
 	}

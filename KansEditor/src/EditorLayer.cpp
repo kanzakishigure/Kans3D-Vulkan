@@ -10,8 +10,13 @@
 #include <Kans3D/ImGui/Colors.h>
 #include <Kans3D/Renderer/MeshFactory.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-static const int S_mapwidth = 24;
-static const char* S_mapTiles= "";
+#define ShowImguiDemo		true
+#define ShowEditorUI		true
+#define EnbaleDocking		true
+#define TestLoadModel		false
+#define CrashTest			true
+#define SpotCloudTest		false
+#define NativeScript		false
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace Kans
@@ -27,6 +32,9 @@ namespace Kans
 	{
 		HZ_PROFILE_FUCTION();
 
+
+		//Resource Init
+		EditorResources::Init();
 
 		//FrameBuffer init
 		{
@@ -88,7 +96,7 @@ namespace Kans
 			}
 
 			// load Mesh test
-#if 0
+#if TestLoadModel
 			{
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
@@ -108,7 +116,7 @@ namespace Kans
 			}
 #endif
 			// createMesh test
-#if 1
+#if CrashTest
 			// the performance is sucks
 			{
 				for (int i = 0; i <1 ; i++)
@@ -133,7 +141,7 @@ namespace Kans
 #endif		
 			// spotCloud test
 
-#if 0
+#if SpotCloudTest
 			{
 				auto CubeEntity = m_ActiveScene->CreateEntity("Cloud");
 				auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
@@ -150,7 +158,7 @@ namespace Kans
 			}
 #endif
 			//Native Script
-#if 0
+#if NativeScript
 				
 				{
 					class CameracontorlScript : public ScriptableEntity
@@ -197,9 +205,10 @@ namespace Kans
 				}
 #endif
 			
-			//HierachyPanel
+			//InitPanel
 			{
-				m_SceneHierachyPanel = { m_ActiveScene };
+					m_SceneHierachyPanel.SetSceneContext(m_ActiveScene);
+					
 			}
 				
 			m_ActiveScene->OnRuntimeStart();
@@ -215,7 +224,7 @@ namespace Kans
 		HZ_PROFILE_FUCTION();
 		HZ_CORE_INFO("{0} call detach",Application::Get().GetSpecification().Name);
 		Renderer2D::Shutdown();
-
+		EditorResources::ShutDown();
 
 		
 	}
@@ -274,8 +283,8 @@ namespace Kans
 	{
 		HZ_PROFILE_FUCTION();
 		
-//Imgui docking code
-#if 1
+//Imgui docking Init
+#if EnbaleDocking
 		static bool p_open = true;
 		static bool opt_fullscreen = true;
 		static bool opt_padding = false;
@@ -362,9 +371,11 @@ namespace Kans
 		}
 		ImGui::End();
 #endif
-
+#if ShowImguiDemo
+		ImGui::ShowDemoWindow();
+#endif
 //Editor UI
-#if 1
+#if ShowEditorUI
 	//ProjectSpecication
 	{
 		ImGui::Begin("ProjectSpecication");
@@ -387,7 +398,8 @@ namespace Kans
 
 	}
 	//HierachyPanel
-	m_SceneHierachyPanel.OnImguiRender();
+	m_SceneHierachyPanel.OnImguiRender(true);
+	m_ContentBrowserPanel.OnImguiRender(true);
 	//Viewport
 		//Color FrameBuffer
 		if (1)

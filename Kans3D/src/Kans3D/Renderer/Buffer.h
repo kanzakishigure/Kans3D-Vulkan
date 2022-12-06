@@ -1,4 +1,6 @@
 #pragma once
+#include "Kans3D/Core/Base.h"
+#include "Kans3D/Core/Log.h"
 namespace Kans {
 
 	enum class ShaderDataType
@@ -11,7 +13,7 @@ namespace Kans {
 		Color4, Color3
 
 	};
-	static uint32_t ShaderTypeSize(ShaderDataType type)
+	static uint32_t ShaderTypeToSize(ShaderDataType type)
 	{
 		switch (type)
 		{
@@ -41,7 +43,7 @@ namespace Kans {
 		ShaderDataType Type;
 		bool Normalized;
 		BufferElement(ShaderDataType type,const std::string& name ,bool normalized = false)
-			:Name(name), Type(type), Size(ShaderTypeSize(type)), Offset(0),Normalized(normalized)
+			:Name(name), Type(type), Size(ShaderTypeToSize(type)), Offset(0),Normalized(normalized)
 		{
 			
 		}

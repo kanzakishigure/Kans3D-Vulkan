@@ -1,6 +1,8 @@
 #pragma once
 #include <Kans3D.h>
 #include "Panels/SceneHierachyPanel.h"
+#include "Panels/ContentBrowserPanel.h"
+
 namespace Kans {
 	class EditorLayer :public Kans::Layer
 	{
@@ -30,9 +32,11 @@ namespace Kans {
 		Entity m_CameraEntity;
 		Entity m_SecondCameraEntity;
 
+		//We Should Have PanelManger or such things 
 		//HierachyPanel
 		SceneHierachyPanel m_SceneHierachyPanel;
-
+		//ContentBrowserPanel
+		ContentBrowserPanel m_ContentBrowserPanel;
 	};
 
 

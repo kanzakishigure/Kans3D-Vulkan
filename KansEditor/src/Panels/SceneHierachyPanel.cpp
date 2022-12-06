@@ -1,4 +1,5 @@
 #include "SceneHierachyPanel.h"
+
 #include "kans3D/Scene/Components.h"
 #include "kans3D/Utilities/UI/KansUI.h"
 
@@ -6,26 +7,15 @@
 #include "Kans3D/Script/ScriptEngine.h"
 #include "Kans3D/ImGui/Colors.h"
 
-
 #include <glm/gtc/type_ptr.hpp>
 #include <sstream>
 
 namespace Kans
 {
 
-	SceneHierachyPanel::SceneHierachyPanel(const Ref<Scene>& scene)
+	void SceneHierachyPanel::OnImguiRender(bool isOpen )
 	{
-		SetContext(scene);
-	}
-
-	void SceneHierachyPanel::SetContext(const Ref<Scene>& context)
-	{
-		m_Context = context;
-	}
-
-	void SceneHierachyPanel::OnImguiRender()
-	{
-
+		
 		{
 			ImGui::Begin("SceneHierachyPanel:");
 			m_Context->m_Registry.each([&](auto entityID)
@@ -72,8 +62,8 @@ namespace Kans
 					if (ImGui::MenuItem("Mesh Component"))
 					{
 						auto& meshCMP = m_SelectionContext.AddComponent<StaticMeshComponent>();
-						auto meshSrouce = CreateRef<MeshSource>("assets/model/GY_Light/GY_Light.fbx");
-						meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
+						auto meshSrouce = nullptr;
+						meshCMP.StaticMesh = nullptr;
 					}
 					if (ImGui::MenuItem("Camera Component"))
 					{
@@ -298,7 +288,11 @@ namespace Kans
 			ImGui::ColorEdit3("Ambient_Intensity", glm::value_ptr(component.Ambient_Intensity));
 			});
 		UI::DrawComponent<StaticMeshComponent>("Mesh", entity, [](StaticMeshComponent& component) {
-			ImGui::Text("Mesh load path is: %s", component.StaticMesh->GetMeshSource()->GetLoadPath().c_str());
+			if (component.StaticMesh)
+			{
+				ImGui::Text("Mesh load path is: %s", component.StaticMesh->GetMeshSource()->GetLoadPath().c_str());
+			}
+			
 			});
 		UI::DrawComponent<MaterialComponent>("Material", entity, [](MaterialComponent& component) {
 			const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_Framed

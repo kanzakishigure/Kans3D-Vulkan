@@ -1,16 +1,16 @@
 Scene: TestDemo
-? Entity: 5369170855585016061
+? Entity: 3382894427887806933
   TagComponent:
     Tag: Cube_0
-: Entity: 2244648105420993837
+: Entity: 2975927778992136998
   TagComponent:
     Tag: mainCamera
-? Entity: 8225175739872370187
+? Entity: 6543198158899577776
   TagComponent:
     Tag: RefEntity
-: Entity: 7302773373665742497
+: Entity: 8736478875767787913
   TagComponent:
     Tag: DirLight
-? Entity: 3879447502953527467
+? Entity: 457570611083780998
   TagComponent:
     Tag: PointLight

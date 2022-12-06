@@ -121,6 +121,7 @@ namespace Kans
 			auto group = m_Registry.view<TransformComponent, StaticMeshComponent>();
 			for (auto entity : group)
 			{
+				Entity entt = { entity,this };
 				RenderCommand::EnableSetStencil(true);
 				RenderCommand::StencilOp(StencilOption::KEEP, StencilOption::KEEP, StencilOption::REPLACE);
 				RenderCommand::SetStencilFunc(StencilFunction::ALWAYS, 1, 0xff);	
@@ -169,7 +170,7 @@ namespace Kans
 				}
 
 				//StaticMesh
-				if (1)
+				if (entt.HasComponent<MaterialComponent>())
 				{
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();

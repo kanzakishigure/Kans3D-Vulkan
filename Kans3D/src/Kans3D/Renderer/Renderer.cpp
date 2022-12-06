@@ -55,6 +55,7 @@ namespace Kans {
 			s_RendererData->BlackTexture->SetData((void*)&data, sizeof(uint32_t));
 		}
 		//shader
+		//TODO technically we can use spr-v reflect the vulkan-glsl pushconst to get the UniformStorgeBuffer
 		{
 			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string();
 			{
