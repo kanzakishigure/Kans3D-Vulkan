@@ -63,9 +63,8 @@ namespace Kans {
 		m_Shader = shader;
 	}
 
-	/// <summary>
+
 	/// we should up date the data every frame
-	/// </summary>
 	void OpenGLMaterial::Invalidate()
 	{
 

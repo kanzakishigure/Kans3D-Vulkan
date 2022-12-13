@@ -9,13 +9,11 @@ namespace Kans
 	//窗口的抽象化属性
 	struct WindowSpecification
 	{
-		std::string Title;
-		unsigned int Width;
-		unsigned int Height;
-		WindowSpecification(const std::string& title = "Kans Engine",
-			unsigned int width = 1920,
-			unsigned int height = 1080)
-			:Title(title), Width(width), Height(height){}
+		std::string Title = "Kans Engine";
+		unsigned int Width = 1920;
+		unsigned int Height = 1080;
+		bool Fullscreen = false;
+		bool HideTitlebar = true;
 	};
 	class  Window
 	{
@@ -23,7 +21,11 @@ namespace Kans
 		//使用function容器存储void（Event&）的函数
 		using EventCallbackFn = std::function<void(Event&)>;
 		virtual ~Window() {}
-		virtual void OnUpdate() = 0;
+
+		virtual void Init() = 0;
+		virtual void ProcessEvents() = 0;
+		virtual void SwapBuffers() = 0;
+
 		virtual unsigned int GetWidth() const = 0;
 		virtual unsigned int GetHeight() const = 0;
 		//window 结构

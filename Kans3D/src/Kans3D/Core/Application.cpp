@@ -34,11 +34,18 @@ namespace Kans
 		HZ_PROFILE_FUCTION();
 		s_Instance = this;
 		//-------------create application Surface and init the render context-----------------//
-		RendererAPI::SetAPI(RendererAPIType::OPENGL);
-		WindowSpecification windowProps(spec.Name);
-		m_Window = Window::Create(windowProps);
-		m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
-
+		{
+			RendererAPI::SetAPI(RendererAPIType::OPENGL);
+			WindowSpecification windowSpec;
+			windowSpec.Title = spec.Name;
+			windowSpec.Height = spec.Height;
+			windowSpec.Width = spec.Width;
+			windowSpec.Fullscreen = spec.Fullscreen;
+			windowSpec.HideTitlebar = spec.HideTitlebar;
+			m_Window = Window::Create(windowSpec);
+			m_Window->Init();
+			m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
+		}
 		//-------------Init the Renderer----------------------------//
 		Renderer::Init();
 		
@@ -65,8 +72,9 @@ namespace Kans
 		HZ_PROFILE_FUCTION();
 		while (m_Running)
 		{
-			float time = (float)glfwGetTime();
-			m_TimeStep = TimeStep(float(glfwGetTime()-m_LastFrameTime) );
+			float time = GetTime();
+			m_Frametime = TimeStep(float(glfwGetTime()-m_LastFrameTime) );
+			m_TimeStep = glm::min<float>(m_Frametime, 0.0333f);
 			m_LastFrameTime = time;
 
 			
@@ -86,9 +94,9 @@ namespace Kans
 					layer->OnImGuiRender();
 					m_ImGuiLayer->End();
 				}
+				m_Window->SwapBuffers();
 			}
-			m_Window->OnUpdate();
-
+			ProcessEvents();
 		}
 	}
 	void Application::OnEvent(Event& e)
@@ -120,6 +128,17 @@ namespace Kans
 		m_LayerStack.PushLayer(overlay);
 		overlay->OnAttach();
 	}
+
+	float Application::GetTime() const
+	{
+		return (float)glfwGetTime();
+	}
+
+	void Application::ProcessEvents()
+	{
+		m_Window->ProcessEvents();
+	}
+
 	bool Application::OnWindowClose(WindowCloseEvent& e)
 	{
 		m_Running = false;

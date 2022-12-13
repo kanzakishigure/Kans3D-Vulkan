@@ -36,7 +36,8 @@ public:
 		spec.ConfigPath = config_file_path.string();
 		spec.Height = 1080;
 		spec.Width = 1920;
-
+		spec.Fullscreen = false;
+		spec.HideTitlebar = false;
 		
 		return new KansEditor(spec);
 	}

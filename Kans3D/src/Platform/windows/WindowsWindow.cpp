@@ -4,10 +4,12 @@
 #include "Platform/Vulkan/VulkanContext.h"
 
 #include"kans3D/Events/ApplicationEvent.h"
+#include "Kans3D/Core/Input.h"
 #include"kans3D/Events/KeyEvent.h"
 #include"kans3D/Events/MouseEvent.h"
 #include "Kans3D/Renderer/RendererAPI.h"
 #include<glad/glad.h>
+#include <imgui.h>
 
 namespace Kans {
 
@@ -24,8 +26,9 @@ namespace Kans {
 		
 	}
 	WindowsWindow::WindowsWindow(const WindowSpecification& props)
+		:m_Specification(props)
 	{
-		Init(props);
+		
 	}
 
 	WindowsWindow::~WindowsWindow()
@@ -37,26 +40,50 @@ namespace Kans {
 		WindowsWindow::Shutdown();
 	}
 
-	void WindowsWindow::Init(const WindowSpecification& spec)
+	void WindowsWindow::Init()
 	{
 		HZ_PROFILE_FUCTION();
-		m_Data.Title = spec.Title;
-		m_Data.Width = spec.Width;
-		m_Data.Height = spec.Height;
+		m_Data.Title = m_Specification.Title;
+		m_Data.Width = m_Specification.Width;
+		m_Data.Height = m_Specification.Height;
 
-		HZ_CORE_INFO("创建窗口{0}({1},{2})", spec.Title, spec.Width, spec.Height);
+		HZ_CORE_INFO("create window [{0}] : ({1},{2})", m_Specification.Title, m_Specification.Width, m_Specification.Height);
 		if (!s_GLiFWIntialized)
 		{
 			//TODO：glfwterminate on system shutdown
 			HZ_PROFILE_SCOPE("glfwInit");
 			
 			int success = glfwInit();
-			HZ_CORE_ASSERT(success, "无法初始化GLFW!");
+			HZ_CORE_ASSERT(success, "unable init GLFW!");
 			glfwSetErrorCallback(GLFWErrorCallback);
 			s_GLiFWIntialized = true;
 		}
 		if (RendererAPI::GetAPI() == RendererAPIType::Vulkan)
 			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+		if (m_Specification.HideTitlebar)
+		{
+#ifdef HZ_PLATFORM_WINDOWS
+			glfwWindowHint(GLFW_TITLEBAR, false);
+#else
+			glfwWindowHint(GLFW_DECORATED, false);
+#endif
+		}
+
+		if (m_Specification.Fullscreen)
+		{
+			GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+			const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
+
+			glfwWindowHint(GLFW_DECORATED, false);
+			glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+			glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+			glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+			glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+
+			m_Window = glfwCreateWindow(mode->width, mode->height, m_Data.Title.c_str(), primaryMonitor, nullptr);
+		}
+		else
 		{
 			HZ_PROFILE_SCOPE("glfwCreateWindow");
 			m_Window = glfwCreateWindow(m_Data.Width, m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
@@ -159,6 +186,15 @@ namespace Kans {
 			KeyTypedEvent event(keycode);
 			data.EventCallback(event);
 			});
+
+		// Update window size to actual size
+		{
+			int width, height;
+			glfwGetWindowSize(m_Window, &width, &height);
+			m_Data.Width = width;
+			m_Data.Height = height;
+		}
+		
 		
 	}
 	void WindowsWindow::Shutdown()
@@ -168,14 +204,26 @@ namespace Kans {
 		glfwDestroyWindow(m_Window);
 		
 	}
-	void WindowsWindow::OnUpdate()
+	void WindowsWindow::ProcessEvents()
 	{
 		HZ_PROFILE_FUCTION();
-		//检测是否有事件触发，若有事件触发，更新状态，调用该事件的回调函数
 		glfwPollEvents();
-		m_Context->SwapBuffers();
-		//(它是一个储存着GLFW窗口每一个像素颜色值的大缓冲），它在这一迭代中被用来绘制，并且将会作为输出显示在屏幕上。
+		//detect the handle or other device
+		Input::Update();
 	}
+
+	void WindowsWindow::SwapBuffers()
+	{
+		if (RendererAPI::GetAPI() == RendererAPIType::OPENGL)
+		{
+			m_Context->SwapBuffers();
+		}
+		if (RendererAPI::GetAPI() == RendererAPIType::Vulkan)
+		{
+			m_SwapChain;
+		}
+	}
+
 	void WindowsWindow::SetVSync(bool enable)
 	{
 		HZ_PROFILE_FUCTION();

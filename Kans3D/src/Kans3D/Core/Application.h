@@ -18,6 +18,8 @@ namespace Kans{
 		//the Windows Specification
 		uint32_t  Width = 1920;
 		uint32_t Height = 1080;
+		bool Fullscreen = false;
+		bool HideTitlebar = true;
 	};
 
 	class  Application
@@ -39,9 +41,16 @@ namespace Kans{
 			inline  Window& GetWindow() { return *m_Window; }
 
 			const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+
+			float GetTime() const;
+			TimeStep GetTimestep() const { return m_TimeStep; }
+			TimeStep GetFrametime() const { return m_Frametime; }
+			
+			
 	public:
 		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 	private:
+		void ProcessEvents();
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
 	private:
@@ -54,7 +63,10 @@ namespace Kans{
 
 		LayerStack m_LayerStack;
 		static Application* s_Instance;
+
 		TimeStep m_TimeStep;
+		TimeStep m_Frametime;
+
 		float m_LastFrameTime=0.0f;
 	private:
 		

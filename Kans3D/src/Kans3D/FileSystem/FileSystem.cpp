@@ -49,7 +49,25 @@ namespace Kans{
 			
 		}
 
-		
+		if (!s_Specification->WorkSpace.empty())
+		{
+			std::filesystem::path tmpPath = std::filesystem::current_path();
+			std::filesystem::path parentPath;
+			while (tmpPath.has_parent_path())
+			{
+				tmpPath = tmpPath.parent_path();
+				if (tmpPath.filename() == "Vulkan_Engine")
+				{
+					parentPath = tmpPath;
+					break;
+				}
+			}
+			if (!parentPath.empty())
+			{
+				std::filesystem::path workPath = parentPath /= s_Specification->WorkSpace;
+				std::filesystem::current_path(workPath);
+			}
+		}
 		
 	}
 

@@ -12,7 +12,12 @@ namespace Kans {
 		
 		WindowsWindow(const WindowSpecification& props);
 		virtual ~WindowsWindow();
-		void OnUpdate() override;
+
+		
+		virtual void Init() override;
+		virtual void ProcessEvents() override;
+		virtual void SwapBuffers() override;
+
 		inline unsigned int GetWidth() const override		{ return m_Data.Width; }
 		inline unsigned int GetHeight() const override		{ return m_Data.Height; }
 
@@ -22,7 +27,6 @@ namespace Kans {
 		bool IsVSync() const override ;
 		virtual inline void* GetNativeWindow() const override { return m_Window; }
 	private:
-		virtual void Init(const WindowSpecification& props);
 		virtual void Shutdown ();
 
 	private:
@@ -37,7 +41,10 @@ namespace Kans {
 		};
 		WindowData m_Data;
 		Ref<RenderContext> m_Context;
-		//通过结构体来传递全部数据
+		
+		WindowSpecification m_Specification;
+
+		
 	private:
 		static int s_GLFWWindowsCount;
 	private:
