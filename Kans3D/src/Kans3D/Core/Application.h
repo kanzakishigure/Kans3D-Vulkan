@@ -1,11 +1,12 @@
 #pragma once
 #include "Kans3D/Core/Base.h"
+#include "Kans3D/Core/Window.h"
+#pragma once
+#include "Kans3D/Core/LayerStack.h"
+#include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Events/Event.h"
 #include "Kans3D/Events/ApplicationEvent.h"
-#include "Kans3D/Core/LayerStack.h"
-#include "Window.h"
-#include "Kans3D//ImGui/ImGuiLayer.h"
-#include "Kans3D/Core/TimeStep.h"
+#include "Kans3D/ImGui/ImGuiLayer.h"
 namespace Kans{
 
 

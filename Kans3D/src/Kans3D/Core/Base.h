@@ -1,7 +1,7 @@
 #pragma once
 #include<memory>
 #include <atomic>
-#include "PlatformDetection.h"
+#include "Kans3D/Core/PlatformDetection.h"
 
 
 

@@ -12,8 +12,8 @@ namespace Kans
 		std::string Title = "Kans Engine";
 		unsigned int Width = 1920;
 		unsigned int Height = 1080;
-		bool Fullscreen = false;
-		bool HideTitlebar = true;
+		bool Fullscreen ;
+		bool HideTitlebar ;
 	};
 	class  Window
 	{

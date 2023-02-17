@@ -1,14 +1,16 @@
 #include"kspch.h"
 
-#include "Application.h"
+#include "Kans3D/Core/Application.h"
+#include "Kans3D/Core/Input.h"
 #include "Kans3D/Core/Log.h"
-#include "Input.h"
-#include "kans3D/Renderer/Renderer.h"
 #include "Kans3D/Core/KeyCodes.h"
+#include "kans3D/Renderer/Renderer.h"
 #include "Kans3D/Script/ScriptEngine.h"
 #include "Kans3D/FileSystem/FileSystem.h"
-#include <filesystem>
+
 #include <GLFW/glfw3.h>
+
+#include <filesystem>
 namespace Kans
 {
 	#define BIND_EVENT_FN(x) std::bind(&x,this,std::placeholders::_1)

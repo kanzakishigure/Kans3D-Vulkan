@@ -1,5 +1,5 @@
 #include "kspch.h"
-#include "Kans3D/Core/Input.h"
+#include "Input.h"
 
 namespace Kans
 {
