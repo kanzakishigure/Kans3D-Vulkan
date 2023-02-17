@@ -44,8 +44,7 @@ namespace Kans
 	public:
 		virtual const ShaderBuffer& GetShaderBuffer()  const override { return m_Shaderbuffer; }
 		virtual const void SetShaderBuffer(ShaderBufferLayout layout)  override;
-		uint32_t m_RendererID;
-		std::string m_Name;
+		
 	private:
 		
 		std::string ReadFile(const std::string& filepath);
@@ -53,5 +52,7 @@ namespace Kans
 		void Compile(const std::unordered_map<GLenum, std::string>& shadersource);
 	private:
 		ShaderBuffer m_Shaderbuffer;
+		uint32_t m_RendererID;
+		std::string m_Name;
 	};
 }

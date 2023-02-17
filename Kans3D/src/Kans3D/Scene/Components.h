@@ -74,6 +74,7 @@ namespace Kans
 	{
 		glm::vec4 Color = { 1.0f ,1.0f ,1.0f ,1.0f };
 		Ref<Texture2D> Texture;
+		float TilingFactor = 1.0f;
 		//目前未实现texture
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent& ) = default;
@@ -91,6 +92,7 @@ namespace Kans
 		}
 	};
 
+	//can't be serialize
 	struct NativeScriptComponent
 	{
 		ScriptableEntity* Instance = nullptr;

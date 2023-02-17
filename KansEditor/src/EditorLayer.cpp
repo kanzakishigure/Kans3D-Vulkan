@@ -13,7 +13,7 @@
 #define ShowImguiDemo		true
 #define ShowEditorUI		true
 #define EnbaleDocking		true
-#define TestLoadModel		false
+#define TestLoadModel		true	
 #define CrashTest			true
 #define SpotCloudTest		false
 #define NativeScript		false
@@ -321,7 +321,7 @@ namespace Kans
 			ImGui::PopStyleVar(2);
 
 			
-		UI::RenderWindowOuterBorders(ImGui::GetCurrentWindow());
+		
 		
 
 		// DockSpace

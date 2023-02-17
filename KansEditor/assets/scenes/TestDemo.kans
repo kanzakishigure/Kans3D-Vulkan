@@ -1,16 +1,66 @@
 Scene: TestDemo
-? Entity: 3382894427887806933
+? Entity: 5715829744552391935
   TagComponent:
     Tag: Cube_0
-: Entity: 2975927778992136998
+  TransformComponent:
+    Position: vec3(0.000000, 0.000000, -3.000000)
+    Rotation: vec3(0.000000, 0.000000, 0.000000)
+    Scale: vec3(0.500000, 0.500000, 0.500000)
+  StaticMeshComponent:
+    {}
+  MaterialComponent:
+    MaterialTable: ""
+  ScriptComponent:
+    ClassName: Sandbox.Player
+: Entity: 5454504371644292272
   TagComponent:
     Tag: mainCamera
-? Entity: 6543198158899577776
+  TransformComponent:
+    Position: vec3(0.000000, 0.700000, 1.500000)
+    Rotation: vec3(0.000000, 0.000000, 0.000000)
+    Scale: vec3(1.000000, 1.000000, 1.000000)
+  CameraComponent:
+    ProjectionType: 0
+    PerspectiveFOV: 45
+    PerspectiveFarClip: 1000
+    PerspectiveNearClip: 0.100000001
+    OrthographicSize: 10
+    OrthographicFarClip: 1
+    OrthographicNearClip: -1
+    AspectRatio: 1.79999995
+    Primary: true
+    FixedAspectRatio: false
+? Entity: 8412367943081242293
   TagComponent:
     Tag: RefEntity
-: Entity: 8736478875767787913
+  TransformComponent:
+    Position: vec3(2.300000, 0.000000, -12.000000)
+    Rotation: vec3(0.000000, 0.000000, 0.000000)
+    Scale: vec3(19.200001, 10.800000, 1.000000)
+  SpriteRendererComponent:
+    Color: vec4(1.000000, 1.000000, 1.000000, 1.000000)
+    Texture: assets/textures/GY.png
+    TilingFactor: 1
+: Entity: 4819039835227688015
   TagComponent:
     Tag: DirLight
-? Entity: 457570611083780998
+  TransformComponent:
+    Position: vec3(0.000000, 0.000000, 0.000000)
+    Rotation: vec3(0.000000, 0.000000, 0.000000)
+    Scale: vec3(1.000000, 1.000000, 1.000000)
+  DirLightComponent:
+    Direction: vec3(1.000000, 1.000000, 1.000000)
+    Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
+    Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
+    Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
+? Entity: 8219598184912216981
   TagComponent:
     Tag: PointLight
+  TransformComponent:
+    Position: vec3(10.000000, 20.000000, 3.300000)
+    Rotation: vec3(0.000000, 0.000000, 0.000000)
+    Scale: vec3(1.000000, 1.000000, 1.000000)
+  PointLightComponent:
+    Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
+    Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
+    Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
