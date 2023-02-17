@@ -1,7 +1,5 @@
 #pragma once
-#include "Core/Base.h"
-
-
+#include "Kans3D/Core/Base.h"
 namespace Kans
 {
 	enum AssetFlag : uint16_t
@@ -11,7 +9,7 @@ namespace Kans
 		Invalid = BIT(1)
 	}; 
 
-	enum AssetType:uint16_t
+	enum AssetType : uint16_t
 	{
 		None		= 0,
 		Scene		= 1,

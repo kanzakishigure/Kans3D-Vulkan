@@ -1,5 +1,5 @@
 #pragma once
-#include "Asset.h"
+#include "Kans3D/Asset/Asset.h"
 #include <filesystem>
 namespace Kans
 {
