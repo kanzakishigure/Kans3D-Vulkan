@@ -1,6 +1,6 @@
 #pragma once
-#include "kans3D/Core/Base.h"
-#include "kans3D/Core/Log.h"
+#include "kans3D/Core/Base/Base.h"
+#include "kans3D/Core/Log/Log.h"
 #include <glm/glm.hpp>
 namespace Kans
 {

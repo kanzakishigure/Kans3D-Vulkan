@@ -1,6 +1,6 @@
 #pragma once
-#include"Kans3D/Events/Event.h"
-#include"Kans3D/Core/MouseCodes.h"
+#include"Kans3D/Core/Events/Event.h"
+#include"Kans3D/Input/MouseCodes.h"
 
 namespace Kans
 {

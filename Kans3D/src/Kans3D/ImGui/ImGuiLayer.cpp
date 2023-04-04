@@ -8,6 +8,7 @@
 #include "Kans3D/Core/Application.h"
 
 #include "Kans3D/ImGui/Colors.h"
+#include "Kans3D/FileSystem/FileSystem.h"
 //Temp
 #include<GLFW/glfw3.h>
 #include <glad/glad.h>
@@ -48,9 +49,9 @@ namespace Kans
 		//Set the default font
 		{
 			
-			std::filesystem::path Dfontpath= "Resources/Fonts/Roboto/Roboto-Regular.ttf";
+			std::filesystem::path Dfontpath= KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Regular.ttf";
 			io.FontDefault = io.Fonts->AddFontFromFileTTF(Dfontpath.generic_string().c_str(),16.0f);
-			std::filesystem::path fontpath = "Resources/Fonts/Roboto/Roboto-Bold.ttf";
+			std::filesystem::path fontpath = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Bold.ttf";
 			io.Fonts->AddFontFromFileTTF(fontpath.generic_string().c_str(), 16.0f);
 		}
 

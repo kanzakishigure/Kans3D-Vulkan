@@ -65,7 +65,7 @@ namespace Kans{
 			if (!parentPath.empty())
 			{
 				std::filesystem::path workPath = parentPath /= s_Specification->WorkSpace;
-				std::filesystem::current_path(workPath);
+				//std::filesystem::current_path(workPath);
 			}
 		}
 		

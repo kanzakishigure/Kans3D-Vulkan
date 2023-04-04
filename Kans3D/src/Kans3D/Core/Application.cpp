@@ -1,15 +1,14 @@
-#include"kspch.h"
+#include "kspch.h"
 
 #include "Kans3D/Core/Application.h"
-#include "Kans3D/Core/Input.h"
-#include "Kans3D/Core/Log.h"
-#include "Kans3D/Core/KeyCodes.h"
+#include "Kans3D/Core/Log/Log.h"
+#include "Kans3D/Input/Input.h"
+#include "Kans3D/Input/KeyCodes.h"
 #include "kans3D/Renderer/Renderer.h"
 #include "Kans3D/Script/ScriptEngine.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 
 #include <GLFW/glfw3.h>
-
 #include <filesystem>
 namespace Kans
 {
@@ -35,21 +34,23 @@ namespace Kans
 
 		HZ_PROFILE_FUCTION();
 		s_Instance = this;
+
+		RendererAPI::SetAPI(RendererAPIType::OPENGL);
 		//-------------create application Surface and init the render context-----------------//
 		{
-			RendererAPI::SetAPI(RendererAPIType::OPENGL);
+			
 			WindowSpecification windowSpec;
 			windowSpec.Title = spec.Name;
 			windowSpec.Height = spec.Height;
 			windowSpec.Width = spec.Width;
 			windowSpec.Fullscreen = spec.Fullscreen;
 			windowSpec.HideTitlebar = spec.HideTitlebar;
-			m_Window = Window::Create(windowSpec);
+			m_Window = std::unique_ptr<Window>(Window::Create(windowSpec));
 			m_Window->Init();
 			m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
 		}
 		//-------------Init the Renderer----------------------------//
-		Renderer::Init();
+		Renderer::Init(m_Window);
 		
 		//-------------Init The UI interface------------------------//
 		m_ImGuiLayer = new ImGuiLayer();
@@ -64,6 +65,17 @@ namespace Kans
 	}
 	Application::~Application()
 	{
+
+		//terminate the all thread
+
+		m_Window->SetEventCallback([](Event& e) {});
+
+		//clear the resource
+		for (Layer* layer : m_LayerStack)
+		{
+			layer->OnDetach();
+			delete layer;
+		}
 
 		KansFileSystem::ShutDown();
 		Renderer::Shutdown();
@@ -111,7 +123,7 @@ namespace Kans
 		for (auto it = m_LayerStack.begin() ;it!=m_LayerStack.end(); ++it)
 		{
 			
-			(*it)->OnEvent(e);//时间的处理从最后渲染的layer向前穿透
+			(*it)->OnEvent(e);//the processing order of events depends on render order ,the last layer will handle the event fast
 			if (e.Handeled)
 				break;
 		}

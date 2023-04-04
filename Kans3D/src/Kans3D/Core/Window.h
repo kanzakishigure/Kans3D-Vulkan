@@ -1,6 +1,6 @@
 #pragma once
-#include "Kans3D/Events/Event.h"
-#include "Kans3D/Core/Base.h"
+#include "Kans3D/Core/Events/Event.h"
+#include "Kans3D/Core/Base/Base.h"
 
 ///本文件是对window类的抽象描述
 ///函数均为纯虚函数，且无任何依赖
@@ -14,6 +14,7 @@ namespace Kans
 		unsigned int Height = 1080;
 		bool Fullscreen ;
 		bool HideTitlebar ;
+		bool VSync = true;
 	};
 	class  Window
 	{
@@ -33,8 +34,9 @@ namespace Kans
 		virtual void SetVSync(bool enabled) = 0;
 		virtual bool IsVSync() const = 0;
 		virtual inline void* GetNativeWindow() const = 0;
+
 		//这些部分需要在实际的平台上实现，这里应该将依赖隔离，只提供接口
-		static Scope<Window> Create(const WindowSpecification& props = WindowSpecification());
+		static Window* Create(const WindowSpecification& props = WindowSpecification());
 		//使用结构体构造函数对结构体引用赋值
 	};
 }

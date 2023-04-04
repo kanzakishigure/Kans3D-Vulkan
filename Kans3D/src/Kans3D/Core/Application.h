@@ -1,11 +1,11 @@
 #pragma once
-#include "Kans3D/Core/Base.h"
+#include "Kans3D/Core/Base/Base.h"
 #include "Kans3D/Core/Window.h"
-#pragma once
 #include "Kans3D/Core/LayerStack.h"
 #include "Kans3D/Core/TimeStep.h"
-#include "Kans3D/Events/Event.h"
-#include "Kans3D/Events/ApplicationEvent.h"
+#include "Kans3D/Core/Events/Event.h"
+#include "Kans3D/Core/Events/ApplicationEvent.h"
+
 #include "Kans3D/ImGui/ImGuiLayer.h"
 namespace Kans{
 
@@ -25,27 +25,27 @@ namespace Kans{
 
 	class  Application
 	{
-		public:
-			Application(const ApplicationSpecification& spec);
+	public:
+		Application(const ApplicationSpecification& spec);
 
-			//保证application在派生类调用时，能调用到派生类的虚析构函数
-			virtual ~Application();
+		//保证application在派生类调用时，能调用到派生类的虚析构函数
+		virtual ~Application();
 
-			void run();
-			void OnEvent(Event& e);
-			void PushLayer(Layer* layer);
-			void PushOverlay(Layer* overlay);
-			void Close() { m_Running = false; }
+		void run();
+		void OnEvent(Event& e);
+		void PushLayer(Layer* layer);
+		void PushOverlay(Layer* overlay);
+		void Close() { m_Running = false; }
 
-			//返回的是application的单例，所以不应该将指针返回
-			inline static Application& Get() { return *s_Instance; }
-			inline  Window& GetWindow() { return *m_Window; }
+		//返回的是application的单例，所以不应该将指针返回
+		inline static Application& Get() { return *s_Instance; }
+		inline  Window& GetWindow() { return *m_Window; }
 
-			const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
-			float GetTime() const;
-			TimeStep GetTimestep() const { return m_TimeStep; }
-			TimeStep GetFrametime() const { return m_Frametime; }
+		float GetTime() const;
+		TimeStep GetTimestep() const { return m_TimeStep; }
+		TimeStep GetFrametime() const { return m_Frametime; }
 			
 			
 	public:
@@ -69,7 +69,6 @@ namespace Kans{
 		TimeStep m_Frametime;
 
 		float m_LastFrameTime=0.0f;
-	private:
 		
 	};
 

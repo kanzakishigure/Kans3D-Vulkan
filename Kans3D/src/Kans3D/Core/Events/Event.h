@@ -1,6 +1,6 @@
 #pragma once
-#include"Kans3D/Core/Base.h"
-#include"Kans3D/Core/Log.h"
+#include"Kans3D/Core/Base/Base.h"
+#include"Kans3D/Core/Log/Log.h"
 #include <functional>
 namespace Kans{
 
