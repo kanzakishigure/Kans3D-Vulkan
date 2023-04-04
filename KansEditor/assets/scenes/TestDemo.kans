@@ -1,5 +1,5 @@
 Scene: TestDemo
-? Entity: 5715829744552391935
+? Entity: 1695715744444270455
   TagComponent:
     Tag: Cube_0
   TransformComponent:
@@ -12,7 +12,7 @@ Scene: TestDemo
     MaterialTable: ""
   ScriptComponent:
     ClassName: Sandbox.Player
-: Entity: 5454504371644292272
+: Entity: 7310156026760645893
   TagComponent:
     Tag: mainCamera
   TransformComponent:
@@ -27,10 +27,10 @@ Scene: TestDemo
     OrthographicSize: 10
     OrthographicFarClip: 1
     OrthographicNearClip: -1
-    AspectRatio: 1.79999995
+    AspectRatio: 2.19005322
     Primary: true
     FixedAspectRatio: false
-? Entity: 8412367943081242293
+? Entity: 7317833922256000654
   TagComponent:
     Tag: RefEntity
   TransformComponent:
@@ -41,7 +41,7 @@ Scene: TestDemo
     Color: vec4(1.000000, 1.000000, 1.000000, 1.000000)
     Texture: assets/textures/GY.png
     TilingFactor: 1
-: Entity: 4819039835227688015
+: Entity: 7911307457576714834
   TagComponent:
     Tag: DirLight
   TransformComponent:
@@ -53,7 +53,7 @@ Scene: TestDemo
     Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
-? Entity: 8219598184912216981
+? Entity: 4903290498401648630
   TagComponent:
     Tag: PointLight
   TransformComponent:
