@@ -122,14 +122,14 @@ namespace Kans
 			for (auto entity : group)
 			{
 				Entity entt = { entity,this };
-				RenderCommand::EnableSetStencil(true);
-				RenderCommand::StencilOp(StencilOption::KEEP, StencilOption::KEEP, StencilOption::REPLACE);
-				RenderCommand::SetStencilFunc(StencilFunction::ALWAYS, 1, 0xff);	
-				RenderCommand::SetStencilMask(0xff);
+				OpenGLRenderCommand::EnableSetStencil(true);
+				OpenGLRenderCommand::StencilOp(StencilOption::KEEP, StencilOption::KEEP, StencilOption::REPLACE);
+				OpenGLRenderCommand::SetStencilFunc(StencilFunction::ALWAYS, 1, 0xff);
+				OpenGLRenderCommand::SetStencilMask(0xff);
 				auto [transformCMP, meshCMP] = group.get(entity);
 				//renderer->SubmitStaticMesh(meshCMP.StaticMesh, meshCMP.MaterialTable, transformCMP.GetTransform());
 				//ToneShader
-				//RenderCommand::EnableCullFace(false);
+				OpenGLRenderCommand::EnableCullFace(false);
 				if(0)
 				{
 					Entity e = { entity,this };
@@ -138,30 +138,30 @@ namespace Kans
 					//renderer->SubmitStaticMeshDebug(meshCMP.StaticMesh, transformCMP.GetTransform());
 					renderer->SubmitToneCharactorShader(meshCMP.StaticMesh, transformCMP.GetTransform());
 				}
-				RenderCommand::EnableCullFace(true);
+				OpenGLRenderCommand::EnableCullFace(true);
 
 
 				//Outline
 				if(0)
 				{
-					RenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
-					RenderCommand::SetStencilMask(0x00);
+					OpenGLRenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
+					OpenGLRenderCommand::SetStencilMask(0x00);
 					TransformComponent ts = transformCMP;
 					ts.Scale *= 1.007f;
 					renderer->SubmitStaticMeshStencil(meshCMP.StaticMesh, ts.GetTransform());
-					RenderCommand::SetStencilMask(0xff);
-					RenderCommand::EnableSetStencil(false);
+					OpenGLRenderCommand::SetStencilMask(0xff);
+					OpenGLRenderCommand::EnableSetStencil(false);
 
 				}
 				
 				// Stroke
 				if(0)
 				{
-					RenderCommand::EnableCullFace(true);
-					RenderCommand::CullFace(CullFaceOption::FRONT);
+					OpenGLRenderCommand::EnableCullFace(true);
+					OpenGLRenderCommand::CullFace(CullFaceOption::FRONT);
 					renderer->SubmitStaticMeshOutLine(meshCMP.StaticMesh, transformCMP.GetTransform());
-					RenderCommand::CullFace(CullFaceOption::BACK);
-					RenderCommand::EnableCullFace(false);
+					OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
+					OpenGLRenderCommand::EnableCullFace(false);
 				}
 				//DebugNormalShader
 				if(0)
@@ -175,9 +175,9 @@ namespace Kans
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();
 
-					RenderCommand::EnableCullFace(true);
+					OpenGLRenderCommand::EnableCullFace(true);
 					renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable,transformCMP.GetTransform());
-					RenderCommand::EnableCullFace(false);
+					OpenGLRenderCommand::EnableCullFace(false);
 				}
 				//Spot cloud
 				if (0)
@@ -185,9 +185,9 @@ namespace Kans
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();
 
-					RenderCommand::EnableCullFace(true);
+					OpenGLRenderCommand::EnableCullFace(true);
 					renderer->SubmitSpotCloud(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
-					RenderCommand::EnableCullFace(false);
+					OpenGLRenderCommand::EnableCullFace(false);
 				}
 				//renderer->SubmitMeshPost()
 			}

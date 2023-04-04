@@ -4,8 +4,8 @@
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Scene.h"
-#include "Kans3D/Core/KeyCodes.h"
-#include "Kans3D/Core/Input.h"
+#include "Kans3D/Input/KeyCodes.h"
+#include "Kans3D/Input/Input.h"
 
 #include <mono/jit/jit.h>
 namespace Kans
@@ -76,7 +76,7 @@ namespace Kans
 		// use template lambda function ,expand ...Component
 		([]()
 			{
-				RegisterMaco(Component);
+				//RegisterMaco(Component);
 				std::string_view str = typeid(Component).name();
 				size_t pos   = str.find_last_of(':');
 				std::string_view componentName = str.substr(pos+1);

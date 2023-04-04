@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Events/Event.h"
+#include "Kans3D/Core/Events/Event.h"
 #include "Kans3D/Scene/Scene.h"
 namespace Kans
 {
