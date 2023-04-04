@@ -1,7 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
-#include "Kans3D/Core/Base.h"
-#include "Buffer.h"
+#include "Kans3D/Core/Base/Base.h"
+#include "RHI/Buffer.h"
 namespace Kans
 {
 

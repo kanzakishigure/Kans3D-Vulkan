@@ -3,7 +3,7 @@
 #include "Kans3D/Renderer/Mesh.h"
 #include "Kans3D/Renderer/SceneCamera.h"
 #include "Kans3D/Scene/Scene.h"
-#include "Kans3D/Renderer/FrameBuffer.h"
+#include "Kans3D/Renderer/RHI/FrameBuffer.h"
 namespace Kans
 {
 	struct SceneRendererCamera

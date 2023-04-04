@@ -1,8 +1,8 @@
 #pragma once
 #include "glm/glm.hpp"
-#include "Kans3D/Renderer/VertexArray.h"
-#include "Kans3D/Renderer/Buffer.h"
-#include "Kans3D/Math/BindingBox.h"
+#include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
+#include "Kans3D/Renderer/RHI/Buffer.h"
+#include "Kans3D/Core/Math/BindingBox.h"
 #include "Kans3D/Renderer/Material.h"
 #include "Kans3D/Renderer/MaterialAsset.h"
 

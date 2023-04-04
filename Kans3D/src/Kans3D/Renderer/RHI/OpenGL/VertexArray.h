@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Renderer/Buffer.h"
+#include "Kans3D/Renderer/RHI/Buffer.h"
 #include <memory>
 namespace Kans {
 

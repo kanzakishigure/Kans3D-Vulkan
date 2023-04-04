@@ -50,7 +50,8 @@ namespace Kans
 			VA->Bind();
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
 			subMtl->Invalidate();
-			RenderCommand::DrawIndexed(VA);
+
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 	}
 
@@ -67,7 +68,7 @@ namespace Kans
 		{
 			auto VA = VAOs[mesh];
 			VA->Bind();
-			RenderCommand::DrawIndexed(VA);
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 	}
 
@@ -84,7 +85,7 @@ namespace Kans
 		{
 			auto VA = VAOs[mesh];
 			VA->Bind();
-			RenderCommand::DrawIndexed(VA);
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 	}
 
@@ -105,7 +106,7 @@ namespace Kans
 			subMtl->UseDefaultShader(false);
 			subMtl->Invalidate();
 			VA->Bind();
-			RenderCommand::DrawIndexed(VA);
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 	}
 
@@ -151,7 +152,7 @@ namespace Kans
 			VA->Bind();
 			subMtl->SetShader(shader);
 			subMtl->Invalidate();
-			RenderCommand::DrawIndexed(VA);
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 	}
 
@@ -171,7 +172,7 @@ namespace Kans
 			subMtl->Invalidate();
 			
 			VA->Bind();
-			RenderCommand::DrawArray(VA,VA->GetIndexBuffer()->GetCount()/3);
+			OpenGLRenderCommand::DrawArray(VA,VA->GetIndexBuffer()->GetCount()/3);
 		}
 	}
 
@@ -193,7 +194,7 @@ namespace Kans
 			VA->Bind();
 			//subMtl->SetShader(shader);
 			subMtl->Invalidate();
-			RenderCommand::DrawIndexed(VA);
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 
 	}
@@ -237,7 +238,7 @@ namespace Kans
 			VA->Bind();
 			subMtl->SetShader(shader);
 			subMtl->Invalidate();
-			RenderCommand::DrawIndexed(VA);
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 	}
 
@@ -285,7 +286,7 @@ namespace Kans
 			subMtl->UseDefaultShader(true);
 			shader->Bind();
 			subMtl->Invalidate();
-			RenderCommand::DrawIndexed(VA);
+			OpenGLRenderCommand::DrawIndexed(VA);
 		}
 	}
 

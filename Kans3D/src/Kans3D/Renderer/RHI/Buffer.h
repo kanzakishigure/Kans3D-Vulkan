@@ -1,6 +1,6 @@
 #pragma once
-#include "Kans3D/Core/Base.h"
-#include "Kans3D/Core/Log.h"
+#include "Kans3D/Core/Base/Base.h"
+#include "Kans3D/Core/Log/Log.h"
 namespace Kans {
 
 	enum class ShaderDataType
@@ -117,7 +117,7 @@ namespace Kans {
 		virtual const BufferLayout& GetLayout() const = 0;
 
 	};
-	//目前hazel只支持32位的index索引
+	//目前只支持32位的index索引
 	class IndexBuffer
 	{
 	public:

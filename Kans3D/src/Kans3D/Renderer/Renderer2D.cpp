@@ -1,12 +1,17 @@
 #include "kspch.h"
 #include "Renderer2D.h"
 
-#include "VertexArray.h"
+#include "RHI/OpenGL/VertexArray.h"
 #include "Shader.h"
 #include "Platform/OpenGL/OpenGLShader.h"
-#include "RenderCommand.h"
+#include "RHI/OpenGL/OpenGLRenderCommand.h"
 
 #include <glm/ext/matrix_transform.hpp>
+
+
+//temp include
+#include "Platform/OpenGL/OpenGLRendererAPI.h"
+
 
 namespace Kans {
 
@@ -176,7 +181,8 @@ namespace Kans {
 			s_Data.TextureSlots[i]->Bind(i);
 		}
 		
-		RenderCommand::DrawIndexed(s_Data.QuadVertexArray,s_Data.QuadIndexCount);
+		OpenGLRenderCommand::DrawIndexed(s_Data.QuadVertexArray, s_Data.QuadIndexCount);
+
 		s_Data.Stats.DrawCalls++;
 	}
 

@@ -4,11 +4,17 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Renderer/SceneCamera.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
+#include "Kans3D/Renderer/RHI/RenderContext.h"
 
 #include "Kans3D/FileSystem/FileSystem.h"
+
 namespace Kans {
 	
 	
+
+	static Ref<RenderContext> s_RenderContext = nullptr;
+	static RendererAPI* s_RendererAPI = nullptr;
+
 	struct RendererData
 	{
 		glm::mat4 ViewProjectionMatix;
@@ -22,7 +28,7 @@ namespace Kans {
 
 	static RendererAPI* InitRendererAPI()
 	{
-		switch (RendererAPI::GetAPI())
+		switch (RendererAPI::GetAPIType())
 		{
 		case RendererAPIType::Vulkan: return  nullptr;
 		case RendererAPIType::OPENGL: return	new OpenGLRendererAPI();
@@ -33,15 +39,43 @@ namespace Kans {
 	void Renderer::Init()
 	{
 		HZ_PROFILE_FUCTION();
+
+		
+		s_RenderContext = RenderContext::Create();
+		s_RenderContext->Init();
+
+		s_RendererAPI = InitRendererAPI();
+		s_RendererAPI->Init();
+
 		Renderer::RendererDataInit();
-		RenderCommand::s_RendererAPI = InitRendererAPI();
-		RenderCommand::Init();
-		Renderer2D::Init();
+
+		//we need support vulkan, so need change the architecture, just temp 
+		if (Renderer::GetAPI() == RendererAPIType::OPENGL)
+			OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
+
+		
+	}
+
+	void Renderer::Init(const Scope<Window>& window)
+	{
+		s_RenderContext = RenderContext::Create(window);
+		s_RenderContext->Init();
+
+		//we need support vulkan, so need change the architecture, just temp 
+		if (Renderer::GetAPI() == RendererAPIType::OPENGL)
+		{
+			s_RendererAPI = InitRendererAPI();
+			s_RendererAPI->Init();
+			OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
+		}
+
+		Renderer::RendererDataInit();
+
 	}
 
 	void Renderer::RendererDataInit()
 	{
-		s_RendererData = new RendererData();
+		s_RendererData = DEBUG_NEW RendererData();
 		s_RendererData->m_ShaderLibrary = CreateRef<ShaderLibrary>();
 		//init renderer asset
 		//Texture
@@ -57,7 +91,7 @@ namespace Kans {
 		//shader
 		//TODO technically we can use spr-v reflect the vulkan-glsl pushconst to get the UniformStorgeBuffer
 		{
-			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string();
+			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string() + "/";
 			{
 				
 				auto StaticShader = Shader::Create(shaderpath + "StaticMeshShader.glsl");
@@ -217,8 +251,12 @@ namespace Kans {
 	{
 		delete s_RendererData;
 		HZ_INFO("delete rendererdata");
-		delete RenderCommand::s_RendererAPI;
+		delete s_RendererAPI;
 		HZ_INFO("delete renderer-rhi");
+		
+		s_RenderContext->Shutdown();
+		s_RenderContext.reset();
+
 	}
 
 	void Renderer::BeginScene(const Camera& camera, const glm::mat4& transform)
@@ -232,18 +270,9 @@ namespace Kans {
 
 	}
 
-	void Renderer::Submit(const Ref<Shader>& shader,const Ref<VertexArray>& vertexArray,const glm::mat4& transform)
-	{
-		shader->Bind();
-		std::dynamic_pointer_cast<OpenGLShader>(shader)->UploadUniformMat4("U_ViewProjection", s_RendererData->ViewProjectionMatix);
-		std::dynamic_pointer_cast<OpenGLShader>(shader)->UploadUniformMat4("U_Transform", transform);
-		vertexArray->Bind();
-		RenderCommand::DrawIndexed(vertexArray);
-	}
-
 	void Renderer::OnWindowResize(uint32_t width, uint32_t height)
 	{
-		RenderCommand::SetViewPort(0, 0, width, height);
+		s_RendererAPI->SetViewPort(0, 0, width, height);
 	}
 
 	Ref<Texture2D> Renderer::GetWhiteTexture()

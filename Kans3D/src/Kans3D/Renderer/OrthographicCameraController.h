@@ -1,10 +1,10 @@
 #pragma once
 #include "Kans3D/Renderer/OrthographicCamera.h"
 #include "Kans3D/Core/TimeStep.h"
-#include "Kans3D/Events/ApplicationEvent.h"
-#include "Kans3D/Events/MouseEvent.h"
-#include "Kans3D/Events/Event.h"
-#include "Kans3D/Core/Base.h"
+#include "Kans3D/Core/Base/Base.h"
+#include "Kans3D/Core/Events/ApplicationEvent.h"
+#include "Kans3D/Core/Events/MouseEvent.h"
+#include "Kans3D/Core/Events/Event.h"
 
 namespace Kans {
 	class OrthographicCameraController 

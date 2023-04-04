@@ -1,8 +1,8 @@
 #pragma once
-#include "RendererAPI.h"
+#include "Platform/OpenGL/OpenGLRendererAPI.h"
 namespace Kans {
 
-	class RenderCommand
+	class OpenGLRenderCommand
 	{
 	public:
 		//RenderCommand内部应该满足单一职责原则，不应该实现多余的功能，导致过藕合
@@ -10,18 +10,17 @@ namespace Kans {
 		{
 			s_RendererAPI->SetClearColor(color);
 		}
+
+
+		inline static RendererAPI* GetRHI()
+		{
+			return s_RendererAPI;
+		}
 		inline static void Clear() 
 		{	
 			s_RendererAPI->Clear();
 		}
-		inline static void  DrawIndexed(const Ref<VertexArray>& vertexArray,uint32_t indexCount=0)
-		{
-			s_RendererAPI->DrawIndexed(vertexArray,indexCount);
-		}
-		inline static void  DrawArray(const Ref<VertexArray>& vertexArray, uint32_t vertexCount = 0)
-		{
-			s_RendererAPI->DrawArray(vertexArray, vertexCount);
-		}
+		
 		inline static void Init() 
 		{
 			s_RendererAPI->Init();
@@ -61,6 +60,17 @@ namespace Kans {
 		inline static void BindTexture(uint32_t texture, uint32_t slot)
 		{
 			s_RendererAPI->BindTexture(texture,slot);
+		}
+
+		inline static void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0)
+		{
+			OpenGLRendererAPI* rhi = static_cast<OpenGLRendererAPI*>(s_RendererAPI);
+			rhi->DrawIndexed(vertexArray, indexCount);
+		}
+		inline static void DrawArray(const Ref<VertexArray>& vertexArray, uint32_t vertexCount = 0)
+		{
+			OpenGLRendererAPI* rhi = static_cast<OpenGLRendererAPI*>(s_RendererAPI);
+			rhi->DrawArray(vertexArray, vertexCount);
 		}
 	private:
 		 inline static RendererAPI* s_RendererAPI;
