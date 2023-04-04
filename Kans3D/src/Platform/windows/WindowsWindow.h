@@ -1,6 +1,6 @@
 #pragma once
 #include"Kans3D/Core/Window.h"
-#include"Kans3D/Renderer/RenderContext.h"
+#include"Kans3D/Renderer/RHI/RenderContext.h"
 #include "Platform/Vulkan/VulkanSwapChain.h"
 
 #include<GLFW/glfw3.h>
@@ -18,11 +18,11 @@ namespace Kans {
 		virtual void ProcessEvents() override;
 		virtual void SwapBuffers() override;
 
-		inline unsigned int GetWidth() const override		{ return m_Data.Width; }
-		inline unsigned int GetHeight() const override		{ return m_Data.Height; }
+		inline unsigned int GetWidth() const override		{ return m_Specification.Width; }
+		inline unsigned int GetHeight() const override		{ return m_Specification.Height; }
 
 		//½á¹¹
-		inline void SetEventCallback(const EventCallbackFn& callback) override     { m_Data.EventCallback = callback; }
+		inline void SetEventCallback(const EventCallbackFn& callback) override     { m_EventCallback = callback; }
 		void SetVSync(bool enable) override;
 		bool IsVSync() const override ;
 		virtual inline void* GetNativeWindow() const override { return m_Window; }
@@ -31,24 +31,12 @@ namespace Kans {
 
 	private:
 		GLFWwindow* m_Window;
-		struct WindowData
-		{
-			std::string Title;
-			unsigned int Width, Height;
-			bool VSync;
-
-			EventCallbackFn EventCallback;
-		};
-		WindowData m_Data;
-		Ref<RenderContext> m_Context;
-		
 		WindowSpecification m_Specification;
+		EventCallbackFn m_EventCallback;
 
-		
 	private:
 		static int s_GLFWWindowsCount;
-	private:
-		VulkanSwapChain m_SwapChain;
+	
 
 	};
 }

@@ -1,16 +1,20 @@
 #pragma once
-#include "Kans3D/Renderer/RenderContext.h"
+#include "Kans3D/Renderer/RHI/RenderContext.h"
+#include <GLFW/glfw3.h>
 namespace Kans {
 
 	class OpenGLContext :public RenderContext
 	{
 	public:
+		OpenGLContext();
+		OpenGLContext(const Scope<Window>& window);
+
 		virtual void Init() override;
-		virtual void SwapBuffers() override;
-		OpenGLContext(GLFWwindow* windowHandle);
+		virtual void Shutdown() override;
+		
 
 	private:
-		GLFWwindow* m_WindowHandle;
+		Window* m_WindowHandle;
 		
 	};
 
