@@ -46,9 +46,10 @@ project "Kans3D"
     }
     includedirs 
     { 
-        "%{prj.name}/vendor/spdlog/include",
         "%{prj.name}/src",
-        "%{prj.name}/src/Kans3D",
+        "%{prj.name}/vendor",
+        
+
         "%{IncludeDir.GLFW}",
         "%{IncludeDir.Glad}",
         "%{IncludeDir.ImGui}",
@@ -58,7 +59,8 @@ project "Kans3D"
         "%{IncludeDir.assimp}",
         "%{IncludeDir.VulkanSDK}",
         "%{IncludeDir.yaml_cpp}",
-        "%{IncludeDir.mono}"
+        "%{IncludeDir.mono}",
+        "%{IncludeDir.shaderc_util}"
         
     }
     links
@@ -77,8 +79,7 @@ project "Kans3D"
 
         defines
         {
-            "HZ_PLATFORM_WINDOWS",
-            "HZ_BUILD_DLL",
+            "PLATFORM_WINDOWS",
             "GLFW_INCLUDE_NONE",
             "_CRT_SECURE_NO_WARNINGS"
         }
@@ -86,23 +87,53 @@ project "Kans3D"
 
 
     filter "configurations:Debug"
-        defines "HZ_DEBUG" 
+        defines 
+        {
+            "KS_DEBUG" 
+        }
         runtime "Debug"
         symbols "on"
+        links
+        {
+            "%{Library.ShaderC_Debug}",
+			"%{Library.ShaderC_Utils_Debug}",
+			"%{Library.SPIRV_Cross_Debug}",
+			"%{Library.SPIRV_Cross_GLSL_Debug}",
+			"%{Library.SPIRV_Tools_Debug}",
+        }
 
     filter "configurations:Release"
-        defines  "HZ_RELEASE" 
+        defines 
+        {
+            "KS_RELEASE" 
+        }
         runtime "Release"
         optimize "on"
+        links
+		{
+
+			"%{Library.ShaderC_Release}",
+			"%{Library.ShaderC_Utils_Release}",
+			"%{Library.SPIRV_Cross_Release}",
+			"%{Library.SPIRV_Cross_GLSL_Release}",
+		}
     filter "configurations:Dist"
-        defines  "HZ_DIST" 
+        defines  
+        {
+            "KS_DIST" 
+        }
         runtime "Release"
-        optimize "on"
+        optimize "On"
+		symbols "Off"
+        removefiles
+        {
+
+        }
 project "KansScriptCore"
 	location "KansScriptCore"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "4.5"
+	dotnetframework "4.8"
 	
 	targetdir ("KansEditor/Resources/Scripts")
 	objdir ("KansEditor/Resources/Scripts/Intermediates")
@@ -126,18 +157,25 @@ project "KansEditor"
         files
         { 
             "%{prj.name}/src/**.h", 
-            "%{prj.name}/src/**.cpp" 
+            "%{prj.name}/src/**.cpp" ,
+
+            -- Shaders
+            --"%{prj.name}/Resources/Shaders/**.glsl", 
+            --"%{prj.name}/Resources/Shaders/**.glslh", 
         }
         includedirs 
         { 
-            "Kans3D/vendor/assimp/include",
-            "Kans3D/vendor/spdlog/include",
+            "%{prj.name}/src",
             "Kans3D/src",
+            "Kans3D/vendor",
+
             "%{IncludeDir.GLM}",
             "%{IncludeDir.ImGui}",
             "%{IncludeDir.entt}",
             "%{IncludeDir.assimp}",
-            "%{IncludeDir.yaml_cpp}"
+            "%{IncludeDir.yaml_cpp}",
+
+            
         }
         links
         {
@@ -154,7 +192,7 @@ project "KansEditor"
     
     
         filter "configurations:Debug"
-            defines "HZ_DEBUG" 
+            defines "KS_DEBUG" 
             runtime "Debug"
             symbols "on"
             links
@@ -168,7 +206,7 @@ project "KansEditor"
             }
            
         filter "configurations:Release"
-            defines  "HZ_RELEASE" 
+            defines  "KS_RELEASE" 
             runtime "Release"
             optimize "on"
             links
@@ -182,7 +220,7 @@ project "KansEditor"
             }
             
         filter "configurations:Dist"
-            defines  "HZ_DIST" 
+            defines  "KS_DIST" 
             runtime "Release"
             optimize "on"
             links
