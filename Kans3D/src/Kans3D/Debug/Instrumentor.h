@@ -1,11 +1,11 @@
 #pragma once
-#pragma once
 #include <chrono>
 #include <string>
 #include <algorithm>
 #include <fstream>
-
 #include <thread>
+
+#include "Kans3D/Core/Log/Log.h"
 namespace KansTools
 {
 	struct ProfileResult
@@ -119,21 +119,55 @@ namespace KansTools
 		bool m_Stoped;
 		const char* m_Name;
 	};
+
+
+
+	class InstrumentationTimerLogger
+	{
+	public:
+		InstrumentationTimerLogger(const char* name)
+			:m_Name(name), m_Stoped(false)
+		{
+			m_StartTimePoint = std::chrono::high_resolution_clock::now();
+		}
+		~InstrumentationTimerLogger()
+		{
+			stop();
+		}
+		void stop()
+		{
+			auto stoptimepoint = std::chrono::high_resolution_clock::now();
+			long long start = std::chrono::time_point_cast<std::chrono::microseconds>(m_StartTimePoint).time_since_epoch().count();
+			long long end = std::chrono::time_point_cast<std::chrono::microseconds>(stoptimepoint).time_since_epoch().count();
+
+			m_Stoped = true;
+			float duration = (end - start)*0.000001;
+			CORE_ERROR_TAG("Instrumentor","{} takes time : {}s", m_Name, duration);
+		}
+	private:
+		std::chrono::time_point<std::chrono::steady_clock> m_StartTimePoint;
+		bool m_Stoped;
+		const char* m_Name;
+	};
 }
 
 
-#ifdef HZ_DEBUG 
+#ifdef KS_DEBUG 
 #define HZ_PROFILE 
 #endif // HZ_DEBUG NATIVE PROFILE
 
 #ifdef  HZ_PROFILE
 #define HZ_PROFILE_BEGIN_SESSION(name,filepath) ::KansTools::Instrumentor::Get().BeginSession(name,filepath);
 #define HZ_PROFILE_END_SESSION() ::KansTools::Instrumentor::Get().EndSession();
-#define HZ_PROFILE_SCOPE(name) ::KansTools::InstrumentationTimer timer##__Line__(name);
 #define HZ_PROFILE_FUCTION() HZ_PROFILE_SCOPE(__FUNCTION__);
+
+#define HZ_PROFILE_SCOPE(name) ::KansTools::InstrumentationTimer timer##__Line__(name);
+#define PROFILE_SCOPE_LOG(name) ::KansTools::InstrumentationTimerLogger timerlogger##__Line__(name);
 #else
 #define HZ_PROFILE_BEGIN_SESSION(name,filepath)
 #define HZ_PROFILE_END_SESSION() 
-#define HZ_PROFILE_SCOPE(name) 
 #define HZ_PROFILE_FUCTION() 
+
+#define HZ_PROFILE_SCOPE(name) 
+#define PROFILE_SCOPE_LOG(name) 
 #endif
