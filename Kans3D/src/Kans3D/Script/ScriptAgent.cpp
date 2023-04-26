@@ -22,7 +22,7 @@ namespace Kans
 	static inline Entity GetEntity(uint64_t entityID)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
-		HZ_CORE_ASSERT(scene, "No active scene!");
+		CORE_ASSERT(scene, "No active scene!");
 		return scene->GetEntityByUUID(entityID);
 	};
 	static void NativeLog(glm::vec3* parameter)
@@ -46,7 +46,7 @@ namespace Kans
 		auto& entity = GetEntity(id);
 		if (!entity)
 		{
-			HZ_CORE_WARN("Entity.SetTranslation - Invalid entity!");
+			CORE_WARN("Entity.SetTranslation - Invalid entity!");
 			return;
 		}
 		entity.GetComponent<TransformComponent>().Position = *parameter;
@@ -56,7 +56,7 @@ namespace Kans
 		auto& entity = GetEntity(id);
 		if (!entity)
 		{
-			HZ_CORE_WARN("Entity.HasComponent - Invalid entity!");
+			CORE_WARN("Entity.HasComponent - Invalid entity!");
 			return false;
 		}
 
@@ -72,7 +72,7 @@ namespace Kans
 	template<typename... Component>
 	static void RegisterComponent()
 	{
-		HZ_CORE_INFO("TypeCount: {}", sizeof...(Component));
+		CORE_INFO("TypeCount: {}", sizeof...(Component));
 		// use template lambda function ,expand ...Component
 		([]()
 			{
@@ -85,11 +85,11 @@ namespace Kans
 				MonoType* managedType= mono_reflection_type_from_name(managedTypeName.data(), ScriptEngine::GetCoreAssemblyImage());
 				if (!managedType)
 				{
-					HZ_CORE_ERROR("cloud not find component type :{0}", managedTypeName);
+					CORE_ERROR("cloud not find component type :{0}", managedTypeName);
 				}
 				else
 				{
-					HZ_CORE_INFO("reg Type :{0} ", managedTypeName);
+					CORE_INFO("reg Type :{0} ", managedTypeName);
 				}
 				
 				s_HasComponentFuncs[managedType] = [](Entity entity) { return  entity.HasComponent<Component>(); };

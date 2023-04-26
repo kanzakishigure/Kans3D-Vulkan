@@ -18,7 +18,7 @@ namespace Kans
 		template<typename T, typename ... Args>
 		T& AddComponent(Args&&... args)
 		{
-			HZ_ASSERT(!HasComponent<T>(), "Entity Already Have component ");
+			CORE_ASSERT(!HasComponent<T>(), "Entity Already Have component ");
 
 			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
 			m_Scene->OnComponentAdd<T>(*this,component);
@@ -28,13 +28,13 @@ namespace Kans
 		template<typename T>
 		T& GetComponent()
 		{
-			HZ_ASSERT(HasComponent<T>(), "Entity don't Have component ");
+			CORE_ASSERT(HasComponent<T>(), "Entity don't Have component ");
 			return m_Scene->m_Registry.get<T>(m_EntityHandle);
 		}
 		template<typename T>
 		const T& GetComponent() const
 		{
-			HZ_ASSERT(HasComponent<T>(), "Entity don't Have component ");
+			CORE_ASSERT(HasComponent<T>(), "Entity don't Have component ");
 			return m_Scene->m_Registry.get<T>(m_EntityHandle);
 		}
 		template<typename ...T>
@@ -50,7 +50,7 @@ namespace Kans
 		template<typename T>
 			void RemoveComponent()
 		{
-			HZ_ASSERT(HasComponent<T>(), "Entity don't Have component ");
+			CORE_ASSERT(HasComponent<T>(), "Entity don't Have component ");
 			//remove方法只有在组件存在是会进行擦除，若组件不存在，则不会执行
 			m_Scene->m_Registry.remove<T>(m_EntityHandle);
 		}

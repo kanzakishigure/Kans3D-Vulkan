@@ -1,6 +1,6 @@
 #pragma once
 #include"Kans3D/Core/Window.h"
-#include"Kans3D/Renderer/RHI/RenderContext.h"
+#include"Kans3D/Renderer/RHI/RHI.h"
 #include "Platform/Vulkan/VulkanSwapChain.h"
 
 #include<GLFW/glfw3.h>
@@ -21,6 +21,8 @@ namespace Kans {
 		inline unsigned int GetWidth() const override		{ return m_Specification.Width; }
 		inline unsigned int GetHeight() const override		{ return m_Specification.Height; }
 
+		virtual const WindowSpecification& GetWindowSpecification() const override { return m_Specification; }
+		virtual const void SetWindowSpecification(const WindowSpecification& spec) override { m_Specification = spec; }
 		//½á¹¹
 		inline void SetEventCallback(const EventCallbackFn& callback) override     { m_EventCallback = callback; }
 		void SetVSync(bool enable) override;

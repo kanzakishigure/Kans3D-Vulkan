@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "Platform/windows/WindowsWindow.h"
-#include "Platform/OpenGL/OpenGLContext.h"
-#include "Platform/Vulkan/VulkanContext.h"
+#include "Platform/OpenGL/OpenGLRHI.h"
+#include "Platform/Vulkan/VulkanRHI.h"
 
 #include "kans3D/Core/Events/ApplicationEvent.h"
 #include "kans3D/Core/Events/KeyEvent.h"
@@ -21,7 +21,7 @@ namespace Kans {
 
 	static void GLFWErrorCallback(int error,const char* description)
 	{
-		HZ_CORE_ERROR("GLFW Error ({0}):{1}", error, description);
+		CORE_ERROR("GLFW Error ({0}):{1}", error, description);
 	}
 	Window* Window::Create(const WindowSpecification& props)
 	{
@@ -44,18 +44,18 @@ namespace Kans {
 		HZ_PROFILE_FUCTION();
 		
 
-		HZ_CORE_INFO("create window [{0}] : ({1},{2})", m_Specification.Title, m_Specification.Width, m_Specification.Height);
+		CORE_INFO("create window [{0}] : ({1},{2})", m_Specification.Title, m_Specification.Width, m_Specification.Height);
 		if (!s_GLiFWIntialized)
 		{
 			//TODO£ºglfwterminate on system shutdown
 			HZ_PROFILE_SCOPE("glfwInit");
 			
 			int success = glfwInit();
-			HZ_CORE_ASSERT(success, "unable init GLFW!");
+			CORE_ASSERT(success, "unable init GLFW!");
 			glfwSetErrorCallback(GLFWErrorCallback);
 			s_GLiFWIntialized = true;
 		}
-		if (RendererAPI::GetAPIType() == RendererAPIType::Vulkan)
+		if (RendererAPI::Current() == RendererAPIType::Vulkan)
 			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 		if (m_Specification.HideTitlebar)
@@ -173,6 +173,7 @@ namespace Kans {
 			});
 
 		// Update window size to actual size.if we use the fullscreenOption
+		if(false)
 		{
 			int width, height;
 			glfwGetWindowSize(m_Window, &width, &height);

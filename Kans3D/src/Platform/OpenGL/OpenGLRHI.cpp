@@ -1,23 +1,23 @@
 #include "kspch.h"
-#include "OpenGLContext.h"
+#include "OpenGLRHI.h"
 
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 namespace Kans {
 
-	OpenGLContext::OpenGLContext(const Scope<Window>& window)
+	OpenGLRHI::OpenGLRHI(const Scope<Window>& window)
 		:m_WindowHandle(window.get())
 	{
-		HZ_CORE_ASSERT(m_WindowHandle,"窗口句柄为空，无法绑定渲染上下文到窗口")
+		CORE_ASSERT(m_WindowHandle,"窗口句柄为空，无法绑定渲染上下文到窗口")
 	}
 
-	OpenGLContext::OpenGLContext()
+	OpenGLRHI::OpenGLRHI()
 		:m_WindowHandle(nullptr)
 	{
 		CORE_INFO_TAG("Rnederer", "current Context set to offscreen rendering");
 	}
 
-	void OpenGLContext::Init()
+	void OpenGLRHI::Init()
 	{
 		HZ_PROFILE_FUCTION();
 
@@ -28,14 +28,14 @@ namespace Kans {
 		}
 		
 		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-		HZ_CORE_ASSERT(status, "无法初始化Gald");
-		HZ_CORE_INFO("opengl info:");
-		HZ_CORE_INFO("opengl vendor:{0}", glGetString(GL_VENDOR));
-		HZ_CORE_INFO("opengl render:{0}", glGetString(GL_RENDERER));
-		HZ_CORE_INFO("opengl version:{0}", glGetString(GL_VERSION));
+		CORE_ASSERT(status, "无法初始化Gald");
+		CORE_INFO("opengl info:");
+		CORE_INFO("opengl vendor:{0}", glGetString(GL_VENDOR));
+		CORE_INFO("opengl render:{0}", glGetString(GL_RENDERER));
+		CORE_INFO("opengl version:{0}", glGetString(GL_VERSION));
 	}
 	
-	void OpenGLContext::Shutdown()
+	void OpenGLRHI::Shutdown()
 	{
 
 	}

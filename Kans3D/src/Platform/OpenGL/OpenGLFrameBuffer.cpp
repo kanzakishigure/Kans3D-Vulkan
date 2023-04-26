@@ -114,7 +114,7 @@ namespace Kans {
 	void OpenGLFrameBuffer::Invalidata()
 	{
 
-		HZ_CORE_TRACE("FrameBuffer invalidata");
+		CORE_TRACE("FrameBuffer invalidata");
 		if (m_RendererID != 0)
 		{
 			glDeleteFramebuffers(1, &m_RendererID);
@@ -163,7 +163,7 @@ namespace Kans {
 		
 		if (m_ColorAttachments.size() > 1)
 		{
-			HZ_ASSERT(m_ColorAttachments.size() <= 4, "We only supprot 4 renderer target");
+			CORE_ASSERT(m_ColorAttachments.size() <= 4, "We only supprot 4 renderer target");
 			//opengl only surport 4 renderer target
 			GLenum buffer[4] {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3};
 			glDrawBuffers(m_ColorAttachments.size(), buffer);
@@ -175,7 +175,7 @@ namespace Kans {
 		}
 
 		//检查状态是否完成FrameBuffer的生成
-		HZ_CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "FrameBuffer Incomplete!");
+		CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "FrameBuffer Incomplete!");
 
 		//解除bind
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -194,7 +194,7 @@ namespace Kans {
 
 	uint32_t OpenGLFrameBuffer::GetColorAttachmentRendererID(uint32_t index /*= 0*/) const
 	{
-		 HZ_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
+		 CORE_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
 		return m_ColorAttachments[index]; 
 	}
 
@@ -202,7 +202,7 @@ namespace Kans {
 	{
 		if (width == 0 || height == 0||width>MaxFramebufferSize||height>MaxFramebufferSize)
 		{
-			HZ_WARN("try to resize framebuffer size To {0}x{1} is not allowed !", width, height);
+			CORE_WARN("try to resize framebuffer size To {0}x{1} is not allowed !", width, height);
 			return;
 		}
 		m_Specification.Width = width;
@@ -213,7 +213,7 @@ namespace Kans {
 	void OpenGLFrameBuffer::SwapColorAttachment(uint32_t index, uint32_t attachment) const
 	{
 		
-		HZ_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
+		CORE_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
 		
 		//We can't swapAttachment now
 		

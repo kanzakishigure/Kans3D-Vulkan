@@ -25,7 +25,7 @@ namespace Kans {
 		case ShaderDataType::Bool:		return GL_BOOL;
 		}
 
-		HZ_ASSERT(false, "unknown shaderdatatype£¡");
+		CORE_ASSERT(false, "unknown shaderdatatype£¡");
 		return 0;
 
 	}
@@ -63,7 +63,7 @@ namespace Kans {
 		glBindVertexArray(m_RendererID);
 		vertexBuffer->Bind();
 		uint32_t index = 0;
-		HZ_ASSERT(vertexBuffer->GetLayout().GetElements().size(),"VertexBuffer Layout is NULL")
+		CLIENT_ASSERT(vertexBuffer->GetLayout().GetElements().size(),"VertexBuffer Layout is NULL")
 		for (const auto& element : vertexBuffer->GetLayout())
 		{
 			glVertexAttribPointer(

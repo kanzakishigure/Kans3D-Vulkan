@@ -16,7 +16,7 @@ namespace Kans {
 			return GL_FRAGMENT_SHADER;
 		if (type == "geometry")
 			return GL_GEOMETRY_SHADER;
-		HZ_CORE_ASSERT(false, "Unknow shadertype");
+		CORE_ASSERT(false, "Unknow shadertype");
 		return 0;
 	}
 	OpenGLShader::OpenGLShader(const std::string& shaderpath)
@@ -53,6 +53,16 @@ namespace Kans {
 		glDeleteProgram(m_RendererID);
 	}
 
+	void OpenGLShader::Reload(bool forceCompile /*= false*/)
+	{
+
+	}
+
+	void OpenGLShader::RT_Reload(bool forceCompile)
+	{
+
+	}
+
 	std::string OpenGLShader::ReadFile(const std::string& filepath)
 	{
 		HZ_PROFILE_FUCTION();
@@ -80,7 +90,7 @@ namespace Kans {
 		}
 		else
 		{
-			HZ_CORE_ERROR("could not open the file '{0}'", filepath);
+			CORE_ERROR("could not open the file '{0}'", filepath);
 		}
 		return result;
 	}
@@ -96,10 +106,10 @@ namespace Kans {
 		while (pos!=std::string::npos)
 		{
 			size_t eol = source.find_first_of("\n\r",pos);
-			HZ_CORE_ASSERT(eol != std::string::npos, "Syntax error !");
+			CORE_ASSERT(eol != std::string::npos, "Syntax error !");
 			size_t begin = pos + typeTokenlength + 1;
 			std::string type = source.substr(begin, eol-begin);
-			HZ_CORE_ASSERT(ShaderTypeFromString(type), "invalid shader type !");
+			CORE_ASSERT(ShaderTypeFromString(type), "invalid shader type !");
 			size_t nextlinepos = source.find_first_not_of("\r\n", eol);
 			pos = source.find(typeToken, nextlinepos);
 			shadersource[ShaderTypeFromString(type)] = source.substr(
@@ -116,7 +126,7 @@ namespace Kans {
 
 		//shaderComplie
 		uint32_t id = glCreateProgram();
-		HZ_CORE_ASSERT(shadersource.size() <= 3, "shadersource is not support !");
+		CORE_ASSERT(shadersource.size() <= 3, "shadersource is not support !");
 		std::array<GLenum,3> glShaderIDs;
 		uint32_t index=0;
 		GLenum test1 = GL_FRAGMENT_SHADER;
@@ -140,9 +150,9 @@ namespace Kans {
 				std::vector<GLchar> infolog(maxLength);
 				glGetShaderInfoLog(shader, maxLength, &maxLength, &infolog[0]);
 
-				HZ_CORE_ERROR("{0}", infolog.data());
+				CORE_ERROR("{0}", infolog.data());
 				
-				HZ_CORE_ASSERT(false, "shader compilation failure!{0}");
+				CORE_ASSERT(false, "shader compilation failure!{0}");
 				//É¾³ýshaderÎÄ¼þ
 				glDeleteShader(shader);
 				break;
@@ -166,8 +176,8 @@ namespace Kans {
 			std::vector<GLchar> infolog(maxLength);
 			glGetProgramInfoLog(id, maxLength, &maxLength, &infolog[0]);
 
-			HZ_CORE_ERROR("{0}", infolog.data());
-			HZ_CORE_ASSERT(false, "shaderpragram link failure!");
+			CORE_ERROR("{0}", infolog.data());
+			CORE_ASSERT(false, "shaderpragram link failure!");
 			//·ÀÖ¹ÄÚ´æÐ¹Â©£¬É¾³ý³ÌÐò
 			glDeleteProgram(id);
 			// Í¬Àí.
@@ -260,61 +270,9 @@ namespace Kans {
 		glUniform1i(location, value);
 	}
 
-	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniformMat4(name, value);
-	}
+	
 
-	void OpenGLShader::SetFloat(const std::string& name, float value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniformFloat(name, value);
-	}
-
-	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniform2Float(name, value);
-	}
-
-	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniform3Float(name, value);
-	}
-
-	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value)
-	{
-		//HZ_PROFILE_FUCTION();
-		UploadUniform4Float(name, value);
-	}
-
-	void OpenGLShader::SetInt(const std::string& name, int value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniformInt(name, value);
-	}
-
-	void OpenGLShader::SetInt2(const std::string& name, const glm::ivec2& value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniform2Int(name, value);
-	}
-
-	void OpenGLShader::SetIntArray(const std::string& name, const int count, const int* value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniformIntArray(name,count,value);
-	}
-
-	void OpenGLShader::SetBool(const std::string& name, const bool value)
-	{
-		HZ_PROFILE_FUCTION();
-		UploadUniformBool(name, value);
-	}
-
-	const void OpenGLShader::SetShaderBuffer(ShaderBufferLayout layout)
+	void OpenGLShader::SetShaderBuffer(ShaderBufferLayout layout)
 	{
 		uint32_t size = 0;
 		for (auto& element : layout.GetElements())

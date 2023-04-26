@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "ScriptEngine.h"
-#include "FileSystem/FileSystem.h"
-#include "Script/ScriptAgent.h"
+#include "Kans3D/FileSystem/FileSystem.h"
+#include "Kans3D/Script/ScriptAgent.h"
 #include "Kans3D/Scene/Scene.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Components.h"
@@ -24,7 +24,7 @@ namespace Kans
 			if (status != MonoImageOpenStatus::MONO_IMAGE_OK)
 			{
 				std::string message = mono_image_strerror(status);
-				HZ_CORE_ERROR("load core Assembly fail:{0}", message);
+				CORE_ERROR("load core Assembly fail:{0}", message);
 			}
 			data.Release();
 			std::string pathString = path.string();
@@ -54,7 +54,7 @@ namespace Kans
 	{
 		if(s_Context !=nullptr)
 		{
-			HZ_CORE_WARN("ScriptEinge arlley Init");
+			CORE_WARN("ScriptEinge arlley Init");
 			return;
 		}
 		s_Context = new ScrtiptEngineContext();
@@ -159,7 +159,7 @@ namespace Kans
 		}
 		else
 		{
-			HZ_CORE_ERROR("Could not find ScriptInstance for entity {}", id);
+			CORE_ERROR("Could not find ScriptInstance for entity {}", id);
 		}
 	}
 
@@ -173,7 +173,7 @@ namespace Kans
 		mono_set_assemblies_path("mono/lib");
 
 		MonoDomain* rootDomain = mono_jit_init("ScripteCore");
-		HZ_ASSERT(rootDomain, "mono_jit_init fail");
+		CORE_ASSERT(rootDomain, "mono_jit_init fail");
 		s_Context->RootDomain = rootDomain;
 		
 	}
@@ -203,8 +203,8 @@ namespace Kans
 		MonoImage* image = mono_assembly_get_image(assembly);
 		const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
 		int32_t numTypes = mono_table_info_get_rows(typeDefinitionsTable);
-		HZ_CORE_WARN("**************************************************************");
-		HZ_CORE_WARN("Load Assembly Class:");
+		CORE_WARN("**************************************************************");
+		CORE_WARN("Load Assembly Class:");
 		for (int32_t i = 0; i < numTypes; i++)
 		{
 			uint32_t cols[MONO_TYPEDEF_SIZE];
@@ -232,11 +232,11 @@ namespace Kans
 			}
 
 			std::string logstr= fmt::format("Assembly class: {:<32}  cacheed: {:>8}", fullname, isEntityClass);
-			HZ_CORE_TRACE("{}", logstr);
+			CORE_TRACE("{}", logstr);
 			//HZ_CORE_TRACE("Assembly class: {0}  cacheed {1}", fullname, isEntityClass);
 			//spdlog::info(spdlog::fmt_lib::format(std::locale("en_US.UTF-8"), "Multi threaded: {:L} threads, {:L} messages", threads, iters))
 		}
-		HZ_CORE_WARN("**************************************************************");
+		CORE_WARN("**************************************************************");
 	}
 
 	MonoObject* ScriptEngine::InstantiateClass(MonoClass* monoclass)
@@ -248,7 +248,7 @@ namespace Kans
 
 	MonoImage* ScriptEngine::GetCoreAssemblyImage()
 	{
-		HZ_CORE_ASSERT(s_Context->CoreAssemblyImage, "Script Engine is not Inited");
+		CORE_ASSERT(s_Context->CoreAssemblyImage, "Script Engine is not Inited");
 		return s_Context->CoreAssemblyImage;
 	}
 
