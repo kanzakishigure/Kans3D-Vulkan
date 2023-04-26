@@ -14,7 +14,7 @@
 #define ShowEditorUI		true
 #define EnbaleDocking		true
 #define TestLoadModel		true	
-#define CrashTest			true
+#define CrashTest			false
 #define SpotCloudTest		false
 #define NativeScript		false
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -36,6 +36,8 @@ namespace Kans
 		//Resource Init
 		EditorResources::Init();
 
+		//Renderer2D init
+		Renderer2D::Init();
 		//FrameBuffer init
 		{
 			
@@ -47,7 +49,7 @@ namespace Kans
 			m_Framebuffer = FrameBuffer::Create(spec);
 
 		}
-
+		
 		// scene init
 		{
 
@@ -71,7 +73,7 @@ namespace Kans
 				dirCMP.Specular_Intensity = glm::vec3(1.0);
 				dirCMP.Ambient_Intensity = glm::vec3(1.0);
 			}
-			if(1)
+			//ref BackScene
 			{
 				auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 				auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
@@ -81,11 +83,7 @@ namespace Kans
 				transformCMP.Position = { 2.3f,0.0f,-12.0f };
 			}
 
-			//Scene Renderer Init
-			{
-				m_StaticMeshRenderer = CreateRef<SceneRenderer>(m_ActiveScene);
-				m_StaticMeshRenderer->SetFrameBuffer(m_Framebuffer);
-			}
+			
 			//Create Scene camera
 			{
 				m_CameraEntity = m_ActiveScene->CreateEntity("mainCamera");
@@ -112,7 +110,7 @@ namespace Kans
 
 				//Temp Function
 				//Init Material
-				MaterialUtil::InitMaterial(materialCMP.MaterialTable);
+				Utils::MaterialUtils::InitMaterial(materialCMP.MaterialTable);
 			}
 #endif
 			// createMesh test
@@ -213,16 +211,25 @@ namespace Kans
 				
 			m_ActiveScene->OnRuntimeStart();
 		}
+		//Scene Renderer Init
+		{
+			m_StaticMeshRenderer = CreateRef<SceneRenderer>(m_ActiveScene);
+			m_StaticMeshRenderer->SetFrameBuffer(m_Framebuffer);
+		}
 }
 	void EditorLayer::OnDetach()
 	{
-		m_ActiveScene->OnRuntimeStop();
+		//temp function to test script system
+		{
+			m_ActiveScene->OnRuntimeStop();
 
-		SceneSerializer s(m_ActiveScene);
-		s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");
+			SceneSerializer s(m_ActiveScene);
+			s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");
+		}
 
 		HZ_PROFILE_FUCTION();
-		HZ_CORE_INFO("{0} call detach",Application::Get().GetSpecification().Name);
+		CLIENT_INFO("Editor", "editor layer call detach");
+
 		Renderer2D::Shutdown();
 		EditorResources::ShutDown();
 
@@ -260,8 +267,8 @@ namespace Kans
 		//renderer
 		Renderer2D::ResetStats();
 		m_Framebuffer->Bind();
-		RenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
-		RenderCommand::Clear();
+		OpenGLRenderCommand ::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
+		OpenGLRenderCommand::Clear();
 	
 		//rendering
 		//此处应该有renderpass
@@ -385,6 +392,17 @@ namespace Kans
 		ImGui::Separator();
 		ImGui::Text("Render3DStats");
 		ImGui::Text("ViePort Size: %f , %f", m_ViewportSize.x, m_ViewportSize.y);
+
+		auto resource = m_ActiveScene->GetRenderResource();
+		ImGui::Separator();
+		ImGui::Checkbox("EnableToneShader", &resource.Piplinestate.EnableToneShader);
+		ImGui::Checkbox("EnableOutline", &resource.Piplinestate.EnableOutline);
+		ImGui::Checkbox("EnableDebugNormal", &resource.Piplinestate.EnableDebugNormal);
+		ImGui::Checkbox("EnableStencil", &resource.Piplinestate.EnableStencil);
+		ImGui::Checkbox("EnableDefaultShader", &resource.Piplinestate.EnableDefaultShader);
+		m_ActiveScene->SetRenderResource(resource);
+		
+		
 
 		ImGui::End();
 

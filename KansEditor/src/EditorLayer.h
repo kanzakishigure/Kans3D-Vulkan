@@ -18,7 +18,6 @@ namespace Kans {
 		void OnEvent(Kans::Event& e) override;
 		virtual void OnImGuiRender() override;
 	private:
-		ShaderLibrary shaderLibrary;
 		OrthographicCameraController m_CameraController;
 		
 		Ref<SceneRenderer> m_StaticMeshRenderer;

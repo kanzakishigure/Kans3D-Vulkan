@@ -17,7 +17,7 @@ namespace Kans
 	{
 		ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoTitleBar;
 		auto& style = ImGui::GetStyle();
-
+			
 		ImGui::Begin("ContentBrowser",nullptr, windowFlags);
 #if ADJUST_CONTRNTBROWSER	
 		{
@@ -69,12 +69,41 @@ namespace Kans
 					ImGui::TableSetColumnIndex(1);
 					const char* column_name = ImGui::TableGetColumnName(1); // Retrieve name passed to TableSetupColumn()
 					ImGui::PushID(column_name);
+					auto debugpath = KansFileSystem::GetAssetFolder();
 					if (m_CurrentPath != KansFileSystem::GetAssetFolder())
 					{
-						//ImGui::TableNextColumn();
-						if (ImGui::Button("<<--"))
+						if(0)
+						{
+							//ImGui::TableNextColumn();
+							std::string spiltPath = m_CurrentPath.string();
+							size_t nop = spiltPath.find_first_of("\\");
+							std::string name = spiltPath.substr(0, nop);
+							while (nop != std::string::npos)
+							{
+
+								if (ImGui::Button(name.c_str()))
+								{
+									m_CurrentPath = m_CurrentPath.parent_path();
+									CLIENT_WARN("current path:", m_CurrentPath.string());
+								}
+								CLIENT_INFO(spiltPath);
+								name = spiltPath.substr(0, nop);
+								nop = spiltPath.find_first_of("\\");
+								spiltPath = spiltPath.substr(nop, spiltPath.length());
+							}
+						}
+						if (ImGui::Button("<<---"))
 						{
 							m_CurrentPath = m_CurrentPath.parent_path();
+							CLIENT_WARN("current path:",m_CurrentPath.string());
+						}
+						
+					}
+					else
+					{
+						if (ImGui::Button(m_CurrentPath.string().c_str()))
+						{
+							
 						}
 					}
 					//ImGui::TableHeader(column_name);
