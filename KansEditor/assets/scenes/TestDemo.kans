@@ -1,18 +1,16 @@
 Scene: TestDemo
-? Entity: 1695715744444270455
+? Entity: 1622524976251928516
   TagComponent:
-    Tag: Cube_0
+    Tag: GY_Light
   TransformComponent:
-    Position: vec3(0.000000, 0.000000, -3.000000)
-    Rotation: vec3(0.000000, 0.000000, 0.000000)
-    Scale: vec3(0.500000, 0.500000, 0.500000)
+    Position: vec3(0.000000, -1.200000, -3.000000)
+    Rotation: vec3(-0.349066, 0.000000, 0.000000)
+    Scale: vec3(0.150000, 0.150000, 0.150000)
   StaticMeshComponent:
     {}
   MaterialComponent:
     MaterialTable: ""
-  ScriptComponent:
-    ClassName: Sandbox.Player
-: Entity: 7310156026760645893
+: Entity: 2065439111777929876
   TagComponent:
     Tag: mainCamera
   TransformComponent:
@@ -27,10 +25,10 @@ Scene: TestDemo
     OrthographicSize: 10
     OrthographicFarClip: 1
     OrthographicNearClip: -1
-    AspectRatio: 2.19005322
+    AspectRatio: 2.06879187
     Primary: true
     FixedAspectRatio: false
-? Entity: 7317833922256000654
+? Entity: 2429327295917450970
   TagComponent:
     Tag: RefEntity
   TransformComponent:
@@ -41,7 +39,7 @@ Scene: TestDemo
     Color: vec4(1.000000, 1.000000, 1.000000, 1.000000)
     Texture: assets/textures/GY.png
     TilingFactor: 1
-: Entity: 7911307457576714834
+: Entity: 8907112648783986960
   TagComponent:
     Tag: DirLight
   TransformComponent:
@@ -53,7 +51,7 @@ Scene: TestDemo
     Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
-? Entity: 4903290498401648630
+? Entity: 5802073121581881999
   TagComponent:
     Tag: PointLight
   TransformComponent:

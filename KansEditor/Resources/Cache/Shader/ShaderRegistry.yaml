@@ -1,0 +1,14 @@
+ShaderRegistry:
+  - ShaderPath: Resources/Shaders/debug/Texture.glsl
+    Stages:
+      - Stage: vertex_shader
+        StageHash: 65f7396418fb4d856c93c4b86dec477f  # Hash value stored as char
+        IncludeHeads:
+          - IncludedFilePath: Resources/Shaders/Include/env.glslh
+            HashValue: db257e5b7acd4fcd786daed3f5bbc24
+            IsRelative: true
+            IncludeDepth: 1
+      - Stage: fragment_shader
+        StageHash: b88c49ee19f103e6333d3935b67cda5f  # Hash value stored as char
+        IncludeHeads:
+          []

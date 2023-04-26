@@ -1,12 +1,17 @@
+
 #type vertex
 #version 330 core
+
+
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TextureCroods;
 layout(location = 3) in vec4 a_BaseColor;
-layout(location = 3) in vec3 a_Tangent;
-uniform mat4 U_ViewProjection;
-uniform mat4 U_Transform;
+layout(location = 4) in vec3 a_Tangent;
+
+uniform  mat4 U_ViewProjection;
+uniform  mat4 U_Transform;
+
 out vec3 V_Normal;
 out vec2 V_TexCroods;
 out vec4 V_BaseColor;
@@ -18,7 +23,7 @@ void main()
 
 	//V_TexCroods = a_TextureCroods;
 	V_TexCroods = vec2(a_TextureCroods.x,a_TextureCroods.y);
-	V_BaseColor = vec4(1.0);
+	V_BaseColor = a_BaseColor;
 	//（Moldle-1）T
 	//the normal is in worldspcae
 	V_Normal = mat3(transpose(inverse(U_Transform)))*a_Normal;
@@ -26,6 +31,8 @@ void main()
 	vec4 pos = U_Transform*vec4(a_Position, 1.0);
 	V_FragPos = vec3(pos.xyz)/pos.w;
 }
+
+
 
 #type fragment
 #version 330 core
@@ -98,6 +105,7 @@ void main()
 
 
 	vec4 BaseColor = texture2D(material.U_DiffuseTexture,vec2(V_TexCroods.x,1.0-V_TexCroods.y));
+	
     vec4 LightMapColor = texture2D(material.U_ToneLightMap,vec2(V_TexCroods.x,1.0-V_TexCroods.y));
 	//Prep
 		//lambert(LoN)
@@ -118,7 +126,7 @@ void main()
 		float rampV = 1.0 - LightMapColor.a;
 		rampV = LightMapColor.a*0.5;
 		//归一化到0.5 -1.0
-		rampV = floor(rampV*10)/10.0; 
+		rampV = floor(rampV*10.0)/10.0; 
 		
 
 
@@ -144,9 +152,9 @@ void main()
 
 				
 		int index = int(rampV);
-		//vec3 rampColor = rampmaps[index];
-		vec3 rampColor = texture2D(material.U_ToneRampMap,vec2(lambert,1.0 - 	(LightMapColor.a*0.45 + 0.55))).rgb;
-		float rampvalue =  step(U_RampShadowRange,lambert);
+		vec3 rampColor = rampmaps[index];
+		//vec3 rampColor = texture2D(material.U_ToneRampMap,vec2(lambert,1.0 - (LightMapColor.a*0.45 + 0.55))).rgb;
+		float rampvalue =  smoothstep(U_RampShadowRange,lambert,1.0);
 		rampShadowColor = rampvalue*BaseColor.rgb + (1-rampvalue)*(BaseColor.rgb*rampColor);
 
 		DarkShadowColor = rampShadowColor*U_ShadowMultColor.rgb;
@@ -183,11 +191,9 @@ void main()
 	FinalColor.rgb = SFactor * ShallowShadowColor + (1 - SFactor) * DarkShadowColor;
 
 	
-	
 	//O_Color = vec4(DarkShadowColor,1.0);
 	O_Color = vec4(rampShadowColor.rgb,1.0);
-	
-	
+		
 }
 
 /*
