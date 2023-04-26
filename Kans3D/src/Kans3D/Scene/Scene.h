@@ -6,11 +6,7 @@
 #include "Kans3D/Renderer/Mesh.h"
 namespace  Kans
 {
-	class SceneRenderer;
-	class Entity;
-	
-	using EntityMap = std::unordered_map<UUID, Entity>;
-	//BlingPhong Material
+
 	struct DirLight
 	{
 		glm::vec3 Dirction;
@@ -26,7 +22,31 @@ namespace  Kans
 		glm::vec3 Ambient_Intensity;
 	};
 
-	class Scene
+	struct PipLineState
+	{
+		bool EnableOutline = true;
+		bool EnableToneShader = true;
+		bool EnableStencil = false;
+		bool EnableDebugNormal = false;
+		bool EnableDefaultShader = false;
+	};
+	struct  RenderResource
+	{
+		PointLight pointLight;
+		DirLight dirLight;
+		PipLineState Piplinestate;
+
+	};
+
+	class SceneRenderer;
+	class Entity;
+	
+	using EntityMap = std::unordered_map<UUID, Entity>;
+	//BlingPhong Material
+	
+
+	//the scene to the gameplayer system
+	class Scene : public Asset
 	{
 
 	public:
@@ -51,6 +71,9 @@ namespace  Kans
 		const std::string GetName() const { return m_Name; }
 		void SetName(const std::string& name ) { m_Name = name; }
 
+		const RenderResource& GetRenderResource() { return m_RenderResource; }
+		void SetRenderResource(const RenderResource& resource) { m_RenderResource = resource; }
+
 	private:
 		template<typename T> 
 		void OnComponentAdd(Entity entity, T& component );
@@ -62,12 +85,21 @@ namespace  Kans
 	private:
 		DirLight dirLight;
 		PointLight pointLight;
-
+		RenderResource m_RenderResource;
 		
 		friend class Entity;
 		friend class SceneHierachyPanel;
 		friend class SceneRenderer;
 		friend class SceneSerializer;
+	};
+	//the scene to the renderer
+	class RenderScene : public Asset
+	{
+	public:
+		RenderScene();
+		~RenderScene();
+	private:
+		friend class SceneRenderer;
 	};
 
 	

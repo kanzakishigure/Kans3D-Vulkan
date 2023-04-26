@@ -130,7 +130,7 @@ namespace Kans
 				//renderer->SubmitStaticMesh(meshCMP.StaticMesh, meshCMP.MaterialTable, transformCMP.GetTransform());
 				//ToneShader
 				OpenGLRenderCommand::EnableCullFace(false);
-				if(0)
+				if(m_RenderResource.Piplinestate.EnableToneShader)
 				{
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();
@@ -141,8 +141,8 @@ namespace Kans
 				OpenGLRenderCommand::EnableCullFace(true);
 
 
-				//Outline
-				if(0)
+				//Stencil
+				if(m_RenderResource.Piplinestate.EnableStencil)
 				{
 					OpenGLRenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
 					OpenGLRenderCommand::SetStencilMask(0x00);
@@ -155,7 +155,7 @@ namespace Kans
 				}
 				
 				// Stroke
-				if(0)
+				if(m_RenderResource.Piplinestate.EnableOutline)
 				{
 					OpenGLRenderCommand::EnableCullFace(true);
 					OpenGLRenderCommand::CullFace(CullFaceOption::FRONT);
@@ -164,23 +164,26 @@ namespace Kans
 					OpenGLRenderCommand::EnableCullFace(false);
 				}
 				//DebugNormalShader
-				if(0)
+				if(m_RenderResource.Piplinestate.EnableDebugNormal)
 				{
 					renderer->SubmitStaticMeshDebugNormal(meshCMP.StaticMesh, transformCMP.GetTransform());
 				}
 
 				//StaticMesh
-				if (entt.HasComponent<MaterialComponent>())
+				if (m_RenderResource.Piplinestate.EnableDefaultShader)
 				{
-					Entity e = { entity,this };
-					auto& materialCMP = e.GetComponent<MaterialComponent>();
+					if (entt.HasComponent<MaterialComponent>())
+					{
+						Entity e = { entity,this };
+						auto& materialCMP = e.GetComponent<MaterialComponent>();
 
-					OpenGLRenderCommand::EnableCullFace(true);
-					renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable,transformCMP.GetTransform());
-					OpenGLRenderCommand::EnableCullFace(false);
+						OpenGLRenderCommand::EnableCullFace(true);
+						renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
+						OpenGLRenderCommand::EnableCullFace(false);
+					}
 				}
 				//Spot cloud
-				if (0)
+				if (false)
 				{
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();
@@ -234,7 +237,7 @@ namespace Kans
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
 
-		HZ_CORE_ASSERT(m_EntityMap.find(uuid)== m_EntityMap.end(),nullptr);
+		CORE_ASSERT(m_EntityMap.find(uuid)== m_EntityMap.end(),nullptr);
 		m_EntityMap[uuid] = entity;
 		return entity;
 	}

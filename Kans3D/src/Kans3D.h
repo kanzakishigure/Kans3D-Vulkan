@@ -43,7 +43,7 @@
 #include "Kans3D/Physics/ParticleSystem.h"
 //------辅助工具---------------
 #include "Kans3D/Debug/Instrumentor.h"
-#include "Kans3D/Utilities/KansUtils.h"
+#include "Kans3D/Utilities/MaterialUtils.h"//temp
 //------程序入口点--------------
 
 //#include"Kans3D/Core/EntryPoint.h"
