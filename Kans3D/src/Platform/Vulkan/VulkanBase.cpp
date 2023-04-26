@@ -41,73 +41,7 @@ namespace Kans::Utils
 // Vulkan Device
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	QueueFamilyIndices findGraphicQueueFamilies(VkPhysicalDevice physicaldevice)
-	{
-		QueueFamilyIndices indices;
-		uint32_t queuefamilyCount = 0;
-		vkGetPhysicalDeviceQueueFamilyProperties(physicaldevice, &queuefamilyCount, nullptr);
-		HZ_CORE_ASSERT(queuefamilyCount != 0, "vulkan QueueFamily don't find")
-			std::vector<VkQueueFamilyProperties> queuefamilyprop(queuefamilyCount);
-		vkGetPhysicalDeviceQueueFamilyProperties(physicaldevice, &queuefamilyCount, queuefamilyprop.data());
 
-		uint32_t i = 0;
-		for (const VkQueueFamilyProperties& queuefamily : queuefamilyprop)
-		{
-			if (queuefamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
-			{
-				indices.graphicsFamily = i;
-				
-			}
-		
-			if (indices.isComplete())
-			{
-				break;
-			}
-			i++;
-		}
-		return indices;
-	}
-	
-
-	bool isDeviceSuitable(VkPhysicalDevice device)
-	{
-		//检查是否为独立显卡，并且支持几何着色器
-		QueueFamilyIndices queuefamiliesindices = findGraphicQueueFamilies(device);
-		VkPhysicalDeviceProperties deviceProperties;
-		VkPhysicalDeviceFeatures deviceFeatures;
-		vkGetPhysicalDeviceProperties(device, &deviceProperties);
-		vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-
-		return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-			deviceFeatures.geometryShader && queuefamiliesindices.isComplete();
-	}
-
-	const std::vector<const char*> deviceExtensions = {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME
-	};
-	bool checkDeviceExtensionSupport(VkPhysicalDevice device)
-	{
-		uint32_t count = 0;
-		
-		//get the extension count
-		vkEnumerateDeviceExtensionProperties(device,nullptr,&count,nullptr);
-		//get support extension
-		std::vector<VkExtensionProperties>availableExtensions(count);
-
-		vkEnumerateDeviceExtensionProperties(device, nullptr, &count, availableExtensions.data());
-
-		//
-#if 0
-		{
-			std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
-			for (const auto& extension : availableExtensions) {
-				requiredExtensions.erase(extension.extensionName);
-			}
-			return requiredExtensions.empty();
-		}
-#endif
-		return false;
-	}
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Vulkan Utils
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -155,7 +89,7 @@ namespace Kans::Utils
 		case VK_OPERATION_NOT_DEFERRED_KHR: return "VK_OPERATION_NOT_DEFERRED_KHR";
 		case VK_PIPELINE_COMPILE_REQUIRED_EXT: return "VK_PIPELINE_COMPILE_REQUIRED_EXT";
 		}
-		HZ_CORE_ASSERT(false, "");
+		CORE_ASSERT(false, "");
 		return nullptr;
 	}
 	const std::string VulkanMessageSeverityToString(VkDebugUtilsMessageSeverityFlagBitsEXT vkSeverity)

@@ -1,6 +1,6 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include "Kans3D/Core/Base.h"
+#include "Kans3D/Core/Base/Base.h"
 
 namespace Kans
 {
@@ -14,8 +14,7 @@ namespace Kans::Utils
 	//Device
 	QueueFamilyIndices findGraphicQueueFamilies(VkPhysicalDevice physicaldevice);
 	bool isDeviceSuitable(VkPhysicalDevice device);
-	//SwapChian
-	bool checkDeviceExtensionSupport(VkPhysicalDevice device);
+	
 	//Utils
 	const std::string VulkanMessageTypeToString(VkDebugUtilsMessageTypeFlagsEXT vkType);
 	const std::string VulkanMessageSeverityToString(VkDebugUtilsMessageSeverityFlagBitsEXT vkSeverity);
@@ -24,8 +23,8 @@ namespace Kans::Utils
 	{
 		if (res != VK_SUCCESS)
 		{
-			HZ_CORE_ERROR(VulkanResualtToString(res));
-			HZ_CORE_ASSERT(false, "");
+			CORE_ERROR(VulkanResualtToString(res));
+			CORE_ASSERT(false);
 		}
 	}
 }

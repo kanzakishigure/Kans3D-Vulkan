@@ -1,9 +1,14 @@
 #include "kspch.h"
-#include "VulkanContext.h"
+#include "VulkanRHI.h"
 #include "VulkanBase.h"
-namespace Kans 
+
+#include "Kans3D/FileSystem/FileSystem.h"
+//temp
+#include "VulkanShader.h"
+#include "ShaderCompiler/VulkanShaderCompiler.h"
+namespace Kans
 {
-#ifdef HZ_DEBUG
+#ifdef KS_DEBUG
 	static  bool s_Validation = true;
 #else
 	static  bool s_Validation = false;
@@ -16,6 +21,10 @@ namespace Kans
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Vulkan Utils
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	inline static std::vector<const char*> validationLayers =
+	{
+		"VK_LAYER_KHRONOS_validation"
+	};
 	namespace Utils
 	{
 		void GetRequiredExtensions(std::vector<const char*>& extentions)
@@ -34,7 +43,9 @@ namespace Kans
 				extentions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 			}
 		}
-
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Vulkan Validation Layer
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerCreateInfoEXT* pcreateinfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger)
 		{
 			auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -69,10 +80,7 @@ namespace Kans
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Vulkan Attribute
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	static std::vector<const char*> validationLayers =
-	{
-		"VK_LAYER_KHRONOS_validation"
-	};
+	
 	static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallBack(
 		VkDebugUtilsMessageSeverityFlagBitsEXT  messageSeverity,//信息严重性
 		VkDebugUtilsMessageTypeFlagsEXT messageType,//信息类型
@@ -91,7 +99,7 @@ namespace Kans
 		if (messageSeverity >= VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 		{
 			std::string logdata = pCallbackData->pMessage;
-			HZ_CORE_ERROR("{0} {1} Message: \t\n {2}", Utils::VulkanMessageSeverityToString(messageSeverity), Utils::VulkanMessageTypeToString(messageType), logdata);
+			CORE_ERROR("{0} {1} Message: \t\n {2}", Utils::VulkanMessageSeverityToString(messageSeverity), Utils::VulkanMessageTypeToString(messageType), logdata);
 		}
 
 
@@ -100,22 +108,31 @@ namespace Kans
 	}
 
 
-	VulkanContext::VulkanContext()
+	VulkanRHI::VulkanRHI()
+		:m_WindowHandle(nullptr)
 	{
 
 	}
 
-	VulkanContext::~VulkanContext()
+	VulkanRHI::VulkanRHI(const Scope<Window>& window)
+		:m_WindowHandle(window.get())
+	{
+
+	}
+
+	VulkanRHI::~VulkanRHI()
 	{
 		//release the resource In reverse order
 		m_Device->Destroy();
 		if (s_Validation) {
-			Utils::DestroyDebugUtilsMessengerEXT(s_Instance, m_DebugUtilsMessenger, nullptr);
+			Utils::DestroyDebugUtilsMessengerEXT(s_VulkanInstance, m_DebugUtilsMessenger, nullptr);
 		}
-		vkDestroyInstance(s_Instance, nullptr);
+		vkDestroyInstance(s_VulkanInstance, nullptr);
 	}
 
-	void VulkanContext::Init()
+	
+
+	void VulkanRHI::Init()
 	{
 
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -130,11 +147,10 @@ namespace Kans
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		VkApplicationInfo appInfo = {};
 		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-		appInfo.apiVersion = VK_MAKE_VERSION(1, 0, 0);
 		appInfo.pApplicationName = "Kans3D_Vulkan_development";
 		appInfo.pEngineName = "Kans3D";
 		appInfo.engineVersion = VK_MAKE_VERSION(0, 3, 1);
-		appInfo.apiVersion = VK_API_VERSION_1_0;
+		appInfo.apiVersion = VK_API_VERSION_1_2; //make sure the version is same to spir-v
 		
 
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,12 +182,7 @@ namespace Kans
 			instanceInfo.pNext = nullptr;
 		}
 		
-		
-		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		// CheckResult Without Handle 
-		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		VkResult result =  vkCreateInstance(&instanceInfo, nullptr, &s_Instance);
-		HZ_ASSERT(result == VK_SUCCESS, "create VulkanInstance failed");
+		VK_CHECK_RESULT(vkCreateInstance(&instanceInfo, nullptr, &s_VulkanInstance));
 		
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// DebugMessenger
@@ -195,21 +206,46 @@ namespace Kans
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			//因为vkCreateDebugUtilsMessengerEXT 是一个扩展函数，所以我们需要自行查找该函数的函数指针地址
 			//使用我们自己的代理函数，再在代理函数中调用实际的创建函数
-			VK_CHECK_RESULT(Utils::CreateDebugUtilsMessengerEXT(s_Instance, &createInfo, nullptr, &m_DebugUtilsMessenger))
+			VK_CHECK_RESULT(Utils::CreateDebugUtilsMessengerEXT(s_VulkanInstance, &createInfo, nullptr, &m_DebugUtilsMessenger))
 		}
-
+		
+		
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Vulkan Device
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		m_PhysicalDevice = VulkanPhysicalDevice::Select();
-		m_Device = CreateRef<VulkanDevice>(m_PhysicalDevice);
 
+		VkPhysicalDeviceFeatures requestFeatures{false};
+		requestFeatures.samplerAnisotropy = true;
+		// support inefficient readback storage buffer
+		requestFeatures.fragmentStoresAndAtomics = true;
+		// support independent blending
+		requestFeatures.independentBlend = true;
+		// support geometry shader
+		requestFeatures.geometryShader = true;
+		
+
+		m_Device = CreateRef<VulkanDevice>(m_PhysicalDevice, requestFeatures);
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Create SwapChain
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		m_SwapChain.Init(s_VulkanInstance, m_Device);
+		m_SwapChain.InitSurface((GLFWwindow*)m_WindowHandle->GetNativeWindow());
+
+		WindowSpecification spec = m_WindowHandle->GetWindowSpecification();
+		m_SwapChain.Create(&spec.Width, &spec.Height, m_WindowHandle->IsVSync());
+		m_WindowHandle->SetWindowSpecification(spec);
+		
+
+		
+		// create the vulkan pipline
+		// need to create the 
+		
 	}
-	void VulkanContext::SwapBuffers()
+
+	void VulkanRHI::Shutdown()
 	{
-
+		m_SwapChain.Cleanup();
 	}
-
-	
 
 }
