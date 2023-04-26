@@ -1,7 +1,7 @@
 #pragma once
 #include "Kans3D/Asset/AssetType.h"
 #include "Kans3D/Core/UUID.h"
-#include "Kans3D/Core/Ref.h"
+#include "Kans3D/Core/Base/Ref.h"
 namespace Kans 
 {
 	using AssetHandle = UUID;
@@ -12,7 +12,7 @@ namespace Kans
 	public:
 
 		AssetHandle Handle = 0;
-		uint16_t Flags = AssetFlag::None;
+		uint16_t Flags = (uint16_t)AssetFlag::None;
 
 		virtual ~Asset(){}
 
@@ -31,7 +31,7 @@ namespace Kans
 			return !(*this == other);
 		}
 
-		bool IsFlagSet(AssetFlag flag) const { return (uint16_t)Flags & flag; }
+		bool IsFlagSet(AssetFlag flag) const { return Flags & (uint16_t)flag; }
 		void SetFlag(AssetFlag flag,bool Value = true)
 		{
 			//若要将flag某一位置1，则直接用flag进行或运算
