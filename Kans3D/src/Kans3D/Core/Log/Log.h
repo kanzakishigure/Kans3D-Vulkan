@@ -5,12 +5,11 @@
 
 
 
-//spdlogÍ·ÎÄ¼þ¿â
+
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/fmt/fmt.h>
-#include "spdlog/fmt/bundled/format.h"
-
+#include <spdlog/fmt/bundled/format.h>
 
 namespace Kans {
 
@@ -35,6 +34,11 @@ namespace Kans {
 
 		template<typename... Args>
 		static void PrintMessage(Log::Type type, Log::Level level, std::string_view tag, Args&&... args);
+		
+		template<typename... Args>
+		static void PrintAssertMessage(Log::Type type, std::string string,Args&&... args);
+
+
 	private:
 		static std::shared_ptr<spdlog::logger>  s_CoreLogger;
 		static std::shared_ptr<spdlog::logger>  s_ClientLogger;
@@ -54,18 +58,18 @@ inline OStream& operator<< (OStream& os, const glm::vec<L, T, Q>& vector)
 
 
 //core logging marcos
-#define HZ_CORE_TRACE(...)      ::Kans::Log::GetCoreLogger()->trace(__VA_ARGS__)
-#define HZ_CORE_INFO(...)       ::Kans::Log::GetCoreLogger()->info(__VA_ARGS__)
-#define HZ_CORE_WARN(...)       ::Kans::Log::GetCoreLogger()->warn(__VA_ARGS__)
-#define HZ_CORE_ERROR(...)      ::Kans::Log::GetCoreLogger()->error(__VA_ARGS__)
-#define HZ_CORE_CRITICAL(...)   ::Kans::Log::GetCoreLogger()->critical(__VA_ARGS__)
+#define CORE_TRACE(...)      ::Kans::Log::GetCoreLogger()->trace(__VA_ARGS__)
+#define CORE_INFO(...)       ::Kans::Log::GetCoreLogger()->info(__VA_ARGS__)
+#define CORE_WARN(...)       ::Kans::Log::GetCoreLogger()->warn(__VA_ARGS__)
+#define CORE_ERROR(...)      ::Kans::Log::GetCoreLogger()->error(__VA_ARGS__)
+#define CORE_CRITICAL(...)   ::Kans::Log::GetCoreLogger()->critical(__VA_ARGS__)
 
 //client logging marcos
-#define HZ_TRACE(...)    ::Kans::Log::GetClientLogger()->trace(__VA_ARGS__)
-#define HZ_INFO(...)     ::Kans::Log::GetClientLogger()->info(__VA_ARGS__)
-#define HZ_WARN(...)     ::Kans::Log::GetClientLogger()->warn(__VA_ARGS__)
-#define HZ_ERROR(...)    ::Kans::Log::GetClientLogger()->error(__VA_ARGS__)
-#define HZ_CRITICAL(...) ::Kans::Log::GetClientLogger()->critical(__VA_ARGS__)
+#define CLIENT_TRACE(...)    ::Kans::Log::GetClientLogger()->trace(__VA_ARGS__)
+#define CLIENT_INFO(...)     ::Kans::Log::GetClientLogger()->info(__VA_ARGS__)
+#define CLIENT_WARN(...)     ::Kans::Log::GetClientLogger()->warn(__VA_ARGS__)
+#define CLIENT_ERROR(...)    ::Kans::Log::GetClientLogger()->error(__VA_ARGS__)
+#define CLIENT_CRITICAL(...) ::Kans::Log::GetClientLogger()->critical(__VA_ARGS__)
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Tagged logs                                                                                    
@@ -76,11 +80,11 @@ inline OStream& operator<< (OStream& os, const glm::vec<L, T, Q>& vector)
 #define CORE_ERROR_TAG(tag,...)      ::Kans::Log::PrintMessage(::Kans::Log::Type::Core,::Kans::Log::Level::Error,tag,__VA_ARGS__)
 #define CORE_CRITICAL_TAG(tag,...)   ::Kans::Log::PrintMessage(::Kans::Log::Type::Core,::Kans::Log::Level::Critical,tag,__VA_ARGS__)
 
-#define TRACE_TAG(tag,...)    ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Trace,tag,__VA_ARGS__)
-#define INFO_TAG(tag,...)     ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Info,tag,__VA_ARGS__)
-#define WARN_TAG(tag,...)     ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Warn,tag,__VA_ARGS__)
-#define ERROR_TAG(tag,...)    ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Error,tag,__VA_ARGS__)
-#define CRITICA_TAGL(tag,...) ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Critical,tag,__VA_ARGS__)
+#define CLIENT_TRACE_TAG(tag,...)    ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Trace,tag,__VA_ARGS__)
+#define CLIENT_INFO_TAG(tag,...)     ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Info,tag,__VA_ARGS__)
+#define CLIENT_WARN_TAG(tag,...)     ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Warn,tag,__VA_ARGS__)
+#define CLIENT_ERROR_TAG(tag,...)    ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Error,tag,__VA_ARGS__)
+#define CLIENT_CRITICA_TAGL(tag,...) ::Kans::Log::PrintMessage(::Kans::Log::Type::Client,::Kans::Log::Level::Critical,tag,__VA_ARGS__)
 namespace Kans
 {
 	template<typename... Args>
@@ -88,24 +92,41 @@ namespace Kans
 	{
 		auto logger = type == Log::Type::Core ? Log::GetCoreLogger() : Log::GetClientLogger();
 
-		std::string logString = tag.empty() ? "{0}{1}" : "[{0}] {1}";
+		std::string logStringFMT = tag.empty() ? "{0}{1}" : "[{0}] {1}";
 		switch (level)
 		{
 		case Kans::Log::Level::Trace:
-			logger->trace(logString, tag, fmt::format(std::forward<Args>(args)...));
+			logger->trace(logStringFMT, tag, fmt::format(std::forward<Args>(args)...));
 			break;
 		case Kans::Log::Level::Info:
-			logger->info(logString, tag, fmt::format(std::forward<Args>(args)...));
+			logger->info(logStringFMT, tag, fmt::format(std::forward<Args>(args)...));
 			break;
 		case Kans::Log::Level::Warn:
-			logger->warn(logString, tag, fmt::format(std::forward<Args>(args)...));
+			logger->warn(logStringFMT, tag, fmt::format(std::forward<Args>(args)...));
 			break;
 		case Kans::Log::Level::Error:
-			logger->error(logString, tag, fmt::format(std::forward<Args>(args)...));
+			logger->error(logStringFMT, tag, fmt::format(std::forward<Args>(args)...));
 			break;
 		case Kans::Log::Level::Critical:
-			logger->critical(logString, tag, fmt::format(std::forward<Args>(args)...));
+			logger->critical(logStringFMT, tag, fmt::format(std::forward<Args>(args)...));
 			break;
 		}
 	}
+
+	template<typename... Args>
+	void Log::PrintAssertMessage(Log::Type type, std::string string,Args&&... args)
+	{
+		auto logger = type == Log::Type::Core ? Log::GetCoreLogger() : Log::GetClientLogger();
+		logger->error("{0}: {1}", string,fmt::format(std::forward<Args>(args)...));
+	}
+
+	template<>
+	inline void Log::PrintAssertMessage(Log::Type type, std::string string)
+	{
+		auto logger = type == Log::Type::Core ? Log::GetCoreLogger() : Log::GetClientLogger();
+		logger->error("{0}", string);
+	}
+
+	
+
 }
