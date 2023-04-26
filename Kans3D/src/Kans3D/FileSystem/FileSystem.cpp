@@ -2,11 +2,38 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 namespace Kans{
 
+
+	int SkipBOM(std::istream& in)
+	{
+		char test[4] = { 0 };
+		in.seekg(0, std::ios::beg);
+		in.read(test, 3);
+
+		if (strcmp(test, "\xEF\xBB\xBF") == 0)
+		{
+			in.seekg(3, std::ios::beg);
+			return 3;
+		}
+
+		in.seekg(0, std::ios::beg);
+		return 0;
+	}
+
+	void KansFileSystem::InitFileCache()
+	{
+
+	}
+
+	void KansFileSystem::ResetFileCache()
+	{
+
+	}
+
 	FileSystemSpecification* KansFileSystem::s_Specification = nullptr;
 	void KansFileSystem::Init(const std::filesystem::path& configPath)
 	{
 
-		HZ_ASSERT(!configPath.empty(), "FileSystm init fail");
+		CORE_ASSERT(!configPath.empty(), "FileSystm init fail");
 		s_Specification = new FileSystemSpecification();
 		std::ifstream config_file(configPath);
 		std::string config_line;
@@ -45,6 +72,14 @@ namespace Kans{
 				{
 					s_Specification->ProfileSpecicationDir = value;
 				}
+				else if (key == "ShaderCacheDir")
+				{
+					s_Specification->ShaderCacheDir = value;
+				}
+				else if (key == "CacheDir")
+				{
+					s_Specification->CacheDir = value;
+				}
 			}
 			
 		}
@@ -76,11 +111,26 @@ namespace Kans{
 		return std::filesystem::exists(filepath);
 	}
 
+	bool KansFileSystem::Exists(const std::filesystem::path& filepath)
+	{
+		return std::filesystem::exists(filepath);
+	}
+
+	bool KansFileSystem::CreateDirectories(std::string directory)
+	{
+		return std::filesystem::create_directories(std::filesystem::path(directory));
+	}
+
+	bool KansFileSystem::CreateDirectories(const std::filesystem::path& directory)
+	{
+		return std::filesystem::create_directories(directory);
+	}
+
 	Kans::Buffer KansFileSystem::ReadBytes(const std::filesystem::path& path)
 	{
 		Buffer buffer;
 		std::ifstream stream(path,std::ios::binary|std::ios::ate);
-		HZ_ASSERT(stream,"Load file Byte stream fail : "+path.string());
+		CORE_ASSERT(stream,"Load file Byte stream fail : "+path.string());
 
 		std::streampos end = stream.tellg();
 		stream.seekg(0,std::ios::beg);
@@ -91,6 +141,24 @@ namespace Kans{
 		stream.close();
 
 		return buffer;
+
+	}
+
+	std::string KansFileSystem::ReadFileSkipBOM(const std::filesystem::path& path)
+	{
+		std::ifstream stream(path, std::ios::in | std::ios::binary);
+
+		CORE_ASSERT(stream, "Load file Byte stream fail : " + path.string());
+
+		stream.seekg(0, std::ios::end);
+		auto filesize = stream.tellg();
+
+		std::string result;
+		result.resize(filesize);
+		stream.seekg(0, std::ios::beg);
+		stream.read(result.data(), filesize);
+		stream.close();
+		return result;
 
 	}
 
