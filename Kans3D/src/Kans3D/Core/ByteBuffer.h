@@ -40,7 +40,7 @@ namespace Kans
 		}
 		void Write(void* value, uint32_t offset, uint32_t size)
 		{
-			HZ_ASSERT(offset + size <= Size, "Buffer overflow !");
+			CORE_ASSERT(offset + size <= Size, "Buffer overflow !");
 			std::memcpy((byte*)Data + offset, value, size);
 
 		}

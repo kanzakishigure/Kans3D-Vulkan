@@ -144,7 +144,7 @@ namespace Kans
 	}
 }
 
-#ifdef HZ_PLATFORM_WINDOWS
+#ifdef PLATFORM_WINDOWS
 	#define HZ_KEY_UNKNOWN            -1
 
 	/* Printable keys */
