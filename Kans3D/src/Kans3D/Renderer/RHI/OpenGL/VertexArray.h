@@ -4,7 +4,7 @@
 namespace Kans {
 
 
-	class VertexArray
+	class VertexArray : public RefCounter
 	{
 	public:
 		virtual ~VertexArray() {}

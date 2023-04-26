@@ -23,7 +23,7 @@ namespace Kans
 		bool SwapChainTarget = false;
 	};
 	class Scene;
-	class SceneRenderer 
+	class SceneRenderer : public RefCounter
 	{
 		public:
 			SceneRenderer(Ref<Scene> scene, SceneRendererSpecification spec = SceneRendererSpecification());

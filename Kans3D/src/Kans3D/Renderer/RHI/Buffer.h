@@ -32,7 +32,7 @@ namespace Kans {
 			case ShaderDataType::Bool:		return 1;
 		}
 		
-		HZ_ASSERT(false, "unknown shaderdatatype！");
+		CORE_ASSERT(false, "unknown shaderdatatype！");
 		return 0;
 	}
 	struct BufferElement
@@ -63,7 +63,7 @@ namespace Kans {
 				case ShaderDataType::Int4:		return 4;
 				case ShaderDataType::Bool:		return 1;
 			}
-			HZ_ASSERT(false, "unknown shaderdatatype！");
+			CORE_ASSERT(false, "unknown shaderdatatype！");
 			return 0;
 		}
 	};
@@ -101,7 +101,7 @@ namespace Kans {
 		uint32_t m_Stride=0;
 	};
 
-	class VertexBuffer
+	class VertexBuffer : public RefCounter
 	{
 	public:
 		virtual ~VertexBuffer() {}
@@ -118,7 +118,7 @@ namespace Kans {
 
 	};
 	//目前只支持32位的index索引
-	class IndexBuffer
+	class IndexBuffer : public RefCounter
 	{
 	public:
 		virtual ~IndexBuffer() {}

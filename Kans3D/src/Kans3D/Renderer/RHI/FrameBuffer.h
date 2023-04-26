@@ -62,7 +62,8 @@ namespace Kans {
 		//glBindFramebuffer(0)
 		//是否将该FrameBuffer渲染到屏幕
 	};
-	class FrameBuffer {
+	class FrameBuffer : public RefCounter
+	{
 	public:
 		static Ref<FrameBuffer> Create(const FrameBufferSpecification& spec);
 

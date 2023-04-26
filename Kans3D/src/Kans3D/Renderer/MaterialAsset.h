@@ -1,6 +1,7 @@
 #pragma once
 #include "Kans3D/Renderer/Texture.h"
 #include "Kans3D/Renderer/Material.h"
+#include "Kans3D/Asset/Asset.h"
 namespace Kans
 {
 	enum class MaterialType
@@ -37,7 +38,7 @@ namespace Kans
 		static const std::string s_ToneRampMapUnifrom = MaterialName + "U_ToneRampMap";
 	//PBR Material		  
 
-	class MaterialAsset
+	class MaterialAsset : public Asset
 	{
 	public: 
 		MaterialAsset();
@@ -76,7 +77,7 @@ namespace Kans
 	};
 
 	//MeshComponent will handle this;
-	class MaterialTable
+	class MaterialTable : public RefCounter
 	{
 	public:
 		MaterialTable(uint32_t materialCount = 1);

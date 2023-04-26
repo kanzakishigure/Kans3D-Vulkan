@@ -26,14 +26,14 @@ namespace Kans
 	const Kans::Ref<Kans::MaterialAsset>& MaterialTable::GetMaterialAsset(uint32_t index)
 	{
 
-			HZ_ASSERT(HasMaterial(index),"don't have material")
+		CORE_ASSERT(HasMaterial(index), "don't have material")
 			return m_MaterialTable[index];
 
 	}
 
 	void MaterialTable::CleanMaterial(uint32_t index)
 	{
-		HZ_ASSERT(HasMaterial(index),"Can't clean Material,Material didn't exist ")
+		CORE_ASSERT(HasMaterial(index),"Can't clean Material,Material didn't exist ")
 		m_MaterialTable.erase(index);
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;

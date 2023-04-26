@@ -12,7 +12,7 @@ namespace Kans
 		case Kans::RendererAPIType::NONE:
 			s_API = api; return;
 		}
-		HZ_CORE_ASSERT(false, "unknow RendererAPI");
+		CORE_ASSERT(false, "unknow RendererAPI");
 	}
 
 }

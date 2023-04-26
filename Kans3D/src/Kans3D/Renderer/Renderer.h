@@ -1,6 +1,6 @@
 #pragma once
 #include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h"
-#include "Kans3D/Renderer/RHI/RenderContext.h"
+#include "Kans3D/Renderer/RHI/RHI.h"
 
 #include "Kans3D/Core/Window.h"
 
@@ -16,10 +16,13 @@ namespace Kans {
 	{
 	public:
 		
+
+		static Ref<RHI> GetRHI() { return s_RHI; }
 		static void	Init();
 		static void Init(const Scope<Window>& window);
 		static void RendererDataInit();
 		static void	Shutdown();
+		
 
 		static void BeginScene(const Camera& camera, const glm::mat4& transform);
 		static void EndScene();
@@ -36,8 +39,12 @@ namespace Kans {
 		static Ref<Texture2D> GetWhiteTexture();
 		static Ref<Texture2D> GetBlackTexture();
 		static Ref<ShaderLibrary> GetShaderLibrary();
+		
+		// Add macro from shader.
+		static const std::unordered_map<std::string, std::string>& GetGlobalShaderMacros();
 
-		inline static RendererAPIType GetAPI() { return RendererAPI::GetAPIType(); }
+	private:
+		static Ref<RHI> s_RHI;
 	};
 	
 }

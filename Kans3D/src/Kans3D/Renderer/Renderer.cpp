@@ -4,15 +4,16 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Renderer/SceneCamera.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
-#include "Kans3D/Renderer/RHI/RenderContext.h"
+#include "Kans3D/Renderer/RHI/RHI.h"
 
 #include "Kans3D/FileSystem/FileSystem.h"
+#include "Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 
 namespace Kans {
 	
 	
 
-	static Ref<RenderContext> s_RenderContext = nullptr;
+	Ref<RHI> Renderer::s_RHI = nullptr;
 	static RendererAPI* s_RendererAPI = nullptr;
 
 	struct RendererData
@@ -23,17 +24,19 @@ namespace Kans {
 		Ref<Texture2D> BlackTexture;
 		Ref<ShaderLibrary> m_ShaderLibrary;
 
+		std::unordered_map<std::string, std::string> GlobalShaderMacros;
+
 	};
 	static RendererData* s_RendererData = nullptr;
 
 	static RendererAPI* InitRendererAPI()
 	{
-		switch (RendererAPI::GetAPIType())
+		switch (RendererAPI::Current())
 		{
 		case RendererAPIType::Vulkan: return  nullptr;
 		case RendererAPIType::OPENGL: return	new OpenGLRendererAPI();
 		}
-		HZ_CORE_ASSERT(false, "Unknown RendererAPI");
+		CORE_ASSERT(false, "Unknown RendererAPI");
 		return nullptr;
 	}
 	void Renderer::Init()
@@ -41,16 +44,16 @@ namespace Kans {
 		HZ_PROFILE_FUCTION();
 
 		
-		s_RenderContext = RenderContext::Create();
-		s_RenderContext->Init();
+		s_RHI = RHI::Create();
+		s_RHI->Init();
 
 		s_RendererAPI = InitRendererAPI();
 		s_RendererAPI->Init();
 
 		Renderer::RendererDataInit();
 
-		//we need support vulkan, so need change the architecture, just temp 
-		if (Renderer::GetAPI() == RendererAPIType::OPENGL)
+		//we need support Vulkan, so need change the architecture, just temp 
+		if (RendererAPI::Current() == RendererAPIType::OPENGL)
 			OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
 
 		
@@ -58,25 +61,37 @@ namespace Kans {
 
 	void Renderer::Init(const Scope<Window>& window)
 	{
-		s_RenderContext = RenderContext::Create(window);
-		s_RenderContext->Init();
 
-		//we need support vulkan, so need change the architecture, just temp 
-		if (Renderer::GetAPI() == RendererAPIType::OPENGL)
+		s_RendererData = DEBUG_NEW RendererData();
+		s_RendererData->m_ShaderLibrary = CreateRef<ShaderLibrary>();
+
+		s_RHI = RHI::Create(window);
+		s_RHI->Init();
+		//we need support Vulkan, so need change the architecture, just temp 
+		if (RendererAPI::Current() == RendererAPIType::OPENGL)
 		{
 			s_RendererAPI = InitRendererAPI();
 			s_RendererAPI->Init();
 			OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
 		}
+		{
+			PROFILE_SCOPE_LOG("Shader Create")
+			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string();
 
+			if (RendererAPI::Current() == RendererAPIType::Vulkan)
+			{
+				auto shader = VulkanShaderCompiler::Compile(shaderpath + "debug/Texture.glsl");
+			}
+
+		}
 		Renderer::RendererDataInit();
+		
 
 	}
 
 	void Renderer::RendererDataInit()
 	{
-		s_RendererData = DEBUG_NEW RendererData();
-		s_RendererData->m_ShaderLibrary = CreateRef<ShaderLibrary>();
+		
 		//init renderer asset
 		//Texture
 		{
@@ -89,7 +104,7 @@ namespace Kans {
 			s_RendererData->BlackTexture->SetData((void*)&data, sizeof(uint32_t));
 		}
 		//shader
-		//TODO technically we can use spr-v reflect the vulkan-glsl pushconst to get the UniformStorgeBuffer
+		//TODO technically we can use SPIR-V reflect the Vulkan-GLSL pushConst to get the uniformStorgeBuffer
 		{
 			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string() + "/";
 			{
@@ -129,6 +144,7 @@ namespace Kans {
 				auto OutLineShader = Shader::Create(shaderpath + "OutLineShader.glsl");
 				OutLineShader->SetShaderBuffer({});
 				s_RendererData->m_ShaderLibrary->Add(OutLineShader);
+				
 			}
 
 			{
@@ -158,6 +174,7 @@ namespace Kans {
 			{
 				auto DebugnormalShader = Shader::Create(shaderpath + "DebugNormalShader.glsl");
 				DebugnormalShader->SetShaderBuffer({
+					{ShaderDataType::Color4,"u_NormalColor"}
 					});
 				s_RendererData->m_ShaderLibrary->Add(DebugnormalShader);
 			}
@@ -250,12 +267,12 @@ namespace Kans {
 	void Renderer::Shutdown()
 	{
 		delete s_RendererData;
-		HZ_INFO("delete rendererdata");
+		CORE_INFO("delete rendererdata");
 		delete s_RendererAPI;
-		HZ_INFO("delete renderer-rhi");
+		CORE_INFO("delete renderer-rhi");
 		
-		s_RenderContext->Shutdown();
-		s_RenderContext.reset();
+		s_RHI->Shutdown();
+		s_RHI.reset();
 
 	}
 
@@ -291,5 +308,10 @@ namespace Kans {
 		return s_RendererData->m_ShaderLibrary;
 	}
 
+
+	const std::unordered_map<std::string, std::string>& Renderer::GetGlobalShaderMacros()
+	{
+		return s_RendererData->GlobalShaderMacros;
+	}
 
 }

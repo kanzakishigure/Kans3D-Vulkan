@@ -4,7 +4,7 @@
 #include "Kans3D/Renderer/Texture.h"
 namespace Kans
 {
-	class Material
+	class Material : public RefCounter
 	{
 	public:
 		 Material(){}

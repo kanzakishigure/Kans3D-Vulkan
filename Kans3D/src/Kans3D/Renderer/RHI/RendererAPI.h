@@ -43,7 +43,7 @@ namespace Kans {
 		
 		virtual void Init() = 0;
 
-		static RendererAPIType GetAPIType() { return s_API; }
+		static RendererAPIType Current() { return s_API; }
 		static void SetAPI(RendererAPIType api);
 		//TODO : Vulkan Renderer will Inherited this
 	public:
