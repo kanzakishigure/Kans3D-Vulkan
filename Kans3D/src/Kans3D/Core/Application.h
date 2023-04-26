@@ -55,6 +55,8 @@ namespace Kans{
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
 	private:
+		static Application* s_Instance;
+		
 		ApplicationSpecification m_Specification;
 
 		Scope<Window> m_Window;
@@ -63,7 +65,6 @@ namespace Kans{
 		bool m_Minimized = false;
 
 		LayerStack m_LayerStack;
-		static Application* s_Instance;
 
 		TimeStep m_TimeStep;
 		TimeStep m_Frametime;

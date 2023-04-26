@@ -10,8 +10,8 @@ namespace Kans
 	struct WindowSpecification
 	{
 		std::string Title = "Kans Engine";
-		unsigned int Width = 1920;
-		unsigned int Height = 1080;
+		uint32_t Width = 1920;
+		uint32_t Height = 1080;
 		bool Fullscreen ;
 		bool HideTitlebar ;
 		bool VSync = true;
@@ -29,6 +29,9 @@ namespace Kans
 
 		virtual unsigned int GetWidth() const = 0;
 		virtual unsigned int GetHeight() const = 0;
+		virtual const WindowSpecification& GetWindowSpecification()  const = 0;
+		virtual const void SetWindowSpecification(const WindowSpecification& spec) = 0;
+
 		//window ½á¹¹
 		virtual void SetEventCallback(const EventCallbackFn& callback)=0;
 		virtual void SetVSync(bool enabled) = 0;

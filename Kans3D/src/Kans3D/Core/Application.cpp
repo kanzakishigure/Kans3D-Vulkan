@@ -22,20 +22,20 @@ namespace Kans
 	{
 
 		//-------------create application Surface--------------------//
-		HZ_CORE_ASSERT(!s_Instance, "Application already exist!");
+		CORE_ASSERT(!s_Instance, "Application already exist!");
 
 
 
 		KansFileSystem::Init(spec.ConfigPath);
-	
+		
 
-		HZ_CORE_INFO("Application [{:>8}]  is Create :", spec.Name);
-		HZ_CORE_INFO("WorkDirectory: {:>8} ", std::filesystem::current_path());
+		CORE_INFO("Application [{:>8}]  is Create :", spec.Name);
+		CORE_INFO("WorkDirectory: {:>8} ", std::filesystem::current_path());
 
 		HZ_PROFILE_FUCTION();
 		s_Instance = this;
 
-		RendererAPI::SetAPI(RendererAPIType::OPENGL);
+		RendererAPI::SetAPI(RendererAPIType::Vulkan);
 		//-------------create application Surface and init the render context-----------------//
 		{
 			
