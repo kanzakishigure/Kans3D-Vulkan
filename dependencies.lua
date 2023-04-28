@@ -1,4 +1,7 @@
---include 文件夹 采用相对路径
+
+
+VULKAN_SDK = os.getenv("VULKAN_SDK")
+--include dir
 IncludeDir ={}
 IncludeDir["GLFW"] = "Kans3D/vendor/GLFW/include"
 IncludeDir["Glad"] = "Kans3D/vendor/Glad/include"
@@ -9,11 +12,11 @@ IncludeDir["entt"] = "Kans3D/vendor/entt/include"
 IncludeDir["assimp"] = "Kans3D/vendor/assimp/include"
 IncludeDir["yaml_cpp"] = "Kans3D/vendor/yaml-cpp/include"
 IncludeDir["mono"] = "Kans3D/vendor/mono/include"
-IncludeDir["VulkanSDK"] = "Kans3D/vendor/VulkanSDK/Include"
+IncludeDir["VulkanSDK"] = "%{VULKAN_SDK}/Include"
 IncludeDir["shaderc_util"] = "%{wks.location}/Kans3D/vendor/shaderc/libshaderc_util/include"
 
 LibraryDir = {}
-LibraryDir["VulkanSDK"] = "%{_WORKING_DIR}/Kans3D/vendor/VulkanSDK/Lib"
+LibraryDir["VulkanSDK"] = "%{VULKAN_SDK}/Lib"
 LibraryDir["Mono"] = "%{_WORKING_DIR}/Kans3D/vendor/mono/lib/%{cfg.buildcfg}"
 
 Library = {}

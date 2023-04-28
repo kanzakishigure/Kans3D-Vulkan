@@ -1,9 +1,9 @@
 #pragma once
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/RHI/RHI.h"
-#include "vulkan/vulkan.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanSwapChain.h"
+#include <vulkan/vulkan.h>
 
 namespace Kans
 {
