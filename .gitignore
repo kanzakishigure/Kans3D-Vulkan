@@ -25,3 +25,6 @@ KansEditor/ProfileSpecication/
 #KansEditor/assets/model/
 # c# bin file
 Intermediates/
+# c# complied dll
+KansEditor/Resources/Scripts
+
