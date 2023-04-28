@@ -158,12 +158,9 @@ namespace Kans
 		}
 		//Once we have the SPIR-V byte code we can use for shader reflection
 		// use SPIR-V spirv_cross Get the ShaderLayout
+		SerializeReflectionMetaData();
 
-
-		for (const auto& [Stage, debugData] : m_SPIRVDebugData)
-		{
-			spirv_cross::Compiler shaderReflectCompiler(debugData);
-		}
+		
 
 		return true;
 	}
@@ -346,6 +343,7 @@ namespace Kans
 		spirv_cross::Compiler compiler(data);
 
 		spirv_cross::ShaderResources resource = compiler.get_shader_resources();
+		//use the vulkanshaderResource store metadata
 
 	}
 

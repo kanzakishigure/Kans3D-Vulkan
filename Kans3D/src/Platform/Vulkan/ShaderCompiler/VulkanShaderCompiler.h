@@ -33,6 +33,11 @@ namespace Kans
 	class ShaderRelfectData
 	{
 		std::vector<VulkanResource::ShaderResource::StorageBuffer> StorageBuffer;
+		std::vector<VulkanResource::ShaderResource::UniformBuffer> UniformBuffer;
+		std::vector<VulkanResource::ShaderResource::SampledImages> SampledImages;
+
+		std::vector<VulkanResource::ShaderResource::StageInput> StageInput;
+		std::vector<VulkanResource::ShaderResource::StageOutput> StorageBuffer;
 	};
 	class VulkanShaderCompiler
 	{
@@ -70,6 +75,9 @@ namespace Kans
 		std::map<VkShaderStageFlagBits, std::vector<uint32_t>> m_SPIRVData;
 		std::map<VkShaderStageFlagBits, std::vector<uint32_t>> m_SPIRVDebugData;
 
+
+		//store the shader refelection metadata
+		ShaderRelfectData m_ShaderRelfectData;
 
 		//for every shaderStage we have a Hash Value , we compare the hash value with Serialized data
 		std::map<VkShaderStageFlagBits, ShaderCacheData> m_ShaderCacheDatas;
