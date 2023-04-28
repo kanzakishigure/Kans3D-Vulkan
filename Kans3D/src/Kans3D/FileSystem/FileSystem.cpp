@@ -1,7 +1,11 @@
 #include "kspch.h"
 #include "Kans3D/FileSystem/FileSystem.h"
+#include "Kans3D/Core/Hash.h"
+#include <set>
 namespace Kans{
 
+
+#define DESERIALIZE_FILESYSTEMSPEC_PROPERTY(valueName,value,ostream) if(!value.empty())(ostream<<#valueName <<"="<<value<<"\n")
 
 	int SkipBOM(std::istream& in)
 	{
@@ -34,74 +38,40 @@ namespace Kans{
 	{
 
 		CORE_ASSERT(!configPath.empty(), "FileSystm init fail");
-		s_Specification = new FileSystemSpecification();
-		std::ifstream config_file(configPath);
-		std::string config_line;
-		while (std::getline(config_file,config_line))
-		{
-			size_t spos = config_line.find_first_of('=');
-			if (spos != config_line.npos)
-			{
-				std::string key = config_line.substr(0, spos);
-				std::string value = config_line.substr(spos + 1, config_line.length());
-				if  (key == "WorkDir")
-				{
-					s_Specification->WorkSpace = value;
-				}
-				else if (key == "ResoucesDir")
-				{
-					s_Specification->ResoucesDir = value;
-				}
-				else if (key == "ShaderDir")
-				{
-					s_Specification->ShaderDir = value;
-				}
-				else if (key == "FontsDir")
-				{
-					s_Specification->FontsDir = value;
-				}
-				else if (key == "ScriptDLL")
-				{
-					s_Specification->ScriptAssemblyPath = value;
-				}
-				else if (key == "assetsDir")
-				{
-					s_Specification->AssetsDir= value;
-				}
-				else if (key == "ProfileSpecicationDir")
-				{
-					s_Specification->ProfileSpecicationDir = value;
-				}
-				else if (key == "ShaderCacheDir")
-				{
-					s_Specification->ShaderCacheDir = value;
-				}
-				else if (key == "CacheDir")
-				{
-					s_Specification->CacheDir = value;
-				}
-			}
-			
-		}
+		s_Specification = new FileSystemSpecification(configPath);
+		s_Specification->Serialize();
 
-		if (!s_Specification->WorkSpace.empty())
+		if (!s_Specification->m_WorkSpace.empty())
 		{
-			std::filesystem::path tmpPath = std::filesystem::current_path();
+			std::filesystem::path tempPath = std::filesystem::current_path();
 			std::filesystem::path parentPath;
-			while (tmpPath.has_parent_path())
+			while (tempPath.has_parent_path())
 			{
-				tmpPath = tmpPath.parent_path();
-				if (tmpPath.filename() == "Vulkan_Engine")
+				tempPath = tempPath.parent_path();
+
+				//we should use some value like hash value to check is the path is legal
+				if (s_Specification->IsLegalWorkSpace(tempPath))
 				{
-					parentPath = tmpPath;
+					parentPath = tempPath;
 					break;
 				}
+				if (tempPath == tempPath.parent_path())
+				{
+					break;
+				}
+
 			}
 			if (!parentPath.empty())
 			{
-				std::filesystem::path workPath = parentPath /= s_Specification->WorkSpace;
-				//std::filesystem::current_path(workPath);
+				std::filesystem::path workPath = parentPath / s_Specification->m_WorkSpace;
+				std::filesystem::current_path(workPath);
+				if (s_Specification->m_RootPathHashValue.empty())
+				{
+					s_Specification->GenRootPathHash(parentPath);
+					s_Specification->Deserialize();
+				}
 			}
+			CORE_INFO_TAG("Filesystem", "Curent workspace :[{0}]", std::filesystem::current_path());
 		}
 		
 	}
@@ -165,6 +135,132 @@ namespace Kans{
 	void KansFileSystem::ShutDown()
 	{
 		delete s_Specification;
+	}
+
+	FileSystemSpecification::FileSystemSpecification(const std::filesystem::path& configPath)
+		:m_ConfigPath(configPath)
+	{
+
+	}
+
+	bool FileSystemSpecification::IsLegalWorkSpace(std::filesystem::path path)
+	{
+		std::set<std::string> whiteList;
+		whiteList.emplace(".git");
+
+
+		std::filesystem::directory_iterator it(path);
+		std::string hashString;
+		for (const auto& filepath : it)
+		{
+			std::string filename = filepath.path().filename().string();
+			if (whiteList.find(filename) == whiteList.end())
+			{
+				hashString += filename;
+			}
+
+		}
+		std::string HashValue = Hash::GenerateMD5Hash(hashString);
+		return HashValue == m_RootPathHashValue;
+
+	}
+
+	void FileSystemSpecification::GenRootPathHash(std::filesystem::path rootpath)
+	{
+		std::set<std::string> whiteList;
+		whiteList.emplace(".git");
+		std::filesystem::directory_iterator it(rootpath);
+		std::string hashString;
+		for (const auto& filepath : it)
+		{
+			std::string filename = filepath.path().filename().string();
+			if (whiteList.find(filename) == whiteList.end())
+			{
+				hashString += filename;
+			}
+
+		}
+		m_RootPathHashValue = Hash::GenerateMD5Hash(hashString);
+	}
+	void FileSystemSpecification::Serialize()
+	{
+		std::ifstream config_file(m_ConfigPath);
+		std::string config_line;
+
+		while (std::getline(config_file, config_line))
+		{
+			size_t spos = config_line.find_first_of('=');
+			if (spos != config_line.npos)
+			{
+				std::string key = config_line.substr(0, spos);
+				std::string value = config_line.substr(spos + 1, config_line.length());
+				if ("WorkSpace" == key)
+				{
+					m_WorkSpace = value;
+				}
+				else if ("ResoucesDir" == key)
+				{
+					m_ResoucesDir = value;
+				}
+				else if ("ShaderDir" == key)
+				{
+					m_ShaderDir = value;
+				}
+				else if ("FontsDir" == key)
+				{
+					m_FontsDir = value;
+				}
+				else if ("ScriptAssemblyPath" == key)
+				{
+					m_ScriptAssemblyPath = value;
+				}
+				else if ("AssetsDir" == key)
+				{
+					m_AssetsDir = value;
+				}
+				else if ("ProfileSpecicationDir" == key)
+				{
+					m_ProfileSpecicationDir = value;
+				}
+				else if ("ShaderCacheDir" == key)
+				{
+					m_ShaderCacheDir = value;
+				}
+				else if ("CacheDir" == key)
+				{
+					m_CacheDir = value;
+				}
+				else if ("RootPathHashValue" == key)
+				{
+					m_RootPathHashValue = value;
+				}
+			}
+
+		}
+	}
+
+	void FileSystemSpecification::Deserialize()
+	{
+		std::ofstream out_config_file(m_ConfigPath,std::ios::out|std::ios::trunc);
+		if (!out_config_file.good())
+		{
+			CORE_TRACE_TAG("[Filesystem]", "deserialize fileSystemSpecification fail");
+			return;
+		}
+
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(WorkSpace,m_WorkSpace.string(), out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ResoucesDir,m_ResoucesDir.string(), out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(FontsDir, m_FontsDir.string(),out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ScriptAssemblyPath,m_ScriptAssemblyPath.string(), out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(AssetsDir,m_AssetsDir.string(),out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ProfileSpecicationDir,m_ProfileSpecicationDir.string(), out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ShaderDir,m_ShaderDir.string(), out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(CacheDir,m_CacheDir.string(), out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ShaderCacheDir,m_ShaderCacheDir.string(), out_config_file);
+		DESERIALIZE_FILESYSTEMSPEC_PROPERTY(RootPathHashValue,m_RootPathHashValue, out_config_file);
+		
+
+		out_config_file.close();
 	}
 
 }
