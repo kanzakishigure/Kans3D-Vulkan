@@ -24,9 +24,13 @@ namespace Kans
 		static Ref<VulkanDevice> GetCurrentDevice() { return VulkanRHI::Get()->GetDevice();}
 		const Ref<VulkanDevice>& GetVulkanDevice() { return m_Device; }
 	private:
+		void CreateInstance();
+		void SelectPhysicalDevice();
+		void CreateLogicalDevice();
+		void CreateSwapChain();
 	private:
 		// Vulkan instance
-		inline static VkInstance s_VulkanInstance ;
+		inline static VkInstance	s_VulkanInstance;
 		// Devices
 		Ref<VulkanPhysicalDevice>	m_PhysicalDevice;
 		Ref<VulkanDevice>			m_Device;
@@ -35,5 +39,13 @@ namespace Kans
 		// Vulkan swapchain
 		Window*						m_WindowHandle;
 		VulkanSwapChain				m_SwapChain;
+		
+		//Set of physical device features to be enabled
+		VkPhysicalDeviceFeatures m_EnabledFeatures{};
+		//Set of device extensions to be enabled
+		std::vector<const char*> m_EnabledDeviceExtensions;
+		//Set of Instance extensions to be enabled
+		std::vector<const char*> M_EnabledInstanceExtensions;
+		std::vector<std::string> M_SupportedInstanceExtensions;
 	};
 }

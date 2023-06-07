@@ -37,7 +37,7 @@ namespace Kans
 		std::vector<VulkanResource::ShaderResource::SampledImages> SampledImages;
 
 		std::vector<VulkanResource::ShaderResource::StageInput> StageInput;
-		std::vector<VulkanResource::ShaderResource::StageOutput> StorageBuffer;
+		std::vector<VulkanResource::ShaderResource::StageOutput> StageOutput;
 	};
 	class VulkanShaderCompiler
 	{

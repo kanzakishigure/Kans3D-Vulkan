@@ -43,7 +43,7 @@ namespace Kans
 		VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
 		VkPhysicalDeviceProperties m_Properties;
 		VkPhysicalDeviceFeatures m_Features;
-		//VkPhysicalDeviceMemoryProperties m_MemoryProperties;
+		VkPhysicalDeviceMemoryProperties m_MemoryProperties;
 		
 		//--QueueFamily--//
 		QueueFamilyIndices m_QueueFamilyIndices;
@@ -58,9 +58,10 @@ namespace Kans
 	class VulkanDevice
 	{
 	public:
-		VulkanDevice(const Ref<VulkanPhysicalDevice>& physicalDevice,VkPhysicalDeviceFeatures enabledFeatures);
+		VulkanDevice(const Ref<VulkanPhysicalDevice>& physicalDevice);
 		~VulkanDevice();
 
+		void Create(VkPhysicalDeviceFeatures enabledFeatures, std::vector<const char*> enabledDeviceExtensions);
 		void Destroy();
 
 		const Ref<VulkanPhysicalDevice>& GetPhysicalDevice() const { return m_PhysicalDevice; }

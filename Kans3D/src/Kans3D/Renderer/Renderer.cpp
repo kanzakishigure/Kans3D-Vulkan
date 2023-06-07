@@ -62,8 +62,7 @@ namespace Kans {
 	void Renderer::Init(const Scope<Window>& window)
 	{
 
-		s_RendererData = DEBUG_NEW RendererData();
-		s_RendererData->m_ShaderLibrary = CreateRef<ShaderLibrary>();
+		
 
 		s_RHI = RHI::Create(window);
 		s_RHI->Init();
@@ -74,19 +73,11 @@ namespace Kans {
 			s_RendererAPI->Init();
 			OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
 		}
-		{
-			PROFILE_SCOPE_LOG("Shader Create")
-			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string();
 
-			if (RendererAPI::Current() == RendererAPIType::Vulkan)
-			{
-				auto shader = VulkanShaderCompiler::Compile(shaderpath + "debug/Texture.glsl");
-			}
-
-		}
+		s_RendererData = DEBUG_NEW RendererData();
+		s_RendererData->m_ShaderLibrary = CreateRef<ShaderLibrary>();
 		Renderer::RendererDataInit();
 		
-
 	}
 
 	void Renderer::RendererDataInit()
@@ -104,7 +95,7 @@ namespace Kans {
 			s_RendererData->BlackTexture->SetData((void*)&data, sizeof(uint32_t));
 		}
 		//shader
-		//TODO technically we can use SPIR-V reflect the Vulkan-GLSL pushConst to get the uniformStorgeBuffer
+		//TODO technically we can use SPIR-V reflect the Vulkan-GLSL layout to get the uniformStorgeBuffer
 		{
 			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string() + "/";
 			{

@@ -12,10 +12,21 @@ namespace Kans
 
 	}
 
-	void VulkanSwapChain::Init(VkInstance instance, const Ref<VulkanDevice>& device)
+	void VulkanSwapChain::Connect(VkInstance instance, const Ref<VulkanDevice>& device)
 	{
 		m_Instance = instance;
 		m_Device = device;
+
+		fpGetPhysicalDeviceSurfaceSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(vkGetInstanceProcAddr(m_Instance, "vkGetPhysicalDeviceSurfaceSupportKHR"));
+		fpGetPhysicalDeviceSurfaceCapabilitiesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(vkGetInstanceProcAddr(m_Instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
+		fpGetPhysicalDeviceSurfaceFormatsKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceFormatsKHR>(vkGetInstanceProcAddr(m_Instance, "vkGetPhysicalDeviceSurfaceFormatsKHR"));
+		fpGetPhysicalDeviceSurfacePresentModesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>(vkGetInstanceProcAddr(m_Instance, "vkGetPhysicalDeviceSurfacePresentModesKHR"));
+
+		fpCreateSwapchainKHR = reinterpret_cast<PFN_vkCreateSwapchainKHR>(vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkCreateSwapchainKHR"));
+		fpDestroySwapchainKHR = reinterpret_cast<PFN_vkDestroySwapchainKHR>(vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkDestroySwapchainKHR"));
+		fpGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkGetSwapchainImagesKHR"));
+		fpAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkAcquireNextImageKHR"));
+		fpQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkQueuePresentKHR"));
 	}
 
 	void VulkanSwapChain::InitSurface(GLFWwindow* windows)
@@ -116,41 +127,41 @@ namespace Kans
 		
 
 		//create swapchain
-		VkSwapchainCreateInfoKHR createInfo{};
-		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-		createInfo.surface = m_Surface;
-		createInfo.pNext = nullptr;
+		VkSwapchainCreateInfoKHR swapchaincreateInfo{};
+		swapchaincreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		swapchaincreateInfo.surface = m_Surface;
+		swapchaincreateInfo.pNext = nullptr;
 
-		createInfo.minImageCount = imageCount;
-		createInfo.imageFormat = m_ImageFormat;
-		createInfo.imageColorSpace = m_ColorSpace;
-		createInfo.imageExtent = swapchainExtent;
-		createInfo.imageArrayLayers = 1;
-		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		swapchaincreateInfo.minImageCount = imageCount;
+		swapchaincreateInfo.imageFormat = m_ImageFormat;
+		swapchaincreateInfo.imageColorSpace = m_ColorSpace;
+		swapchaincreateInfo.imageExtent = swapchainExtent;
+		swapchaincreateInfo.imageArrayLayers = 1;
+		swapchaincreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-		createInfo.preTransform = capabilities.currentTransform;
-		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-		createInfo.presentMode = presentMode;
-		createInfo.clipped = VK_TRUE;
-		createInfo.oldSwapchain = oldSwapchain;
+		swapchaincreateInfo.preTransform = capabilities.currentTransform;
+		swapchaincreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		swapchaincreateInfo.presentMode = presentMode;
+		swapchaincreateInfo.clipped = VK_TRUE;
+		swapchaincreateInfo.oldSwapchain = oldSwapchain;
 
 		QueueFamilyIndices indices = m_Device->GetPhysicalDevice()->GetQueueFamilyIndices();
 		uint32_t queueFamilyIndexCount = 0;
 		uint32_t queueFamilyIndices[] = { indices.Graphics.value(), indices.Present.value() };
 		if (indices.Present.value() != indices.Graphics.value())
 		{
-			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-			createInfo.queueFamilyIndexCount = 2;
-			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+			swapchaincreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			swapchaincreateInfo.queueFamilyIndexCount = 2;
+			swapchaincreateInfo.pQueueFamilyIndices = queueFamilyIndices;
 		}
 		else 
 		{
-			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			createInfo.queueFamilyIndexCount = 0; // Optional
-			createInfo.pQueueFamilyIndices = nullptr; // Optional
+			swapchaincreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			swapchaincreateInfo.queueFamilyIndexCount = 0; // Optional
+			swapchaincreateInfo.pQueueFamilyIndices = nullptr; // Optional
 		}
 
-		VK_CHECK_RESULT(vkCreateSwapchainKHR(device, &createInfo, nullptr,&m_SwapChain));
+		VK_CHECK_RESULT(vkCreateSwapchainKHR(device, &swapchaincreateInfo, nullptr,&m_SwapChain));
 		if (oldSwapchain != VK_NULL_HANDLE)
 		{
 			vkDestroySwapchainKHR(device, oldSwapchain, nullptr);

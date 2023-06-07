@@ -64,6 +64,8 @@ namespace Kans
 		m_PhysicalDevice = PhysicalDevice;
 		vkGetPhysicalDeviceFeatures(m_PhysicalDevice, &m_Features);
 		vkGetPhysicalDeviceProperties(m_PhysicalDevice, &m_Properties);
+		vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice, &m_MemoryProperties);
+		
 
 		//Get the QueueFamilyProperties
 		uint32_t queuefamilyCount = 0;
@@ -172,24 +174,47 @@ namespace Kans
 ////////////////////////////////////////////////////////////////////////////////////
 //  Vulkan  Device
 ////////////////////////////////////////////////////////////////////////////////////
-	VulkanDevice::VulkanDevice(const Ref<VulkanPhysicalDevice>& physicalDevice, VkPhysicalDeviceFeatures enabledFeatures)
-		:m_PhysicalDevice(physicalDevice),m_EnabledFeatures(enabledFeatures)
+	VulkanDevice::VulkanDevice(const Ref<VulkanPhysicalDevice>& physicalDevice)
+		:m_PhysicalDevice(physicalDevice)
 	{
+		
+		
+	}
+
+	VulkanDevice::~VulkanDevice()
+	{
+		
+	}
+
+	void VulkanDevice::Create(VkPhysicalDeviceFeatures enabledFeatures, std::vector<const char*> enabledDeviceExtensions)
+	{
+		m_EnabledFeatures = enabledFeatures;
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Vulkan DeviceQueue createInfo
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		const QueueFamilyIndices& indices = m_PhysicalDevice->GetQueueFamilyIndices();
-		
-		std::vector<VkDeviceQueueCreateInfo> queue_create_infos = physicalDevice->m_QueueCreateInfos; // all queues that need to be created
+
+		std::vector<VkDeviceQueueCreateInfo> queue_create_infos = m_PhysicalDevice->m_QueueCreateInfos; // all queues that need to be created
 
 
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		//  Vulkan Device createInfo
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		std::vector<const char*> deviceExtensions;
-		if (physicalDevice->IsExtensionSupported(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
-			deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-		
+
+		for (const char* enabledDeviceExtension : enabledDeviceExtensions)
+		{
+			if (m_PhysicalDevice->IsExtensionSupported(enabledDeviceExtension))
+			{
+				deviceExtensions.push_back(enabledDeviceExtension);
+			}
+			else
+			{
+				CORE_WARN_TAG("Rendere", "{} Extension is not support", enabledDeviceExtension);
+				CORE_ASSERT(false);
+			}
+		}
+
 		VkDeviceCreateInfo createInfo{};
 		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 		createInfo.pQueueCreateInfos = queue_create_infos.data();
@@ -201,25 +226,18 @@ namespace Kans
 		if (s_Validation)
 		{
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-			createInfo.ppEnabledLayerNames = validationLayers.data();			
+			createInfo.ppEnabledLayerNames = validationLayers.data();
 		}
-		else 
+		else
 		{
 			createInfo.enabledLayerCount = 0;
 		}
 
-		VK_CHECK_RESULT(vkCreateDevice(physicalDevice->GetVulkanPhysicalDevice(), &createInfo, nullptr, &m_LogicalDevice));
+		VK_CHECK_RESULT(vkCreateDevice(m_PhysicalDevice->GetVulkanPhysicalDevice(), &createInfo, nullptr, &m_LogicalDevice));
 
 		vkGetDeviceQueue(m_LogicalDevice, indices.Graphics.value(), 0, &m_GraphicsQueue);
 		vkGetDeviceQueue(m_LogicalDevice, indices.Compute.value(), 0, &m_ComputeQueue);
-		
-		//TODO: in fact presentqueue should handle by the swapchain ,so may not ready in vkcreatedevice
-		//vkGetDeviceQueue(m_Device, indices.Present.value(), 0, &m_PresentQueue);
-	}
 
-	VulkanDevice::~VulkanDevice()
-	{
-		
 	}
 
 	void VulkanDevice::Destroy()

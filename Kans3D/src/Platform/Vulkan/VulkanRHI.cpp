@@ -77,10 +77,6 @@ namespace Kans
 			createInfo.pfnUserCallback = DebugCallBack;
 		}
 	}
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Vulkan Attribute
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	
 	static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallBack(
 		VkDebugUtilsMessageSeverityFlagBitsEXT  messageSeverity,//信息严重性
 		VkDebugUtilsMessageTypeFlagsEXT messageType,//信息类型
@@ -106,7 +102,9 @@ namespace Kans
 		//返回值决定该回调函数是否应该终止程序，我们不希望终止程序，返回VK_FALSE
 		return VK_FALSE;
 	}
-
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Vulkan RHI
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	VulkanRHI::VulkanRHI()
 		:m_WindowHandle(nullptr)
@@ -130,11 +128,54 @@ namespace Kans
 		vkDestroyInstance(s_VulkanInstance, nullptr);
 	}
 
-	
-
 	void VulkanRHI::Init()
 	{
+	
+		CreateInstance();
+		SelectPhysicalDevice();
+		CreateLogicalDevice();
 
+		// create the vulkan pipline
+		//create the pipline dynamic state
+		std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR };
+
+		VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo{};
+		dynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynamicStateCreateInfo.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+		dynamicStateCreateInfo.pDynamicStates = dynamicStates.data();
+
+		//create the vertex input state,we just keep this now
+		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		vertexInputInfo.vertexAttributeDescriptionCount = 0;
+		vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+		vertexInputInfo.vertexBindingDescriptionCount = 0;
+		vertexInputInfo.pVertexBindingDescriptions = nullptr;
+
+		//create input assembly describes how Vulkan use the vertex data
+		VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo{};
+		inputAssemblyStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		inputAssemblyStateCreateInfo.primitiveRestartEnable = false;// it's possible to break up lines and triangles in the _STRIP topology modes by using a special index 
+		inputAssemblyStateCreateInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;// select the topology of the vertex data;
+
+		//this property of viewport will use for the frameBuffer
+		WindowSpecification spec = m_WindowHandle->GetWindowSpecification();
+		VkViewport viewport{};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = (float)spec.Width;
+		viewport.height = (float)spec.Height;
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+
+	}
+
+	void VulkanRHI::Shutdown()
+	{
+		m_SwapChain.Cleanup();
+	}
+	void VulkanRHI::CreateInstance()
+	{
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Vulkan Validation
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -151,7 +192,7 @@ namespace Kans
 		appInfo.pEngineName = "Kans3D";
 		appInfo.engineVersion = VK_MAKE_VERSION(0, 3, 1);
 		appInfo.apiVersion = VK_API_VERSION_1_2; //make sure the version is same to spir-v
-		
+
 
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Vulkan Instance Info
@@ -170,7 +211,7 @@ namespace Kans
 		if (s_Validation)
 		{
 			instanceInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-			instanceInfo.ppEnabledLayerNames = validationLayers.data();	
+			instanceInfo.ppEnabledLayerNames = validationLayers.data();
 
 			//填充debugmessenger的createInfo
 			Utils::PopulateDebugMessengerCreateInfo(debugCreateInfo);
@@ -181,9 +222,9 @@ namespace Kans
 			instanceInfo.enabledLayerCount = 0;
 			instanceInfo.pNext = nullptr;
 		}
-		
+
 		VK_CHECK_RESULT(vkCreateInstance(&instanceInfo, nullptr, &s_VulkanInstance));
-		
+
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// DebugMessenger
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -208,44 +249,46 @@ namespace Kans
 			//使用我们自己的代理函数，再在代理函数中调用实际的创建函数
 			VK_CHECK_RESULT(Utils::CreateDebugUtilsMessengerEXT(s_VulkanInstance, &createInfo, nullptr, &m_DebugUtilsMessenger))
 		}
-		
-		
-		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		// Vulkan Device
-		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	}
+
+	void VulkanRHI::SelectPhysicalDevice()
+	{
 		m_PhysicalDevice = VulkanPhysicalDevice::Select();
+	}
 
-		VkPhysicalDeviceFeatures requestFeatures{false};
-		requestFeatures.samplerAnisotropy = true;
+	void VulkanRHI::CreateLogicalDevice()
+	{
+		m_EnabledFeatures = VkPhysicalDeviceFeatures{ false };
+		m_EnabledFeatures.samplerAnisotropy = true;
 		// support inefficient readback storage buffer
-		requestFeatures.fragmentStoresAndAtomics = true;
+		m_EnabledFeatures.fragmentStoresAndAtomics = true;
 		// support independent blending
-		requestFeatures.independentBlend = true;
+		m_EnabledFeatures.independentBlend = true;
 		// support geometry shader
-		requestFeatures.geometryShader = true;
+		m_EnabledFeatures.geometryShader = true;
+
+
+		m_EnabledDeviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 		
 
-		m_Device = CreateRef<VulkanDevice>(m_PhysicalDevice, requestFeatures);
+		m_Device = CreateRef<VulkanDevice>(m_PhysicalDevice);
+		m_Device->Create(m_EnabledFeatures, m_EnabledDeviceExtensions);
+
+	}
+
+	void VulkanRHI::CreateSwapChain()
+	{
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Create SwapChain
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		m_SwapChain.Init(s_VulkanInstance, m_Device);
+		m_SwapChain.Connect(s_VulkanInstance, m_Device);
 		m_SwapChain.InitSurface((GLFWwindow*)m_WindowHandle->GetNativeWindow());
 
 		WindowSpecification spec = m_WindowHandle->GetWindowSpecification();
 		m_SwapChain.Create(&spec.Width, &spec.Height, m_WindowHandle->IsVSync());
 		m_WindowHandle->SetWindowSpecification(spec);
-		
-
-		
-		// create the vulkan pipline
-		// need to create the 
-		
 	}
 
-	void VulkanRHI::Shutdown()
-	{
-		m_SwapChain.Cleanup();
-	}
 
 }
