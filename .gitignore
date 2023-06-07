@@ -27,4 +27,6 @@ KansEditor/ProfileSpecication/
 Intermediates/
 # c# complied dll
 KansEditor/Resources/Scripts
+# python cache
+script/__pycache__
 
