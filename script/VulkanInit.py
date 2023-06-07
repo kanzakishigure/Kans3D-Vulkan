@@ -28,17 +28,18 @@ class VulkanConfiguration:
     def Validate(cls):
         if (not cls.CheckVulkanSDK()):
             print(f"{Style.BRIGHT}{Back.RED}Can't Install VulkanSDK{Style.RESET_ALL}")
+            return False
         if (not cls.CheckVulkanLibs()):
-            print(f"{Style.BRIGHT}{Back.RED}Can't find the Vulkan SDK debug Libs{Style.RESET_ALL}")
-            print(f"{Style.BRIGHT}{Back.YELLOW}Please follow the build guid in Readme file{Style.RESET_ALL}")
-
+            print(f"{Style.BRIGHT}{Back.YELLOW}Can't find the Vulkan SDK debug Libs{Style.RESET_ALL}")
+            print(f"{Style.BRIGHT}Please follow the build guid in Readme file{Style.RESET_ALL}")
+        return True
     @classmethod
     def CheckVulkanSDK(cls):
         VULKAN_SDK = os.environ.get('VULKAN_SDK')
         if (VULKAN_SDK is None):
             print(f"{Style.BRIGHT}{Back.YELLOW}Can't Find VulkanSDK,try install VulkanSDK{Style.RESET_ALL}")
             cls.__InstallVulkanSDK()
-            return  False
+            return False
         else:
             print(f"{Style.BRIGHT}Located Vulkan SDK at {VULKAN_SDK}{Style.RESET_ALL}")
         if (cls.REQUIRED_VULKAN_VERSION not in VULKAN_SDK):
@@ -53,12 +54,12 @@ class VulkanConfiguration:
         requestLibs = []
         requestLibs.append(Path(f"{VULKAN_SDK}/Lib/shaderc_sharedd.lib"))
         requestLibs.append(Path(f"{VULKAN_SDK}/Lib/spirv-cross-glsld.lib"))
-        requestLibs.append(Path(f"{VULKAN_SDK}/spirv-cross-hlsld.lib"))
-        requestLibs.append(Path(f"{VULKAN_SDK}/shaderc_utild.lib"))
+        requestLibs.append(Path(f"{VULKAN_SDK}/Lib/spirv-cross-hlsld.lib"))
+        requestLibs.append(Path(f"{VULKAN_SDK}/Lib/shaderc_utild.lib"))
         miss = False
         for path in requestLibs:
             if(not path.exists()):
-                print(f"{Style.BRIGHT}{Back.Yellow}  {path} miss{Style.RESET_ALL}")
+                print(f"{Style.BRIGHT}{Back.YELLOW} {path} miss{Style.RESET_ALL}")
                 miss = True
         return not miss
 
