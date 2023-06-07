@@ -2,6 +2,8 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Core/Hash.h"
 #include <set>
+#include <thread>
+#include <mutex>
 namespace Kans{
 
 
@@ -25,7 +27,7 @@ namespace Kans{
 
 	void KansFileSystem::InitFileCache()
 	{
-
+		
 	}
 
 	void KansFileSystem::ResetFileCache()
@@ -53,10 +55,13 @@ namespace Kans{
 				if (s_Specification->IsLegalWorkSpace(tempPath))
 				{
 					parentPath = tempPath;
+					CORE_TRACE_TAG("Filesystem", "Kans3D run in the root directory:[{0}]", parentPath);
 					break;
+					
 				}
 				if (tempPath == tempPath.parent_path())
 				{
+					CORE_ASSERT(false,"Kans3D unable to retrieval a legal root directory")
 					break;
 				}
 
@@ -71,7 +76,7 @@ namespace Kans{
 					s_Specification->Deserialize();
 				}
 			}
-			CORE_INFO_TAG("Filesystem", "Curent workspace :[{0}]", std::filesystem::current_path());
+			CORE_TRACE_TAG("Filesystem", "Curent workspace :[{0}]", std::filesystem::current_path());
 		}
 		
 	}
@@ -147,6 +152,7 @@ namespace Kans{
 	{
 		std::set<std::string> whiteList;
 		whiteList.emplace(".git");
+		
 
 
 		std::filesystem::directory_iterator it(path);

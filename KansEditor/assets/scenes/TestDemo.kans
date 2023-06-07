@@ -1,16 +1,16 @@
 Scene: TestDemo
-? Entity: 6941977670271766829
+? Entity: 18985872761185318
   TagComponent:
     Tag: GY_Light
   TransformComponent:
-    Position: vec3(0.000000, -1.200000, -1.400000)
+    Position: vec3(0.000000, -1.200000, -3.000000)
     Rotation: vec3(-0.349066, 0.000000, 0.000000)
     Scale: vec3(0.150000, 0.150000, 0.150000)
   StaticMeshComponent:
     {}
   MaterialComponent:
     MaterialTable: ""
-: Entity: 1617273400835990948
+: Entity: 4575464579350163670
   TagComponent:
     Tag: mainCamera
   TransformComponent:
@@ -25,10 +25,10 @@ Scene: TestDemo
     OrthographicSize: 10
     OrthographicFarClip: 1
     OrthographicNearClip: -1
-    AspectRatio: 1.8153547
+    AspectRatio: 1.77713454
     Primary: true
     FixedAspectRatio: false
-? Entity: 3721892554025074171
+? Entity: 5109189034683122716
   TagComponent:
     Tag: RefEntity
   TransformComponent:
@@ -39,7 +39,7 @@ Scene: TestDemo
     Color: vec4(1.000000, 1.000000, 1.000000, 1.000000)
     Texture: assets/textures/GY.png
     TilingFactor: 1
-: Entity: 3445763113704950310
+: Entity: 8579643217114578024
   TagComponent:
     Tag: DirLight
   TransformComponent:
@@ -51,11 +51,11 @@ Scene: TestDemo
     Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
-? Entity: 5749016044949408394
+? Entity: 4995134299359453895
   TagComponent:
     Tag: PointLight
   TransformComponent:
-    Position: vec3(10.000000, 6.800000, 3.300000)
+    Position: vec3(10.000000, 20.000000, 3.300000)
     Rotation: vec3(0.000000, 0.000000, 0.000000)
     Scale: vec3(1.000000, 1.000000, 1.000000)
   PointLightComponent:

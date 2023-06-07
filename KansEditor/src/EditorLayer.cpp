@@ -267,11 +267,12 @@ namespace Kans
 		//renderer
 		Renderer2D::ResetStats();
 		m_Framebuffer->Bind();
-		OpenGLRenderCommand ::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
+		// OpenGLRenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
+		OpenGLRenderCommand::SetClearColor({ 0.8f, 0.8f, 0.8f, 1.0f });
 		OpenGLRenderCommand::Clear();
 	
 		//rendering
-		//此处应该有renderpass
+		// 此处应该有renderpipline和renderpass
 		{
 			HZ_PROFILE_SCOPE("rendering")
 			m_ActiveScene->OnRenderer(m_StaticMeshRenderer, ts);

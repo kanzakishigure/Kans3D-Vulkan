@@ -36,11 +36,11 @@ void main()
 	vec3 Normal =  mat3(U_ViewProjection)*mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
     Normal = normalize(Normal);
 	vec3 tangent = mat3(U_ViewProjection)*mat3(U_Transform)*a_Tangent;
-    tangent = normalize(tangent);
+    tangent = normalize(tangent - dot(Normal,tangent)*Normal);
 	vec3 bitangent =  cross(Normal,tangent);
     bitangent = normalize(bitangent);
-	mat3 tangentTransform = mat3(tangent, bitangent, Normal);
-	Normal = tangentTransform*a_BaseColor.rgb;
+	mat3 TNB = mat3(tangent, bitangent, Normal);
+	Normal = TNB*a_BaseColor.rgb;
     //Normal = mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
     //处理背面遮挡问题
     Normal.z = -0.5;

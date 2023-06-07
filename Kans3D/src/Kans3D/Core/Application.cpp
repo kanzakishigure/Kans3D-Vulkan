@@ -30,12 +30,10 @@ namespace Kans
 		
 
 		CORE_INFO("Application [{:>8}]  is Create :", spec.Name);
-		CORE_INFO("WorkDirectory: {:>8} ", std::filesystem::current_path());
-
 		HZ_PROFILE_FUCTION();
 		s_Instance = this;
 
-		RendererAPI::SetAPI(RendererAPIType::Vulkan);
+		
 		//-------------create application Surface and init the render context-----------------//
 		{
 			
@@ -50,23 +48,21 @@ namespace Kans
 			m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
 		}
 		//-------------Init the Renderer----------------------------//
+		RendererAPI::SetAPI(RendererAPIType::OPENGL);
 		Renderer::Init(m_Window);
 		
-		//-------------Init The UI interface------------------------//
+		//-------------Init The UI Layer------------------------//
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
 
 		//-------------Init the ScriptEengine-----------------------//
 		ScriptEngine::Init();
 	
-		
-
-		
 	}
 	Application::~Application()
 	{
 
-		//terminate the all thread
+		//we will terminate  all thread here
 
 		m_Window->SetEventCallback([](Event& e) {});
 
