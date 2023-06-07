@@ -1,13 +1,10 @@
 #include <Kans3D.h>
 #include <Kans3D/Core/EntryPoint.h>
 
-#include "Platform/OpenGL/OpenGLShader.h"
-#include "Kans3D/Renderer/Shader.h"
-
 #include <imgui.h>
-
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "Debug/DebugLayer.h"
 #include "EditorLayer.h"
 
 
@@ -17,8 +14,9 @@ public:
 	KansEditor(Kans::ApplicationSpecification spec)
 		: Application(spec)
 	{
-		//PushLayer(new ExampleLayer());
+		
 		PushLayer(new Kans::EditorLayer());
+		PushLayer(new Kans::DebugLayer());
 	}
 	~KansEditor()
 	{
@@ -36,7 +34,8 @@ public:
 		spec.ConfigPath = config_file_path.string();
 		spec.Height = 1080;
 		spec.Width = 1920;
-
+		spec.Fullscreen = false;
+		spec.HideTitlebar = false;
 		
 		return new KansEditor(spec);
 	}

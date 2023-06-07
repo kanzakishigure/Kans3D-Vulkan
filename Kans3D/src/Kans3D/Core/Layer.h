@@ -1,7 +1,7 @@
 #pragma once
-#include "Kans3D/Core/Base.h"
-#include "Kans3D/Events/Event.h"
+#include "Kans3D/Core/Base/Base.h"
 #include "Kans3D/Core/TimeStep.h"
+#include "Kans3D/Core/Events/Event.h"
 namespace Kans{
 	class  Layer
 	{

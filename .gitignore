@@ -21,7 +21,12 @@ bin-int/
 Kans3D/vendor/VulkanSDK/
 #ProfileSpecication
 KansEditor/ProfileSpecication/
-#project Asset
+# project Asset
 #KansEditor/assets/model/
-#c# bin file
+# c# bin file
+Intermediates/
+# c# complied dll
 KansEditor/Resources/Scripts
+# python cache
+script/__pycache__
+

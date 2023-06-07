@@ -3,30 +3,22 @@
 
 #include "kans3D/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "Platform/Vulkan/VulkanShader.h"
 
 namespace Kans {
 
-	Ref<Shader> Kans::Shader::Create(const std::string& name, const std::string& VertexShader, const std::string& FragmentShader)
-	{
-		switch (Renderer::GetAPI())
-		{
-		case RendererAPIType::NONE:    HZ_CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return CreateRef<OpenGLShader>(name, VertexShader, FragmentShader);
-		}
-		HZ_CORE_ASSERT(false, "unknow RendererAPI");
-		return nullptr;
-	}
-	Ref<Shader> Shader::Create(const std::string& path)
-	{
-		switch (Renderer::GetAPI())
-		{
-		case RendererAPIType::NONE:    HZ_CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return CreateRef<OpenGLShader>(path);
-		}
-		HZ_CORE_ASSERT(false, "unknow RendererAPI");
-		return nullptr;
-	}
 
+	Kans::Ref<Kans::Shader> Shader::Create(const std::string& filepath, bool forceCompile /*= false*/, bool disableOptimization /*= false*/)
+	{
+		switch (RendererAPI::Current())
+		{
+		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
+		case RendererAPIType::OPENGL:  return CreateRef<OpenGLShader>(filepath);
+		case RendererAPIType::Vulkan:  return CreateRef<VulkanShader>(filepath, forceCompile, disableOptimization);
+		}
+		CORE_ASSERT(false, "unknow RendererAPI");
+		return nullptr;
+	}
 
 	ShaderLibrary::ShaderLibrary()
 	{
@@ -46,7 +38,7 @@ namespace Kans {
 
 	void ShaderLibrary::Add(const std::string& name, Ref<Shader>& shader)
 	{
-		HZ_CORE_ASSERT(!Exists(name), "shader already exists!");
+		CORE_ASSERT(!Exists(name), "shader already exists!");
 		m_Shaders[name] = shader;
 	}
 
@@ -66,7 +58,7 @@ namespace Kans {
 
 	Kans::Ref<Kans::Shader> ShaderLibrary::Get(const std::string& name)
 	{
-		HZ_CORE_ASSERT(ShaderLibrary::Exists(name), "shader not exists!");
+		CORE_ASSERT(ShaderLibrary::Exists(name), "shader not exists!");
 		return m_Shaders[name];
 	}
 

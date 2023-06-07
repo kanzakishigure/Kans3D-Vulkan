@@ -1,26 +1,21 @@
 #include "SceneHierachyPanel.h"
+
 #include "kans3D/Scene/Components.h"
-#include <glm/gtc/type_ptr.hpp>
 #include "kans3D/Utilities/UI/KansUI.h"
 
-//temp
 #include "Kans3D/Renderer/Renderer.h"
+#include "Kans3D/Script/ScriptEngine.h"
+#include "Kans3D/ImGui/Colors.h"
+
+#include <glm/gtc/type_ptr.hpp>
+#include <sstream>
+
 namespace Kans
 {
 
-	SceneHierachyPanel::SceneHierachyPanel(const Ref<Scene>& scene)
+	void SceneHierachyPanel::OnImguiRender(bool isOpen )
 	{
-		SetContext(scene);
-	}
-
-	void SceneHierachyPanel::SetContext(const Ref<Scene>& context)
-	{
-		m_Context = context;
-	}
-
-	void SceneHierachyPanel::OnImguiRender()
-	{
-
+		
 		{
 			ImGui::Begin("SceneHierachyPanel:");
 			m_Context->m_Registry.each([&](auto entityID)
@@ -67,12 +62,17 @@ namespace Kans
 					if (ImGui::MenuItem("Mesh Component"))
 					{
 						auto& meshCMP = m_SelectionContext.AddComponent<StaticMeshComponent>();
-						auto meshSrouce = CreateRef<MeshSource>("assets/model/GY_Light/GY_Light.fbx");
-						meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
+						auto meshSrouce = nullptr;
+						meshCMP.StaticMesh = nullptr;
 					}
 					if (ImGui::MenuItem("Camera Component"))
 					{
 						m_SelectionContext.AddComponent<CameraComponent>();
+						ImGui::CloseCurrentPopup();
+					}
+					if (ImGui::MenuItem("Script Component"))
+					{
+						m_SelectionContext.AddComponent<ScriptComponent>();
 						ImGui::CloseCurrentPopup();
 					}
 					ImGui::EndPopup();
@@ -121,7 +121,7 @@ namespace Kans
 		}
 		if (EntityDelete)
 		{
-			m_Context->DeleteEntity(entity);
+			m_Context->DestroyEntity(entity);
 			if (m_SelectionContext == entity)
 			{
 				m_SelectionContext = {};
@@ -134,6 +134,18 @@ namespace Kans
 	const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_DefaultOpen;
 	void SceneHierachyPanel::DrawComponents(Entity entity)
 	{
+
+
+		if (entity.HasComponent<IDComponent>())
+		{
+			auto id = (uint64_t)entity.GetComponent<IDComponent>().ID;
+			std::string label = "Entity UUID :";
+			std::ostringstream os;
+			os << label <<id;
+			ImGui::Text(os.str().c_str());
+			ImGui::Separator();
+
+		}
 
 		if (entity.HasComponent<TagComponent>())
 		{
@@ -276,7 +288,11 @@ namespace Kans
 			ImGui::ColorEdit3("Ambient_Intensity", glm::value_ptr(component.Ambient_Intensity));
 			});
 		UI::DrawComponent<StaticMeshComponent>("Mesh", entity, [](StaticMeshComponent& component) {
-			ImGui::Text("Mesh load path is: %s", component.StaticMesh->GetMeshSource()->GetLoadPath().c_str());
+			if (component.StaticMesh)
+			{
+				ImGui::Text("Mesh load path is: %s", component.StaticMesh->GetMeshSource()->GetLoadPath().c_str());
+			}
+			
 			});
 		UI::DrawComponent<MaterialComponent>("Material", entity, [](MaterialComponent& component) {
 			const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_Framed
@@ -377,6 +393,28 @@ namespace Kans
 				ImGui::Separator();
 			}
 			});
+		UI::DrawComponent<ScriptComponent>("Script", entity, [](ScriptComponent& component) {
+			ImGui::Text("Class :");
+			char buffer[256] = {0};
+			auto& name = component.ClassName;
+			strcat(buffer, name.c_str());
+			if (ScriptEngine::EntityClassExists(name))
+			{
+				
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::text));
+			}
+			else
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::red_6));
+			}
+			if (ImGui::InputText("##Name", buffer, sizeof(buffer)))
+			{
+				name = std::string(buffer);
+			}
+
+			ImGui::PopStyleColor();
+			});
+		
 	}
 	
 

@@ -2,7 +2,7 @@
 
 #include "Mesh.h"
 #include "Kans3D/Renderer/Renderer.h"
-#include "Kans3D/Utilities/KansUtils.h"
+#include "Kans3D/Utilities/MeshUtils.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 const uint32_t importFlag = aiProcess_CalcTangentSpace  //计算切线空间
 |aiProcess_Triangulate //保证一定每个图元的基本单位是三角形，会出现多个索引
@@ -24,11 +24,11 @@ namespace Kans
 
 		Scope<Assimp::Importer>m_Importer = std::make_unique<Assimp::Importer>();
 		m_Scene =  m_Importer->ReadFile(path,importFlag);
-		HZ_INFO("load mesh path {0}", path.c_str());
+		CORE_INFO("load mesh path {0}", path.c_str());
 		if (!m_Scene || m_Scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !m_Scene->mRootNode)
 		{
-			HZ_ERROR(m_Importer->GetErrorString());
-			HZ_ASSERT(m_Scene, "assimp load file fail ");
+			CORE_ERROR(m_Importer->GetErrorString());
+			CORE_ASSERT(m_Scene, "assimp load file fail ");
 		}
 
 
@@ -193,7 +193,7 @@ namespace Kans
 						{
 							aiString aistr = {};
 							aimaterial->GetTexture(aiTextureType_DIFFUSE, 0, &aistr);
-							HZ_TRACE("{0} DIFFUSE texture: {1} ", mtlName.c_str(), aistr.C_Str());
+							CORE_INFO("{0} DIFFUSE texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
 							Ref<Texture2D> texture = Texture2D::Create(texturepath);
 							mtl->Set(MaterialAsset::GetDiffuseMapLocation(), texture);
@@ -207,11 +207,11 @@ namespace Kans
 								{
 									Ref<Texture2D> lighttexture = Texture2D::Create(texturepath);
 									mtl->Set(MaterialAsset::GetToneLightMapLocation(), lighttexture);
-									HZ_TRACE("{0} Light texture: {1} ", mtlName.c_str(), Lightmappath.c_str());
+									CORE_INFO("{0} Light texture: {1} ", mtlName.c_str(), Lightmappath.c_str());
 								}
 								else
 								{
-									HZ_WARN("{0} don't have Light texture", mtlName.c_str());
+									CORE_WARN("{0} don't have Light texture", mtlName.c_str());
 									mtl->Set(MaterialAsset::GetToneLightMapLocation(), Renderer::GetWhiteTexture());
 								}
 							}
@@ -225,18 +225,18 @@ namespace Kans
 								{
 									Ref<Texture2D> ramptexture = Texture2D::Create(Rampmappath);
 									mtl->Set(MaterialAsset::GetToneRampMapLocation(), ramptexture);
-									HZ_TRACE("{0} Ramp texture: {1} ", mtlName.c_str(), Rampmappath.c_str());
+									CORE_INFO("{0} Ramp texture: {1} ", mtlName.c_str(), Rampmappath.c_str());
 								}
 								else
 								{
-									HZ_WARN("{0} don't have Ramp texture", mtlName.c_str());
+									CORE_WARN("{0} don't have Ramp texture", mtlName.c_str());
 									mtl->Set(MaterialAsset::GetToneRampMapLocation(), Renderer::GetWhiteTexture());
 								}
 							}
 						}
 						else
 						{
-							HZ_WARN("{0} don't have DIFFUSE texture", mtlName.c_str());
+							CORE_WARN("{0} don't have DIFFUSE texture", mtlName.c_str());
 							mtl->Set(MaterialAsset::GetDiffuseMapLocation(), Renderer::GetWhiteTexture());
 						}
 					}
@@ -248,7 +248,7 @@ namespace Kans
 						{
 							aiString aistr = {};
 							aimaterial->GetTexture(aiTextureType_SPECULAR, 0, &aistr);
-							HZ_TRACE("{0} SPECULAR texture: {1} ", mtlName.c_str(), aistr.C_Str());
+							CORE_INFO("{0} SPECULAR texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
 							Ref<Texture2D> texture = Texture2D::Create(texturepath);
 							mtl->Set(MaterialAsset::GetSpecularMapLocation(), texture);
@@ -256,7 +256,7 @@ namespace Kans
 						}
 						else
 						{
-							HZ_WARN("{0} don't have Specular texture", mtlName.c_str());
+							CORE_WARN("{0} don't have Specular texture", mtlName.c_str());
 							mtl->Set(MaterialAsset::GetSpecularMapLocation(), Renderer::GetBlackTexture());
 						}
 					}
@@ -272,7 +272,7 @@ namespace Kans
 							{
 								aiString aistr;
 								aimaterial->GetTexture(aiTextureType_NORMALS, 0, &aistr);
-								HZ_INFO("{0} Normal texture: {1} ", mtlName.c_str(), aistr.C_Str());
+								CORE_INFO("{0} Normal texture: {1} ", mtlName.c_str(), aistr.C_Str());
 								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
 								Ref<Texture2D> texture = Texture2D::Create(texturepath);
 								mtl->Set("U_NormalTexture", texture);
@@ -280,7 +280,7 @@ namespace Kans
 						}
 						else
 						{
-							HZ_WARN("{0} don't have Normal texture", mtlName.c_str());
+							CORE_WARN("{0} don't have Normal texture", mtlName.c_str());
 						}
 					}
 					//shininess
@@ -313,9 +313,9 @@ namespace Kans
 		HZ_PROFILE_FUCTION()
 		double offset = 1.0 / 8000;
 		std::vector<glm::vec3> SmoothNormal;
-		MeshUtil::SmoothNormal(m_Verteices, SmoothNormal);
-		MeshUtil::SetMeshOffset(m_Verteices, m_SubMeshes, offset);
-		MeshUtil::BackMeshNormal(m_Verteices, SmoothNormal);
+		Utils::MeshUtils::SmoothNormal(m_Verteices, SmoothNormal);
+		Utils::MeshUtils::SetMeshOffset(m_Verteices, m_SubMeshes, offset);
+		Utils::MeshUtils::BackMeshNormal(m_Verteices, SmoothNormal);
 		BufferLayout layout = {
 			{ShaderDataType::Float3,"a_Position"},
 			{ShaderDataType::Float3,"a_Normal"},

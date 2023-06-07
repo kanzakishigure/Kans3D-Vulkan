@@ -1,5 +1,5 @@
 #include "kspch.h"
-#include "Kans3D/Core/Input.h"
+#include "Kans3D/Input/Input.h"
 
 #include "Kans3D/Core/Application.h"
 #include <GLFW/glfw3.h>

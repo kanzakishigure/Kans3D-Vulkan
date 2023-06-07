@@ -1,6 +1,6 @@
 #include "kspch.h"
 #include "MeshFactory.h"
-#include "Kans3D/Math/Math.h"
+#include "Kans3D/Core/Math/Math.h"
 namespace Kans
 {
 	Ref<StaticMesh> MeshFactory::CreatCube(const glm::vec3& size)

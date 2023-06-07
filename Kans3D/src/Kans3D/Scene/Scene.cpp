@@ -8,6 +8,9 @@
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Scene/ScriptableEntity.h"
+#include "Kans3D/Script/ScriptEngine.h"
+
 namespace Kans
 {	
 
@@ -42,7 +45,13 @@ namespace Kans
 				nsc.Instance->OnDestory();
 				nsc.DestoryInstanceFunction(&nsc);
 				});
-		
+		}
+		//update Script
+		auto view = m_Registry.view<ScriptComponent>();
+		for (auto entity : view)
+		{
+			Entity e = { entity,this };
+			ScriptEngine::OnUpdateEntity(e,ts);
 		}
 
 		
@@ -112,15 +121,16 @@ namespace Kans
 			auto group = m_Registry.view<TransformComponent, StaticMeshComponent>();
 			for (auto entity : group)
 			{
-				RenderCommand::EnableSetStencil(true);
-				RenderCommand::StencilOp(StencilOption::KEEP, StencilOption::KEEP, StencilOption::REPLACE);
-				RenderCommand::SetStencilFunc(StencilFunction::ALWAYS, 1, 0xff);	
-				RenderCommand::SetStencilMask(0xff);
+				Entity entt = { entity,this };
+				OpenGLRenderCommand::EnableSetStencil(true);
+				OpenGLRenderCommand::StencilOp(StencilOption::KEEP, StencilOption::KEEP, StencilOption::REPLACE);
+				OpenGLRenderCommand::SetStencilFunc(StencilFunction::ALWAYS, 1, 0xff);
+				OpenGLRenderCommand::SetStencilMask(0xff);
 				auto [transformCMP, meshCMP] = group.get(entity);
 				//renderer->SubmitStaticMesh(meshCMP.StaticMesh, meshCMP.MaterialTable, transformCMP.GetTransform());
 				//ToneShader
-				//RenderCommand::EnableCullFace(false);
-				if(0)
+				OpenGLRenderCommand::EnableCullFace(false);
+				if(m_RenderResource.Piplinestate.EnableToneShader)
 				{
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();
@@ -128,56 +138,59 @@ namespace Kans
 					//renderer->SubmitStaticMeshDebug(meshCMP.StaticMesh, transformCMP.GetTransform());
 					renderer->SubmitToneCharactorShader(meshCMP.StaticMesh, transformCMP.GetTransform());
 				}
-				RenderCommand::EnableCullFace(true);
+				OpenGLRenderCommand::EnableCullFace(true);
 
 
-				//Outline
-				if(0)
+				//Stencil
+				if(m_RenderResource.Piplinestate.EnableStencil)
 				{
-					RenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
-					RenderCommand::SetStencilMask(0x00);
+					OpenGLRenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
+					OpenGLRenderCommand::SetStencilMask(0x00);
 					TransformComponent ts = transformCMP;
 					ts.Scale *= 1.007f;
 					renderer->SubmitStaticMeshStencil(meshCMP.StaticMesh, ts.GetTransform());
-					RenderCommand::SetStencilMask(0xff);
-					RenderCommand::EnableSetStencil(false);
+					OpenGLRenderCommand::SetStencilMask(0xff);
+					OpenGLRenderCommand::EnableSetStencil(false);
 
 				}
 				
 				// Stroke
-				if(0)
+				if(m_RenderResource.Piplinestate.EnableOutline)
 				{
-					RenderCommand::EnableCullFace(true);
-					RenderCommand::CullFace(CullFaceOption::FRONT);
+					OpenGLRenderCommand::EnableCullFace(true);
+					OpenGLRenderCommand::CullFace(CullFaceOption::FRONT);
 					renderer->SubmitStaticMeshOutLine(meshCMP.StaticMesh, transformCMP.GetTransform());
-					RenderCommand::CullFace(CullFaceOption::BACK);
-					RenderCommand::EnableCullFace(false);
+					OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
+					OpenGLRenderCommand::EnableCullFace(false);
 				}
 				//DebugNormalShader
-				if(0)
+				if(m_RenderResource.Piplinestate.EnableDebugNormal)
 				{
 					renderer->SubmitStaticMeshDebugNormal(meshCMP.StaticMesh, transformCMP.GetTransform());
 				}
 
 				//StaticMesh
-				if (1)
+				if (m_RenderResource.Piplinestate.EnableDefaultShader)
 				{
-					Entity e = { entity,this };
-					auto& materialCMP = e.GetComponent<MaterialComponent>();
+					if (entt.HasComponent<MaterialComponent>())
+					{
+						Entity e = { entity,this };
+						auto& materialCMP = e.GetComponent<MaterialComponent>();
 
-					RenderCommand::EnableCullFace(true);
-					renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable,transformCMP.GetTransform());
-					RenderCommand::EnableCullFace(false);
+						OpenGLRenderCommand::EnableCullFace(true);
+						renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
+						OpenGLRenderCommand::EnableCullFace(false);
+					}
 				}
 				//Spot cloud
-				if (0)
+				if (false)
 				{
 					Entity e = { entity,this };
 					auto& materialCMP = e.GetComponent<MaterialComponent>();
 
-					RenderCommand::EnableCullFace(true);
+					OpenGLRenderCommand::EnableCullFace(true);
 					renderer->SubmitSpotCloud(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
-					RenderCommand::EnableCullFace(false);
+					OpenGLRenderCommand::EnableCullFace(false);
 				}
 				//renderer->SubmitMeshPost()
 			}
@@ -213,16 +226,55 @@ namespace Kans
 
 	Entity Scene::CreateEntity(const std::string name)
 	{
-		Entity e = { m_Registry.create(),this };
-		e.AddComponent<TransformComponent>();
-		auto& tag = e.AddComponent<TagComponent>();
-		tag.Tag = name.empty() ? "Entity": name;
-		return e;
+		UUID id = UUID();
+		return CreateEntityWithID(id, name,false);
+	}
+	Kans::Entity Scene::CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap)
+	{
+		Entity entity = { m_Registry.create(),this };
+		entity.AddComponent<TransformComponent>();
+		entity.AddComponent<IDComponent>(uuid);
+		auto& tag = entity.AddComponent<TagComponent>();
+		tag.Tag = name.empty() ? "Entity" : name;
+
+		CORE_ASSERT(m_EntityMap.find(uuid)== m_EntityMap.end(),nullptr);
+		m_EntityMap[uuid] = entity;
+		return entity;
+	}
+	void Scene::DestroyEntity(Entity entity)
+	{
+		auto&id = entity.GetComponent<IDComponent>().ID;
+		m_EntityMap.erase(id);
+		m_Registry.destroy(entity);
 	}
 
-	void Scene::DeleteEntity(Entity entity)
+	Entity Scene::GetEntityByUUID(UUID uuid) const
 	{
-		m_Registry.destroy(entity);
+		if (m_EntityMap.find(uuid) != m_EntityMap.end())
+		{
+			return m_EntityMap.at(uuid);
+		}
+		return {};
+	}
+
+	void Scene::OnRuntimeStart()
+	{
+	
+		//Init 
+		ScriptEngine::OnRuntimeStart(this);
+		auto view = m_Registry.view<ScriptComponent>();
+		for (auto entity : view)
+		{
+			Entity e = { entity,this };
+			ScriptEngine::OnCreateEntity(e);
+
+		}
+	}
+
+	void Scene::OnRuntimeStop()
+	{
+		ScriptEngine::OnRuntimeEnd();
+		m_EntityMap.clear();
 	}
 
 	Kans::Entity Scene::GetCameraEntity()
@@ -244,7 +296,7 @@ namespace Kans
 	template<typename T>
 	void Scene::OnComponentAdd(Entity entity, T& component)
 	{
-		static_assert(false);
+		static_assert(sizeof(T)==0);
 	}
 
 
@@ -294,6 +346,16 @@ namespace Kans
 	}
 	template<>
 	void Scene::OnComponentAdd<MaterialComponent>(Entity entity, MaterialComponent& component)
+	{
+
+	}
+	template<>
+	void Scene::OnComponentAdd<IDComponent>(Entity entity, IDComponent& component)
+	{
+
+	}
+	template<>
+	void Scene::OnComponentAdd<ScriptComponent>(Entity entity, ScriptComponent& component)
 	{
 
 	}

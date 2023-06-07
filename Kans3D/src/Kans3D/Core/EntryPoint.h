@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Core/Base.h"
+#include "Kans3D/Core/Base/Base.h"
 #ifdef  HZ_PLATFORM_WINDOWS
 
 extern Kans::Application* Kans::createApplication(int argc, char** argv);
@@ -26,7 +26,7 @@ namespace Kans
 		delete app;
 		HZ_PROFILE_END_SESSION();
 
-
+		Log::ShutDown();
 		return 0;
 	}
 }

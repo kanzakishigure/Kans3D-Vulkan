@@ -21,7 +21,7 @@ namespace Kans {
 				case Kans::StencilOption::INVERT:	 return GL_INVERT;
 
 			}
-			HZ_CORE_ASSERT(false, "unknow StencilOption");
+			CORE_ASSERT(false, "unknow StencilOption");
 			return 0;
 		}
 		static uint32_t To_OpenGLCullFaceOption(CullFaceOption value)
@@ -33,7 +33,7 @@ namespace Kans {
 			case Kans::CullFaceOption::FRONT_AND_BACK:return GL_FRONT_AND_BACK;
 
 			}
-			HZ_CORE_ASSERT(false, "unknow CullFaceOption");
+			CORE_ASSERT(false, "unknow CullFaceOption");
 			return 0;
 		}
 	}

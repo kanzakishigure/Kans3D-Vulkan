@@ -1,19 +1,19 @@
 #pragma once
-#include <imgui.h>
-#include "kans3D/Core/Base.h"
-#include "kans3D/Core/Log.h"
-#include "kans3D/Scene/Scene.h"
-#include "kans3D/Scene/Entity.h"
+#include "Kans3D/Editor/EditorPanel.h"
+#include "Kans3D/Scene/Entity.h"
+#include "Kans3D/Editor/EditorResources.h"
 namespace Kans
 {
 
-	class SceneHierachyPanel {
+	class SceneHierachyPanel : EditorPanel
+	{
 
 	public: 
 		SceneHierachyPanel() = default;
-		SceneHierachyPanel(const Ref<Scene>& scene);
-		void SetContext(const Ref<Scene>& context);
-		void OnImguiRender();
+
+		virtual void OnImguiRender(bool isOpen) override;
+		virtual void SetSceneContext(const Ref<Scene>& context) override { m_Context = context; }
+
 	private:
 		void DrawEntityNode(Entity entity);
 		void DrawComponents(Entity entity);

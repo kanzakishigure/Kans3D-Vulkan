@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "kans3D/Renderer/OrthographicCameraController.h"
-#include "Kans3D/Core/Input.h"
-#include "Kans3D/Core/KeyCodes.h"
+#include "Kans3D/Input/Input.h"
+#include "Kans3D/Input/KeyCodes.h"
 namespace Kans {
 
 	//m_Camera left right bottom top
@@ -36,6 +36,7 @@ namespace Kans {
 		}
 		m_Camera.SetPosition(m_CameraPos);
 		
+		
 	}
 
 	void OrthographicCameraController::OnEvent(Event& e)
@@ -43,8 +44,8 @@ namespace Kans {
 		HZ_PROFILE_FUCTION();
 
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<MouseScrolledEvent>(HZ_BIND_EVENT_FN(OrthographicCameraController::OnMouseScrolled));
-		dispatcher.Dispatch<WindowResizeEvent>(HZ_BIND_EVENT_FN(OrthographicCameraController::OnWindowResize));
+		dispatcher.Dispatch<MouseScrolledEvent>(BIND_EVENT_FN(OrthographicCameraController::OnMouseScrolled));
+		dispatcher.Dispatch<WindowResizeEvent>(BIND_EVENT_FN(OrthographicCameraController::OnWindowResize));
 
 	}
 
@@ -64,6 +65,8 @@ namespace Kans {
 		m_ZoomLevel = std::max(m_ZoomLevel,0.25f);
 		m_Bounds = { -m_AspecRatio * m_ZoomLevel, m_AspecRatio * m_ZoomLevel, -m_ZoomLevel, m_ZoomLevel };
 		m_Camera.SetProjection(-m_AspecRatio * m_ZoomLevel, m_AspecRatio * m_ZoomLevel, -m_ZoomLevel, m_ZoomLevel);
+		
+		
 		return false;
 	}
 

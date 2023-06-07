@@ -1,7 +1,7 @@
 #pragma once
 #include "OrthographicCamera.h"
 #include "Shader.h"
-#include "VertexArray.h"
+#include "RHI/OpenGL/VertexArray.h"
 #include "Texture.h"
 #include "SubTexture2D.h"
 #include "Kans3D/Renderer/Camera.h"

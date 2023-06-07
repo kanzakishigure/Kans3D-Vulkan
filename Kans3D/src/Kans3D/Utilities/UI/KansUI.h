@@ -11,6 +11,11 @@ namespace Kans::UI
 	void DrawVec2Control(const std::string& label, glm::vec2& value, float resetvalue = 0.0f, float columwidth = 100.0f);
 	void DrawFloatControl(const std::string& label, float& value, float resetvalue = 0.0f, float columwidth = 100.0f);
 	void DrawIntControl(const std::string& label, int& value, int resetvalue = 0.0f, float columwidth = 100.0f);
+	
+
+
+
+
 
 	template <typename T, typename UIfunc>
 	void DrawComponent(const std::string& label, Entity entity, UIfunc uifunc)

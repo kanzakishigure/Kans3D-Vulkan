@@ -8,7 +8,8 @@ namespace Kans {
 	{
 		//TO DO 
 		//push to buffer
-		m_Shader->SetIntArray(name, count, value);
+		auto openglshader = static_cast<OpenGLShader*>(m_Shader.get());
+		openglshader->UploadUniformIntArray(name, count, value);
 	}
 
 	
@@ -63,46 +64,47 @@ namespace Kans {
 		m_Shader = shader;
 	}
 
-	/// <summary>
+
 	/// we should up date the data every frame
-	/// </summary>
 	void OpenGLMaterial::Invalidate()
 	{
 
 		//Set shader uniform 
+		auto openglshader = static_cast<OpenGLShader*>(m_Shader.get());
 		auto& shaderUnifrom = m_Shader->GetShaderBuffer().ShaderUniforms;
 		if (m_UseDefaultShader)
 		{
-			m_Shader->Bind();
-		}
-		
-		for (auto& key:shaderUnifrom)
-		{
-			auto& uniformbuffer = key.second;
-			uint32_t offset = uniformbuffer.GetOffset();
-			uint32_t size = uniformbuffer.GetSize();
-			std::string name = uniformbuffer.GetName();
-			switch (uniformbuffer.GetType())
+			openglshader->Bind();
+			for (auto& key : shaderUnifrom)
 			{
-				case ShaderDataType::Float:  m_Shader->SetFloat(name, m_UniformBuffer.Read<float>(offset));       break;
-				case ShaderDataType::Float2: m_Shader->SetFloat2(name,m_UniformBuffer.Read<glm::vec2>(offset));   break;
-				case ShaderDataType::Float3: m_Shader->SetFloat3(name,m_UniformBuffer.Read<glm::vec3>(offset));   break;
-				case ShaderDataType::Float4: m_Shader->SetFloat4(name,m_UniformBuffer.Read<glm::vec4>(offset));   break;
-				case ShaderDataType::Mat4:   m_Shader->SetMat4(name,  m_UniformBuffer.Read<glm::mat4>(offset));   break;
-				case ShaderDataType::Color3: m_Shader->SetFloat3(name, m_UniformBuffer.Read<glm::vec3>(offset));  break;
-				case ShaderDataType::Color4: m_Shader->SetFloat4(name, m_UniformBuffer.Read<glm::vec4>(offset));  break;
-				case ShaderDataType::Int:	 m_Shader->SetInt(name,   m_UniformBuffer.Read<int>(offset));		  break;
-				case ShaderDataType::Int2:	 m_Shader->SetInt2(name, m_UniformBuffer.Read<glm::ivec2>(offset));	  break;
-				case ShaderDataType::Bool:	 m_Shader->SetBool(name, m_UniformBuffer.Read<bool>(offset));		  break;
+				auto& uniformbuffer = key.second;
+				uint32_t offset = uniformbuffer.GetOffset();
+				uint32_t size = uniformbuffer.GetSize();
+				std::string name = uniformbuffer.GetName();
+				switch (uniformbuffer.GetType())
+				{
+				case ShaderDataType::Float:  openglshader->UploadUniformFloat(name, m_UniformBuffer.Read<float>(offset));       break;
+				case ShaderDataType::Float2: openglshader->UploadUniform2Float(name, m_UniformBuffer.Read<glm::vec2>(offset));   break;
+				case ShaderDataType::Float3: openglshader->UploadUniform3Float(name, m_UniformBuffer.Read<glm::vec3>(offset));   break;
+				case ShaderDataType::Float4: openglshader->UploadUniform4Float(name, m_UniformBuffer.Read<glm::vec4>(offset));   break;
+				case ShaderDataType::Mat4:   openglshader->UploadUniformMat4(name, m_UniformBuffer.Read<glm::mat4>(offset));   break;
+				case ShaderDataType::Color3: openglshader->UploadUniform3Float(name, m_UniformBuffer.Read<glm::vec3>(offset));  break;
+				case ShaderDataType::Color4: openglshader->UploadUniform4Float(name, m_UniformBuffer.Read<glm::vec4>(offset));  break;
+				case ShaderDataType::Int:	 openglshader->UploadUniformInt(name, m_UniformBuffer.Read<int>(offset));		  break;
+				case ShaderDataType::Int2:	 openglshader->UploadUniform2Int(name, m_UniformBuffer.Read<glm::ivec2>(offset));	  break;
+				case ShaderDataType::Bool:	 openglshader->UploadUniformBool(name, m_UniformBuffer.Read<bool>(offset));		  break;
 
+				}
 			}
 		}
+		
+		
 		//bug here can't bind texture;
 		//set texture
 		uint32_t TexSlot = 0;
 		for (auto& key : m_Texture)
 		{
-			m_Shader->SetInt(key.first, TexSlot);
+			openglshader->UploadUniformInt(key.first, TexSlot);
 			key.second->Bind(TexSlot);
 			TexSlot++;
 		}
@@ -118,7 +120,7 @@ namespace Kans {
 	OpenGLMaterial::~OpenGLMaterial()
 	{
 		m_UniformBuffer.Release();
-		HZ_INFO("Release StorageBuffer in Material");
+		CORE_INFO("Release StorageBuffer in Material");
 	}
 
 	void OpenGLMaterial::Init()
@@ -186,7 +188,7 @@ namespace Kans {
 		{
 			if (shaderbuffer.ShaderUniforms.find(name) == shaderbuffer.ShaderUniforms.end())
 			{
-				HZ_WARN("can't find the uniform :({0}) in material:({1}) ", name.c_str(), m_Name.c_str());
+				CORE_WARN("can't find the uniform :({0}) in material:({1}) ", name.c_str(), m_Name.c_str());
 				return nullptr;
 			}
 			auto& uniform = shaderbuffer.ShaderUniforms.at(name);

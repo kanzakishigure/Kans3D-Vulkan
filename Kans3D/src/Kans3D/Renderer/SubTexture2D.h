@@ -3,7 +3,7 @@
 #include "glm/glm.hpp"
 namespace Kans
 {
-	class SubTexture2D
+	class SubTexture2D :public RefCounter
 	{
 	public:
 		SubTexture2D(Ref<Texture2D> texture, glm::vec2 min, glm::vec2 max);

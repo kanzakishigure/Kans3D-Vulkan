@@ -55,7 +55,7 @@ namespace Kans {
 			auto uniform = FindUniform(name);
 			if (!uniform)
 			{
-				HZ_ASSERT(uniform, "Can not find uniform");
+				CORE_ASSERT(uniform, "Can not find uniform");
 				return;
 			}
 			m_UniformBuffer.Write((byte*)&value,  uniform->GetOffset(), uniform->GetSize());
@@ -66,7 +66,7 @@ namespace Kans {
 			auto uniform = FindUniform(name);
 			if (!uniform)
 			{
-				HZ_ASSERT(uniform, "Can not find uniform");
+				CORE_ASSERT(uniform, "Can not find uniform");
 			}
 			return m_UniformBuffer.Read<T>(uniform->GetOffset());
 		}

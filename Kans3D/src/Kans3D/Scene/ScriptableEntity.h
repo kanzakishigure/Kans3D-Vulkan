@@ -1,5 +1,4 @@
 #pragma once
-
 #include "Kans3D/Scene/Entity.h"
 namespace Kans
 {

@@ -1,6 +1,8 @@
 #pragma once
-#include "Kans3D/Scene/Scene.h"
 #include <entt.hpp>
+
+#include "Kans3D/Scene/Scene.h"
+#include "Kans3D/Scene/Components.h"
 
 namespace Kans
 {
@@ -16,9 +18,9 @@ namespace Kans
 		template<typename T, typename ... Args>
 		T& AddComponent(Args&&... args)
 		{
-			HZ_ASSERT(!HasComponent<T>(), "Entity Already Have component ");
+			CORE_ASSERT(!HasComponent<T>(), "Entity Already Have component ");
 
-			T& component = m_Scene->Reg().emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
+			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
 			m_Scene->OnComponentAdd<T>(*this,component);
 			return component;
 		}
@@ -26,24 +28,33 @@ namespace Kans
 		template<typename T>
 		T& GetComponent()
 		{
-			HZ_ASSERT(HasComponent<T>(), "Entity don't Have component ");
-			return m_Scene->Reg().get<T>(m_EntityHandle);
+			CORE_ASSERT(HasComponent<T>(), "Entity don't Have component ");
+			return m_Scene->m_Registry.get<T>(m_EntityHandle);
 		}
-
 		template<typename T>
+		const T& GetComponent() const
+		{
+			CORE_ASSERT(HasComponent<T>(), "Entity don't Have component ");
+			return m_Scene->m_Registry.get<T>(m_EntityHandle);
+		}
+		template<typename ...T>
 		bool HasComponent()
 		{
-			return m_Scene->Reg().all_of<T>(m_EntityHandle);
+			return m_Scene->m_Registry.all_of<T...>(m_EntityHandle);
 		}
-
+		template<typename ...T>
+		bool HasComponent() const
+		{
+			return m_Scene->m_Registry.all_of<T...>(m_EntityHandle);
+		}
 		template<typename T>
 			void RemoveComponent()
 		{
-			HZ_ASSERT(HasComponent<T>(), "Entity don't Have component ");
+			CORE_ASSERT(HasComponent<T>(), "Entity don't Have component ");
 			//remove方法只有在组件存在是会进行擦除，若组件不存在，则不会执行
-			m_Scene->Reg().remove<T>(m_EntityHandle);
+			m_Scene->m_Registry.remove<T>(m_EntityHandle);
 		}
-		
+		UUID GetUUID() const { return GetComponent<IDComponent>().ID; }
 
 		operator bool() const { return (m_EntityHandle != entt::null) && m_Scene; }
 

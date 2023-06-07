@@ -10,8 +10,13 @@
 #include <Kans3D/ImGui/Colors.h>
 #include <Kans3D/Renderer/MeshFactory.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-static const int S_mapwidth = 24;
-static const char* S_mapTiles= "";
+#define ShowImguiDemo		true
+#define ShowEditorUI		true
+#define EnbaleDocking		true
+#define TestLoadModel		true	
+#define CrashTest			false
+#define SpotCloudTest		false
+#define NativeScript		false
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace Kans
@@ -20,7 +25,7 @@ namespace Kans
 
 	EditorLayer::EditorLayer()
 		:m_CameraController(1920.0f / 1080.0f), Layer("EditorLayer")
-	{
+	{	
 
 	}
 	void EditorLayer::OnAttach()
@@ -28,6 +33,11 @@ namespace Kans
 		HZ_PROFILE_FUCTION();
 
 
+		//Resource Init
+		EditorResources::Init();
+
+		//Renderer2D init
+		Renderer2D::Init();
 		//FrameBuffer init
 		{
 			
@@ -39,7 +49,7 @@ namespace Kans
 			m_Framebuffer = FrameBuffer::Create(spec);
 
 		}
-
+		
 		// scene init
 		{
 
@@ -63,8 +73,7 @@ namespace Kans
 				dirCMP.Specular_Intensity = glm::vec3(1.0);
 				dirCMP.Ambient_Intensity = glm::vec3(1.0);
 			}
-			// ref plane test
-#if 1
+			//ref BackScene
 			{
 				auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 				auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
@@ -73,12 +82,8 @@ namespace Kans
 				transformCMP.Scale = { 19.2f,10.8f,1.0f };
 				transformCMP.Position = { 2.3f,0.0f,-12.0f };
 			}
-#endif
-			//Scene Renderer Init
-			{
-				m_StaticMeshRenderer = CreateRef<SceneRenderer>(m_ActiveScene);
-				m_StaticMeshRenderer->SetFrameBuffer(m_Framebuffer);
-			}
+
+			
 			//Create Scene camera
 			{
 				m_CameraEntity = m_ActiveScene->CreateEntity("mainCamera");
@@ -89,7 +94,7 @@ namespace Kans
 			}
 
 			// load Mesh test
-#if 1
+#if TestLoadModel
 			{
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
@@ -105,33 +110,36 @@ namespace Kans
 
 				//Temp Function
 				//Init Material
-				MaterialUtil::InitMaterial(materialCMP.MaterialTable);
+				Utils::MaterialUtils::InitMaterial(materialCMP.MaterialTable);
 			}
 #endif
 			// createMesh test
-#if 0
+#if CrashTest
+			// the performance is sucks
 			{
-
+				for (int i = 0; i <1 ; i++)
 				{
-
-					auto CubeEntity = m_ActiveScene->CreateEntity("Cube1");
-					auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
-					auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
-					meshCMP.StaticMesh = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
-					meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
-					materialCMP.MaterialTable = meshCMP.MaterialTable;
-					auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
-					TransformCMP.Position = { 1.0f,0.0f,0.0f };
-					TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
-					TransformCMP.Scale = { 0.3f,0.3f,0.3f };
-
+					{
+						std::string name = fmt::format("Cube_{0}", i);
+						auto CubeEntity = m_ActiveScene->CreateEntity(name);
+						auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
+						auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
+						meshCMP.StaticMesh = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
+						meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
+						materialCMP.MaterialTable = meshCMP.MaterialTable;
+						auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
+						TransformCMP.Position = { 0.0f,0.0f,-3.0f };
+						TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
+						TransformCMP.Scale = { 0.5f,0.5f,0.5f };
+						CubeEntity.AddComponent<ScriptComponent>("Sandbox.Player");
+					}
 				}
 
 			}
 #endif		
 			// spotCloud test
 
-#if 0
+#if SpotCloudTest
 			{
 				auto CubeEntity = m_ActiveScene->CreateEntity("Cloud");
 				auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
@@ -147,7 +155,9 @@ namespace Kans
 
 			}
 #endif
-				//Native Script
+			//Native Script
+#if NativeScript
+				
 				{
 					class CameracontorlScript : public ScriptableEntity
 					{
@@ -189,28 +199,39 @@ namespace Kans
 
 					m_CameraEntity.AddComponent<NativeScriptComponent>().Bind<CameracontorlScript>();
 
-					//HierachyPanel
-					{
-						m_SceneHierachyPanel = { m_ActiveScene };
-					}
+					
 				}
-
+#endif
 			
-	
+			//InitPanel
+			{
+					m_SceneHierachyPanel.SetSceneContext(m_ActiveScene);
+					
+			}
 				
-
+			m_ActiveScene->OnRuntimeStart();
+		}
+		//Scene Renderer Init
+		{
+			m_StaticMeshRenderer = CreateRef<SceneRenderer>(m_ActiveScene);
+			m_StaticMeshRenderer->SetFrameBuffer(m_Framebuffer);
 		}
 }
 	void EditorLayer::OnDetach()
 	{
+		//temp function to test script system
+		{
+			m_ActiveScene->OnRuntimeStop();
 
-		SceneSerializer s(m_ActiveScene);
-		s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");
+			SceneSerializer s(m_ActiveScene);
+			s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");
+		}
 
 		HZ_PROFILE_FUCTION();
-		HZ_CORE_INFO("{0} call detach",Application::Get().GetSpecification().Name);
-		Renderer2D::Shutdown();
+		CLIENT_INFO("Editor", "editor layer call detach");
 
+		Renderer2D::Shutdown();
+		EditorResources::ShutDown();
 
 		
 	}
@@ -236,31 +257,28 @@ namespace Kans
 			if(!m_ViewportFocused)
 			m_CameraController.OnUpdate(ts);
 
-			
-
 		}
-		//renderer
 
-
-		Renderer2D::ResetStats();
-		m_Framebuffer->Bind();
-		RenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
-		RenderCommand::Clear();
-		
 		//updateScene
 		{
 			m_ActiveScene->OnUpdate(ts);
 
 		}
-
+		//renderer
+		Renderer2D::ResetStats();
+		m_Framebuffer->Bind();
+		// OpenGLRenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
+		OpenGLRenderCommand::SetClearColor({ 0.8f, 0.8f, 0.8f, 1.0f });
+		OpenGLRenderCommand::Clear();
+	
 		//rendering
-		//此处应该有renderpass
+		// 此处应该有renderpipline和renderpass
 		{
 			HZ_PROFILE_SCOPE("rendering")
-			m_ActiveScene->OnRenderer(m_StaticMeshRenderer,ts);
-			m_Framebuffer->Unbind();
-
+			m_ActiveScene->OnRenderer(m_StaticMeshRenderer, ts);
 		}
+		m_Framebuffer->Unbind();
+
 	}
 
 	void EditorLayer::OnEvent(Event& e)
@@ -268,36 +286,30 @@ namespace Kans
 		HZ_PROFILE_FUCTION();
 		m_CameraController.OnEvent(e);
 	}
-
+	
 	void EditorLayer::OnImGuiRender()
 	{
 		HZ_PROFILE_FUCTION();
 		
-//Imgui docking code
-#if 1
+//Imgui docking Init
+#if EnbaleDocking
 		static bool p_open = true;
-		static bool opt_fullscreen = true;
 		static bool opt_padding = false;
 		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
-
+		ImGuiIO& io = ImGui::GetIO();
+		io.ConfigWindowsResizeFromEdges = io.BackendFlags & ImGuiBackendFlags_HasMouseCursors;
 		// We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
 		// because it would be confusing to have two docking targets within each others.
 		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
-		if (opt_fullscreen)
-		{
-			ImGuiViewport* viewport = ImGui::GetMainViewport();
-			ImGui::SetNextWindowPos(viewport->Pos);
-			ImGui::SetNextWindowSize(viewport->Size);
-			ImGui::SetNextWindowViewport(viewport->ID);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-			window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-			window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-		}
-		else
-		{
-			dockspace_flags &= ~ImGuiDockNodeFlags_PassthruCentralNode;
-		}
+
+		ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->Pos);
+		ImGui::SetNextWindowSize(viewport->Size);
+		ImGui::SetNextWindowViewport(viewport->ID);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+		window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
 		// When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
 		// and handle the pass-thru hole, so we ask Begin() to not render a background.
@@ -314,16 +326,17 @@ namespace Kans
 		ImGui::Begin("DockSpace Demo", &p_open, window_flags);
 		if (!opt_padding)
 			ImGui::PopStyleVar();
-
-		if (opt_fullscreen)
 			ImGui::PopStyleVar(2);
+
+			
+		
+		
 
 		// DockSpace
 		//set the min docking windowsSize tO 340
 		auto& style = ImGui::GetStyle();
 		float minsize = style.WindowMinSize.x;
 		style.WindowMinSize.x = 340;
-		ImGuiIO& io = ImGui::GetIO();
 		if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 		{
 			ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -337,7 +350,6 @@ namespace Kans
 			{
 				// Disabling fullscreen would allow the window to be moved to the front of other windows,
 				// which we can't undo at the moment without finer window depth/z control.
-				ImGui::MenuItem("Fullscreen", NULL, &opt_fullscreen);
 				ImGui::MenuItem("Padding", NULL, &opt_padding);
 				ImGui::Separator();
 
@@ -345,9 +357,7 @@ namespace Kans
 				if (ImGui::MenuItem("Flag: NoResize", "", (dockspace_flags & ImGuiDockNodeFlags_NoResize) != 0)) { dockspace_flags ^= ImGuiDockNodeFlags_NoResize; }
 				if (ImGui::MenuItem("Flag: NoDockingInCentralNode", "", (dockspace_flags & ImGuiDockNodeFlags_NoDockingInCentralNode) != 0)) { dockspace_flags ^= ImGuiDockNodeFlags_NoDockingInCentralNode; }
 				if (ImGui::MenuItem("Flag: AutoHideTabBar", "", (dockspace_flags & ImGuiDockNodeFlags_AutoHideTabBar) != 0)) { dockspace_flags ^= ImGuiDockNodeFlags_AutoHideTabBar; }
-				if (ImGui::MenuItem("Flag: PassthruCentralNode", "", (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode) != 0, opt_fullscreen)) { dockspace_flags ^= ImGuiDockNodeFlags_PassthruCentralNode; }
 				ImGui::Separator();
-
 				if (ImGui::MenuItem("Close", NULL, false, &p_open != NULL))
 				{
 					p_open = false;
@@ -361,9 +371,11 @@ namespace Kans
 		}
 		ImGui::End();
 #endif
-
+#if ShowImguiDemo
+		ImGui::ShowDemoWindow();
+#endif
 //Editor UI
-#if 1
+#if ShowEditorUI
 	//ProjectSpecication
 	{
 		ImGui::Begin("ProjectSpecication");
@@ -382,11 +394,23 @@ namespace Kans
 		ImGui::Text("Render3DStats");
 		ImGui::Text("ViePort Size: %f , %f", m_ViewportSize.x, m_ViewportSize.y);
 
+		auto resource = m_ActiveScene->GetRenderResource();
+		ImGui::Separator();
+		ImGui::Checkbox("EnableToneShader", &resource.Piplinestate.EnableToneShader);
+		ImGui::Checkbox("EnableOutline", &resource.Piplinestate.EnableOutline);
+		ImGui::Checkbox("EnableDebugNormal", &resource.Piplinestate.EnableDebugNormal);
+		ImGui::Checkbox("EnableStencil", &resource.Piplinestate.EnableStencil);
+		ImGui::Checkbox("EnableDefaultShader", &resource.Piplinestate.EnableDefaultShader);
+		m_ActiveScene->SetRenderResource(resource);
+		
+		
+
 		ImGui::End();
 
 	}
 	//HierachyPanel
-	m_SceneHierachyPanel.OnImguiRender();
+	m_SceneHierachyPanel.OnImguiRender(true);
+	m_ContentBrowserPanel.OnImguiRender(true);
 	//Viewport
 		//Color FrameBuffer
 		if (1)

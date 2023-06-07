@@ -3,7 +3,7 @@
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 3) in vec4 a_BaseColor;
-layout(location = 3) in vec3 a_Tangent;
+layout(location = 4) in vec3 a_Tangent;
 
 uniform mat4 U_ViewProjection;
 uniform mat4 U_Transform;
@@ -73,6 +73,8 @@ void main() {
 #version 330 core
 layout(location = 0) out vec4 O_Color;
 
+
+uniform vec4 u_NormalColor;
 void main()
 {
     O_Color = vec4(1.0);

@@ -1,12 +1,17 @@
 #include "kspch.h"
 #include "Renderer2D.h"
 
-#include "VertexArray.h"
+#include "RHI/OpenGL/VertexArray.h"
 #include "Shader.h"
 #include "Platform/OpenGL/OpenGLShader.h"
-#include "RenderCommand.h"
+#include "RHI/OpenGL/OpenGLRenderCommand.h"
 
 #include <glm/ext/matrix_transform.hpp>
+
+
+//temp include
+#include "Platform/OpenGL/OpenGLRendererAPI.h"
+
 
 namespace Kans {
 
@@ -34,7 +39,7 @@ namespace Kans {
 
 		Ref<VertexArray> QuadVertexArray;
 		Ref<VertexBuffer> QuadVertexBuffer;
-		Ref<Shader> TextureShader;
+		OpenGLShader* TextureShader;
 		ShaderLibrary s_ShaderLibrary;
 		Ref<Texture2D> WhiteTexture;
 		std::array<glm::vec4, 4> QuadVertexPosition;
@@ -100,7 +105,9 @@ namespace Kans {
 		//Shader Program
 		s_Data.s_ShaderLibrary.Add(Kans::Shader::Create("Resources/Shaders/TextureShader.glsl"));
 		
-		s_Data.TextureShader = s_Data.s_ShaderLibrary.Get("TextureShader");
+		
+		s_Data.TextureShader = static_cast<OpenGLShader*>(s_Data.s_ShaderLibrary.Get("TextureShader").get());
+		
 		
 		//Texture2D
 		s_Data.WhiteTexture = Texture2D::Create(1, 1);
@@ -113,7 +120,7 @@ namespace Kans {
 			samplers[i] = (int)i;
 		}
 		s_Data.TextureShader->Bind();
-		s_Data.TextureShader->SetIntArray("U_TextureSample", s_Data.MaxTextureSlots, samplers);
+		s_Data.TextureShader->UploadUniformIntArray("U_TextureSample", s_Data.MaxTextureSlots, samplers);
 		s_Data.TextureSlots[0] = s_Data.WhiteTexture;
 		s_Data.QuadVertexPosition[0] = {-0.5f,-0.5,0.0 ,1.0 };
 		s_Data.QuadVertexPosition[1] = { 0.5f,-0.5,0.0 ,1.0 };
@@ -130,7 +137,7 @@ namespace Kans {
 		s_Data.QuadIndexCount = 0;
 		s_Data.TextureSlotIndex = 1;
 		s_Data.TextureShader->Bind();
-		s_Data.TextureShader->SetMat4("U_ViewProjection", camera.GetViewProjectionMatrtix());
+		s_Data.TextureShader->UploadUniformMat4("U_ViewProjection", camera.GetViewProjectionMatrtix());
 		
 		//TODO
 		//when ever entity is delelte we show clean the batch buffer;
@@ -143,7 +150,7 @@ namespace Kans {
 		s_Data.TextureSlotIndex = 1;
 		s_Data.TextureShader->Bind();
 		glm::mat4 viewprojection = camera.GetProjectMatrix() * glm::inverse(transform);
-		s_Data.TextureShader->SetMat4("U_ViewProjection", viewprojection);
+		s_Data.TextureShader->UploadUniformMat4("U_ViewProjection", viewprojection);
 	}
 
 	void Renderer2D::EndScene()
@@ -162,8 +169,9 @@ namespace Kans {
 	void Renderer2D::Shutdown()
 	{
 		HZ_PROFILE_FUCTION();
+		
 		delete[] s_Data.QuadVertexBufferBase;
-		HZ_WARN(" render2d quadsbuffer memary is free");
+		CORE_WARN(" render2d quadsbuffer memary is free");
 	}
 
 	void Renderer2D::Flush()
@@ -176,7 +184,8 @@ namespace Kans {
 			s_Data.TextureSlots[i]->Bind(i);
 		}
 		
-		RenderCommand::DrawIndexed(s_Data.QuadVertexArray,s_Data.QuadIndexCount);
+		OpenGLRenderCommand::DrawIndexed(s_Data.QuadVertexArray, s_Data.QuadIndexCount);
+
 		s_Data.Stats.DrawCalls++;
 	}
 

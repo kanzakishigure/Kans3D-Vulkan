@@ -1,9 +1,16 @@
 #pragma once
 #include <glm/glm.hpp>
-#include "Kans3D/Core/Base.h"
-#include "Buffer.h"
+#include "Kans3D/Core/Base/Base.h"
+#include "RHI/Buffer.h"
 namespace Kans
 {
+
+	namespace ShaderUtils {
+		enum class ShaderLang
+		{
+			NONE, GLSL, HLSL,
+		};
+	}
 
 	class ShaderUniform
 	{
@@ -69,33 +76,24 @@ namespace Kans
 		std::vector<BufferElement> m_Elements;
 		uint32_t m_Stride = 0;
 	};
-	class Shader
+	class Shader : public RefCounter
 	{
 	public:
 		virtual ~Shader() = default;
 
-		virtual void Bind() const = 0;
-		virtual void UnBind() const = 0;
-		virtual const std::string& GetName() const = 0;
-		static Ref<Shader> Create(const std::string& name,  const std::string& VertexShaderpath, const std::string& FragmentShaderpath);
-		static Ref<Shader> Create(const std::string& path);
-	public:
-		virtual void SetMat4(const std::string& name, const glm::mat4& value) = 0;
-		virtual void SetFloat(const std::string& name, float value) = 0;
-		virtual void SetFloat2(const std::string& name, const glm::vec2& value) = 0;
-		virtual void SetFloat3(const std::string& name, const glm::vec3& value) = 0;
-		virtual void SetFloat4(const std::string& name, const glm::vec4& value) = 0;
-		virtual void SetBool(const std::string& name, const bool value) = 0;
+		virtual void Reload(bool forceCompile = false) = 0;
+		virtual void RT_Reload(bool forceCompile) = 0;
 
-		virtual void SetInt(const std::string& name, int value) = 0;
-		virtual void SetInt2(const std::string& name, const glm::ivec2& value) = 0;
-		virtual void SetIntArray(const std::string& name,const int count ,const int* value) = 0;
-	public:
+		virtual const std::string& GetName() const = 0;
+
 		virtual const ShaderBuffer& GetShaderBuffer() const = 0;
-		virtual const void SetShaderBuffer(ShaderBufferLayout layout)  = 0;
+		virtual void SetShaderBuffer(ShaderBufferLayout layout)  = 0;
+
+		static Ref<Shader> Create(const std::string& filepath, bool forceCompile = false, bool disableOptimization = false);
+		//static Ref<Shader> CreateFromString(const std::string& source);
 	
 	};
-	class ShaderLibrary
+	class ShaderLibrary : public RefCounter
 	{
 
 	public: 

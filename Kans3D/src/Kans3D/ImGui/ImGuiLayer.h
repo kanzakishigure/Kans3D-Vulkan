@@ -1,8 +1,8 @@
 #pragma once
 #include "Kans3D/Core/Layer.h"
-#include "Kans3D/Events/KeyEvent.h"
-#include "Kans3D/Events/MouseEvent.h"
-#include "Kans3D/Events/ApplicationEvent.h"
+#include "Kans3D/Core/Events/KeyEvent.h"
+#include "Kans3D/Core/Events/MouseEvent.h"
+#include "Kans3D/Core/Events/ApplicationEvent.h"
 namespace Kans
 {
 	class  ImGuiLayer : public Layer

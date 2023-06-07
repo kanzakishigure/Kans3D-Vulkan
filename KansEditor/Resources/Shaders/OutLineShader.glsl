@@ -1,15 +1,17 @@
 #type vertex
-#version 330 core
+#version 430 core
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TextureCroods;
 layout(location = 3) in vec4 a_BaseColor;
 layout(location = 4) in vec3 a_Tangent;
+
+
+layout(location = 0) out vec2 V_TexCroods; 
+layout(location = 1) out vec4 V_BaseColor;
+
 uniform mat4 U_ViewProjection;
 uniform mat4 U_Transform;
-
-out vec2 V_TexCroods;
-out vec4 V_BaseColor;
 float rand(float x)
 {
     float y = fract(sin(x)*100000.0);
@@ -30,16 +32,15 @@ void main()
     V_TexCroods = a_TextureCroods;
     V_BaseColor = a_BaseColor;
 
-
     //（Moldle-1）T
 	vec3 Normal =  mat3(U_ViewProjection)*mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
     Normal = normalize(Normal);
 	vec3 tangent = mat3(U_ViewProjection)*mat3(U_Transform)*a_Tangent;
-    tangent = normalize(tangent);
+    tangent = normalize(tangent - dot(Normal,tangent)*Normal);
 	vec3 bitangent =  cross(Normal,tangent);
     bitangent = normalize(bitangent);
-	mat3 tangentTransform = mat3(tangent, bitangent, Normal);
-	Normal = tangentTransform*a_BaseColor.rgb;
+	mat3 TNB = mat3(tangent, bitangent, Normal);
+	Normal = TNB*a_BaseColor.rgb;
     //Normal = mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
     //处理背面遮挡问题
     Normal.z = -0.5;
@@ -53,10 +54,10 @@ void main()
 
 
 #type fragment
-#version 330 core
+#version 430 core
 layout(location = 0) out vec4 O_Color;
 
-in vec2 V_TexCroods;
+layout(location = 0) in vec2 V_TexCroods; 
 struct Material
 {
 	sampler2D U_DiffuseTexture;
@@ -71,9 +72,14 @@ uniform Material material;
 vec4 OutLineColor = vec4(1);
 void main()
 {
-    
-    vec4 Texcolor = texture2D(material.U_DiffuseTexture,V_TexCroods);
+    vec4 Texcolor = texture2D(material.U_DiffuseTexture,vec2(V_TexCroods.x,1.0-V_TexCroods.y));
     float Bright = 0.299*Texcolor.r + 0.587*Texcolor.g + 0.114*Texcolor.b;
+
+
     //O_Color =vec4(Texcolor.rgb*Bright,1.0);
-    O_Color =vec4(vec3(0.0,0.0,0.0),1.0);
+    if(Texcolor.a==1.0)
+    {
+        discard;
+    }
+    O_Color =vec4(vec3(0.0,0.0,0.0),1.0-Texcolor.a);
 }

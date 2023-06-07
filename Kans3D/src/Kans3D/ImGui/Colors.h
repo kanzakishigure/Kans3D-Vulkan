@@ -57,6 +57,18 @@ namespace Colors
 		constexpr auto cyan_8 = IM_COL32(12 , 133, 153, 255);
 		constexpr auto cyan_9 = IM_COL32(11 , 114, 133, 255);
 
+		//Red
+		constexpr auto red_0 = IM_COL32(255, 245, 245, 255);
+		constexpr auto red_1 = IM_COL32(255, 227, 227, 255);
+		constexpr auto red_2 = IM_COL32(255, 201, 201, 255);
+		constexpr auto red_3 = IM_COL32(255, 168, 168, 255);
+		constexpr auto red_4 = IM_COL32(255, 135, 135, 255);
+		constexpr auto red_5 = IM_COL32(255, 107, 107, 255);
+		constexpr auto red_6 = IM_COL32(250, 82 , 82 , 255);
+		constexpr auto red_7 = IM_COL32(240, 62 , 62 , 255);
+		constexpr auto red_8 = IM_COL32(224, 49 , 49 , 255);
+		constexpr auto red_9 = IM_COL32(201, 42 , 42 , 255);
+
 		//from unreal color picking
 		//constexpr auto header = IM_COL32(47, 47, 47, 250);
 

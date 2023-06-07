@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Renderer/VertexArray.h"
+#include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
 
 namespace Kans {
 	

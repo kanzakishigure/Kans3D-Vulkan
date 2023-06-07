@@ -1,0 +1,42 @@
+(?)
+[ Copy "Hello, world!" to clipboard ]
+### Window options ###
+### Widgets ###
+### Layout & Scrolling ###
+### Popups & Modal windows ###
+### Tables & Columns ###
+### Filtering ###
+### Inputs, Navigation & Focus ###
+Render2DStats
+DrawCalls: 1
+QuadCount: 1
+TotalVertexCount: 4
+--------------------------------
+Render3DStats
+ViePort Size: 1233.800049 , 1014.199951 > Cube_0
+    > Cube_0
+> mainCamera
+    > mainCamera
+> RefEntity
+    > RefEntity
+> DirLight
+    > DirLight
+> PointLight
+    > PointLight
+{ 29.975 } FramePadding,
+{ 1.000 } FrameBorderSize,
+outerSize [ X ] { 0.00 } [ Y ] { 0.00 }
+ItemInnerSpacing [ X ] { 20.00 } [ Y ] { 20.00 }
+{ 72.000 } ImageButtonSize,
+{ 8.000 } FrameRounding
+| assets | | | | > Root |
+    | > Music |
+        | > File1_a.wav |
+        | > File1_b.wav |
+    | > Textures |
+        | > Image001.png |
+        | > Copy of Image001.png |
+        | > Copy of Image001 (Final2).png |
+    | > desktop.ini |
+| | cache | model | scenes |
+| scenes.kans | scenesTestDemo.kans | textures | |

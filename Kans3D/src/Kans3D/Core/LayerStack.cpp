@@ -8,11 +8,7 @@ Kans::LayerStack::LayerStack()
 
 Kans::LayerStack::~LayerStack()
 {
-	for (Layer* layer :m_Layers)
-	{
-		layer->OnDetach();
-		delete layer;
-	}
+	
 }
 
 void Kans::LayerStack::PushLayer(Layer* layer)
