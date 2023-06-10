@@ -133,9 +133,7 @@ namespace Kans
 				if(m_RenderResource.Piplinestate.EnableToneShader)
 				{
 					Entity e = { entity,this };
-					auto& materialCMP = e.GetComponent<MaterialComponent>();
-					//renderer->SubmitStaticMeshToneshading(meshCMP.StaticMesh, transformCMP.GetTransform(), data);
-					//renderer->SubmitStaticMeshDebug(meshCMP.StaticMesh, transformCMP.GetTransform());
+
 					renderer->SubmitToneCharactorShader(meshCMP.StaticMesh, transformCMP.GetTransform());
 				}
 				OpenGLRenderCommand::EnableCullFace(true);
@@ -178,6 +176,7 @@ namespace Kans
 						auto& materialCMP = e.GetComponent<MaterialComponent>();
 
 						OpenGLRenderCommand::EnableCullFace(true);
+						OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
 						renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
 						OpenGLRenderCommand::EnableCullFace(false);
 					}

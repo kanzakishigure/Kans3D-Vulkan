@@ -102,7 +102,7 @@ namespace Kans {
 		//bug here can't bind texture;
 		//set texture
 		uint32_t TexSlot = 0;
-		for (auto& key : m_Texture)
+		for (auto& key : m_Textures)
 		{
 			openglshader->UploadUniformInt(key.first, TexSlot);
 			key.second->Bind(TexSlot);
@@ -169,9 +169,9 @@ namespace Kans {
 	{
 		Set<bool>(name, value);
 	}
-	void OpenGLMaterial::Set(const std::string& name, Ref<Texture2D> value)
+	void OpenGLMaterial::SetTexture(const std::string& name, Ref<Texture2D> value)
 	{
-		m_Texture[name] = value;
+		m_Textures[name] = value;
 	}
 
 	void OpenGLMaterial::Set(const std::string& name, const glm::ivec2& value)

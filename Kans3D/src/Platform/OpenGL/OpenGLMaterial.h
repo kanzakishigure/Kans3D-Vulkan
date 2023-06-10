@@ -37,7 +37,9 @@ namespace Kans {
 		virtual void Set(const std::string& name, const glm::ivec2& value) override;
 		virtual void SetIntArray(const std::string& name, const int count, const int* value) override;
 
-		virtual void Set(const std::string& name, Ref<Texture2D> value) override;
+		virtual void SetTexture(const std::string& name, Ref<Texture2D> value) override;
+		virtual void SetTextures(const std::map<std::string, Ref<Texture2D>>& textures) override { m_Textures = textures; }
+		virtual const std::map<std::string, Ref<Texture2D>>& GetTextures() override { return m_Textures; }
 
 		virtual glm::mat4& GetMat4(const std::string& name) override;
 		virtual float& GetFloat(const std::string& name)     override;
@@ -78,7 +80,7 @@ namespace Kans {
 
 		Buffer m_UniformBuffer;
 		//texture 
-		std::map<std::string, Ref<Texture2D>> m_Texture;
+		std::map<std::string, Ref<Texture2D>> m_Textures;
 		//Setting
 		bool m_UseDefaultShader = true;
 	};

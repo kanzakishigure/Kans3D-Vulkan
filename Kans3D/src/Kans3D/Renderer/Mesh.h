@@ -63,8 +63,8 @@ namespace Kans
 
 		const std::vector<SubMesh>& GetSubMesh() { return m_SubMeshes; }
 
-		void SetMaterial(const std::vector<Ref<Material>>& material) { m_Material = material; }
-		const std::vector<Ref<Material>>& GetMaterial() { return m_Material; }
+		
+		const Ref<MaterialTable>& GetMaterialTable() { return m_MaterialTable; }
 		
 		const Ref<Shader>& GetMeshShader() { return m_MeshShader; }
 
@@ -84,7 +84,8 @@ namespace Kans
 		std::vector<SubMesh> m_SubMeshes;
 
 		std::vector<Ref<VertexArray>> m_VertexArray;
-		std::vector<Ref<Material>> m_Material;
+		std::vector<Ref<Material>> m_Materials;
+		Ref<MaterialTable> m_MaterialTable;
 		Ref<Shader> m_MeshShader;
 
 		const aiScene* m_Scene;
@@ -114,15 +115,17 @@ namespace Kans
 		~StaticMesh();
 		Ref<MeshSource> GetMeshSource() { return m_MeshSource; }
 		Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
+
+		void StaticMesh::SetMaterial(Ref<Material> material, uint32_t submeshIndex);
 		void SetMeshAsset(Ref<MeshSource> meshAsset) { m_MeshSource = meshAsset; }
 
-		Ref<MaterialTable> GetMaterials() const { return m_MarterialTable; }
+		Ref<MaterialTable> GetMaterialTable() const { return m_MaterialTable; }
 
 		void SetSubMesh(const std::vector<uint32_t>& submesh);
 		const std::vector<uint32_t>& GetSubMesh() { return m_SubMesh; }
 	private:
 		std::vector<uint32_t> m_SubMesh;
-		Ref<MaterialTable> m_MarterialTable;
+		Ref<MaterialTable> m_MaterialTable;
 		Ref<MeshSource> m_MeshSource;
 
 	};

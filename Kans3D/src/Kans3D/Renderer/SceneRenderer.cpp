@@ -37,21 +37,44 @@ namespace Kans
 		m_Scene = scene;
 	}
 
-	void SceneRenderer::SubmitStaticMesh(Ref<StaticMesh> mesh, Ref<MaterialTable> material, glm::mat4 transform)
+	void SceneRenderer::SubmitStaticMesh(Ref<StaticMesh> mesh, Ref<MaterialTable> materialTabel, glm::mat4 transform)
 	{
 		auto& VAOs = mesh->GetMeshSource()->GetVertexArray();
-		auto shader = static_cast<OpenGLShader*>( mesh->GetMeshSource()->GetMeshShader().get());
+		auto shader = static_cast<OpenGLShader*>( Renderer::GetShaderLibrary()->Get("StaticMeshShader").get());
 
 		shader->Bind();
 
 		glm::mat4 viewprojection = m_SceneInfo.sceneCamera.camera.GetProjectMatrix()*m_SceneInfo.sceneCamera.viewMatrix;
 		shader->UploadUniformMat4("U_ViewProjection", viewprojection);
 		shader->UploadUniformMat4("U_Transform", transform);
+
+		{
+			//SetLight
+			{
+				//Dir
+				shader->UploadUniform3Float("dirLight.LightDir", m_SceneInfo.dirLight.Dirction);
+				shader->UploadUniform3Float("dirLight.Ambient_Intensity", m_SceneInfo.dirLight.Ambient_Intensity);
+				shader->UploadUniform3Float("dirLight.Diffuse_Intensity", m_SceneInfo.dirLight.Diffuse_Intensity);
+				shader->UploadUniform3Float("dirLight.Specular_Intensity", m_SceneInfo.dirLight.Specular_Intensity);
+
+				//P3oint
+				shader->UploadUniform3Float("pointLight.Position", m_SceneInfo.pointLight.Position);
+				shader->UploadUniform3Float("pointLight.Ambient_Intensity", m_SceneInfo.pointLight.Ambient_Intensity);
+				shader->UploadUniform3Float("pointLight.Diffuse_Intensity", m_SceneInfo.pointLight.Diffuse_Intensity);
+				shader->UploadUniform3Float("pointLight.Specular_Intensity", m_SceneInfo.pointLight.Specular_Intensity);
+			}
+			//SetScene
+			{
+				shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
+
+			}
+		}
+
 		for (auto& mesh : mesh->GetSubMesh())
 		{
-			auto VA = VAOs[mesh];
+			auto& VA = VAOs[mesh];
 			VA->Bind();
-			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
+			auto subMtl = materialTabel->GetMaterialAsset(mesh)->GetMaterial();
 			subMtl->UseDefaultShader(false);
 			subMtl->Invalidate();
 
@@ -88,7 +111,7 @@ namespace Kans
 		attachment->Bind();
 		for (auto& mesh : mesh->GetSubMesh())
 		{
-			auto VA = VAOs[mesh];
+			auto& VA = VAOs[mesh];
 			VA->Bind();
 			OpenGLRenderCommand::DrawIndexed(VA);
 		}
@@ -102,7 +125,7 @@ namespace Kans
 		glm::mat4 viewprojection = m_SceneInfo.sceneCamera.camera.GetProjectMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
 		shader->UploadUniformMat4("U_ViewProjection", viewprojection);
 		shader->UploadUniformMat4("U_Transform", transform);
-		auto& material = mesh->GetMaterials();
+		auto& material = mesh->GetMaterialTable();
 
 		for (auto& mesh : mesh->GetSubMesh())
 		{
@@ -119,7 +142,7 @@ namespace Kans
 	{
 		auto& VAOs = mesh->GetMeshSource()->GetVertexArray();
 		auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("ToneShader").get());
-		auto& material = mesh->GetMaterials();
+		auto& material = mesh->GetMaterialTable();
 		shader->Bind();
 
 		glm::mat4 viewprojection = m_SceneInfo.sceneCamera.camera.GetProjectMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
@@ -151,7 +174,7 @@ namespace Kans
 		for (auto& mesh : mesh->GetSubMesh())
 		{
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-			auto VA = VAOs[mesh];
+			auto& VA = VAOs[mesh];
 			VA->Bind();
 			subMtl->SetShader(Renderer::GetShaderLibrary()->Get("ToneShader"));
 			subMtl->Invalidate();
@@ -188,12 +211,12 @@ namespace Kans
 		shader->UploadUniformMat4("U_ViewProjection", viewprojection);
 		shader->UploadUniformMat4("U_Transform", transform);
 
-		auto& material = mesh->GetMaterials();
+		auto& material = mesh->GetMaterialTable();
 
 		for (auto& mesh : mesh->GetSubMesh())
 		{
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-			auto VA = VAOs[mesh];
+			auto& VA = VAOs[mesh];
 			VA->Bind();
 			//subMtl->SetShader(shader);
 			subMtl->UseDefaultShader(false);
@@ -207,7 +230,7 @@ namespace Kans
 	{
 		auto& VAOs = mesh->GetMeshSource()->GetVertexArray();
 		auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("DebugShader").get());
-		auto& material = mesh->GetMaterials();
+		auto& material = mesh->GetMaterialTable();
 		shader->Bind();
 
 		glm::mat4 viewprojection = m_SceneInfo.sceneCamera.camera.GetProjectMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
@@ -238,7 +261,7 @@ namespace Kans
 		for (auto& mesh : mesh->GetSubMesh())
 		{
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-			auto VA = VAOs[mesh];
+			auto& VA = VAOs[mesh];
 			VA->Bind();
 			subMtl->SetShader(Renderer::GetShaderLibrary()->Get("DebugShader"));
 			subMtl->Invalidate();
@@ -252,7 +275,9 @@ namespace Kans
 		
 		auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("ToneCharactorShader").get());
 
-		auto& material = mesh->GetMaterials();
+		auto& material = mesh->GetMaterialTable();
+		
+		
 		shader->Bind();
 
 		glm::mat4 viewprojection = m_SceneInfo.sceneCamera.camera.GetProjectMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
@@ -288,8 +313,8 @@ namespace Kans
 			//TODO: DrawCommand应该和Shader绑定，不和默认材质绑定
 			//subMtl->SetShader(shader);
 			//TODO:材质系统需要重写，渲染使用可提供材质用来渲染mesh和使用默认材质渲染mesh,材质和模型脱离绑定关系
-			subMtl->UseDefaultShader(true);
 			shader->Bind();
+			subMtl->UseDefaultShader(true);
 			subMtl->Invalidate();
 			OpenGLRenderCommand::DrawIndexed(VA);
 		}

@@ -87,7 +87,11 @@ namespace Kans
 		const Ref<MaterialAsset>& GetMaterialAsset(uint32_t index);
 		void CleanMaterial(uint32_t index);
 		void Clean();
-	public:
+
+		std::map<uint32_t, Ref<MaterialAsset>>& GetMaterials() { return m_MaterialTable; }
+		const std::map<uint32_t, Ref<MaterialAsset>>& GetMaterials() const { return m_MaterialTable; }
+
+
 		const uint32_t GetMaterialCount() { return m_MaterialCount; }
 	private:
 		uint32_t m_MaterialCount;

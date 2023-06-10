@@ -161,10 +161,7 @@ void main()
 		DarkShadowColor = rampShadowColor*U_ShadowMultColor.rgb;
 		ShadowColor = rampShadowColor*U_ShadowMultColor.rgb;
 	}
-	if(U_UseFaceMask)
-	{
-
-	}
+	
 
 
 	float SWeight = (LightMapColor.g * V_BaseColor.r + lambert) * 0.5 + 1.125;
@@ -194,6 +191,8 @@ void main()
 	
 	//O_Color = vec4(DarkShadowColor,1.0);
 	O_Color = vec4(rampShadowColor.rgb,1.0);
+	
+	
 		
 }
 

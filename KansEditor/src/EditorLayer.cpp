@@ -10,7 +10,7 @@
 #include <Kans3D/ImGui/Colors.h>
 #include <Kans3D/Renderer/MeshFactory.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define ShowImguiDemo		true
+#define ShowImguiDemo		false
 #define ShowEditorUI		true
 #define EnbaleDocking		true
 #define TestLoadModel		true	
@@ -73,15 +73,7 @@ namespace Kans
 				dirCMP.Specular_Intensity = glm::vec3(1.0);
 				dirCMP.Ambient_Intensity = glm::vec3(1.0);
 			}
-			//ref BackScene
-			{
-				auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
-				auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
-				spritCMP.Texture = Kans::Texture2D::Create("assets/textures/GY.png");
-				auto& transformCMP = RefEntity.GetComponent<TransformComponent>();
-				transformCMP.Scale = { 19.2f,10.8f,1.0f };
-				transformCMP.Position = { 2.3f,0.0f,-12.0f };
-			}
+			
 
 			
 			//Create Scene camera
@@ -92,17 +84,59 @@ namespace Kans
 				auto& cmp = m_CameraEntity.AddComponent<CameraComponent>();
 				cmp.SceneCamera.SetViewportSize(1920, 1080);
 			}
+			
+			//Create Cube
+			{
+				auto& cubeEntity = m_ActiveScene->CreateEntity("cube");
+				auto& meshCMP = cubeEntity.AddComponent<StaticMeshComponent>();
+				meshCMP.StaticMesh = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
+				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+				auto& materialCMP = cubeEntity.AddComponent<MaterialComponent>();
+				materialCMP.MaterialTable = meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+				auto& TransformCMP = cubeEntity.GetComponent<TransformComponent>();
+				TransformCMP.Position = { 0.0f,0.0f,-3.0f };
+				TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
+				TransformCMP.Scale = { 1.0f, 1.0f, 1.0f };
 
+			}
 			// load Mesh test
 #if TestLoadModel
 			{
+
+
+				//ref BackScene
+				{
+					auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
+					auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
+					spritCMP.Texture = Kans::Texture2D::Create("assets/textures/GY.png");
+					auto& transformCMP = RefEntity.GetComponent<TransformComponent>();
+					transformCMP.Scale = { 19.2f,10.8f,1.0f };
+					transformCMP.Position = { 2.3f,0.0f,-12.0f };
+				}
+
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = GY_LightEntity.AddComponent<MaterialComponent>();
 				auto meshSrouce = CreateRef<MeshSource>("assets/model/GY_Light/GY_Light.fbx");
+				
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
-				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
+				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+				Ref<Shader> toneShader = Renderer::GetShaderLibrary()->Get("ToneCharactorShader");
+
+				for (auto& [index, materialAsset] : meshCMP.MaterialTable->GetMaterials())
+				{
+					const auto& textures = materialAsset->GetMaterial()->GetTextures();
+					CORE_TRACE("texture count:{}", textures.size());
+					Ref<Material> tonematerial = Material::Create(toneShader);
+					Ref<MaterialAsset> toneMaterialAsset = CreateRef<MaterialAsset>(tonematerial);
+					toneMaterialAsset->GetMaterial()->SetTextures(textures);
+					meshCMP.MaterialTable->SetMaterial(index, toneMaterialAsset);
+
+
+				}
+				
 				materialCMP.MaterialTable = meshCMP.MaterialTable;
+
 				auto& TransformCMP = GY_LightEntity.GetComponent<TransformComponent>();
 				TransformCMP.Position = { 0.0f,-1.2f,-3.0f };
 				TransformCMP.Rotation = { glm::radians(-20.0f),0.0f,glm::radians(0.0f) };
@@ -110,6 +144,7 @@ namespace Kans
 
 				//Temp Function
 				//Init Material
+				Utils::MaterialUtils::InitMaterial(meshCMP.MaterialTable);
 				Utils::MaterialUtils::InitMaterial(materialCMP.MaterialTable);
 			}
 #endif

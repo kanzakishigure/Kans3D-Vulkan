@@ -267,6 +267,7 @@ namespace Kans {
 	void OpenGLShader::UploadUniformBool(const std::string& name, const bool value) const
 	{
 		uint32_t location = glGetUniformLocation(m_RendererID, name.c_str());
+
 		glUniform1i(location, value);
 	}
 

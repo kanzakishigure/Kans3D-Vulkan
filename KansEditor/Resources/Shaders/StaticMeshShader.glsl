@@ -5,6 +5,7 @@ layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TextureCroods;
 layout(location = 3) in vec4 a_BaseColor;
 layout(location = 4) in vec3 a_Tangent;
+
 uniform mat4 U_ViewProjection;
 uniform mat4 U_Transform;
 out vec3 V_Normal;
@@ -30,7 +31,6 @@ void main()
 #type fragment
 #version 330 core
 layout(location = 0) out vec4 O_Color;
-layout(location = 1) out vec4 O_Normal;
 #define PI 3.1415926
 
 struct Material
@@ -125,8 +125,5 @@ void main()
 	result += CalcPointLight(pointLight,norm,V_FragPos,viewDir);
 
 	O_Color = vec4(result,1.0);
-	O_Normal = vec4(V_Normal,1.0);
-	//Transform to light space
 
-	//O_Normal = vec4(result.r*0.2126+result.g*0.7152+result.b*0.0722);
 }

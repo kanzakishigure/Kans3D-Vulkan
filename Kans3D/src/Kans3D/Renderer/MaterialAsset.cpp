@@ -12,6 +12,7 @@ namespace Kans
 
 	void MaterialTable::SetMaterial(uint32_t index, const Ref<MaterialAsset> material)
 	{
+		CORE_TRACE("{} texture update ",index);
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;
 		m_MaterialTable[index] = material;
@@ -92,23 +93,23 @@ namespace Kans
 
 	void MaterialAsset::SetDiffuseMap(Ref<Texture2D> diffusemap)
 	{
-		m_Material->Set(s_DiffuseMapUniform, diffusemap);
+		m_Material->SetTexture(s_DiffuseMapUniform, diffusemap);
 	}
 
 	void MaterialAsset::SetSpecularMap(Ref<Texture2D> specularmap)
 	{
-		m_Material->Set(s_SpecularMapUniform, specularmap);
+		m_Material->SetTexture(s_SpecularMapUniform, specularmap);
 	}
 
 	void MaterialAsset::SetEmissionMap(Ref<Texture2D> emissionmap)
 	{
-		m_Material->Set(s_EmissionUniform, emissionmap);
+		m_Material->SetTexture(s_EmissionUniform, emissionmap);
 	}
 
 
 	void MaterialAsset::SetNormalMap(Ref<Texture2D> normalmap)
 	{
-		m_Material->Set(s_NormalMapUnifrom, normalmap);
+		m_Material->SetTexture(s_NormalMapUnifrom, normalmap);
 	}
 
 }

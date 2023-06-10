@@ -102,19 +102,8 @@ namespace Kans {
 				
 				auto StaticShader = Shader::Create(shaderpath + "StaticMeshShader.glsl");
 				StaticShader->SetShaderBuffer({
-						{ShaderDataType::Float3,MaterialAsset::GetDiffuseLocation()},
-						{ShaderDataType::Float3,MaterialAsset::GetSpecularLocation()},
-						{ShaderDataType::Float3,MaterialAsset::GetEmissionLocation()},
 						{ShaderDataType::Float, MaterialAsset::GetShininessLocation()},
-						{ShaderDataType::Float3,"dirLight.LightDir"},
-						{ShaderDataType::Float3,"dirLight.Ambient_Intensity"},
-						{ShaderDataType::Float3,"dirLight.Diffuse_Intensity"},
-						{ShaderDataType::Float3,"dirLight.Specular_Intensity"},
-						{ShaderDataType::Float3,"pointLight.Position"},
-						{ShaderDataType::Float3,"pointLight.Ambient_Intensity"},
-						{ShaderDataType::Float3,"pointLight.Diffuse_Intensity"},
-						{ShaderDataType::Float3,"pointLight.Specular_Intensity"},
-						{ShaderDataType::Float3,"U_ViewPos"}
+						
 					});
 				s_RendererData->m_ShaderLibrary->Add(StaticShader);
 			}
