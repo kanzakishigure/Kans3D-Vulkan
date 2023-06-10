@@ -203,9 +203,9 @@ namespace Kans
 								std::string Lightmappath = texturepath;
 								size_t index = Lightmappath.find_last_of(".");
 								Lightmappath.insert(index, "_Light");
-								if (KansFileSystem::Exists(texturepath))
+								if (KansFileSystem::Exists(Lightmappath))
 								{
-									Ref<Texture2D> lighttexture = Texture2D::Create(texturepath);
+									Ref<Texture2D> lighttexture = Texture2D::Create(Lightmappath);
 									mtl->Set(MaterialAsset::GetToneLightMapLocation(), lighttexture);
 									CORE_INFO("{0} Light texture: {1} ", mtlName.c_str(), Lightmappath.c_str());
 								}

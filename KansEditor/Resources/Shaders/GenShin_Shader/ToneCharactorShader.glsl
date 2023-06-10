@@ -152,7 +152,7 @@ void main()
 
 				
 		int index = int(rampV);
-		vec3 rampColor = rampmaps[index];
+		vec3 rampColor = texture2D(material.U_ToneRampMap,vec2(rampU,rampV)).rgb;
 		//vec3 rampColor = texture2D(material.U_ToneRampMap,vec2(lambert,1.0 - (LightMapColor.a*0.45 + 0.55))).rgb;
 		float rampvalue =  smoothstep(U_RampShadowRange,lambert,1.0);
 

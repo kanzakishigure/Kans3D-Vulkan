@@ -1,5 +1,5 @@
 Scene: TestDemo
-? Entity: 18985872761185318
+? Entity: 3980412800219102248
   TagComponent:
     Tag: GY_Light
   TransformComponent:
@@ -10,7 +10,7 @@ Scene: TestDemo
     {}
   MaterialComponent:
     MaterialTable: ""
-: Entity: 4575464579350163670
+: Entity: 5253040034446255043
   TagComponent:
     Tag: mainCamera
   TransformComponent:
@@ -28,7 +28,7 @@ Scene: TestDemo
     AspectRatio: 1.77713454
     Primary: true
     FixedAspectRatio: false
-? Entity: 5109189034683122716
+? Entity: 3272067398251062971
   TagComponent:
     Tag: RefEntity
   TransformComponent:
@@ -39,7 +39,7 @@ Scene: TestDemo
     Color: vec4(1.000000, 1.000000, 1.000000, 1.000000)
     Texture: assets/textures/GY.png
     TilingFactor: 1
-: Entity: 8579643217114578024
+: Entity: 5375051846512539834
   TagComponent:
     Tag: DirLight
   TransformComponent:
@@ -51,7 +51,7 @@ Scene: TestDemo
     Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
-? Entity: 4995134299359453895
+? Entity: 1868715801338943447
   TagComponent:
     Tag: PointLight
   TransformComponent:
