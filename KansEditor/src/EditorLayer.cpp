@@ -1,14 +1,14 @@
 #include "EditorLayer.h"
 #include <imgui.h>
-#include "Platform/OpenGL/OpenGLShader.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <Kans3D/Platform/OpenGL/OpenGLShader.h>
 
 
 //TestInclude
 #include <Kans3D/Core/UUID.h>
 #include <Kans3D/ImGui/Colors.h>
-#include <Kans3D/Renderer/MeshFactory.h>
+#include <Kans3D/Renderer/Resource/MeshFactory.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define ShowImguiDemo		false
 #define ShowEditorUI		true
@@ -52,7 +52,7 @@ namespace Kans
 		
 		// scene init
 		{
-
+				
 			
 			//Create Scene
 			{
@@ -65,7 +65,7 @@ namespace Kans
 				plightCMP.Specular_Intensity = glm::vec3(1.0);
 				plightCMP.Ambient_Intensity = glm::vec3(1.0);
 				auto& CMP = pointlight.GetComponent<TransformComponent>();
-				CMP.Position = { 10.0,20.0,3.3 };
+				CMP.Position = { 20.0,20.0,1.0 };
 
 				auto DirLight = m_ActiveScene->CreateEntity("DirLight");
 				auto& dirCMP = DirLight.AddComponent<DirLightComponent>();
@@ -106,9 +106,12 @@ namespace Kans
 
 				//ref BackScene
 				{
+					
 					auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 					auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
-					spritCMP.Texture = Kans::Texture2D::Create("assets/textures/GY.png");
+
+					TextureSpecification spec;
+					spritCMP.Texture = Renderer::GetBlackTexture();
 					auto& transformCMP = RefEntity.GetComponent<TransformComponent>();
 					transformCMP.Scale = { 19.2f,10.8f,1.0f };
 					transformCMP.Position = { 2.3f,0.0f,-12.0f };
@@ -117,7 +120,7 @@ namespace Kans
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = GY_LightEntity.AddComponent<MaterialComponent>();
-				auto meshSrouce = CreateRef<MeshSource>("assets/model/GY_Light/GY_Light.fbx");
+				auto meshSrouce = CreateRef<MeshSource>("assets/model/GY/GY.FBX");
 				
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
@@ -127,7 +130,7 @@ namespace Kans
 				{
 					const auto& textures = materialAsset->GetMaterial()->GetTextures();
 					CORE_TRACE("texture count:{}", textures.size());
-					Ref<Material> tonematerial = Material::Create(toneShader);
+					Ref<Material> tonematerial = Material::Create(toneShader, materialAsset->GetMaterial()->GetName());
 					Ref<MaterialAsset> toneMaterialAsset = CreateRef<MaterialAsset>(tonematerial);
 					toneMaterialAsset->GetMaterial()->SetTextures(textures);
 					meshCMP.MaterialTable->SetMaterial(index, toneMaterialAsset);
@@ -138,9 +141,9 @@ namespace Kans
 				materialCMP.MaterialTable = meshCMP.MaterialTable;
 
 				auto& TransformCMP = GY_LightEntity.GetComponent<TransformComponent>();
-				TransformCMP.Position = { 0.0f,-1.2f,-3.0f };
-				TransformCMP.Rotation = { glm::radians(-20.0f),0.0f,glm::radians(0.0f) };
-				TransformCMP.Scale = { glm::vec3(0.15f) };
+				TransformCMP.Position = { 0.0f,-0.6f,-1.0f };
+				TransformCMP.Rotation = { glm::radians(-90.0f),0.0f,glm::radians(0.0f) };
+				TransformCMP.Scale = { glm::vec3(1.0f) };
 
 				//Temp Function
 				//Init Material

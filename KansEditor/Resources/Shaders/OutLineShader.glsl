@@ -4,7 +4,7 @@ layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TextureCroods;
 layout(location = 3) in vec4 a_BaseColor;
-layout(location = 4) in vec3 a_Tangent;
+layout(location = 4) in vec4 a_Tangent;
 
 
 layout(location = 0) out vec2 V_TexCroods; 
@@ -33,14 +33,15 @@ void main()
     V_BaseColor = a_BaseColor;
 
     //（Moldle-1）T
-	vec3 Normal =  mat3(U_ViewProjection)*mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
+	vec3 Normal =  mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
     Normal = normalize(Normal);
-	vec3 tangent = mat3(U_ViewProjection)*mat3(U_Transform)*a_Tangent;
-    tangent = normalize(tangent - dot(Normal,tangent)*Normal);
-	vec3 bitangent =  cross(Normal,tangent);
+	vec3 tangent = mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Tangent.xyz;
+    //tangent = normalize(tangent - dot(Normal,tangent)*Normal);
+    tangent = normalize(tangent);
+	vec3 bitangent =  cross(Normal,tangent)*a_Tangent.w;
     bitangent = normalize(bitangent);
-	mat3 TNB = mat3(tangent, bitangent, Normal);
-	Normal = TNB*a_BaseColor.rgb;
+	mat3 TBN = mat3(tangent, bitangent, Normal);
+	Normal = TBN*a_BaseColor.rgb;
     //Normal = mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
     //处理背面遮挡问题
     Normal.z = -0.5;
@@ -77,9 +78,5 @@ void main()
 
 
     //O_Color =vec4(Texcolor.rgb*Bright,1.0);
-    if(Texcolor.a==1.0)
-    {
-        discard;
-    }
-    O_Color =vec4(vec3(0.0,0.0,0.0),1.0-Texcolor.a);
+    O_Color =vec4(vec3(0.0,0.0,0.0),1.0);
 }
