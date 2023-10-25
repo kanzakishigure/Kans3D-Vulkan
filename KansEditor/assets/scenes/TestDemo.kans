@@ -1,16 +1,16 @@
 Scene: TestDemo
-? Entity: 1505204075561128154
+? Entity: 7141413164825934096
   TagComponent:
     Tag: GY_Light
   TransformComponent:
-    Position: vec3(0.000000, -1.200000, -3.000000)
-    Rotation: vec3(-0.349066, 0.000000, 0.000000)
-    Scale: vec3(0.150000, 0.150000, 0.150000)
+    Position: vec3(0.000000, -0.600000, -1.000000)
+    Rotation: vec3(-1.570796, 0.000000, 0.000000)
+    Scale: vec3(1.000000, 1.000000, 1.000000)
   StaticMeshComponent:
     {}
   MaterialComponent:
     MaterialTable: ""
-: Entity: 9183361497545859615
+: Entity: 6296095946122972735
   TagComponent:
     Tag: RefEntity
   TransformComponent:
@@ -19,20 +19,20 @@ Scene: TestDemo
     Scale: vec3(19.200001, 10.800000, 1.000000)
   SpriteRendererComponent:
     Color: vec4(1.000000, 1.000000, 1.000000, 1.000000)
-    Texture: assets/textures/GY.png
+    Texture: ""
     TilingFactor: 1
-? Entity: 5575832493694054449
+? Entity: 1898062802091286346
   TagComponent:
     Tag: cube
   TransformComponent:
-    Position: vec3(0.000000, 0.000000, -3.000000)
+    Position: vec3(0.000000, 2.200000, -3.000000)
     Rotation: vec3(0.000000, 0.000000, 0.000000)
     Scale: vec3(1.000000, 1.000000, 1.000000)
   StaticMeshComponent:
     {}
   MaterialComponent:
     MaterialTable: ""
-: Entity: 8448173608793425683
+: Entity: 7106293009954664946
   TagComponent:
     Tag: mainCamera
   TransformComponent:
@@ -47,10 +47,10 @@ Scene: TestDemo
     OrthographicSize: 10
     OrthographicFarClip: 1
     OrthographicNearClip: -1
-    AspectRatio: 1.6526773
+    AspectRatio: 2.16225743
     Primary: true
     FixedAspectRatio: false
-? Entity: 7601502549201932996
+? Entity: 2477780482659431417
   TagComponent:
     Tag: DirLight
   TransformComponent:
@@ -62,11 +62,11 @@ Scene: TestDemo
     Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
-: Entity: 6780643007666163974
+: Entity: 8835059304913357495
   TagComponent:
     Tag: PointLight
   TransformComponent:
-    Position: vec3(10.000000, 20.000000, 3.300000)
+    Position: vec3(20.000000, 20.000000, 1.000000)
     Rotation: vec3(0.000000, 0.000000, 0.000000)
     Scale: vec3(1.000000, 1.000000, 1.000000)
   PointLightComponent:
