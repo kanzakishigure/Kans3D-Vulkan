@@ -24,7 +24,9 @@ namespace Kans
 		resourcePath /= "Editor";
 		resourcePath /= relativePath;
 
-		return Texture2D::Create(resourcePath.string());
+		TextureSpecification spec;
+		spec.Format = RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB;
+		return Texture2D::Create(spec,resourcePath.string());
 	}
 
 }

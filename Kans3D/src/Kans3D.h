@@ -19,7 +19,7 @@
 #include "Kans3D/Scene/SceneSerializer.h"
 //------UI---------------
 #include "Kans3D/Utilities/UI/KansUI.h"
-//------renderer---------------
+//------Renderer---------------
 #include "Kans3D/Renderer/RHI/FrameBuffer.h"
 #include "Kans3D/Renderer/RHI/Buffer.h"
 #include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h "
@@ -28,14 +28,14 @@
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+//-------Render Resource-----
+#include "Kans3D/Renderer/Resource/Shader.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
+#include "Kans3D/Renderer/Resource/OrthographicCamera.h"
+#include "Kans3D/Renderer/Resource/OrthographicCameraController.h"
 
-#include "Kans3D/Renderer/Shader.h"
-#include "Kans3D/Renderer/Texture.h"
-#include "Kans3D/Renderer/OrthographicCamera.h"
-#include "Kans3D/Renderer/OrthographicCameraController.h"
-
-#include "Kans3D/Renderer/Mesh.h"
-#include "Kans3D/Renderer/Material.h"
+#include "Kans3D/Renderer/Resource/Mesh.h"
+#include "Kans3D/Renderer/Resource/Material.h"
 //-----script---------------
 #include "Kans3D/Scene/ScriptableEntity.h"
 

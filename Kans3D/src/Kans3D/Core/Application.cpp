@@ -35,6 +35,7 @@ namespace Kans
 
 		
 		//-------------create application Surface and init the render context-----------------//
+		RendererAPI::SetAPI(RendererAPIType::Vulkan);
 		{
 			
 			WindowSpecification windowSpec;
@@ -48,7 +49,7 @@ namespace Kans
 			m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
 		}
 		//-------------Init the Renderer----------------------------//
-		RendererAPI::SetAPI(RendererAPIType::OPENGL);
+		
 		Renderer::Init(m_Window);
 		
 		//-------------Init The UI Layer------------------------//
@@ -165,7 +166,11 @@ namespace Kans
 			return false;
 		}
 		m_Minimized = false;
-		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
+		{
+			//this is temp for the openGL
+			Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
+		}
+		Renderer::GetRHI()->RecreateSwapchain();
 		return false;
 	}
 

@@ -229,15 +229,23 @@ namespace Kans::UI
 		//label
 		ImGui::PushID(label.c_str());
 		ImGui::Columns(2);
-		ImGui::SetColumnWidth(0, columwidth);
+		
 		ImGui::Text(label.c_str());
+		float colWidthTime = 1.0;;
+		ImVec2 item_size = ImGui::GetItemRectSize();
+		while ((item_size.x / columwidth)>1.0f)
+		{
+			item_size.x -= columwidth;
+			colWidthTime++;
+		}
+		ImGui::SetColumnWidth(0, colWidthTime* columwidth);
 		ImGui::NextColumn();
 
 		//value
 		ImGui::PushMultiItemsWidths(1, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 		float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
-		ImVec2 buttonsize = { ImGui::CalcItemWidth() / 3,lineHeight };
+		ImVec2 buttonsize = { ImGui::CalcItemWidth() / 2,lineHeight };
 		//X
 		{
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
@@ -249,7 +257,7 @@ namespace Kans::UI
 				value = resetvalue;
 			ImGui::PopFont();
 			ImGui::SameLine();
-			ImGui::DragFloat("##Value", &value, 0.001f, -10.0f, 10.0f, "%.4f");
+			ImGui::DragFloat("##Value", &value, 0.001f, -10.0f, 10.0f, "%.3f");
 			ImGui::PopItemWidth();
 			ImGui::SameLine();
 			ImGui::PopStyleColor(3);

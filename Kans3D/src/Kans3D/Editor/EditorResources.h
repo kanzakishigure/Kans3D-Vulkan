@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Kans3D/FileSystem/FileSystem.h"
-#include "Kans3D/Renderer/Texture.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
 
 namespace Kans
 {
