@@ -3,8 +3,8 @@
 #include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
 #include "Kans3D/Renderer/RHI/Buffer.h"
 #include "Kans3D/Core/Math/BindingBox.h"
-#include "Kans3D/Renderer/Material.h"
-#include "Kans3D/Renderer/MaterialAsset.h"
+#include "Kans3D/Renderer/Resource/Material.h"
+#include "Kans3D/Renderer/Resource/MaterialAsset.h"
 
 #include "Kans3D/Asset/Asset.h"
 
@@ -22,8 +22,8 @@ namespace Kans
 		glm::vec3 Normal;
 		glm::vec2 Texturecroods;
 		glm::vec4 BaseColor;
-		glm::vec3 Tangent;
-		glm::vec3 Bitangent;
+		glm::vec4 Tangent;
+
 
 	};
 	struct Index

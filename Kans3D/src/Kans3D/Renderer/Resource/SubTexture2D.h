@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Renderer/Texture.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
 #include "glm/glm.hpp"
 namespace Kans
 {

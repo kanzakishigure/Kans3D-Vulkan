@@ -2,8 +2,8 @@
 #include "Shader.h"
 
 #include "kans3D/Renderer/Renderer.h"
-#include "Platform/OpenGL/OpenGLShader.h"
-#include "Platform/Vulkan/VulkanShader.h"
+#include "Kans3D/Platform/OpenGL/OpenGLShader.h"
+#include "Kans3D/Platform/Vulkan/VulkanShader.h"
 
 namespace Kans {
 

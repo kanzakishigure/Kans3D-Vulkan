@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Renderer/OrthographicCamera.h"
+#include "Kans3D/Renderer/Resource/OrthographicCamera.h"
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/Base/Base.h"
 #include "Kans3D/Core/Events/ApplicationEvent.h"

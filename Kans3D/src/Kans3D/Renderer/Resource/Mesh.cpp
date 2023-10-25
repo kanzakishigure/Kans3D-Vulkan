@@ -4,7 +4,8 @@
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Utilities/MeshUtils.h"
 #include "Kans3D/FileSystem/FileSystem.h"
-const uint32_t importFlag = aiProcess_CalcTangentSpace  //计算切线空间
+const uint32_t importFlag = 
+aiProcess_CalcTangentSpace  //计算切线空间
 |aiProcess_Triangulate //保证一定每个图元的基本单位是三角形，会出现多个索引
 |aiProcess_JoinIdenticalVertices 
 |aiProcess_SortByPType
@@ -154,12 +155,23 @@ namespace Kans
 						    mesh->mVertices[i].y ,
 						    mesh->mVertices[i].z	};
 			
-			v.Tangent =   { mesh->mTangents[i].x,
-						    mesh->mTangents[i].y,
-						    mesh->mTangents[i].z	};
-			v.Bitangent = { mesh->mBitangents[i].x,
-							mesh->mBitangents[i].y,
-							mesh->mBitangents[i].z	};
+			glm::vec3 tangent =   { mesh->mTangents[i].x,
+									mesh->mTangents[i].y,
+									mesh->mTangents[i].z, };
+			
+			glm::vec3 bitangent = { mesh->mBitangents[i].x,
+									mesh->mBitangents[i].y,
+									mesh->mBitangents[i].z	};
+			
+			//we just stored the tangent 
+			float w = glm::dot(glm::cross(v.Normal, tangent), bitangent) > 0 ? 1.0f:-1.0f;
+			v.Tangent = { mesh->mTangents[i].x,
+						  mesh->mTangents[i].y,
+						  mesh->mTangents[i].z, 
+						  w						};
+			
+			
+			
 			if (mesh->mTextureCoords[0]) // 网格是否有纹理坐标？
 			{
 				v.Texturecroods = { mesh->mTextureCoords[0][i].x,
@@ -175,10 +187,12 @@ namespace Kans
 								mesh->mColors[i]->g,
 								mesh->mColors[i]->b,
 								mesh->mColors[i]->a };
+				CORE_TRACE("have basecolor[{},{},{},{}]", mesh->mColors[i]->r, mesh->mColors[i]->g, mesh->mColors[i]->b,mesh->mColors[i]->a);
 			}
 			else
 			{
-				v.BaseColor = glm::vec4(1.0f);
+				v.BaseColor = glm::vec4(0.0f);
+				
 			}
 
 			m_Verteices.push_back(v);
@@ -204,6 +218,7 @@ namespace Kans
 				Ref<Material> mtl = Material::Create(m_MeshShader, mtlName);
 				//BlingPhong material
 				{
+					TextureSpecification spec;
 					//DIFFUSE;
 					{
 						int materialcount = 0;
@@ -214,7 +229,7 @@ namespace Kans
 							aimaterial->GetTexture(aiTextureType_DIFFUSE, 0, &aistr);
 							CORE_INFO("{0} DIFFUSE texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
-							Ref<Texture2D> texture = Texture2D::Create(texturepath);
+							Ref<Texture2D> texture = Texture2D::Create(spec,texturepath);
 							mtl->SetTexture(MaterialAsset::GetDiffuseMapLocation(), texture);
 							
 							{
@@ -224,7 +239,7 @@ namespace Kans
 								Lightmappath.insert(index, "_Light");
 								if (KansFileSystem::Exists(Lightmappath))
 								{
-									Ref<Texture2D> lighttexture = Texture2D::Create(Lightmappath);
+									Ref<Texture2D> lighttexture = Texture2D::Create(spec,Lightmappath);
 									mtl->SetTexture(MaterialAsset::GetToneLightMapLocation(), lighttexture);
 									CORE_INFO("{0} Light texture: {1} ", mtlName.c_str(), Lightmappath.c_str());
 								}
@@ -242,7 +257,7 @@ namespace Kans
 
 								if (KansFileSystem::Exists(Rampmappath))
 								{
-									Ref<Texture2D> ramptexture = Texture2D::Create(Rampmappath);
+									Ref<Texture2D> ramptexture = Texture2D::Create(spec,Rampmappath);
 									mtl->SetTexture(MaterialAsset::GetToneRampMapLocation(), ramptexture);
 									CORE_INFO("{0} Ramp texture: {1} ", mtlName.c_str(), Rampmappath.c_str());
 								}
@@ -269,7 +284,7 @@ namespace Kans
 							aimaterial->GetTexture(aiTextureType_SPECULAR, 0, &aistr);
 							CORE_INFO("{0} SPECULAR texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
-							Ref<Texture2D> texture = Texture2D::Create(texturepath);
+							Ref<Texture2D> texture = Texture2D::Create(spec,texturepath);
 							mtl->SetTexture(MaterialAsset::GetSpecularMapLocation(), texture);
 
 						}
@@ -293,7 +308,7 @@ namespace Kans
 								aimaterial->GetTexture(aiTextureType_NORMALS, 0, &aistr);
 								CORE_INFO("{0} Normal texture: {1} ", mtlName.c_str(), aistr.C_Str());
 								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
-								Ref<Texture2D> texture = Texture2D::Create(texturepath);
+								Ref<Texture2D> texture = Texture2D::Create(spec,texturepath);
 								mtl->SetTexture("U_NormalTexture", texture);
 							}
 						}
@@ -340,8 +355,7 @@ namespace Kans
 			{ShaderDataType::Float3,"a_Normal"},
 			{ShaderDataType::Float2,"a_TextureCroods"},
 			{ShaderDataType::Float4,"a_BaseColor"},
-			{ShaderDataType::Float3,"a_Tangent"},
-			{ShaderDataType::Float3,"a_Bitangent"}
+			{ShaderDataType::Float4,"a_Tangent"}
 		};
 
 		for (auto& submesh : m_SubMeshes)

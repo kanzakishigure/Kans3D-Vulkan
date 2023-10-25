@@ -1,6 +1,6 @@
 #pragma once
-#include "Kans3D/Renderer/Texture.h"
-#include "Kans3D/Renderer/Material.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
+#include "Kans3D/Renderer/Resource/Material.h"
 #include "Kans3D/Asset/Asset.h"
 namespace Kans
 {

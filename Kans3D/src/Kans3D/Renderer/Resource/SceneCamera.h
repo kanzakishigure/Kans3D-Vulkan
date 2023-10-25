@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Renderer/Camera.h"
+#include "Kans3D/Renderer/Resource/Camera.h"
 namespace Kans {
 
 

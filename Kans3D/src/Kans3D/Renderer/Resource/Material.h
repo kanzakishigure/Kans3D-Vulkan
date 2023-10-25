@@ -1,7 +1,7 @@
 #pragma once
 #include "Shader.h"
 #include "Kans3D/Core/Base/Base.h"
-#include "Kans3D/Renderer/Texture.h"
+#include "Texture.h"
 namespace Kans
 {
 	class Material : public RefCounter
@@ -36,6 +36,7 @@ namespace Kans
 		virtual glm::vec4& GetVec4(const std::string& name)   = 0;
 		virtual glm::ivec2& GetIVec2(const std::string& name) = 0;
 		virtual int& GetInt(const std::string& name) = 0;
+		virtual bool& GetBool(const std::string& name) = 0;
 		
 	public:
 		virtual void SetShader(Ref<Shader>shader) =0;
