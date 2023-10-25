@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Renderer/Mesh.h"
+#include "Kans3D/Renderer/Resource/Mesh.h"
 namespace Kans::Utils
 {
 	enum class OffsetType

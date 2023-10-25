@@ -1,6 +1,6 @@
 #pragma once
-#include "Kans3D/Renderer/Material.h"
-#include "Kans3D/Renderer/MaterialAsset.h"
+#include "Kans3D/Renderer/Resource/Material.h"
+#include "Kans3D/Renderer/Resource/MaterialAsset.h"
 namespace Kans::Utils
 {
 	class MaterialUtils

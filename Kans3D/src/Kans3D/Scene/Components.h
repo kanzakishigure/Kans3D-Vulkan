@@ -4,9 +4,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "Kans3D/Core/UUID.h"
-#include "Kans3D/Renderer/SceneCamera.h"
-#include "Kans3D/Renderer/Texture.h"
-#include "Kans3D/Renderer/Mesh.h"
+
+#include "Kans3D/Renderer/Resource/SceneCamera.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
+#include "Kans3D/Renderer/Resource/Mesh.h"
 namespace Kans 
 {
 	class ScriptableEntity;
@@ -51,8 +52,8 @@ namespace Kans
 			glm::mat4  translation = glm::translate(glm::mat4(1.0f), Position);
 
 			glm::mat4  ratation = glm::rotate(glm::mat4(1.0f), (Rotation.x), { 1.0f,0.0f,0.0f });
-			ratation *= glm::rotate(ratation,  (Rotation.y), { 0.0,1.0f,0.0f });
-			ratation *= glm::rotate(ratation,  (Rotation.z), { 0.0f,0.0f,1.0f });
+			ratation *= glm::rotate(glm::mat4(1.0f), (Rotation.y), { 0.0,1.0f,0.0f });
+			ratation *= glm::rotate(glm::mat4(1.0f), (Rotation.z), { 0.0f,0.0f,1.0f });
 
 			glm::mat4 scale = glm::scale(glm::mat4(1.0f), Scale);
 			return translation * ratation * scale;
@@ -84,9 +85,12 @@ namespace Kans
 			//Set The WhiteTexture
 			if (texture==nullptr)
 			{
-				Texture =  Texture2D::Create(1, 1);
+				TextureSpecification spec;
+				spec.Width = 1;
+				spec.Height = 1;
+				spec.Format = RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB;
 				uint32_t data = 0xffffffff;
-				Texture->SetData(&data, sizeof(int));
+				Texture = Texture2D::Create(spec, Buffer(&data, sizeof(uint32_t)));
 			}
 
 		}

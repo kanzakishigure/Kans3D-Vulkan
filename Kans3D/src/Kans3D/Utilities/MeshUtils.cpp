@@ -101,10 +101,13 @@ namespace Kans::Utils {
 		CORE_ASSERT(verteices.size() == backedNormal.size(), "Cnan't Bake Normal to a diffrentMesh,BakeMesh have Normal Count :{0} ", backedNormal.size());
 		for (int i = 0; i < verteices.size() - 1; i++)
 		{
-			auto Bitangent = glm::cross(verteices[i].Normal, verteices[i].Tangent);
+			glm::vec3 tangent = { verteices[i].Tangent.x, 
+								  verteices[i].Tangent.y, 
+								  verteices[i].Tangent.z };
+			auto Bitangent = glm::cross(verteices[i].Normal, tangent)*verteices[i].Tangent.w;
 			glm::mat4 TBN =
 			{
-				{glm::normalize(verteices[i].Tangent),0.0},
+				{glm::normalize(tangent),0.0},
 				{glm::normalize(Bitangent),0.0},
 				{glm::normalize(verteices[i].Normal),0.0},
 				glm::vec4(0.0),

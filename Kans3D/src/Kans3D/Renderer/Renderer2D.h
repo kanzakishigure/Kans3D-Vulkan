@@ -1,10 +1,12 @@
 #pragma once
-#include "OrthographicCamera.h"
-#include "Shader.h"
+
 #include "RHI/OpenGL/VertexArray.h"
-#include "Texture.h"
-#include "SubTexture2D.h"
-#include "Kans3D/Renderer/Camera.h"
+#include "Resource/Shader.h"
+#include "Resource/Texture.h"
+#include "Resource/SubTexture2D.h"
+#include "Resource/Camera.h"
+#include "Resource/OrthographicCamera.h"
+
 namespace Kans {
 
 	class Renderer2D {

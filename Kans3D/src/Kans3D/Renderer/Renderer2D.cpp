@@ -1,16 +1,16 @@
 #include "kspch.h"
 #include "Renderer2D.h"
 
+#include "Resource/Shader.h"
 #include "RHI/OpenGL/VertexArray.h"
-#include "Shader.h"
-#include "Platform/OpenGL/OpenGLShader.h"
 #include "RHI/OpenGL/OpenGLRenderCommand.h"
+
+#include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 
 #include <glm/ext/matrix_transform.hpp>
 
-
 //temp include
-#include "Platform/OpenGL/OpenGLRendererAPI.h"
+#include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
 
 
 namespace Kans {
@@ -110,10 +110,16 @@ namespace Kans {
 		
 		
 		//Texture2D
-		s_Data.WhiteTexture = Texture2D::Create(1, 1);
-		uint32_t whiteTextureData = 0xffffffff;
-		s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(whiteTextureData));
+		{
+			TextureSpecification spec;
+			spec.Width = 1;
+			spec.Height = 1;
+			spec.Format = RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB;
 
+			uint32_t data = 0xffffffff;
+			s_Data.WhiteTexture = Texture2D::Create(spec, Buffer(&data, sizeof(uint32_t)));
+		}
+		
 		int32_t samplers[s_Data.MaxTextureSlots];
 		for (uint32_t i = 0; i < s_Data.MaxTextureSlots; i++)
 		{

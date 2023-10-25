@@ -3,7 +3,7 @@
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
 
-#include "Kans3D/Renderer/Mesh.h"
+#include "Kans3D/Renderer/Resource/Mesh.h"
 namespace  Kans
 {
 

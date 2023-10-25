@@ -2,7 +2,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "Kans3D/Core/TimeStep.h"
-#include "Kans3D/Renderer/OrthographicCameraController.h"
+#include "Kans3D/Renderer/Resource/OrthographicCameraController.h"
 namespace Kans
 {
 	struct  ParticleProps

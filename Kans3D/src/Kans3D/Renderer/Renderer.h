@@ -4,10 +4,10 @@
 
 #include "Kans3D/Core/Window.h"
 
-#include "Kans3D/Renderer/Shader.h"
+#include "Kans3D/Renderer/Resource/Shader.h"
 
 //temp
-#include "Kans3D/Renderer/Camera.h"
+#include "Kans3D/Renderer/Resource/Camera.h"
 #include "Kans3D/Scene/Scene.h"
 namespace Kans {
 	
@@ -20,7 +20,7 @@ namespace Kans {
 		static Ref<RHI> GetRHI() { return s_RHI; }
 		static void	Init();
 		static void Init(const Scope<Window>& window);
-		static void RendererDataInit();
+		static void InitGlobalRendererResource();
 		static void	Shutdown();
 		
 
@@ -36,6 +36,8 @@ namespace Kans {
 			func();
 		}
 		
+		
+
 		static Ref<Texture2D> GetWhiteTexture();
 		static Ref<Texture2D> GetBlackTexture();
 		static Ref<ShaderLibrary> GetShaderLibrary();
@@ -45,6 +47,7 @@ namespace Kans {
 
 	private:
 		static Ref<RHI> s_RHI;
+		
 	};
 	
 }

@@ -4,7 +4,7 @@
 //test
 #include "imgui.h"
 //temp
-#include "Platform/OpenGL/OpenGLShader.h"
+#include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 namespace Kans 
 {
 

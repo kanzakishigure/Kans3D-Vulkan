@@ -97,7 +97,7 @@ namespace Kans
 			out << YAML::Key << "SpriteRendererComponent";
 			out << YAML::BeginMap;
 			out << YAML::Key << "Color" << YAML::Value << spriteCMP.Color;
-			out << YAML::Key << "Texture" << YAML::Value << texture->GetPath();
+			out << YAML::Key << "Texture" << YAML::Value << texture->GetPath().generic_string();
 			out << YAML::Key << "TilingFactor" << YAML::Value << spriteCMP.TilingFactor;
 			out << YAML::EndMap;
 		}
