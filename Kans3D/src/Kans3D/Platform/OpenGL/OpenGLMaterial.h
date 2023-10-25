@@ -1,8 +1,8 @@
 #pragma once
 #include <glm/glm.hpp>
-#include "kans3D/Renderer/Material.h"
+#include "kans3D/Renderer/Resource/Material.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
 #include "Kans3D/Core/ByteBuffer.h"
-#include "Kans3D/Renderer/Texture.h"
 namespace Kans {
 	//参照cherno的vulkan版材质类进行进行改写
 
@@ -48,6 +48,8 @@ namespace Kans {
 		virtual glm::vec4& GetVec4(const std::string& name)  override;
 		virtual int& GetInt(const std::string& name)         override;
 		virtual glm::ivec2& GetIVec2(const std::string& name) override;
+		virtual bool& GetBool(const std::string& name) override;
+
 		virtual void UseDefaultShader(bool enable) override;
 	public:
 		

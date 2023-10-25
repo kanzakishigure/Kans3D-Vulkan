@@ -1,5 +1,5 @@
 #pragma once
-#include "Platform/Vulkan/VulkanShaderUtils.h"
+#include "Kans3D/Platform/Vulkan/VulkanShaderUtils.h"
 #include "Kans3D/Utilities/StringUtils.h"
 
 #include <vulkan/vulkan.h>

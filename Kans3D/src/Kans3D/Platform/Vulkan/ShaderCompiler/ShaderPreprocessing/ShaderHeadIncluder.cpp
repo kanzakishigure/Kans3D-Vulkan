@@ -3,7 +3,7 @@
 
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Core/Hash.h"
-#include "Platform/Vulkan/VulkanShader.h"
+#include "Kans3D/Platform/Vulkan/VulkanShader.h"
 
 namespace Kans
 {

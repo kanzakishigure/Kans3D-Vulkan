@@ -1,5 +1,5 @@
 #pragma once
-#include "Kans3D/Renderer/Shader.h"
+#include "Kans3D/Renderer/Resource/Shader.h"
 #include <glm/glm.hpp>
 
 typedef unsigned int GLenum;

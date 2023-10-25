@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "VulkanShaderCache.h"
 #include "Kans3D/FileSystem/FileSystem.h"
-#include "Platform/Vulkan/VulkanShaderUtils.h"
+#include "Kans3D/Platform/Vulkan/VulkanShaderUtils.h"
 
 #include <yaml-cpp/yaml.h>
 #define YAML_SERIALIZE_PROPERTY(emitter,key,value) emitter<< YAML::Key << key ; emitter << YAML::Value<< value;

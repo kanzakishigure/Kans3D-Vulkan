@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "OpenGLVertexArray.h"
 
-#include "kans3D/Renderer/Shader.h"
+#include "kans3D/Renderer/Resource/Shader.h"
 
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>

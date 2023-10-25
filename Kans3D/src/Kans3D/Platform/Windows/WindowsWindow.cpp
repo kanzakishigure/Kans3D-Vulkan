@@ -1,7 +1,7 @@
 #include "kspch.h"
-#include "Platform/windows/WindowsWindow.h"
-#include "Platform/OpenGL/OpenGLRHI.h"
-#include "Platform/Vulkan/VulkanRHI.h"
+#include "kans3D/Platform/Windows/WindowsWindow.h"
+#include "kans3D/Platform/OpenGL/OpenGLRHI.h"
+#include "kans3D/Platform/Vulkan/VulkanRHI.h"
 
 #include "kans3D/Core/Events/ApplicationEvent.h"
 #include "kans3D/Core/Events/KeyEvent.h"

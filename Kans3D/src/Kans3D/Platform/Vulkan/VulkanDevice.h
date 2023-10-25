@@ -77,5 +77,7 @@ namespace Kans
 		VkQueue			m_GraphicsQueue = VK_NULL_HANDLE;
 		VkQueue			m_ComputeQueue = VK_NULL_HANDLE;
 
+		
+
 	};
 }

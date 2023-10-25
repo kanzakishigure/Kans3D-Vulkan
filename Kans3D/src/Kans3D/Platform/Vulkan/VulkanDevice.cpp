@@ -1,6 +1,6 @@
 #include "kspch.h"
 #include "VulkanDevice.h"
-#include "Platform/Vulkan/VulkanRHI.h"
+#include "Kans3D/Platform/Vulkan/VulkanRHI.h"
 
 #ifdef KS_DEBUG
 static bool s_Validation = true;

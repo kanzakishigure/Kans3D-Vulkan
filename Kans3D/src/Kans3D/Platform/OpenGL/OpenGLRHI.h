@@ -11,7 +11,8 @@ namespace Kans {
 
 		virtual void Init() override;
 		virtual void Shutdown() override;
-		
+		virtual void CreateSwapChain() override;
+		virtual void RecreateSwapchain() override;
 
 	private:
 		Window* m_WindowHandle;

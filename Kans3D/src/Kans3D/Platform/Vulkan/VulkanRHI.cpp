@@ -134,7 +134,9 @@ namespace Kans
 		CreateInstance();
 		SelectPhysicalDevice();
 		CreateLogicalDevice();
-
+		CreateSwapChain();
+		CreateCommandPool();
+		CreateCommandBuffers();
 		// create the vulkan pipline
 		//create the pipline dynamic state
 		std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR };
@@ -167,12 +169,13 @@ namespace Kans
 		viewport.height = (float)spec.Height;
 		viewport.minDepth = 0.0f;
 		viewport.maxDepth = 1.0f;
-
+		
 	}
 
 	void VulkanRHI::Shutdown()
 	{
 		m_SwapChain.Cleanup();
+		
 	}
 	void VulkanRHI::CreateInstance()
 	{
@@ -282,13 +285,55 @@ namespace Kans
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Create SwapChain
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		m_SwapChain.Connect(s_VulkanInstance, m_Device);
-		m_SwapChain.InitSurface((GLFWwindow*)m_WindowHandle->GetNativeWindow());
+		m_SwapChain.Init(s_VulkanInstance, m_Device, (GLFWwindow*)m_WindowHandle->GetNativeWindow());
+		
 
 		WindowSpecification spec = m_WindowHandle->GetWindowSpecification();
+		
 		m_SwapChain.Create(&spec.Width, &spec.Height, m_WindowHandle->IsVSync());
 		m_WindowHandle->SetWindowSpecification(spec);
 	}
 
+
+	void VulkanRHI::RecreateSwapchain()
+	{
+		WindowSpecification spec = m_WindowHandle->GetWindowSpecification();
+		m_SwapChain.ReCreate(spec.Width, spec.Height);
+		m_WindowHandle->SetWindowSpecification(spec);
+	}
+
+	void VulkanRHI::CreateCommandPool()
+	{
+		//  graphics command pool
+		{
+			VkCommandPoolCreateInfo cmdPoolInfo = {};
+			cmdPoolInfo.sType				= VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+			cmdPoolInfo.queueFamilyIndex	= m_Device->GetPhysicalDevice()->GetQueueFamilyIndices().Graphics.value();
+			cmdPoolInfo.pNext				= NULL;
+			cmdPoolInfo.flags				= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+			VK_CHECK_RESULT(vkCreateCommandPool(m_Device->GetVulkanDevice(), &cmdPoolInfo, nullptr, &m_GraphicCommandPool));
+
+			
+		}
+		//  Computer command pool
+		{
+			VkCommandPoolCreateInfo cmdPoolInfo = {};
+			cmdPoolInfo.sType				= VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+			cmdPoolInfo.queueFamilyIndex	= m_Device->GetPhysicalDevice()->GetQueueFamilyIndices().Compute.value();
+			cmdPoolInfo.pNext				= NULL;
+			cmdPoolInfo.flags				= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+			VK_CHECK_RESULT(vkCreateCommandPool(m_Device->GetVulkanDevice(), &cmdPoolInfo, nullptr, &m_ComputeCommandPool));
+		}
+		
+	}
+
+	void VulkanRHI::CreateCommandBuffers()
+	{
+		//CreatBuffer for graphic queue
+		{
+			
+			
+		}
+	}
 
 }

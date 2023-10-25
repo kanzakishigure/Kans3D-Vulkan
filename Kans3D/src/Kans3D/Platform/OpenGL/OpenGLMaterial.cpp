@@ -44,6 +44,12 @@ namespace Kans {
 		return Get<int>(name);
 	}
 
+	bool& OpenGLMaterial::GetBool(const std::string& name)
+	{
+		return Get<bool>(name);
+	}
+
+
 	glm::ivec2& OpenGLMaterial::GetIVec2(const std::string& name)
 	{
 		return Get<glm::ivec2>(name);

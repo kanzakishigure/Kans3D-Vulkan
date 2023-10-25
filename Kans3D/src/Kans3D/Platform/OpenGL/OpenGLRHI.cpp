@@ -40,4 +40,14 @@ namespace Kans {
 
 	}
 
+	void OpenGLRHI::CreateSwapChain()
+	{
+
+	}
+
+	void OpenGLRHI::RecreateSwapchain()
+	{
+		
+	}
+
 }

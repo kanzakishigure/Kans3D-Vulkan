@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Platform/Vulkan/VulkanShader.h"
-#include "Platform/Vulkan/VulkanShaderUtils.h"
+#include "Kans3D/Platform/Vulkan/VulkanShader.h"
+#include "Kans3D/Platform/Vulkan/VulkanShaderUtils.h"
+#include "Kans3D/Platform/Vulkan/VulkanShaderResource.h"
 #include "ShaderPreprocessing/ShaderPreprocessor.h"
-#include "Platform/Vulkan/VulkanShaderResource.h"
 
 #include <map>
 #include <set>
