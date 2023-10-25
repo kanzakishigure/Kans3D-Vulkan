@@ -1,6 +1,6 @@
 #include "kspch.h"
 #include "OpenGLRenderCommand.h"
-#include "Platform/OpenGL/OpenGLRendererAPI.h"
+#include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
 namespace Kans {
 
 }

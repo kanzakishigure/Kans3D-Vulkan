@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
 #include "Kans3D/Renderer/Renderer.h"
-#include "Platform/OpenGL/OpenGLVertexArray.h"
+#include "Kans3D/Platform/OpenGL/OpenGLVertexArray.h"
 namespace Kans {
 
 

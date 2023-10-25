@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "Buffer.h"
 #include "kans3D/Renderer/Renderer.h"
-#include "Platform/OpenGL/OpenGLBuffer.h"
+#include "kans3D/Platform/OpenGL/OpenGLBuffer.h"
 namespace Kans {
 
 

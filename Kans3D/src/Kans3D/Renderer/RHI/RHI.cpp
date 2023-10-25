@@ -3,8 +3,8 @@
 
 #include "Kans3D/Renderer/Renderer.h"
 
-#include "Platform/OpenGL/OpenGLRHI.h"
-#include "Platform/Vulkan/VulkanRHI.h"
+#include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
+#include "Kans3D/Platform/Vulkan/VulkanRHI.h"
 namespace Kans
 {
 

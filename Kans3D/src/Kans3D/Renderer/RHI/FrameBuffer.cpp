@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "FrameBuffer.h"
 #include "kans3D/Renderer/Renderer.h"
-#include "Platform/OpenGL/OpenGLFrameBuffer.h"
+#include "kans3D/Platform/OpenGL/OpenGLFrameBuffer.h"
 namespace Kans {
 
 	Kans::Ref<Kans::FrameBuffer> FrameBuffer::Create(const FrameBufferSpecification& spec)

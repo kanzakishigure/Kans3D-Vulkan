@@ -5,11 +5,14 @@ namespace Kans {
 	class RHI : public RefCounter
 	{
 	public:
+		static Ref<RHI> Create();
+		static Ref<RHI> Create(const Scope<Window>& window);
+		
 		virtual ~RHI() {};
 		virtual void Init() = 0;
 		virtual void Shutdown() = 0;
-		static Ref<RHI> Create(const Scope<Window>& window);
-		static Ref<RHI> Create();
+		virtual void CreateSwapChain() = 0;
+		virtual void RecreateSwapchain() = 0;
 	private:
 		
 	};
