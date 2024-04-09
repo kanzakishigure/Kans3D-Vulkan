@@ -19,6 +19,13 @@ namespace Kans
 
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         extern static internal float Entity_SetTranslation(ulong id, ref Vector3 parameter);
+
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        extern static internal float Entity_GetRotation(ulong id, out Vector3 parameter);
+
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        extern static internal float Entity_SetRotation(ulong id, ref Vector3 parameter);
+
         #endregion
 
         #region Log

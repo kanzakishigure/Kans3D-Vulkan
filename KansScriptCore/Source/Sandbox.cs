@@ -42,9 +42,9 @@ namespace Sandbox
             if(HasComponent<TransformComponent>())
             {
                 Vector3 position =  GetComponent<TransformComponent>().Translation;
+                Vector3 rotation = GetComponent<TransformComponent>().Rotation;
 
-    
-                    if (Input.IsKeyPressed(KeyCode.W))
+                if (Input.IsKeyPressed(KeyCode.W))
                         position.Y += ts;
 
                     if (Input.IsKeyPressed(KeyCode.S))
@@ -54,10 +54,24 @@ namespace Sandbox
                         position.X -= ts;
 
                     if (Input.IsKeyPressed(KeyCode.D))
+
                         position.X += ts;
 
-                GetComponent<TransformComponent>().Translation = position;
+                    if (Input.IsKeyPressed(KeyCode.Q))
+                    {
+                        rotation.X += ts;
 
+                        GetComponent<TransformComponent>().Rotation = rotation;
+                    }
+                        
+                    if (Input.IsKeyPressed(KeyCode.E))
+                    {
+                        rotation.Y += ts;
+                       GetComponent<TransformComponent>().Rotation = rotation;
+                    }
+                       
+                GetComponent<TransformComponent>().Translation = position;
+               
             }
            
             
