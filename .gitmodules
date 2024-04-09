@@ -14,3 +14,6 @@
 [submodule "Kans3D/vendor/GLFW"]
 	path = Kans3D/vendor/GLFW
 	url = https://github.com/TheCherno/glfw.git
+[submodule "Kans3D/vendor/ImGuizmo"]
+	path = Kans3D/vendor/ImGuizmo
+	url = https://github.com/kanzakishigure/ImGuizmo.git
