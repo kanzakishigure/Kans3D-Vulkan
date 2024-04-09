@@ -10,7 +10,7 @@ namespace Kans::Utils {
 
 	void MeshUtils::SmoothNormal(std::vector<Vertex>& verteices, std::vector<glm::vec3>& smoothedNormal)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		//std::vector<Vertex> SmoothNormalVertex;
 		std::vector<glm::vec3*> sameposition;
 		smoothedNormal.reserve(verteices.size());
@@ -42,7 +42,7 @@ namespace Kans::Utils {
 	void MeshUtils::FastSmoothNormal(std::vector<Vertex>& verteices)
 	{
 		//执行速度未得到提升
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		std::map<uint32_t, std::vector<uint32_t>> vertexindex;
 		std::map <uint32_t, glm::vec3> posiotns;
 		std::vector<glm::vec3*> sameposition;
@@ -80,7 +80,7 @@ namespace Kans::Utils {
 
 	void MeshUtils::SetMeshOffset(std::vector<Vertex>& verteices, const std::vector<SubMesh>& submushes, float offset)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		glm::vec3 offsetdir = glm::vec3(0.0);
 		int offsetindex = 0;
 		for (auto & submesh : submushes)
