@@ -51,6 +51,24 @@ namespace Kans
 		}
 		entity.GetComponent<TransformComponent>().Position = *parameter;
 	}
+
+	static void Entity_GetRotation(uint64_t id, glm::vec3* parameter)
+	{
+		auto& entity = GetEntity(id);
+		*parameter = entity.GetComponent<TransformComponent>().Rotation;
+
+	}
+	static void Entity_SetRotation(uint64_t id, glm::vec3* parameter)
+	{
+		auto& entity = GetEntity(id);
+		if (!entity)
+		{
+			CORE_WARN("Entity.SetRotation - Invalid entity!");
+			return;
+		}
+		entity.GetComponent<TransformComponent>().Rotation = *parameter;
+	}
+
 	static bool Entity_HasComponent(uint64_t id, MonoReflectionType* type)
 	{
 		auto& entity = GetEntity(id);
@@ -112,6 +130,8 @@ namespace Kans
 		ADD_INTERNAL_CALL(VectorDot);
 		ADD_INTERNAL_CALL(Entity_GetTranslation);
 		ADD_INTERNAL_CALL(Entity_SetTranslation);
+		ADD_INTERNAL_CALL(Entity_GetRotation);
+		ADD_INTERNAL_CALL(Entity_SetRotation);
 		ADD_INTERNAL_CALL(Input_IsKeyPressed);
 		ADD_INTERNAL_CALL(Entity_HasComponent);
 	}

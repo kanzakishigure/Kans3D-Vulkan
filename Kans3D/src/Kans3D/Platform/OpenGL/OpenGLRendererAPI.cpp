@@ -28,10 +28,10 @@ namespace Kans {
 		{
 			switch (value)
 			{
+			case Kans::CullFaceOption::NONE:return GL_NONE;
 			case Kans::CullFaceOption::BACK: return GL_BACK;
 			case Kans::CullFaceOption::FRONT:return GL_FRONT;
 			case Kans::CullFaceOption::FRONT_AND_BACK:return GL_FRONT_AND_BACK;
-
 			}
 			CORE_ASSERT(false, "unknow CullFaceOption");
 			return 0;
@@ -41,25 +41,36 @@ namespace Kans {
 	
 	void OpenGLRendererAPI::Init()
 	{
-		HZ_PROFILE_FUCTION();
-		//对于其他渲染级别的性能检测，不使用HZ_PROFILE_FUNCTION这个级别的检测，因为每次渲染执行的时候都会进行大量的复杂操作，在执行每次命令的时候，会消耗大量的时间，以及内存开销
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		//深度测试
-		glEnable(GL_DEPTH_TEST);
-		//模板缓冲
-		glEnable(GL_STENCIL_TEST);
-		//三角面剔除
-		glEnable(GL_CULL_FACE);
-		glCullFace(GL_BACK);
-		glFrontFace(GL_CCW);
-		{
-			//don't update depth buffer
-			//glDepthMask(GL_FALSE);
-			glDepthFunc(GL_LESS);
-			glStencilMask(0x00);
-		}
+		
 
+			PROFILE_FUCTION();
+			//对于其他渲染级别的性能检测，不使用HZ_PROFILE_FUNCTION这个级别的检测，因为每次渲染执行的时候都会进行大量的复杂操作，在执行每次命令的时候，会消耗大量的时间，以及内存开销
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			//深度测试
+			glEnable(GL_DEPTH_TEST);
+			//模板缓冲
+			glEnable(GL_STENCIL_TEST);
+			//三角面剔除
+			glEnable(GL_CULL_FACE);
+			glCullFace(GL_BACK);
+			glFrontFace(GL_CCW);
+
+			glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+
+			{
+				//don't update depth buffer
+				//glDepthMask(GL_FALSE);
+
+				glDepthFunc(GL_LEQUAL);
+				glStencilMask(0x00);
+			}
+			//启用cubmap插值过滤,防止cubemap面与面之间产生走样
+			glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+			//启用MSAA
+			glEnable(GL_MULTISAMPLE);
+
+		
 	}
 	void OpenGLRendererAPI::SetClearColor(const glm::vec4& color)
 	{
@@ -113,7 +124,36 @@ namespace Kans {
 	{
 		glBindTextureUnit(slot, texture);
 	}
-
+//-------------NativeDraw-----------------------------------------------------------------//
+	unsigned int quadVAO = 0;
+	unsigned int quadVBO = -1;
+	void OpenGLRendererAPI::DrawQuad()
+	{
+		if (quadVAO == 0)
+		{
+			float quadVertices[] = {
+				// positions        // texture Coords
+				-1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+				-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+				 1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+				 1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+			};
+			//生成vao
+			glGenVertexArrays(1, &quadVAO);
+			glGenBuffers(1, &quadVBO);
+			glBindVertexArray(quadVAO);
+			glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+		}
+		glBindVertexArray(quadVAO);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
+	}
+//-----------------------------------------------------------------------------------------------------//
 	void OpenGLRendererAPI::EnableDepthTest(bool enabled)
 	{
 		enabled ? glEnable(GL_DEPTH_TEST): glDisable(GL_DEPTH_TEST);
@@ -129,8 +169,40 @@ namespace Kans {
 	{
 		enabled ? glEnable(GL_CULL_FACE) : glDisable(GL_CULL_FACE);
 	}
+
+	void OpenGLRendererAPI::EnableBlend(bool enabled)
+	{
+		enabled ? glEnable(GL_BLEND) : glDisable(GL_BLEND);
+	}
+
 	void OpenGLRendererAPI::CullFace(CullFaceOption option)
 	{
 		glCullFace(Utils::To_OpenGLCullFaceOption(option));
 	}
+
+	
+
+	uint32_t OpenGLRendererAPI::GetError()
+	{
+		GLenum errorCode;
+		std::string error;
+		while ((errorCode = glGetError()) != GL_NO_ERROR)
+		{
+			
+			switch (errorCode)
+			{
+			case GL_INVALID_ENUM:                  error = "INVALID_ENUM"; break;
+			case GL_INVALID_VALUE:                 error = "INVALID_VALUE"; break;
+			case GL_INVALID_OPERATION:             error = "INVALID_OPERATION"; break;
+			case GL_STACK_OVERFLOW:                error = "STACK_OVERFLOW"; break;
+			case GL_STACK_UNDERFLOW:               error = "STACK_UNDERFLOW"; break;
+			case GL_OUT_OF_MEMORY:                 error = "OUT_OF_MEMORY"; break;
+			case GL_INVALID_FRAMEBUFFER_OPERATION: error = "INVALID_FRAMEBUFFER_OPERATION"; break;
+			}
+			CORE_ERROR_TAG("API_ERROR","{0}", error);
+		}
+		
+		return errorCode;
+	}
+
 }

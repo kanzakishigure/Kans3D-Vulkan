@@ -58,7 +58,7 @@ namespace Kans
 			sineTable.resize(64);
 			for (size_t i = 0; i < 64; i++)
 			{
-				sineTable[i] = floor(abs(sin(i + 1)) * pow(2, 32));
+				sineTable[i] = static_cast<uint32_t>(abs(sin(i + 1)) * pow(2, 32));
 			}
 		}
 		

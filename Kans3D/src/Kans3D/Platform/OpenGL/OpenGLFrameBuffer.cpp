@@ -1,6 +1,8 @@
 #include "kspch.h"
 #include "OpenGLFrameBuffer.h"
+
 #include "glad/glad.h"
+#define  EnableOffLineRender false
 namespace Kans {
 
 	static const uint32_t MaxFramebufferSize = 15360;
@@ -35,8 +37,20 @@ namespace Kans {
 				case GL_RGBA8:
 					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 					break;
+				case GL_RGB8:
+					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+					break;
 				case GL_RGBA16F:
 					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+					break;
+				case GL_RGB16F:
+					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
+					break;
+				case GL_RGBA32F:
+					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+					break;
+				case GL_RGB32F:
+					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
 					break;
 				}
 				// create a Render object for depth and stencil attachment (we don't be sampling these)
@@ -87,16 +101,37 @@ namespace Kans {
 	OpenGLFrameBuffer::OpenGLFrameBuffer(FrameBufferSpecification spec)
 		:m_Specification(spec)
 	{
-		for (auto& format : spec.AttachmentSpecification.Attachments)
+		if (spec.SwapChainTarget)
 		{
-			if (!Utils::IsDepthAttachment(format.TextureFormat))
+			for (auto& format : spec.AttachmentSpecification.Attachments)
 			{
-				m_ColorAttachmentSpecifications.emplace_back(format);
+				if (!Utils::IsDepthAttachment(format.TextureFormat))
+				{
+					m_ColorAttachmentSpecifications.emplace_back(format);
+				}
+				else
+				{
+					m_DepthAttachmentpecification = format;
+				}
 			}
-			else
-			{
-				m_DepthAttachmentpecification = format;
-			}
+			
+		}
+		else
+		{
+#if EnableOffLineRender
+			uint32_t renderbufer = 0;
+			glGenFramebuffers(1, &m_RendererID);
+			glGenRenderbuffers(1, &renderbufer);
+
+
+			glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+			glBindRenderbuffer(GL_RENDERBUFFER, renderbufer);
+
+			//向framebuffer添加attachment
+			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, spec.Width, spec.Height);
+			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbufer);
+			m_Renderbuffers.push_back(renderbufer);
+#endif
 		}
 		Invalidata();
 	}
@@ -107,6 +142,8 @@ namespace Kans {
 		glDeleteFramebuffers(1, &m_RendererID);
 		glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
 		glDeleteTextures(1, &m_DepthAttachment);
+		glDeleteRenderbuffers(m_Renderbuffers.size(), m_Renderbuffers.data());
+		m_Renderbuffers.clear();
 		m_ColorAttachments.clear();
 		m_DepthAttachment = 0;
 	}
@@ -120,6 +157,7 @@ namespace Kans {
 			glDeleteFramebuffers(1, &m_RendererID);
 			glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
 			glDeleteTextures(1, &m_DepthAttachment);
+			
 			m_ColorAttachments.clear();
 			m_DepthAttachment = 0;
 			
@@ -131,52 +169,71 @@ namespace Kans {
 		glCreateFramebuffers(1, &m_RendererID);
 		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
-		bool multisampled = m_Specification.Samples > 1;
-		//Attachments
-		if (m_ColorAttachmentSpecifications.size())
+		if(m_Specification.SwapChainTarget)
 		{
-			m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
-			Utils::CreateTextures(multisampled,m_ColorAttachments.size(), m_ColorAttachments.data());
-			for (uint32_t i =0; i<m_ColorAttachmentSpecifications.size();i++)
+			bool multisampled = m_Specification.Samples > 1;
+			//Attachments
+			if (m_ColorAttachmentSpecifications.size())
 			{
-				Utils::BindTexture(multisampled, m_ColorAttachments[i]);
-				switch (m_ColorAttachmentSpecifications[i].TextureFormat)
+				m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
+				Utils::CreateTextures(multisampled, m_ColorAttachments.size(), m_ColorAttachments.data());
+				for (uint32_t i = 0; i < m_ColorAttachmentSpecifications.size(); i++)
 				{
-				case FrameBufferTextureFormat::RGBA8: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA8, m_Specification.Width, m_Specification.Height, i);
-					break;
-				case FrameBufferTextureFormat::RGBA16F: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA16F, m_Specification.Width, m_Specification.Height, i);
+					Utils::BindTexture(multisampled, m_ColorAttachments[i]);
+					switch (m_ColorAttachmentSpecifications[i].TextureFormat)
+					{
+					case FrameBufferTextureFormat::RGBA8: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA8, m_Specification.Width, m_Specification.Height, i);
+						break;
+					case FrameBufferTextureFormat::RGB16F: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGB16F, m_Specification.Width, m_Specification.Height, i);
+						break;
+					case FrameBufferTextureFormat::RGBA16F: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA16F, m_Specification.Width, m_Specification.Height, i);
+						break;
+					case FrameBufferTextureFormat::RGBA32F: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA32F, m_Specification.Width, m_Specification.Height, i);
+						break;
+					}
+				}
+			}
+			if (m_DepthAttachmentpecification.TextureFormat != FrameBufferTextureFormat::None)
+			{
+				Utils::CreateTextures(multisampled, 1, &m_DepthAttachment);
+				Utils::BindTexture(multisampled, m_DepthAttachment);
+
+				switch (m_DepthAttachmentpecification.TextureFormat)
+				{
+				case FrameBufferTextureFormat::Depth: Utils::AttachDepthTexture(m_DepthAttachment, m_Specification.Samples, GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL_ATTACHMENT, m_Specification.Width, m_Specification.Height);
 					break;
 				}
 			}
-		}
-		if (m_DepthAttachmentpecification.TextureFormat != FrameBufferTextureFormat::None)
-		{
-			Utils::CreateTextures(multisampled, 1, &m_DepthAttachment);
-			Utils::BindTexture(multisampled, m_DepthAttachment);
-
-			switch (m_DepthAttachmentpecification.TextureFormat)
-			{
-			case FrameBufferTextureFormat::Depth: Utils::AttachDepthTexture(m_DepthAttachment, m_Specification.Samples, GL_DEPTH24_STENCIL8,GL_DEPTH_STENCIL_ATTACHMENT, m_Specification.Width, m_Specification.Height);
-				break;
-			}
-		}
 		
-		if (m_ColorAttachments.size() > 1)
-		{
-			CORE_ASSERT(m_ColorAttachments.size() <= 4, "We only supprot 4 renderer target");
-			//opengl only surport 4 renderer target
-			GLenum buffer[4] {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3};
-			glDrawBuffers(m_ColorAttachments.size(), buffer);
+
+			if (m_ColorAttachments.size() > 1)
+			{
+				CORE_ASSERT(m_ColorAttachments.size() <= 4, "We only supprot 4 renderer target");
+				//opengl only surport 4 renderer target
+				GLenum buffer[4]{ GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
+				glDrawBuffers(m_ColorAttachments.size(), buffer);
+
+			}
+			else if (m_ColorAttachments.size() == 0)
+			{
+				glDrawBuffer(GL_NONE);
+			}
+
+			//检查状态是否完成FrameBuffer的生成
+			CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "FrameBuffer Incomplete!");
 
 		}
-		else if(m_ColorAttachments.size()==0)
+		else
 		{
-			glDrawBuffer(GL_NONE);
+#if EnableOffLineRender
+			glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+			for (uint32_t rbo : m_Renderbuffers)
+			{
+				glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+				glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_Specification.Width, m_Specification.Height);
+			}
+#endif
 		}
-
-		//检查状态是否完成FrameBuffer的生成
-		CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "FrameBuffer Incomplete!");
-
 		//解除bind
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
@@ -192,10 +249,39 @@ namespace Kans {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
+	uint32_t OpenGLFrameBuffer::GetColorAttachmentCount() const
+	{
+		return m_ColorAttachments.size();
+	}
+
 	uint32_t OpenGLFrameBuffer::GetColorAttachmentRendererID(uint32_t index /*= 0*/) const
 	{
 		 CORE_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
 		return m_ColorAttachments[index]; 
+	}
+
+	void OpenGLFrameBuffer::BindTextureToColorAttachMent(Ref<TextureCube> texture, uint32_t face,uint32_t mip /*= 0*/,uint32_t index /*= 0*/)
+	{
+		if (index < m_ColorAttachments.size() && m_ColorAttachments[index] != 0)
+		{
+			glDeleteTextures(1, &m_ColorAttachments[index]);
+			m_ColorAttachments[index] = 0;
+		}
+		
+
+		
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0+ index, GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, texture->GetRenererID(), mip);
+	}
+
+	//can't Bind MultiSample Texture To FrameBuffer
+	void OpenGLFrameBuffer::BindTextureToColorAttachMent(Ref<Texture2D> texture, uint32_t mip /*= 0*/, uint32_t index /*= 0*/)
+	{
+		if (index<m_ColorAttachments.size()&& m_ColorAttachments[index] != 0)
+		{
+			glDeleteTextures(1, &m_ColorAttachments[index]);
+			m_ColorAttachments[index] = 0;
+		}
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, GL_TEXTURE_2D , texture->GetRenererID(), mip);
 	}
 
 	void OpenGLFrameBuffer::Resize(uint32_t width, uint32_t height)

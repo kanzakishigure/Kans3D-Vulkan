@@ -19,7 +19,7 @@ namespace Kans {
 
 	void OpenGLRHI::Init()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		if (m_WindowHandle != nullptr)
 		{

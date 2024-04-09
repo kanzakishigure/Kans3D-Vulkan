@@ -211,6 +211,7 @@ namespace Kans{
 				else if ("ShaderDir" == key)
 				{
 					m_ShaderDir = value;
+					
 				}
 				else if ("FontsDir" == key)
 				{

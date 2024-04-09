@@ -31,35 +31,35 @@ namespace Kans {
 	}
 	OpenGLVertexArray::OpenGLVertexArray()
 	{
-		HZ_PROFILE_FUCTION();
-		//此处同样需要渲染级别的性能检测配置，暂时使用HZ_PROFILE_FUCTION进行测试
+		PROFILE_FUCTION();
+		//此处同样需要渲染级别的性能检测配置，暂时使用PROFILE_FUCTION进行测试
 		glCreateVertexArrays(1, &m_RendererID);
 	}
 
 	OpenGLVertexArray::~OpenGLVertexArray()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glDeleteVertexArrays(1, &m_RendererID);
 	}
 
 	void OpenGLVertexArray::Bind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glBindVertexArray(m_RendererID);
 	}
 
 	void OpenGLVertexArray::Unbind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glBindVertexArray(0);
 	}
 
 	void OpenGLVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) 
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		glBindVertexArray(m_RendererID);
 		vertexBuffer->Bind();
 		uint32_t index = 0;
@@ -81,7 +81,7 @@ namespace Kans {
 
 	void OpenGLVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) 
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		glBindVertexArray(m_RendererID);
 		indexBuffer->Bind();
 		m_IndexBuffers = indexBuffer;

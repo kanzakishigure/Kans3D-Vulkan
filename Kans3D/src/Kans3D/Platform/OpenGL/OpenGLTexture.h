@@ -34,8 +34,7 @@ namespace Kans {
 	class OpenGLTextureCube :public TextureCube
 	{
 	public:
-		OpenGLTextureCube(const std::string& path);
-		OpenGLTextureCube(uint32_t width, uint32_t height);
+		OpenGLTextureCube(const TextureSpecification& specification, Buffer data = Buffer());
 		virtual ~OpenGLTextureCube() override;
 
 		virtual void Bind(uint32_t slot = 0) const override;
@@ -48,6 +47,9 @@ namespace Kans {
 		virtual const std::filesystem::path& GetPath() const override;
 
 	
+
+		void GenerateMipmap() const override;
+
 	private:
 		uint32_t m_Height;
 		uint32_t m_Width;

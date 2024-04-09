@@ -17,6 +17,7 @@ namespace Kans
 		Material	= 3,
 		Mesh		= 4,
 		MeshSource  = 5,
+		EnvMap		= 6,
 	  
 	};
 }

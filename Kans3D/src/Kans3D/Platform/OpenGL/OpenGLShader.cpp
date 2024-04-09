@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+
 namespace Kans {
 
 	static GLenum ShaderTypeFromString(const std::string& type)
@@ -21,7 +22,7 @@ namespace Kans {
 	}
 	OpenGLShader::OpenGLShader(const std::string& shaderpath)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		std::string shadersrc = ReadFile(shaderpath);
 		auto source = PreProcess(shadersrc);
@@ -35,7 +36,7 @@ namespace Kans {
 	}
 	OpenGLShader::OpenGLShader(const std::string& name, const std::string& VertexShaderpath, const std::string& FragmentShaderpath)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		std::unordered_map<GLenum, std::string> shadersource;
 		std::string t= ReadFile(VertexShaderpath);
@@ -48,7 +49,7 @@ namespace Kans {
 
 	OpenGLShader::~OpenGLShader()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glDeleteProgram(m_RendererID);
 	}
@@ -65,7 +66,7 @@ namespace Kans {
 
 	std::string OpenGLShader::ReadFile(const std::string& filepath)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		std::string result;
 		std::ifstream in(filepath, std::ios::in|std::ios::binary);
@@ -97,7 +98,7 @@ namespace Kans {
 
 	std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(const std::string& source)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		const char* typeToken = "#type";
 		size_t typeTokenlength = strlen(typeToken);
@@ -122,12 +123,12 @@ namespace Kans {
 
 	void OpenGLShader::Compile(const std::unordered_map<GLenum, std::string>& shadersource)
 	{
-		HZ_PROFILE_FUCTION();
-
+		PROFILE_FUCTION();
+		
 		//shaderComplie
 		uint32_t id = glCreateProgram();
 		CORE_ASSERT(shadersource.size() <= 3, "shadersource is not support !");
-		std::array<GLenum,3> glShaderIDs;
+		std::vector<GLenum> glShaderIDs;
 		uint32_t index=0;
 		GLenum test1 = GL_FRAGMENT_SHADER;
 		GLenum test2 = GL_VERTEX_SHADER;
@@ -158,7 +159,7 @@ namespace Kans {
 				break;
 			}
 			glAttachShader(id, shader);
-			glShaderIDs[index++]=shader;
+			glShaderIDs.push_back(shader);
 		}
 
 
@@ -202,14 +203,14 @@ namespace Kans {
 
 	void OpenGLShader::Bind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glUseProgram(m_RendererID);
 	}
 
 	void OpenGLShader::UnBind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glUseProgram(0);
 	}

@@ -141,7 +141,7 @@ namespace KansTools
 			long long end = std::chrono::time_point_cast<std::chrono::microseconds>(stoptimepoint).time_since_epoch().count();
 
 			m_Stoped = true;
-			float duration = (end - start)*0.000001;
+			float duration = (end - start)*0.000001f;
 			CORE_ERROR_TAG("Instrumentor","{} takes time : {}s", m_Name, duration);
 		}
 	private:
@@ -153,21 +153,21 @@ namespace KansTools
 
 
 #ifdef KS_DEBUG 
-#define HZ_PROFILE 
-#endif // HZ_DEBUG NATIVE PROFILE
+#define KS_PROFILE 
+#endif //NATIVE PROFILE
 
-#ifdef  HZ_PROFILE
-#define HZ_PROFILE_BEGIN_SESSION(name,filepath) ::KansTools::Instrumentor::Get().BeginSession(name,filepath);
-#define HZ_PROFILE_END_SESSION() ::KansTools::Instrumentor::Get().EndSession();
-#define HZ_PROFILE_FUCTION() HZ_PROFILE_SCOPE(__FUNCTION__);
+#ifdef  KS_PROFILE
+#define PROFILE_BEGIN_SESSION(name,filepath) ::KansTools::Instrumentor::Get().BeginSession(name,filepath);
+#define PROFILE_END_SESSION() ::KansTools::Instrumentor::Get().EndSession();
+#define PROFILE_FUCTION() PROFILE_SCOPE(__FUNCTION__);
 
-#define HZ_PROFILE_SCOPE(name) ::KansTools::InstrumentationTimer timer##__Line__(name);
+#define PROFILE_SCOPE(name) ::KansTools::InstrumentationTimer timer##__Line__(name);
 #define PROFILE_SCOPE_LOG(name) ::KansTools::InstrumentationTimerLogger timerlogger##__Line__(name);
 #else
-#define HZ_PROFILE_BEGIN_SESSION(name,filepath)
-#define HZ_PROFILE_END_SESSION() 
-#define HZ_PROFILE_FUCTION() 
+#define PROFILE_BEGIN_SESSION(name,filepath)
+#define PROFILE_END_SESSION() 
+#define PROFILE_FUCTION() 
 
-#define HZ_PROFILE_SCOPE(name) 
+#define PROFILE_SCOPE(name) 
 #define PROFILE_SCOPE_LOG(name) 
 #endif

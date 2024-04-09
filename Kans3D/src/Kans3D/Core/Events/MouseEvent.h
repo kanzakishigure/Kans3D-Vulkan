@@ -1,6 +1,6 @@
 #pragma once
 #include"Kans3D/Core/Events/Event.h"
-#include"Kans3D/Input/MouseCodes.h"
+#include "Kans3D/Input/KeyCodes.h"
 
 namespace Kans
 {
@@ -49,18 +49,18 @@ namespace Kans
 	class  MouseButtonEvent :public Event
 	{
 	public:
-		MouseCode GetMouseButton()const { return m_Button; }
+		MouseButton GetMouseButton()const { return m_Button; }
 		EVENT_CLASS_CATEGORY(EventCategoryInput | EventCategoryMouse| EventCategoryMouseButton)
 	protected:
-		MouseButtonEvent(const MouseCode button)
+		MouseButtonEvent(const MouseButton button)
 			:m_Button(button) {}
-		MouseCode m_Button;
+		MouseButton m_Button;
 	};
 
 	class  MouseButtonPressedEvent:public MouseButtonEvent
 	{
 	public:
-		MouseButtonPressedEvent(const MouseCode button)
+		MouseButtonPressedEvent(const MouseButton button)
 			:MouseButtonEvent(button){}
 
 		std::string ToString ()const override
@@ -74,7 +74,7 @@ namespace Kans
 	class  MouseButtonReleasedEvent : public MouseButtonEvent
 	{
 	public:
-		MouseButtonReleasedEvent(const MouseCode button)
+		MouseButtonReleasedEvent(const MouseButton button)
 			: MouseButtonEvent(button) {}
 
 		std::string ToString() const override

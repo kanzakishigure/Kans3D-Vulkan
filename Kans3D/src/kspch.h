@@ -27,5 +27,5 @@
 #include <Kans3D/Debug/Instrumentor.h>
 #ifdef PLATFORM_WINDOWS
 	#include<Windows.h>
-#endif // HZ_PLATFORM_WINDOWS
+#endif // PLATFORM_WINDOWS
 

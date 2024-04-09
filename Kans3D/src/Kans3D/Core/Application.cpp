@@ -30,32 +30,29 @@ namespace Kans
 		
 
 		CORE_INFO("Application [{:>8}]  is Create :", spec.Name);
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		s_Instance = this;
 
 		
 		//-------------create application Surface and init the render context-----------------//
-		RendererAPI::SetAPI(RendererAPIType::Vulkan);
-		{
+		RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+		
 			
-			WindowSpecification windowSpec;
-			windowSpec.Title = spec.Name;
-			windowSpec.Height = spec.Height;
-			windowSpec.Width = spec.Width;
-			windowSpec.Fullscreen = spec.Fullscreen;
-			windowSpec.HideTitlebar = spec.HideTitlebar;
-			m_Window = std::unique_ptr<Window>(Window::Create(windowSpec));
-			m_Window->Init();
-			m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
-		}
+		WindowSpecification windowSpec;
+		windowSpec.Title = spec.Name;
+		windowSpec.Height = spec.Height;
+		windowSpec.Width = spec.Width;
+		windowSpec.Fullscreen = spec.Fullscreen;
+		windowSpec.HideTitlebar = spec.HideTitlebar;
+		m_Window = Scope<Window>(Window::Create(windowSpec));
+		m_Window->Init();
+		m_Window->SetEventCallback([this](Event& e){OnEvent(e);});
+		
 		//-------------Init the Renderer----------------------------//
-		
 		Renderer::Init(m_Window);
-		
 		//-------------Init The UI Layer------------------------//
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
-
 		//-------------Init the ScriptEengine-----------------------//
 		ScriptEngine::Init();
 	
@@ -80,7 +77,7 @@ namespace Kans
 	}
 	void Application::run()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		while (m_Running)
 		{
 			float time = GetTime();
@@ -92,13 +89,13 @@ namespace Kans
 			if (!m_Minimized)
 			{
 				{
-					HZ_PROFILE_SCOPE("application_layerstark_update");
+					PROFILE_SCOPE("application_layerstark_update");
 					//普通layer进行渲染
 					for (Layer* layer : m_LayerStack)
 					layer->OnUpdate(m_TimeStep);
 				}
 				{
-					HZ_PROFILE_SCOPE("application_imgui_layerstark_update");
+					PROFILE_SCOPE("application_imgui_layerstark_update");
 					//处理 ImGuiLayer渲染
 					m_ImGuiLayer->Begin();
 					for (Layer* layer : m_LayerStack)
@@ -112,7 +109,7 @@ namespace Kans
 	}
 	void Application::OnEvent(Event& e)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(BIND_EVENT_FN(Application::OnWindowResize));
@@ -127,14 +124,14 @@ namespace Kans
 	}
 	void Application::PushLayer(Layer* layer)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		m_LayerStack.PushLayer(layer);
 		layer->OnAttach();
 	}
 	void Application::PushOverlay(Layer* overlay)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		m_LayerStack.PushLayer(overlay);
 		overlay->OnAttach();
@@ -158,7 +155,7 @@ namespace Kans
 	}
 	bool Application::OnWindowResize(WindowResizeEvent& e)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		if (e.GetHeight() == 0 || e.GetWidth() == 0)
 		{

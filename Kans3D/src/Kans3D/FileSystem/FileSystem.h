@@ -3,6 +3,7 @@
 #include <functional>
 #include <filesystem>
 #include "Kans3D/Core/byteBuffer.h"
+
 namespace Kans
 {
 	class FileSystemSpecification
@@ -58,7 +59,8 @@ namespace Kans
 		static std::string ReadFileSkipBOM(const std::filesystem::path& path);
 
 	public:
-		static const std::filesystem::path& GetShaderFolder() { return s_Specification->m_ShaderDir;}
+		static const std::filesystem::path& GetShaderFolder() { return s_Specification->m_ShaderDir; }
+		
 		static const std::filesystem::path& GetShaderCacheFolder() { return s_Specification->m_ShaderCacheDir; }
 
 		static const std::filesystem::path& GetAssetFolder() { return s_Specification->m_AssetsDir; }

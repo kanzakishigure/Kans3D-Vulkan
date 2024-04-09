@@ -10,7 +10,7 @@
 #include "Kans3D/ImGui/ImGuiLayer.h"
 //------Input---------------
 #include "Kans3D/Input/KeyCodes.h"
-#include "Kans3D/Input/MouseCodes.h"
+
 #include "Kans3D/Input/Input.h"
 //------Entity/Scene---------------
 #include "Kans3D/Scene/Scene.h"
@@ -18,7 +18,7 @@
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/SceneSerializer.h"
 //------UI---------------
-#include "Kans3D/Utilities/UI/KansUI.h"
+#include "Kans3D/ImGui/KansUI.h"
 //------Renderer---------------
 #include "Kans3D/Renderer/RHI/FrameBuffer.h"
 #include "Kans3D/Renderer/RHI/Buffer.h"
@@ -28,6 +28,7 @@
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+
 //-------Render Resource-----
 #include "Kans3D/Renderer/Resource/Shader.h"
 #include "Kans3D/Renderer/Resource/Texture.h"

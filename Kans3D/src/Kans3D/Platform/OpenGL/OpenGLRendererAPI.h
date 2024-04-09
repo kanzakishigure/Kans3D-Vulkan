@@ -16,14 +16,17 @@ namespace Kans {
 		virtual void EnableDepthTest(bool enabled) override;
 		virtual void EnableSetStencil(bool enabled) override;
 		virtual void EnableCullFace(bool enabled) override;
+		virtual void EnableBlend(bool enabled) override;
 
 		virtual void SetStencilMask(uint32_t mask) override;
 		virtual void SetStencilFunc(StencilFunction func, uint32_t value, uint32_t mask) override;
 		virtual void StencilOp(StencilOption sfail, StencilOption dpfail, StencilOption dppass) override;
 		virtual void CullFace(CullFaceOption option) override;
-
+		
+		
+		virtual uint32_t GetError() override;
 		virtual void BindTexture(uint32_t texture, uint32_t slot) override;
-
+		virtual void DrawQuad() override;
 
 		virtual void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0);
 		virtual void DrawArray(const Ref<VertexArray>& vertexArray, uint32_t vertexCount = 0);

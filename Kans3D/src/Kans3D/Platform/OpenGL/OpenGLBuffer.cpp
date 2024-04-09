@@ -10,7 +10,7 @@ namespace Kans{
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	OpenGLVertexBuffer::OpenGLVertexBuffer(float* vertices, uint32_t size)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glCreateBuffers(1, &m_RendererID);
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
@@ -19,7 +19,7 @@ namespace Kans{
 
 	OpenGLVertexBuffer::OpenGLVertexBuffer(uint32_t size)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glCreateBuffers(1, &m_RendererID);
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
@@ -29,20 +29,20 @@ namespace Kans{
 
 	OpenGLVertexBuffer::~OpenGLVertexBuffer()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glDeleteBuffers(1, &m_RendererID);
 	}
 	void OpenGLVertexBuffer::Bind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
 	}
 
 	void OpenGLVertexBuffer::Unbind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
@@ -50,7 +50,7 @@ namespace Kans{
 
 	void OpenGLVertexBuffer::SetData(const void* data, uint32_t size)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
 		glBufferSubData(GL_ARRAY_BUFFER,0,size,data);
 	}
@@ -61,7 +61,7 @@ namespace Kans{
 
 	OpenGLIndexBuffer::OpenGLIndexBuffer(uint32_t* indices, uint32_t count)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glGenBuffers(1, &m_RendererID);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID);
@@ -71,21 +71,21 @@ namespace Kans{
 
 	OpenGLIndexBuffer::~OpenGLIndexBuffer()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glDeleteBuffers(1, &m_RendererID);
 	}
 
 	void OpenGLIndexBuffer::Bind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID);
 	}
 
 	void OpenGLIndexBuffer::Unbind() const
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	}

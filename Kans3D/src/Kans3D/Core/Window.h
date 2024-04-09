@@ -8,12 +8,12 @@ namespace Kans
 	
 	struct WindowSpecification
 	{
-		std::string Title = "Kans Engine";
-		uint32_t Width = 1920;
-		uint32_t Height = 1080;
-		bool Fullscreen ;
-		bool HideTitlebar ;
-		bool VSync = true;
+		std::string Title	= "Kans Engine";
+		uint32_t Width		= 1920;
+		uint32_t Height		= 1080;
+		bool Fullscreen		= false;
+		bool HideTitlebar	= true;
+		bool VSync			= true;
 	};
 	class  Window
 	{

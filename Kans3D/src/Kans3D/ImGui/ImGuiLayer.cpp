@@ -9,6 +9,7 @@
 
 #include "Kans3D/ImGui/Colors.h"
 #include "Kans3D/FileSystem/FileSystem.h"
+#include "ImGuizmo.h"
 //Temp
 #include<GLFW/glfw3.h>
 #include <glad/glad.h>
@@ -32,7 +33,7 @@ namespace Kans
 
 	void ImGuiLayer::OnAttach()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		// Setup Dear ImGui context
 		IMGUI_CHECKVERSION();
@@ -85,26 +86,28 @@ namespace Kans
 
 	void ImGuiLayer::OnDetach()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		ImGui_ImplOpenGL3_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
+		
 	}
 
 	void ImGuiLayer::Begin()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
+		ImGuizmo::BeginFrame();
 		
 	}
 
 	void ImGuiLayer::End()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		ImGuiIO& io = ImGui::GetIO();
 		Application& app = Application::Get();
