@@ -156,7 +156,7 @@ namespace Kans
 		{
 			const size_t endofline = newSource.find_first_of("\r\n", pos);
 			const std::vector<std::string>& tokens = Utils::SplitString(newSource.substr(pos, endofline - pos));
-			CORE_ASSERT(tokens.size() >3,"illigal version");
+			CORE_ASSERT(tokens.size() >3,"illegal version");
 			CORE_INFO("GLSL sahder request Version : {0}", tokens[2]);
 		}
 
@@ -169,7 +169,7 @@ namespace Kans
 			if (tokens[index] == "pragma")
 			{
 				++index;
-				if (tokens[index] == "stag")
+				if (tokens[index] == "stage")
 				{
 					++index;
 					CORE_ASSERT(tokens[index] == ":", "Stage pragma is invalid");

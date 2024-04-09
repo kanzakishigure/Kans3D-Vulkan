@@ -217,11 +217,13 @@ namespace Kans
 				{
 					CORE_ERROR_TAG("Renderer", fmt::format("fail to preprocess {} : {}.\nError: {}", m_ShaderSourcePath, ShaderUtils::ShaderStageToString(stage), result.GetErrorMessage()));
 				}
-				shaderSource = std::string(result.begin(), result.end());
-
-			
-				m_ShaderCacheDatas[stage].HashValue = Hash::GenerateMD5Hash(shaderSource);
-				m_ShaderCacheDatas[stage].Headers = headIncluder->GetIncludeHeadData();
+				else
+				{
+					shaderSource = std::string(result.begin(), result.end());
+					m_ShaderCacheDatas[stage].HashValue = Hash::GenerateMD5Hash(shaderSource);
+					m_ShaderCacheDatas[stage].Headers = headIncluder->GetIncludeHeadData();
+				}
+				
 			}
 		
 
