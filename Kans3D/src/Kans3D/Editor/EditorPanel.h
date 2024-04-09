@@ -6,13 +6,13 @@ namespace Kans
 	class EditorPanel
 	{
 	public:
-		virtual ~EditorPanel(){}
+		virtual ~EditorPanel() = default;
 
-		virtual void OnImguiRender(bool isOpen) = 0;
+		virtual void onImGuiRender(bool isOpen) = 0;
 
-		virtual void OnEvent(Event& e){}
-		virtual void OnProjectChanged(){}
-		virtual void SetSceneContext(const Ref<Scene>& context){}
+		virtual void onEvent(Event& e){}
+		virtual void onProjectChanged(){}
+		virtual void setSceneContext(const Ref<Scene>& context){}
 
 	};
 }
