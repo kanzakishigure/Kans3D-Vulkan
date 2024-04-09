@@ -42,7 +42,11 @@ project "Kans3D"
         "%{prj.name}/vendor/stb_image/**.h", 
         "%{prj.name}/vendor/stb_image/**.cpp" ,
         "%{prj.name}/vendor/glm/glm/**.hpp",
-        "%{prj.name}/vendor/glm/glm/**.inl"
+        "%{prj.name}/vendor/glm/glm/**.inl",
+
+        "%{prj.name}/vendor/ImGuizmo/ImGuizmo.h",
+        "%{prj.name}/vendor/ImGuizmo/ImGuizmo.cpp"
+        
     }
     includedirs 
     { 
@@ -60,7 +64,8 @@ project "Kans3D"
         "%{IncludeDir.VulkanSDK}",
         "%{IncludeDir.yaml_cpp}",
         "%{IncludeDir.mono}",
-        "%{IncludeDir.shaderc_util}"
+        "%{IncludeDir.shaderc_util}",
+        "%{IncludeDir.ImGuizmo}",
         
     }
     links
@@ -74,6 +79,9 @@ project "Kans3D"
         "%{Library.mono}"
         
     }
+
+    filter "files:Kans3D/vendor/ImGuizmo/**.cpp"
+	flags { "NoPCH" }
     filter "system:windows" 
         systemversion "latest" 
 
@@ -174,6 +182,7 @@ project "KansEditor"
             "%{IncludeDir.entt}",
             "%{IncludeDir.assimp}",
             "%{IncludeDir.yaml_cpp}",
+            "%{IncludeDir.ImGuizmo}",
 
             
         }
@@ -181,12 +190,14 @@ project "KansEditor"
         {
             "Kans3D"
         }
+
+       
         filter "system:windows"
             systemversion "latest" 
     
             defines
             {
-                "HZ_PLATFORM_WINDOWS"      
+                "PLATFORM_WINDOWS"      
             }
     
     

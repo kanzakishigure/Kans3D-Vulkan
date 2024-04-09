@@ -14,6 +14,8 @@ IncludeDir["yaml_cpp"] = "Kans3D/vendor/yaml-cpp/include"
 IncludeDir["mono"] = "Kans3D/vendor/mono/include"
 IncludeDir["VulkanSDK"] = "%{VULKAN_SDK}/Include"
 IncludeDir["shaderc_util"] = "%{wks.location}/Kans3D/vendor/shaderc/libshaderc_util/include"
+IncludeDir["ImGuizmo"] = "Kans3D/vendor/ImGuizmo"
+
 
 LibraryDir = {}
 LibraryDir["VulkanSDK"] = "%{VULKAN_SDK}/Lib"
