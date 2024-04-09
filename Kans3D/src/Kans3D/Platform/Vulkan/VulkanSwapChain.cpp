@@ -7,10 +7,7 @@
 namespace Kans
 {
 
-	VulkanSwapChain::VulkanSwapChain()
-	{
-
-	}
+	
 
 	void VulkanSwapChain::Init(VkInstance instance, const Ref<VulkanDevice>& device, GLFWwindow* Window)
 	{
@@ -176,6 +173,17 @@ namespace Kans
 	{
 		vkDeviceWaitIdle(m_Device->GetVulkanDevice());
 		
+
+		for(auto syncPrimitives : m_SwapChainSyncPrimitives)
+		{
+			VkResult res_wait_for_fences =
+				vkWaitForFences(m_Device->GetVulkanDevice(), Max_frames_in_flight, &syncPrimitives.FrameInFlight, VK_TRUE, UINT64_MAX);
+			if (VK_SUCCESS != res_wait_for_fences)
+			{
+				CORE_ERROR("_vkWaitForFences failed");
+				return;
+			}
+		}
 		//Cleanup swapchain
 		{
 			for (auto& image : m_SwapChainImages)

@@ -11,7 +11,7 @@ namespace Kans
 	{
 		
 	public:
-		VulkanSwapChain();
+		VulkanSwapChain() = default;
 		void Init(VkInstance instance,const Ref<VulkanDevice>& device, GLFWwindow* windows);
 		void Create(uint32_t* width, uint32_t* height, bool vsync);
 		void ReCreate(uint32_t width, uint32_t height);

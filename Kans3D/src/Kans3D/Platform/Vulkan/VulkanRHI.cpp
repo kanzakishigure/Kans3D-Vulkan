@@ -137,6 +137,7 @@ namespace Kans
 		CreateSwapChain();
 		CreateCommandPool();
 		CreateCommandBuffers();
+		CreateDescriptorPool();
 		// create the vulkan pipline
 		//create the pipline dynamic state
 		std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR };
@@ -327,13 +328,16 @@ namespace Kans
 		
 	}
 
+	
+
 	void VulkanRHI::CreateCommandBuffers()
 	{
-		//CreatBuffer for graphic queue
-		{
-			
-			
-		}
+
+	}
+
+	void VulkanRHI::CreateDescriptorPool()
+	{
+
 	}
 
 }
