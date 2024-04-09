@@ -1,5 +1,5 @@
 #include "ContentBrowserPanel.h"
-#include "Kans3D/Utilities/UI/KansUI.h"
+#include "Kans3D/ImGui/KansUI.h"
 #include "Kans3D/ImGui/Colors.h"
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -8,12 +8,12 @@
 namespace Kans
 {
 	ContentBrowserPanel::ContentBrowserPanel()
-		:m_CurrentPath(KansFileSystem::GetAssetFolder())
+		:m_CurrentPath(KansFileSystem::GetAssetFolder().parent_path())
 	{
 
 	}
 
-	void ContentBrowserPanel::OnImguiRender(bool isOpen)
+	void ContentBrowserPanel::onImGuiRender(bool isOpen)
 	{
 		ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoTitleBar;
 		auto& style = ImGui::GetStyle();
@@ -70,7 +70,8 @@ namespace Kans
 					const char* column_name = ImGui::TableGetColumnName(1); // Retrieve name passed to TableSetupColumn()
 					ImGui::PushID(column_name);
 					auto debugpath = KansFileSystem::GetAssetFolder();
-					if (m_CurrentPath != KansFileSystem::GetAssetFolder())
+					
+					if (m_CurrentPath != KansFileSystem::GetAssetFolder().parent_path())
 					{
 						if(0)
 						{
@@ -84,7 +85,7 @@ namespace Kans
 								if (ImGui::Button(name.c_str()))
 								{
 									m_CurrentPath = m_CurrentPath.parent_path();
-									CLIENT_WARN("current path:", m_CurrentPath.string());
+									CLIENT_WARN("current path:{}", m_CurrentPath.string());
 								}
 								CLIENT_INFO(spiltPath);
 								name = spiltPath.substr(0, nop);
@@ -95,7 +96,7 @@ namespace Kans
 						if (ImGui::Button("<<---"))
 						{
 							m_CurrentPath = m_CurrentPath.parent_path();
-							CLIENT_WARN("current path:",m_CurrentPath.string());
+							CLIENT_WARN("current path:{0}",m_CurrentPath.string());
 						}
 						
 					}

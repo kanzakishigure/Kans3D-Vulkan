@@ -4,7 +4,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <Kans3D/Platform/OpenGL/OpenGLShader.h>
 
-
+#include "ImGuizmo.h"
 //TestInclude
 #include <Kans3D/Core/UUID.h>
 #include <Kans3D/ImGui/Colors.h>
@@ -13,43 +13,37 @@
 #define ShowImguiDemo		false
 #define ShowEditorUI		true
 #define EnbaleDocking		true
-#define TestLoadModel		true	
-#define CrashTest			false
+#define CreatePrimitives	false
+
+#define TestLoadNPRMaterial	false
+#define TestLoadSkinMesh	false	
+#define TestLoadPBRMaterial false
+#define TestCrash			false
+
 #define SpotCloudTest		false
 #define NativeScript		false
+#define ShowDepthBuffer		false
+#define ShowColorBuffer     true
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace Kans
 {
-
+	
 
 	EditorLayer::EditorLayer()
-		:m_CameraController(1920.0f / 1080.0f), Layer("EditorLayer")
+		:m_EditorCamera(45.0f,1920,1080,0.1,1000), Layer("EditorLayer")
 	{	
 
 	}
 	void EditorLayer::OnAttach()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 
 		//Resource Init
 		EditorResources::Init();
 
-		//Renderer2D init
-		Renderer2D::Init();
-		//FrameBuffer init
-		{
-			
-			FrameBufferSpecification spec;
-			spec.Width = Application::Get().GetWindow().GetWidth();
-			spec.Height = Application::Get().GetWindow().GetHeight();
-			//Color                           normal													Depth
-			spec.AttachmentSpecification = { FrameBufferTextureFormat::RGBA8 ,FrameBufferTextureFormat::RGBA8,FrameBufferTextureFormat::Depth };
-			m_Framebuffer = FrameBuffer::Create(spec);
 
-		}
-		
 		// scene init
 		{
 				
@@ -57,7 +51,9 @@ namespace Kans
 			//Create Scene
 			{
 				m_ActiveScene = CreateRef<Scene>("TestDemo");
-			
+				m_ActiveScene->OnViewportResize(
+					(uint32_t)Application::Get().GetWindow().GetWidth(), 
+					(uint32_t)Application::Get().GetWindow().GetHeight());
 				auto pointlight = m_ActiveScene->CreateEntity("PointLight");
 
 				auto& plightCMP = pointlight.AddComponent<PointLightComponent>();
@@ -73,9 +69,7 @@ namespace Kans
 				dirCMP.Specular_Intensity = glm::vec3(1.0);
 				dirCMP.Ambient_Intensity = glm::vec3(1.0);
 			}
-			
 
-			
 			//Create Scene camera
 			{
 				m_CameraEntity = m_ActiveScene->CreateEntity("mainCamera");
@@ -84,7 +78,7 @@ namespace Kans
 				auto& cmp = m_CameraEntity.AddComponent<CameraComponent>();
 				cmp.SceneCamera.SetViewportSize(1920, 1080);
 			}
-			
+#if CreatePrimitives
 			//Create Cube
 			{
 				auto& cubeEntity = m_ActiveScene->CreateEntity("cube");
@@ -99,24 +93,26 @@ namespace Kans
 				TransformCMP.Scale = { 1.0f, 1.0f, 1.0f };
 
 			}
+#endif
 			// load Mesh test
-#if TestLoadModel
+#if TestLoadNPRMaterial
 			{
 
-
 				//ref BackScene
+				
 				{
-					
+
 					auto RefEntity = m_ActiveScene->CreateEntity("RefEntity");
 					auto& spritCMP = RefEntity.AddComponent<SpriteRendererComponent>();
 
 					TextureSpecification spec;
-					spritCMP.Texture = Renderer::GetBlackTexture();
+					spritCMP.Texture = Texture2D::Create(spec, "assets/textures/GY.png");
 					auto& transformCMP = RefEntity.GetComponent<TransformComponent>();
 					transformCMP.Scale = { 19.2f,10.8f,1.0f };
-					transformCMP.Position = { 2.3f,0.0f,-12.0f };
+					transformCMP.Position = { 0.0f,0.0f,-10.0f };
+					transformCMP.Rotation = { 0.0f,glm::radians(180.0f),0.0f };
 				}
-
+				
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = GY_LightEntity.AddComponent<MaterialComponent>();
@@ -151,8 +147,65 @@ namespace Kans
 				Utils::MaterialUtils::InitMaterial(materialCMP.MaterialTable);
 			}
 #endif
+#if TestLoadSkinMesh
+			{
+				
+				auto shibahu_Entity = m_ActiveScene->CreateEntity("shibahu");
+				auto& meshCMP = shibahu_Entity.AddComponent<StaticMeshComponent>();
+				auto& materialCMP = shibahu_Entity.AddComponent<MaterialComponent>();
+				auto meshSrouce = CreateRef<MeshSource>("assets/model/shibahu/scene.gltf");
+				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
+				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+				materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+
+				auto& TransformCMP = shibahu_Entity.GetComponent<TransformComponent>();
+				TransformCMP.Position = { 0.0f,-0.5f,-1.0f };
+				TransformCMP.Rotation = { glm::radians(0.0f),0.0f,glm::radians(0.0f) };
+				TransformCMP.Scale = { glm::vec3(0.01f) };
+
+
+			}
+#endif
+
+#if TestLoadPBRMaterial
+			
+			
+			{
+
+				auto shibahu_Entity = m_ActiveScene->CreateEntity("modern_coffee_table");
+				auto& meshCMP = shibahu_Entity.AddComponent<StaticMeshComponent>();
+				auto& materialCMP = shibahu_Entity.AddComponent<MaterialComponent>();
+				auto meshSrouce = CreateRef<MeshSource>("assets/model/modern_coffee_table/modern_coffee_table_01_1k.gltf");
+				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
+				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+				materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+
+				auto& TransformCMP = shibahu_Entity.GetComponent<TransformComponent>();
+				TransformCMP.Position = { 0.0f,0.0f,-1.0f };
+				TransformCMP.Rotation = { 0.0f,glm::radians(90.0f),0.0f };
+				
+			}
+
+			{
+
+				auto shibahu_Entity = m_ActiveScene->CreateEntity("boombox_4k");
+				auto& meshCMP = shibahu_Entity.AddComponent<StaticMeshComponent>();
+				auto& materialCMP = shibahu_Entity.AddComponent<MaterialComponent>();
+				auto meshSrouce = CreateRef<MeshSource>("assets/model/boombox_4k/boombox_4k.gltf");
+				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
+				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+				materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+
+				auto& TransformCMP = shibahu_Entity.GetComponent<TransformComponent>();
+				TransformCMP.Position = { 0.0f,0.0f,-1.0f };
+				TransformCMP.Scale = { 0.5f,0.5f,0.5f };
+
+			}
+
+			
+#endif
 			// createMesh test
-#if CrashTest
+#if TestCrash
 			// the performance is sucks
 			{
 				for (int i = 0; i <1 ; i++)
@@ -163,7 +216,7 @@ namespace Kans
 						auto& meshCMP = CubeEntity.AddComponent<StaticMeshComponent>();
 						auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
 						meshCMP.StaticMesh = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
-						meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterials();
+						meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
 						materialCMP.MaterialTable = meshCMP.MaterialTable;
 						auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
 						TransformCMP.Position = { 0.0f,0.0f,-3.0f };
@@ -176,7 +229,6 @@ namespace Kans
 			}
 #endif		
 			// spotCloud test
-
 #if SpotCloudTest
 			{
 				auto CubeEntity = m_ActiveScene->CreateEntity("Cloud");
@@ -243,18 +295,39 @@ namespace Kans
 			
 			//InitPanel
 			{
-					m_SceneHierachyPanel.SetSceneContext(m_ActiveScene);
+					m_SceneHierachyPanel.setSceneContext(m_ActiveScene);
 					
 			}
 				
 			m_ActiveScene->OnRuntimeStart();
 		}
+		
+		//post Init Renderer pipeline
+		{
+			m_ActiveRenderScene = CreateRef<RenderScene>(m_ActiveScene);
+			m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
+			//m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
+			RenderPipelineSpecification pipline_init_specification;
+			pipline_init_specification.render_scene = m_ActiveRenderScene;
+			Renderer::InitRenderPipline(pipline_init_specification);
+
+		}
+	
+		{
+		
+			//Renderer2D init
+			Renderer2D::Init();
+			
+		}
 		//Scene Renderer Init
 		{
-			m_StaticMeshRenderer = CreateRef<SceneRenderer>(m_ActiveScene);
-			m_StaticMeshRenderer->SetFrameBuffer(m_Framebuffer);
+			
+			m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
+			m_ViewportRenderer->PrepareEnvironment();  
+
 		}
-}
+	}
+	
 	void EditorLayer::OnDetach()
 	{
 		//temp function to test script system
@@ -265,27 +338,31 @@ namespace Kans
 			s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");
 		}
 
-		HZ_PROFILE_FUCTION();
-		CLIENT_INFO("Editor", "editor layer call detach");
+		PROFILE_FUCTION();
+		CLIENT_INFO_TAG("Editor", "editor layer call detach");
 
 		Renderer2D::Shutdown();
 		EditorResources::ShutDown();
-
+		
+		m_ActiveRenderScene.reset();
+		m_ActiveScene.reset();
+		
 		
 	}
 
 	void EditorLayer::OnUpdate(TimeStep ts)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		//resize
 		{
-			if (FrameBufferSpecification spec = m_Framebuffer->GetSpecification();
+			if (auto spec = m_ViewportRenderer->GetViewportSize();
 				m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f &&
-				(spec.Width !=(uint32_t) m_ViewportSize.x || spec.Height != (uint32_t)m_ViewportSize.y))
+				(spec[0] !=(uint32_t) m_ViewportSize.x || spec[1] != (uint32_t)m_ViewportSize.y))
 			{
-				m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-				m_CameraController.OnResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+				m_ViewportRenderer->SetViewportSize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+				m_EditorCamera.setViewportSize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+				m_ActiveRenderScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 				m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 			}
 		}
@@ -293,7 +370,7 @@ namespace Kans
 		//update
 		{
 			if(!m_ViewportFocused)
-			m_CameraController.OnUpdate(ts);
+			m_EditorCamera.onUpdate(ts);
 
 		}
 
@@ -302,32 +379,26 @@ namespace Kans
 			m_ActiveScene->OnUpdate(ts);
 
 		}
-		//renderer
-		Renderer2D::ResetStats();
-		m_Framebuffer->Bind();
-		// OpenGLRenderCommand::SetClearColor({ 0.02f, 0.02f, 0.02f, 1.0f });
-		OpenGLRenderCommand::SetClearColor({ 0.8f, 0.8f, 0.8f, 1.0f });
-		OpenGLRenderCommand::Clear();
-	
 		//rendering
 		// 此处应该有renderpipline和renderpass
 		{
-			HZ_PROFILE_SCOPE("rendering")
-			m_ActiveScene->OnRenderer(m_StaticMeshRenderer, ts);
+			PROFILE_SCOPE("rendering")
+			m_ActiveRenderScene->OnRenderEditor( m_ViewportRenderer,ts,m_EditorCamera);
 		}
-		m_Framebuffer->Unbind();
-
 	}
 
 	void EditorLayer::OnEvent(Event& e)
 	{
-		HZ_PROFILE_FUCTION();
-		m_CameraController.OnEvent(e);
+		PROFILE_FUCTION();
+		m_EditorCamera.onEvent(e);
+
+		EventDispatcher dispatcher(e);
+		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event) { return OnKeyPressedEvent(event); });
 	}
 	
 	void EditorLayer::OnImGuiRender()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		
 //Imgui docking Init
 #if EnbaleDocking
@@ -369,7 +440,7 @@ namespace Kans
 			
 		
 		
-
+		
 		// DockSpace
 		//set the min docking windowsSize tO 340
 		auto& style = ImGui::GetStyle();
@@ -432,64 +503,158 @@ namespace Kans
 		ImGui::Text("Render3DStats");
 		ImGui::Text("ViePort Size: %f , %f", m_ViewportSize.x, m_ViewportSize.y);
 
-		auto resource = m_ActiveScene->GetRenderResource();
-		ImGui::Separator();
-		ImGui::Checkbox("EnableToneShader", &resource.Piplinestate.EnableToneShader);
-		ImGui::Checkbox("EnableOutline", &resource.Piplinestate.EnableOutline);
-		ImGui::Checkbox("EnableDebugNormal", &resource.Piplinestate.EnableDebugNormal);
-		ImGui::Checkbox("EnableStencil", &resource.Piplinestate.EnableStencil);
-		ImGui::Checkbox("EnableDefaultShader", &resource.Piplinestate.EnableDefaultShader);
-		m_ActiveScene->SetRenderResource(resource);
 		
+		if (m_ActiveRenderScene!=nullptr)
+		{
+			auto resource = m_ActiveRenderScene->GetRenderResource();
+			ImGui::Separator();
+			ImGui::Checkbox("EnableToneShader", &resource.Piplinestate.EnableToneShader);
+			ImGui::Checkbox("EnableOutline", &resource.Piplinestate.EnableOutline);
+			ImGui::Checkbox("EnableDebugNormal", &resource.Piplinestate.EnableDebugNormal);
+			ImGui::Checkbox("EnableStencil", &resource.Piplinestate.EnableStencil);
+			ImGui::Checkbox("EnableDefaultShader", &resource.Piplinestate.EnableDefaultShader);
+			ImGui::Checkbox("EnableGridShader", &resource.Piplinestate.EnableGridShader);
+			m_ActiveRenderScene->SetRenderResource(resource);
+		}
 		
-
+	
 		ImGui::End();
 
 	}
 	//HierachyPanel
-	m_SceneHierachyPanel.OnImguiRender(true);
-	m_ContentBrowserPanel.OnImguiRender(true);
+	m_SceneHierachyPanel.onImGuiRender(true);
+	m_ContentBrowserPanel.onImGuiRender(true);
 	//Viewport
 		//Color FrameBuffer
-		if (1)
+	if(ShowColorBuffer)
+	{
+		ImGui::Begin("ViewPort1");
+		ImVec2 viewportsize = ImGui::GetContentRegionAvail();
+		if (m_ViewportSize != *(glm::vec2*) & viewportsize)
 		{
-			ImGui::Begin("ViewPort1");
-			ImVec2 viewportsize = ImGui::GetContentRegionAvail();
-			if (m_ViewportSize != *(glm::vec2*) & viewportsize)
-			{
 				
-				m_ViewportSize = { viewportsize.x,viewportsize.y };
-				//m_Framebuffer->Resize((uint32_t)viewportsize.x, (uint32_t)viewportsize.y);
-				//m_CameraController.OnResize((uint32_t)viewportsize.x, (uint32_t)viewportsize.y);
-			}
-			uint64_t colorframebufferID = (uint64_t)m_Framebuffer->GetColorAttachmentRendererID();
-			ImGui::Image((void*)colorframebufferID, viewportsize, ImVec2(0, 1), ImVec2(1, 0));
-
-			ImGui::End();
+			m_ViewportSize = { viewportsize.x,viewportsize.y };
+			//m_Framebuffer->Resize((uint32_t)viewportsize.x, (uint32_t)viewportsize.y);
+			//m_CameraController.OnResize((uint32_t)viewportsize.x, (uint32_t)viewportsize.y);
 		}
+		uint64_t colorframebufferID = (uint64_t)m_ViewportRenderer->GetOutput(0);
+		ImGui::Image((void*)colorframebufferID, viewportsize, ImVec2(0, 1), ImVec2(1, 0));
 
-		//Depth FrameBuffer
-		if(0)
+		//ImGuizmo
+		Entity currentEntity = m_SceneHierachyPanel.getSelectEntity();
+		if (currentEntity)
 		{
-			ImGui::Begin("ViewPort2");
-			ImVec2 viewportsize = ImGui::GetContentRegionAvail();
+			ImGuizmo::SetOrthographic(false);
+			ImGuizmo::SetDrawlist();
+			float widowWidth = ImGui::GetWindowWidth();
+			float widowHeight = ImGui::GetWindowHeight();
+			ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, widowWidth, widowHeight);
 
-			if (m_ViewportSize != *(glm::vec2*) & viewportsize)
+			
+
+			glm::mat4 cameraProjection = m_EditorCamera.GetProjectionMatrix();
+			glm::mat4 cameraView = m_EditorCamera.getViewMatrix();
+			glm::mat4 transform = currentEntity.GetComponent<TransformComponent>().GetTransform();
+
+			ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection), 
+				(ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform));
+
+				
+			if (ImGuizmo::IsUsing())
 			{
-				//HZ_INFO("ViewportSize:  {0}   {1}", viewportsize.x, viewportsize.y);
-				m_ViewportSize = { viewportsize.x,viewportsize.y };
-				//m_Framebuffer->Resize(viewportsize.x, viewportsize.y);
+				//currentEntity.GetComponent<TransformComponent>().Position = glm::vec3(transform[3]);
+
+				glm::vec3 translation, scale;
+				glm::vec3 rotation;
+				Math::DecomposeTransform(transform, translation, rotation, scale);
+				auto& tc = currentEntity.GetComponent<TransformComponent>();
+				switch (m_GizmoType)
+				{
+				case ImGuizmo::OPERATION::TRANSLATE:
+				{
+					tc.Position = translation;
+				}
+					break;
+				case ImGuizmo::OPERATION::ROTATE:
+				{
+						
+						
+						
+					glm::vec3 originalRotationEuler = tc.Rotation;
+
+					// Map original rotation to range [-180, 180] which is what ImGuizmo gives us
+					originalRotationEuler.x = fmodf(originalRotationEuler.x + glm::pi<float>(), glm::two_pi<float>()) - glm::pi<float>();
+					originalRotationEuler.y = fmodf(originalRotationEuler.y + glm::pi<float>(), glm::two_pi<float>()) - glm::pi<float>();
+					originalRotationEuler.z = fmodf(originalRotationEuler.z + glm::pi<float>(), glm::two_pi<float>()) - glm::pi<float>();
+
+					glm::vec3 deltaRotationEuler = rotation - originalRotationEuler;
+
+					// Try to avoid drift due numeric precision
+					if (fabs(deltaRotationEuler.x) < 0.001) deltaRotationEuler.x = 0.0f;
+					if (fabs(deltaRotationEuler.y) < 0.001) deltaRotationEuler.y = 0.0f;
+					if (fabs(deltaRotationEuler.z) < 0.001) deltaRotationEuler.z = 0.0f;
+
+					
+
+					tc.Rotation += deltaRotationEuler;
+				}
+					break;
+				case ImGuizmo::OPERATION::SCALE:
+				{
+					if (scale != glm::vec3(1.0f, 1.0f, 1.0f))
+						tc.Scale = scale;
+				}
+					break;
+
+				}
+			}
+		}
+
+		ImGui::End();
+	}
+
+	//Depth FrameBuffer
+	if(ShowDepthBuffer)
+	{
+		ImGui::Begin("ViewPort2");
+		ImVec2 viewportsize = ImGui::GetContentRegionAvail();
+
+		if (m_ViewportSize != *(glm::vec2*) & viewportsize)
+		{
+			//HZ_INFO("ViewportSize:  {0}   {1}", viewportsize.x, viewportsize.y);
+			m_ViewportSize = { viewportsize.x,viewportsize.y };
+			//m_Framebuffer->Resize(viewportsize.x, viewportsize.y);
+		}
+
+
+		uint64_t depthframebufferID =(uint64_t)m_ViewportRenderer->GetOutput(2);
+		ImGui::Image((void*)depthframebufferID, viewportsize, ImVec2(0, 1), ImVec2(1, 0));
+		ImGui::End();
+	}
+#endif	
+	}
+
+	bool EditorLayer::OnKeyPressedEvent(KeyPressedEvent& e)
+	{
+
+			switch (e.GetKeyCode())
+			{
+			case KeyCode::Q :
+				m_GizmoType = -1;
+				break;
+			case KeyCode::W:
+				m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+				break;
+			case KeyCode::E:
+				m_GizmoType = ImGuizmo::OPERATION::ROTATE;
+				break;
+			case KeyCode::R:
+				m_GizmoType = ImGuizmo::OPERATION::SCALE;
+				break;
+			
 			}
 
-
-			uint64_t depthframebufferID =(uint64_t)m_Framebuffer->GetColorAttachmentRendererID(1);
-			ImGui::Image((void*)depthframebufferID, viewportsize, ImVec2(0, 1), ImVec2(1, 0));
-
-			ImGui::End();
-		}
-#endif	
-
-		
+		return false;
 	}
 
 }

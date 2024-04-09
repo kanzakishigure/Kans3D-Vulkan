@@ -1,5 +1,5 @@
 Scene: TestDemo
-? Entity: 7141413164825934096
+? Entity: 1010675633950707422
   TagComponent:
     Tag: GY_Light
   TransformComponent:
@@ -10,29 +10,18 @@ Scene: TestDemo
     {}
   MaterialComponent:
     MaterialTable: ""
-: Entity: 6296095946122972735
+: Entity: 455370956029554052
   TagComponent:
     Tag: RefEntity
   TransformComponent:
-    Position: vec3(2.300000, 0.000000, -12.000000)
-    Rotation: vec3(0.000000, 0.000000, 0.000000)
+    Position: vec3(0.000000, 0.000000, -10.000000)
+    Rotation: vec3(0.000000, 3.141593, 0.000000)
     Scale: vec3(19.200001, 10.800000, 1.000000)
   SpriteRendererComponent:
     Color: vec4(1.000000, 1.000000, 1.000000, 1.000000)
-    Texture: ""
+    Texture: assets/textures/GY.png
     TilingFactor: 1
-? Entity: 1898062802091286346
-  TagComponent:
-    Tag: cube
-  TransformComponent:
-    Position: vec3(0.000000, 2.200000, -3.000000)
-    Rotation: vec3(0.000000, 0.000000, 0.000000)
-    Scale: vec3(1.000000, 1.000000, 1.000000)
-  StaticMeshComponent:
-    {}
-  MaterialComponent:
-    MaterialTable: ""
-: Entity: 7106293009954664946
+? Entity: 8351590548251797409
   TagComponent:
     Tag: mainCamera
   TransformComponent:
@@ -47,10 +36,10 @@ Scene: TestDemo
     OrthographicSize: 10
     OrthographicFarClip: 1
     OrthographicNearClip: -1
-    AspectRatio: 2.16225743
+    AspectRatio: 1.85022688
     Primary: true
     FixedAspectRatio: false
-? Entity: 2477780482659431417
+: Entity: 3594839671578871308
   TagComponent:
     Tag: DirLight
   TransformComponent:
@@ -62,7 +51,7 @@ Scene: TestDemo
     Diffuse_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Specular_Intensity: vec3(1.000000, 1.000000, 1.000000)
     Ambient_Intensity: vec3(1.000000, 1.000000, 1.000000)
-: Entity: 8835059304913357495
+? Entity: 307762057144139046
   TagComponent:
     Tag: PointLight
   TransformComponent:

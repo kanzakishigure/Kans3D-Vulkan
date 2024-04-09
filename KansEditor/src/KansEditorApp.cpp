@@ -22,7 +22,7 @@ public:
 	{
 
 	}
-
+	
 };
 	Kans::Application* Kans::createApplication(int argc, char** argv)
 	{

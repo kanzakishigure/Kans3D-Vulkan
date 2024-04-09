@@ -1,14 +1,65 @@
 ShaderRegistry:
-  - ShaderPath: Resources/Shaders/debug/Texture.glsl
+  - ShaderPath: Resources/Shaders/Vulkan/DebugNormalShader.glsl
     Stages:
       - Stage: vertex_shader
-        StageHash: 65f7396418fb4d856c93c4b86dec477f  # Hash value stored as char
+        StageHash: effe9a98b35d310167028df7e34aaaa  # Hash value stored as char
         IncludeHeads:
-          - IncludedFilePath: Resources/Shaders/Include/env.glslh
-            HashValue: db257e5b7acd4fcd786daed3f5bbc24
-            IsRelative: true
-            IncludeDepth: 1
+          []
+      - Stage: geometry_shader
+        StageHash: 50463166ca6d81f63fa9fa7f98b83d15  # Hash value stored as char
+        IncludeHeads:
+          []
       - Stage: fragment_shader
-        StageHash: b88c49ee19f103e6333d3935b67cda5f  # Hash value stored as char
+        StageHash: eaac81d3494408b84e7907f098ad5598  # Hash value stored as char
+        IncludeHeads:
+          []
+  - ShaderPath: Resources/Shaders/Vulkan/GenShin_Shader/ToneCharactorShader.glsl
+    Stages:
+      - Stage: vertex_shader
+        StageHash: 7ad67c031e1e86351c7e101c7dcf6a2  # Hash value stored as char
+        IncludeHeads:
+          []
+      - Stage: fragment_shader
+        StageHash: 163959008dea27e23bab3ddd6fdca3ac  # Hash value stored as char
+        IncludeHeads:
+          []
+  - ShaderPath: Resources/Shaders/Vulkan/GridShader.glsl
+    Stages:
+      - Stage: vertex_shader
+        StageHash: 3d9631ed511236022445466b76b2aa96  # Hash value stored as char
+        IncludeHeads:
+          []
+      - Stage: fragment_shader
+        StageHash: 296e8fab1a10708f38cc25888ba39705  # Hash value stored as char
+        IncludeHeads:
+          []
+  - ShaderPath: Resources/Shaders/Vulkan/OutLineShader.glsl
+    Stages:
+      - Stage: vertex_shader
+        StageHash: 410f5a5ea7d9685c1576b2264fbb3816  # Hash value stored as char
+        IncludeHeads:
+          []
+      - Stage: fragment_shader
+        StageHash: 545068faf6c81ba25a17cb4a4303bb1b  # Hash value stored as char
+        IncludeHeads:
+          []
+  - ShaderPath: Resources/Shaders/Vulkan/PBR/skybox.glsl
+    Stages:
+      - Stage: vertex_shader
+        StageHash: 8be067003b32abe18efa3c2852430006  # Hash value stored as char
+        IncludeHeads:
+          []
+      - Stage: fragment_shader
+        StageHash: ce024ef606de6fcaeba63786388c7dd  # Hash value stored as char
+        IncludeHeads:
+          []
+  - ShaderPath: Resources/Shaders/Vulkan/StencilShader.glsl
+    Stages:
+      - Stage: vertex_shader
+        StageHash: d702a438d36e5b17ebc6d57091a67d56  # Hash value stored as char
+        IncludeHeads:
+          []
+      - Stage: fragment_shader
+        StageHash: aea1b5ecface657a161a3418bac61d4a  # Hash value stored as char
         IncludeHeads:
           []

@@ -8,10 +8,9 @@ namespace Kans
 	{
 	public:
 		ContentBrowserPanel();
-		virtual void OnImguiRender(bool isOpen) override;
+		virtual void onImGuiRender(bool isOpen) override;
 		
 	private:
-
 		void DrawButtonHeandle(const std::string& name);
 		std::vector<std::function<void()>> m_FloderDrawList;
 		std::filesystem::path m_CurrentPath;
