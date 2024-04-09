@@ -29,6 +29,11 @@ namespace Kans {
 		{
 			s_RendererAPI->SetViewPort(x, y, width, height);
 		}
+
+		inline static uint32_t GetError()
+		{
+			return s_RendererAPI->GetError();
+		}
 		inline static void EnableSetStencil(bool enabled)
 		{
 			s_RendererAPI->EnableSetStencil(enabled);
@@ -53,6 +58,10 @@ namespace Kans {
 		{
 			s_RendererAPI->EnableCullFace(enabled);
 		}
+		inline static void EnableBlend(bool enabled)
+		{
+			s_RendererAPI->EnableBlend(enabled);
+		}
 		inline static void CullFace(CullFaceOption option)
 		{
 			s_RendererAPI->CullFace(option);
@@ -61,7 +70,7 @@ namespace Kans {
 		{
 			s_RendererAPI->BindTexture(texture,slot);
 		}
-
+		
 		inline static void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0)
 		{
 			OpenGLRendererAPI* rhi = static_cast<OpenGLRendererAPI*>(s_RendererAPI);
@@ -72,6 +81,14 @@ namespace Kans {
 			OpenGLRendererAPI* rhi = static_cast<OpenGLRendererAPI*>(s_RendererAPI);
 			rhi->DrawArray(vertexArray, vertexCount);
 		}
+		inline static void DrawQuad()
+		{
+			
+			s_RendererAPI->DrawQuad();
+		}
+		
+	
+
 	private:
 		 inline static RendererAPI* s_RendererAPI;
 

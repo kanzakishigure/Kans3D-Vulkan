@@ -1,7 +1,7 @@
 #pragma once
 #include "RenderPass.h"
 #include "RenderResourceBase.h"
-
+#include "Resource/RenderScene.h"
 namespace Kans
 {
 	/// <summary>
@@ -12,28 +12,29 @@ namespace Kans
 	class RHI;
 	struct RenderPipelineSpecification
 	{
-		std::shared_ptr<RenderResourceBase> render_resource;
+		Ref<RenderResourceBase> render_resource;
+		Ref<RenderScene> render_scene;
 	};
 	
 	class RenderPipelineBase
 	{
 		friend class Renderer;
 	public:
-		 static  Ref<RenderPipelineBase> Create() ;
-
 		virtual void Init(RenderPipelineSpecification spec) = 0;
 		virtual void clear() {}
 
 	protected:
 		Ref<RHI> m_RHI;
-		Ref<RenderPipelineSpecification> m_RenderPipelineSpecification;
 
-		Ref<RenderPass> m_MainCameraPass;
-		Ref<RenderPass> m_ToneShadingPass;
+		
+		Ref<RenderPassBase>	m_DirectionalLightPass;
+		Ref<RenderPassBase> m_PointLightShadowPass;
+		Ref<RenderPassBase> m_MainCameraPass;
 
+		Ref<RenderPassBase> m_ToneShadingPass;
 		//Visual Effective
-		Ref<RenderPass> m_BloomPass;
-		Ref<RenderPass> m_ColorGradingPass;
+		Ref<RenderPassBase> m_BloomPass;
+		Ref<RenderPassBase> m_ColorGradingPass;
 
 
 		

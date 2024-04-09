@@ -2,6 +2,7 @@
 #include "Renderer2D.h"
 
 #include "Resource/Shader.h"
+#include "Kans3D/FileSystem/FileSystem.h"
 #include "RHI/OpenGL/VertexArray.h"
 #include "RHI/OpenGL/OpenGLRenderCommand.h"
 
@@ -59,7 +60,7 @@ namespace Kans {
 
 	void Renderer2D::Init()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 
 		//vertex array
@@ -103,7 +104,9 @@ namespace Kans {
 		//此处没有考虑到线程安全性，如果别渲染的线程上仍然有对该资源的引用，那么此处进行的delete操作就会导致该引用指向一个空资源
 
 		//Shader Program
-		s_Data.s_ShaderLibrary.Add(Kans::Shader::Create("Resources/Shaders/TextureShader.glsl"));
+		std::string shaderpath = KansFileSystem::GetShaderFolder().generic_string();
+		shaderpath += RendererAPI::Current() == RendererAPIType::OPENGL ? "OpenGL/" : "Vulkan/";
+		s_Data.s_ShaderLibrary.Add(Kans::Shader::Create(shaderpath + "TextureShader.glsl"));
 		
 		
 		s_Data.TextureShader = static_cast<OpenGLShader*>(s_Data.s_ShaderLibrary.Get("TextureShader").get());
@@ -137,7 +140,7 @@ namespace Kans {
 
 	void Renderer2D::BeginScene(const OrthographicCamera& camera)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		s_Data.QuadVertexBufferPtr = s_Data.QuadVertexBufferBase;
 		s_Data.QuadIndexCount = 0;
@@ -149,19 +152,19 @@ namespace Kans {
 		//when ever entity is delelte we show clean the batch buffer;
 	}
 
-	void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform)
+	void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& view)
 	{
 		s_Data.QuadVertexBufferPtr = s_Data.QuadVertexBufferBase;
 		s_Data.QuadIndexCount = 0;
 		s_Data.TextureSlotIndex = 1;
 		s_Data.TextureShader->Bind();
-		glm::mat4 viewprojection = camera.GetProjectMatrix() * glm::inverse(transform);
+		glm::mat4 viewprojection = camera.GetProjectionMatrix() * view;
 		s_Data.TextureShader->UploadUniformMat4("U_ViewProjection", viewprojection);
 	}
 
 	void Renderer2D::EndScene()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		
 		//采用了batchrendering之后，不在从每一次drawquad中调用绘制命令，而是在每一次endsecene中调用drawcall
 		s_Data.TextureShader->Bind();
@@ -174,7 +177,7 @@ namespace Kans {
 
 	void Renderer2D::Shutdown()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		
 		delete[] s_Data.QuadVertexBufferBase;
 		CORE_WARN(" render2d quadsbuffer memary is free");
@@ -213,7 +216,7 @@ namespace Kans {
 
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& tintcolor)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
 		{
@@ -261,7 +264,7 @@ namespace Kans {
 
 	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& Texture2D, const glm::vec4& tintcolor /*= glm::vec4(1.0f)*/, float tilingFactor /*= 1.0f*/)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		constexpr int quadsvertexcount = 4;
 		constexpr glm::vec2 croodsindex[4] = { { 0.0f,0.0f }, { 1.0f,0.0f } ,{ 1.0f,1.0f },{ 0.0f,1.0f } };
 		float textureindex = 0.0f;
@@ -327,7 +330,7 @@ namespace Kans {
 	{
 
 
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		constexpr int quadsvertexcount = 4;
 		const glm::vec2* texturecroods = subtexture2D->GetCroods();
 		float textureindex = 0.0f;
@@ -378,7 +381,7 @@ namespace Kans {
 
 	void Renderer2D::DrawRotateQuad(const glm::vec3& position, float roration, const glm::vec2& size, const glm::vec4& tintcolor)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		constexpr int quadsvertexcount = 4;
 		constexpr float textureindex = 0.0f;
 		constexpr float TilingFactor = 1.0f;
@@ -416,7 +419,7 @@ namespace Kans {
 
 	void Renderer2D::DrawRotateQuad(const glm::vec3& position, float roration, const glm::vec2& size, const Ref<Texture2D>& Texture2D, const glm::vec4& tintcolor, float tilingFactor)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 		if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
 		{
 			FlushAndReset();

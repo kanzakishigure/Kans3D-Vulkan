@@ -5,9 +5,7 @@
 #include "Entity.h"
 #include "Components.h"
 
-#include "Kans3D/Renderer/Renderer.h"
-#include "Kans3D/Renderer/Renderer2D.h"
-#include "Kans3D/Renderer/SceneRenderer.h"
+
 #include "Kans3D/Scene/ScriptableEntity.h"
 #include "Kans3D/Script/ScriptEngine.h"
 
@@ -53,158 +51,9 @@ namespace Kans
 			Entity e = { entity,this };
 			ScriptEngine::OnUpdateEntity(e,ts);
 		}
-
-		
 	}	
 
-	void Scene::OnRenderer(Ref<SceneRenderer> renderer,TimeStep ts)
-	{
-		Entity cameraEntity = GetCameraEntity();
-		if (!cameraEntity)
-			return;
-		//SceneInfo
-		SceneInfo sceneinfo = {};
-
-		CameraComponent& cameraCMP = cameraEntity.GetComponent<CameraComponent>();
-		sceneinfo.sceneCamera.camera = cameraCMP.SceneCamera;
-		glm::mat4 Cameratransform = cameraEntity.GetComponent<TransformComponent>().GetTransform();
-		glm::vec3 camaerapos = cameraEntity.GetComponent<TransformComponent>().Position;
-		//Renderer preparation
-		{
-			//viePosition;
-			sceneinfo.sceneCamera.Position = camaerapos;
-			sceneinfo.sceneCamera.viewMatrix = glm::inverse(Cameratransform);
-			//dirLight
-			{
-				auto view = m_Registry.view<DirLightComponent>();
-				for (auto entity : view)
-				{
-					auto [dirlightCMP] = view.get(entity);
-					sceneinfo.dirLight.Dirction = dirlightCMP.Direction;
-					sceneinfo.dirLight.Ambient_Intensity = dirlightCMP.Ambient_Intensity;
-					sceneinfo.dirLight.Diffuse_Intensity = dirlightCMP.Diffuse_Intensity;
-					sceneinfo.dirLight.Specular_Intensity = dirlightCMP.Specular_Intensity;
-				}
-			}
-			//spotLight
-			{
-				auto view = m_Registry.view<PointLightComponent,TransformComponent>();
-				for (auto entity : view)
-				{
-					auto [pointlightCMP,transformCMP] = view.get(entity);
-					sceneinfo.pointLight.Position = transformCMP.Position;
-					sceneinfo.pointLight.Ambient_Intensity = pointlightCMP.Ambient_Intensity;
-					sceneinfo.pointLight.Diffuse_Intensity = pointlightCMP.Diffuse_Intensity;
-					sceneinfo.pointLight.Specular_Intensity = pointlightCMP.Specular_Intensity;
-				}
-			}
-			
-		}
-		//Renderer2D
-#if 1
-		{
-			Renderer2D::BeginScene(sceneinfo.sceneCamera.camera.GetProjectMatrix(), Cameratransform);
-			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-			for (auto entity : group)
-			{
-				auto [transformCMP, spriteRendererCMP] = group.get(entity);
-				Renderer2D::DrawQuad(transformCMP.GetTransform(), spriteRendererCMP.Texture, spriteRendererCMP.Color);
-
-			}
-			Renderer2D::EndScene();
-		}
-#endif
-#if 1
-		//StaticMesh renderer
-		{
-			renderer->BeginScene(sceneinfo);
-			auto group = m_Registry.view<TransformComponent, StaticMeshComponent>();
-			for (auto entity : group)
-			{
-				Entity entt = { entity,this };
-				OpenGLRenderCommand::EnableSetStencil(true);
-				OpenGLRenderCommand::StencilOp(StencilOption::KEEP, StencilOption::KEEP, StencilOption::REPLACE);
-				OpenGLRenderCommand::SetStencilFunc(StencilFunction::ALWAYS, 1, 0xff);
-				OpenGLRenderCommand::SetStencilMask(0xff);
-				auto [transformCMP, meshCMP] = group.get(entity);
-				//renderer->SubmitStaticMesh(meshCMP.StaticMesh, meshCMP.MaterialTable, transformCMP.GetTransform());
-				//ToneShader
-				OpenGLRenderCommand::EnableCullFace(false);
-				if(m_RenderResource.Piplinestate.EnableToneShader)
-				{
-					Entity e = { entity,this };
-
-					renderer->SubmitToneCharactorShader(meshCMP.StaticMesh, transformCMP.GetTransform());
-				}
-				OpenGLRenderCommand::EnableCullFace(true);
-
-
-				//Stencil
-				if(m_RenderResource.Piplinestate.EnableStencil)
-				{
-					OpenGLRenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
-					OpenGLRenderCommand::SetStencilMask(0x00);
-					TransformComponent ts = transformCMP;
-					ts.Scale *= 1.007f;
-					renderer->SubmitStaticMeshStencil(meshCMP.StaticMesh, ts.GetTransform());
-					OpenGLRenderCommand::SetStencilMask(0xff);
-					OpenGLRenderCommand::EnableSetStencil(false);
-
-				}
-				
-				// Stroke
-				if(m_RenderResource.Piplinestate.EnableOutline)
-				{
-					OpenGLRenderCommand::EnableCullFace(true);
-					OpenGLRenderCommand::CullFace(CullFaceOption::FRONT);
-					renderer->SubmitStaticMeshOutLine(meshCMP.StaticMesh, transformCMP.GetTransform());
-					OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
-					OpenGLRenderCommand::EnableCullFace(false);
-				}
-				//DebugNormalShader
-				if(m_RenderResource.Piplinestate.EnableDebugNormal)
-				{
-					renderer->SubmitStaticMeshDebugNormal(meshCMP.StaticMesh, transformCMP.GetTransform());
-				}
-
-				//StaticMesh
-				if (m_RenderResource.Piplinestate.EnableDefaultShader)
-				{
-					if (entt.HasComponent<MaterialComponent>())
-					{
-						Entity e = { entity,this };
-						auto& materialCMP = e.GetComponent<MaterialComponent>();
-
-						OpenGLRenderCommand::EnableCullFace(true);
-						OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
-						renderer->SubmitStaticMesh(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
-						OpenGLRenderCommand::EnableCullFace(false);
-					}
-				}
-				//Spot cloud
-				if (false)
-				{
-					Entity e = { entity,this };
-					auto& materialCMP = e.GetComponent<MaterialComponent>();
-
-					OpenGLRenderCommand::EnableCullFace(true);
-					renderer->SubmitSpotCloud(meshCMP.StaticMesh, materialCMP.MaterialTable, transformCMP.GetTransform());
-					OpenGLRenderCommand::EnableCullFace(false);
-				}
-				//renderer->SubmitMeshPost()
-			}
-			renderer->EndScene();
-		}
-#endif	
-		// Post effect
-		{
-			
-		}	
-
-	}
-
-		
-
+	
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)
 	{
 

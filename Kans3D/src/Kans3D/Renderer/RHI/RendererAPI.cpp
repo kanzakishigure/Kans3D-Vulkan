@@ -3,7 +3,7 @@
 namespace Kans
 {
 
-	void RendererAPI::SetAPI(RendererAPIType api)
+	void RendererAPI::SetBackEnd(RendererAPIType api)
 	{
 		switch (api)
 		{

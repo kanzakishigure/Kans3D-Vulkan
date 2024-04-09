@@ -58,6 +58,11 @@ namespace Kans
 		SetEmissionMap(Renderer::GetWhiteTexture());
 		SetNormalMap(Renderer::GetWhiteTexture());
 		
+		SetAlbedoMap(Renderer::GetWhiteTexture());
+		SetAOMap(Renderer::GetWhiteTexture());
+		SetRoughMap(Renderer::GetWhiteTexture());
+		SetMetalMap(Renderer::GetBlackTexture());
+
 		
 	}
 
@@ -110,6 +115,41 @@ namespace Kans
 	void MaterialAsset::SetNormalMap(Ref<Texture2D> normalmap)
 	{
 		m_Material->SetTexture(s_NormalMapUnifrom, normalmap);
+	}
+
+	void MaterialAsset::SetAlbedoMap(Ref<Texture2D> albedoMap)
+	{
+		m_Material->SetTexture(s_AlbedoMapUnifrom, albedoMap);
+	}
+
+	void MaterialAsset::SetAOMap(Ref<Texture2D> aoMap)
+	{
+		m_Material->SetTexture(s_AOMapUnifrom, aoMap);
+	}
+
+	void MaterialAsset::SetRoughMap(Ref<Texture2D> roughMap)
+	{
+		m_Material->SetTexture(s_RoughMapUnifrom, roughMap);
+	}
+
+	void MaterialAsset::SetMetalMap(Ref<Texture2D> metalMap)
+	{
+		m_Material->SetTexture(s_MetalMapUnifrom, metalMap);
+	}
+
+	void MaterialAsset::SetIrradianceMap(Ref<TextureCube> irradianceMap)
+	{
+		m_Material->SetTexture(s_IrradianceMapUnifrom, irradianceMap);
+	}
+
+	void MaterialAsset::SetPrefilterMap(Ref<TextureCube> prefilterMap)
+	{
+		m_Material->SetTexture(s_PrefilterMapUnifrom, prefilterMap);
+	}
+
+	void MaterialAsset::SetBrdfLUTMap(Ref<Texture2D> brdfLUTMap)
+	{
+		m_Material->SetTexture(s_BrdfLUTMapUnifrom, brdfLUTMap);
 	}
 
 }

@@ -9,6 +9,6 @@ namespace Kans
 		RenderPipeline();
 		virtual void Init(RenderPipelineSpecification spec) override final;
 	private:
-		RenderPipelineSpecification m_Specification;
+		Ref<RenderScene> m_RenderScene;
 	};
 }

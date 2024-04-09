@@ -8,9 +8,10 @@ namespace Kans
 	{
 		BlingPhongMaterial = 0, PBRMaterial
 	};
+
+
 	//BlingPhong Material
-	//TODO use texture compress
-		
+	//TODO use texture compress	
 	// value
 		static const std::string MaterialName = "material.";
 		//漫反射项
@@ -22,21 +23,28 @@ namespace Kans
 		//高光度			
 		static const std::string s_ShininessUniform = MaterialName + "U_Shininess";
 		
-		 //Texture			  
-		//漫反射项		  
-		static const std::string s_DiffuseMapUniform = MaterialName + "U_DiffuseTexture";
-		//高光项			
-		static const std::string s_SpecularMapUniform = MaterialName + "U_SpecularTexture";
-		//自发光项		   
-		static const std::string s_EmissionMapUnifrom = MaterialName + "U_EmissionTexture";
-		//法线
-		static const std::string s_NormalMapUnifrom =   MaterialName + "U_NormalTexture";
+	//Texture	
+			
+			static const std::string s_NormalMapUnifrom		= MaterialName + "U_NormalTexture";   
+			static const std::string s_EmissionMapUnifrom	= MaterialName + "U_EmissionTexture";
+		// BlingPhong	  
 
-
-	//ToneShader
-		static const std::string s_ToneLightMapUnifrom = MaterialName + "U_ToneLightMap";
-		static const std::string s_ToneRampMapUnifrom = MaterialName + "U_ToneRampMap";
-	//PBR Material		  
+			static const std::string s_DiffuseMapUniform	= MaterialName + "U_DiffuseTexture";
+			static const std::string s_SpecularMapUniform	= MaterialName + "U_SpecularTexture";
+			
+		//PBR
+			static const std::string s_AlbedoMapUnifrom		= MaterialName + "U_AlbedoTexture";
+			static const std::string s_AOMapUnifrom			= MaterialName + "U_AOTexture";
+			static const std::string s_RoughMapUnifrom		= MaterialName + "U_RoughTexture";
+			static const std::string s_MetalMapUnifrom		= MaterialName + "U_MetalTexture";
+			
+		//ToneShader
+			static const std::string s_ToneLightMapUnifrom	= MaterialName + "U_ToneLightMap";
+			static const std::string s_ToneRampMapUnifrom	= MaterialName + "U_ToneRampMap";
+	//Environment 		  
+			static const std::string s_IrradianceMapUnifrom = "U_IrradianceMap";
+			static const std::string s_PrefilterMapUnifrom	= "U_PrefilterMap";
+			static const std::string s_BrdfLUTMapUnifrom	= "U_BrdfLUTMap";
 
 	class MaterialAsset : public Asset
 	{
@@ -46,20 +54,36 @@ namespace Kans
 		MaterialAsset(const MaterialAsset& ) =default;
 		~MaterialAsset();
 
-		static const std::string& GetDiffuseMapLocation() { return s_DiffuseMapUniform; }
-		static const std::string& GetSpecularMapLocation() { return s_SpecularMapUniform; }
 		static const std::string& GetEmissionMapLocation() { return s_EmissionMapUnifrom; }
 		static const std::string& GetNormalMapLocation() { return s_NormalMapUnifrom; }
+		
+		static const std::string& GetDiffuseMapLocation() { return s_DiffuseMapUniform; }
+		static const std::string& GetSpecularMapLocation() { return s_SpecularMapUniform; }
+
+
+		static const std::string& GetAlbedoMapLocation() { return s_AlbedoMapUnifrom; }
+		static const std::string& GetAOMapLocation() { return s_AOMapUnifrom; }
+		static const std::string& GetRoughMapLocation() { return s_RoughMapUnifrom; }
+		static const std::string& GetMetalMapLocation() { return s_MetalMapUnifrom; }
+
 		static const std::string& GetToneLightMapLocation() { return s_ToneLightMapUnifrom; }
 		static const std::string& GetToneRampMapLocation() { return s_ToneRampMapUnifrom; }
+
+		
 
 		static const std::string& GetDiffuseLocation() { return s_DiffuseUniform; }
 		static const std::string& GetSpecularLocation() { return s_SpecularUniform; }
 		static const std::string& GetEmissionLocation() { return s_EmissionUniform; }
 		static const std::string& GetShininessLocation() { return s_ShininessUniform; }
+
+
+		static const std::string& GetIrradianceMapLocation() { return s_IrradianceMapUnifrom; }
+		static const std::string& GetPrefilterMapLocation() { return s_PrefilterMapUnifrom; }
+		static const std::string& GetBrdfLUTMapLocation() { return s_BrdfLUTMapUnifrom; }
+		
 	
 		//BlingPhong
-		 //Set value
+		//Set value
 		void SetDiffuse(const glm::vec3& value);
 		void SetSpecular(const glm::vec3& value);
 		void SetEmission(const glm::vec3& value);
@@ -69,6 +93,15 @@ namespace Kans
 		void SetSpecularMap(Ref<Texture2D> specularmap);
 		void SetEmissionMap(Ref<Texture2D> emissionmap);
 		void SetNormalMap(Ref<Texture2D> normalmap);
+
+		void SetAlbedoMap(Ref<Texture2D> albedoMap);
+		void SetAOMap(Ref<Texture2D> aoMap);
+		void SetRoughMap(Ref<Texture2D> roughMap);
+		void SetMetalMap(Ref<Texture2D> metalMap);
+
+		void SetIrradianceMap(Ref<TextureCube> irradianceMap);
+		void SetPrefilterMap(Ref<TextureCube> prefilterMap);
+		void SetBrdfLUTMap(Ref<Texture2D> brdfLUTMap);
 
 		Ref<Material> GetMaterial() const { return m_Material; }
 	private:
@@ -96,5 +129,6 @@ namespace Kans
 	private:
 		uint32_t m_MaterialCount;
 		std::map<uint32_t, Ref<MaterialAsset>> m_MaterialTable;
+
 	};
 }

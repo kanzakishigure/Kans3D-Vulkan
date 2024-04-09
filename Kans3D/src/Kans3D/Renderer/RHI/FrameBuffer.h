@@ -1,6 +1,6 @@
 #pragma once
 #include "Kans3D/Core/Base/Base.h"
-
+#include "Kans3D/Renderer/Resource/Texture.h"
 namespace Kans {
 
 	enum class FrameBufferTextureFormat 
@@ -9,7 +9,9 @@ namespace Kans {
 		
 		//Color
 		RGBA8,
+		RGB16F,
 		RGBA16F,
+		RGBA32F,
 		//Depth
 		DEPTH24STENCIL8,
 
@@ -71,10 +73,14 @@ namespace Kans {
 
 		virtual const FrameBufferSpecification& GetSpecification() const = 0;
 		virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const = 0;
+		virtual uint32_t GetColorAttachmentCount() const = 0;
 		virtual uint32_t GetDepthAttachmentRendererID() const = 0;
 
 		
-
+		virtual void BindTextureToColorAttachMent(Ref<TextureCube> texture,uint32_t face, uint32_t mip = 0,uint32_t index = 0) = 0;
+		virtual void BindTextureToColorAttachMent(Ref<Texture2D> texture, uint32_t mip = 0,uint32_t index = 0) = 0;
+		
+		//Resize will invalidate the custom color attachment bind 
 		virtual void Resize(uint32_t width,uint32_t height) = 0;
 		
 		virtual void Bind() = 0;

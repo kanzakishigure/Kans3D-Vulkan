@@ -5,5 +5,9 @@ namespace Kans
 	class ToneShadingPass :public RenderPass
 	{
 		
+	public:
+		void Draw() override;
+
+	private:
 	};
 }

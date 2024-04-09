@@ -6,5 +6,12 @@ namespace Kans
 	class MainCameraPass :public RenderPass
 	{
 
+	public:
+	
+		void Draw() override;
+
+	private:
+		
+
 	};
 }

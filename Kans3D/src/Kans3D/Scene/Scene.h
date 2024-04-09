@@ -1,51 +1,21 @@
 #pragma once
 #include <entt.hpp>
+#include "Kans3D/Asset/Asset.h"
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
 
-#include "Kans3D/Renderer/Resource/Mesh.h"
+
 namespace  Kans
 {
-
-	struct DirLight
-	{
-		glm::vec3 Dirction;
-		glm::vec3 Diffuse_Intensity;
-		glm::vec3 Specular_Intensity;
-		glm::vec3 Ambient_Intensity;
-	};
-	struct PointLight
-	{
-		glm::vec3 Position;
-		glm::vec3 Diffuse_Intensity;
-		glm::vec3 Specular_Intensity;
-		glm::vec3 Ambient_Intensity;
-	};
-
-	struct PipLineState
-	{
-		bool EnableOutline = false;
-		bool EnableToneShader = true;
-		bool EnableStencil = false;
-		bool EnableDebugNormal = false;
-		bool EnableDefaultShader = false;
-	};
-	struct  RenderResource
-	{
-		PointLight pointLight;
-		DirLight dirLight;
-		PipLineState Piplinestate;
-
-	};
-
+	class RenderScene;
 	class SceneRenderer;
 	class Entity;
 	
 	using EntityMap = std::unordered_map<UUID, Entity>;
-	//BlingPhong Material
+
 	
 
-	//the scene to the gameplayer system
+	//the scene to the GamePlayer system
 	class Scene : public Asset
 	{
 
@@ -54,7 +24,7 @@ namespace  Kans
 		~Scene();
 
 		void OnUpdate(TimeStep ts);
-		void OnRenderer(Ref<SceneRenderer> renderer, TimeStep ts);
+		
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		Entity CreateEntity(const std::string name = std::string());
@@ -71,8 +41,7 @@ namespace  Kans
 		const std::string GetName() const { return m_Name; }
 		void SetName(const std::string& name ) { m_Name = name; }
 
-		const RenderResource& GetRenderResource() { return m_RenderResource; }
-		void SetRenderResource(const RenderResource& resource) { m_RenderResource = resource; }
+		
 
 	private:
 		template<typename T> 
@@ -83,24 +52,14 @@ namespace  Kans
 		std::string m_Name;
 		EntityMap m_EntityMap;
 	private:
-		DirLight dirLight;
-		PointLight pointLight;
-		RenderResource m_RenderResource;
+
 		
 		friend class Entity;
 		friend class SceneHierachyPanel;
-		friend class SceneRenderer;
+		friend class RenderScene;
 		friend class SceneSerializer;
 	};
-	//the scene to the renderer
-	class RenderScene : public Asset
-	{
-	public:
-		RenderScene();
-		~RenderScene();
-	private:
-		friend class SceneRenderer;
-	};
+	
 
 	
 

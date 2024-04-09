@@ -1,6 +1,8 @@
 #pragma once
 #include "RHI/RHI.h"
 #include "RenderResourceBase.h"
+#include "Kans3D/Renderer/Resource/RenderScene.h"
+#include "Kans3D/Renderer/RHI/FrameBuffer.h"
 namespace Kans
 {
 	
@@ -11,20 +13,20 @@ namespace Kans
 	struct RenderPassInfo
 	{
 		Ref<RHI> rhi;
-		Ref<RenderResourceBase> renderResource;
+		Ref<RenderScene> renderScene;
 
 	};
 
 	class RenderPassBase
 	{
-
+	public:
 		virtual void Init(const RenderPassSpecification* spec) = 0;
 		virtual void PostInit();
-		virtual void UpdateSpecification(const RenderPassInfo& common_info);
-		virtual void preparePassData(std::shared_ptr<RenderResourceBase> render_resource);
+		virtual void SetCommonInfo(const RenderPassInfo& common_info);
+		virtual void PreparePassData(Ref<RenderResourceBase> render_resource);
 	protected:
 		Ref<RHI> m_RHI;
-		Ref<RenderResourceBase> m_RenderResource;
+		Ref<RenderScene> m_RenderScene;
 	};
 
 	class RenderPass: public RenderPassBase
@@ -51,11 +53,12 @@ namespace Kans
 
 		void Init(const RenderPassSpecification* spec) override;
 		void PostInit() override;
-		void UpdateRenderPassInfo(const RenderPassInfo& init_info);
 		
 		virtual void Draw();
 
-	private:
+		Framebuffer GetFrameBuffer();
 
+	private:
+		GlobalRenderResource* m_global_render_resource{ nullptr }; 
 	};
 }

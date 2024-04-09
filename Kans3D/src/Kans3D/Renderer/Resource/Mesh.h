@@ -84,7 +84,7 @@ namespace Kans
 		std::vector<SubMesh> m_SubMeshes;
 
 		std::vector<Ref<VertexArray>> m_VertexArray;
-		std::vector<Ref<Material>> m_Materials;
+		std::vector<Ref<MaterialAsset>> m_Materials;
 		Ref<MaterialTable> m_MaterialTable;
 		Ref<Shader> m_MeshShader;
 
@@ -117,6 +117,28 @@ namespace Kans
 		Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
 
 		void StaticMesh::SetMaterial(Ref<Material> material, uint32_t submeshIndex);
+		void SetMeshAsset(Ref<MeshSource> meshAsset) { m_MeshSource = meshAsset; }
+
+		Ref<MaterialTable> GetMaterialTable() const { return m_MaterialTable; }
+
+		void SetSubMesh(const std::vector<uint32_t>& submesh);
+		const std::vector<uint32_t>& GetSubMesh() { return m_SubMesh; }
+	private:
+		std::vector<uint32_t> m_SubMesh;
+		Ref<MaterialTable> m_MaterialTable;
+		Ref<MeshSource> m_MeshSource;
+
+	};
+
+	class DynamicMesh :public Asset
+	{
+	public:
+		DynamicMesh(Ref<MeshSource> source);
+		~DynamicMesh();
+		Ref<MeshSource> GetMeshSource() { return m_MeshSource; }
+		Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
+
+		void DynamicMesh::SetMaterial(Ref<Material> material, uint32_t submeshIndex);
 		void SetMeshAsset(Ref<MeshSource> meshAsset) { m_MeshSource = meshAsset; }
 
 		Ref<MaterialTable> GetMaterialTable() const { return m_MaterialTable; }

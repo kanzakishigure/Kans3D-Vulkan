@@ -6,20 +6,23 @@
 
 namespace Kans
 {
-#define RHI_MAX_EXTENSION_NAME_SIZE        256U
-#define RHI_MAX_DESCRIPTION_SIZE           256U
+#define RHI_ATTACHMENT_UNUSED              (~0U)
+#define RHI_LOD_CLAMP_NONE                 1000.0F
+#define RHI_QUEUE_FAMILY_IGNORED           (~0U)
+#define RHI_REMAINING_ARRAY_LAYERS         (~0U)
+#define RHI_REMAINING_MIP_LEVELS           (~0U)
+#define RHI_SUBPASS_EXTERNAL               (~0U)
+#define RHI_WHOLE_SIZE                     (~0ULL)
 #define RHI_MAX_MEMORY_TYPES               32U
 #define RHI_MAX_PHYSICAL_DEVICE_NAME_SIZE  256U
 #define RHI_UUID_SIZE                      16U
+#define RHI_MAX_EXTENSION_NAME_SIZE        256U
+#define RHI_MAX_DESCRIPTION_SIZE           256U
 #define RHI_MAX_MEMORY_HEAPS               16U
-#define RHI_SUBPASS_EXTERNAL               (~0U)
-#define RHI_QUEUE_FAMILY_IGNORED           (~0U)
-#define RHI_WHOLE_SIZE                     (~0ULL)
-#define RHI_NULL_HANDLE                       nullptr
-#define RHI_SUCCESS                        true
 #define RHI_TRUE                           true
-#define RHI_FALSE                           false
-
+#define RHI_FALSE                          false
+#define RHI_NULL_HANDLE                    nullptr
+#define RHI_SUCCESS                        true
 	enum RHIStructureType : int
 	{
 		RHI_STRUCTURE_TYPE_APPLICATION_INFO = 0,
@@ -1609,6 +1612,8 @@ namespace Kans
 		RHI_DEPENDENCY_DEVICE_GROUP_BIT_KHR = RHI_DEPENDENCY_DEVICE_GROUP_BIT,
 		RHI_DEPENDENCY_FLAG_BITS_MAX_ENUM = 0x7FFFFFFF
 	};
+
+	
 
 	typedef uint32_t RHIAccessFlags;
 	typedef uint32_t RHIImageAspectFlags;

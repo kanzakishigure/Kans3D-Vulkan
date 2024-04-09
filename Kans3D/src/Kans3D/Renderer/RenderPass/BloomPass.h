@@ -5,5 +5,11 @@ namespace Kans
 	class BloomPass :public RenderPass
 	{
 
+	public:
+
+		void Draw() override;
+
+	private:
+	
 	};
 }

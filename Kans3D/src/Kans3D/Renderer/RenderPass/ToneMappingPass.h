@@ -6,5 +6,10 @@ namespace Kans
 	{
 	public:
 	
+		void Draw() override;
+
+	private:
+		
+
 	};
 }

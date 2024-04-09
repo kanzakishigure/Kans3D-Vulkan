@@ -22,9 +22,9 @@ namespace Kans
 		virtual void Set(const std::string& name, bool value) = 0;
 		virtual void Set(const std::string& name, const glm::ivec2& value) =0;
 
-		virtual void SetTexture(const std::string& name, Ref<Texture2D> value) = 0;
-		virtual void SetTextures(const std::map<std::string, Ref<Texture2D>>& textures) = 0;
-		virtual const std::map<std::string, Ref<Texture2D>>& GetTextures() = 0;
+		virtual void SetTexture(const std::string& name, Ref<Texture> value) = 0;
+		virtual void SetTextures(const std::map<std::string, Ref<Texture>>& textures) = 0;
+		virtual const std::map<std::string, Ref<Texture>>& GetTextures() = 0;
 
 		virtual void SetIntArray(const std::string& name, const int count, const int* value) = 0;
 		virtual const std::string& GetName()const =0;
@@ -43,8 +43,7 @@ namespace Kans
 		virtual const ShaderBuffer& GetShaderBuffer() const = 0;
 
 		virtual void Invalidate() = 0;
-		//temp function
-		virtual void UseDefaultShader(bool enable) = 0;
+		
 		
 		
 	};

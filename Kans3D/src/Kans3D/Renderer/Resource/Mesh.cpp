@@ -38,11 +38,11 @@ namespace Kans
 	
 		m_SubMeshes.reserve(m_Scene->mNumMeshes);
 		ProcessNode(m_Scene->mRootNode, m_Scene);
-
 		m_MaterialTable = CreateRef<MaterialTable>(m_Materials.size());
+
 		for (size_t i = 0; i < m_Materials.size(); i++)
 		{
-			m_MaterialTable->SetMaterial(i, CreateRef<MaterialAsset>(m_Materials[i]));
+			m_MaterialTable->SetMaterial(i, m_Materials[i]);
 		}
 		m_Materials.clear();
 
@@ -54,8 +54,8 @@ namespace Kans
 	MeshSource::MeshSource(const std::vector<Vertex>& verteices, const std::vector<Index>& indices)
 		:m_Verteices(verteices), m_Indices(indices)
 	{
-		m_MeshShader = Renderer::GetShaderLibrary()->Get("StaticMeshShader");
-
+		m_MeshShader = Renderer::GetShaderLibrary()->Get("PBRStaticMesh");
+	
 		Ref<Material> mtl = Material::Create(m_MeshShader, "Default Material");
 		
 		
@@ -69,6 +69,12 @@ namespace Kans
 			auto& materialAsset = CreateRef<MaterialAsset>(materials[i]);
 			materialAsset->SetDiffuseMap(Renderer::GetWhiteTexture());
 			materialAsset->SetSpecularMap(Renderer::GetWhiteTexture());
+			materialAsset->SetNormalMap(Renderer::GetWhiteTexture());
+
+			materialAsset->SetAlbedoMap(Renderer::GetWhiteTexture());
+			materialAsset->SetMetalMap(Renderer::GetBlackTexture());
+			materialAsset->SetRoughMap(Renderer::GetWhiteTexture());
+			materialAsset->SetAOMap(Renderer::GetWhiteTexture());
 			m_MaterialTable->SetMaterial(i, materialAsset);
 		}
 
@@ -91,9 +97,9 @@ namespace Kans
 			{ShaderDataType::Float3,"a_Normal"},
 			{ShaderDataType::Float2,"a_TextureCroods"},
 			{ShaderDataType::Float4,"a_BaseColor"},
-			{ShaderDataType::Float3,"a_Tangent"},
-			{ShaderDataType::Float3,"a_Bitangent"}
+			{ShaderDataType::Float4,"a_Tangent"}
 		};
+
 
 		vertexb->SetBufferLayout(layout);
 
@@ -210,13 +216,43 @@ namespace Kans
 		}
 		//Material
 		{
-			HZ_PROFILE_SCOPE("Import mesh Material ");
+			PROFILE_SCOPE("Import mesh Material ");
 			if (scene->HasMaterials())
 			{
 				aiMaterial* aimaterial = scene->mMaterials[mesh->mMaterialIndex];
 				std::string mtlName = aimaterial->GetName().C_Str();
 				Ref<Material> mtl = Material::Create(m_MeshShader, mtlName);
+				Ref<MaterialAsset> mtlAsset = CreateRef<MaterialAsset>(mtl);
+
+				//General Attributes
+				{
+					TextureSpecification spec;
+					//Normal
+					{
+						int materialcount = 0;
+						materialcount = aimaterial->GetTextureCount(aiTextureType_NORMALS);
+						if (materialcount)
+						{
+
+							if (materialcount)
+							{
+								aiString aistr;
+								aimaterial->GetTexture(aiTextureType_NORMALS, 0, &aistr);
+								CORE_INFO("{0} Normal texture: {1} ", mtlName.c_str(), aistr.C_Str());
+								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
+								Ref<Texture2D> texture = Texture2D::Create(spec, texturepath);
+								mtlAsset->SetNormalMap(texture);
+								
+							}
+						}
+						else
+						{
+							CORE_WARN("{0} don't have Normal texture", mtlName.c_str());
+						}
+					}
+				}
 				//BlingPhong material
+				
 				{
 					TextureSpecification spec;
 					//DIFFUSE;
@@ -230,12 +266,13 @@ namespace Kans
 							CORE_INFO("{0} DIFFUSE texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
 							Ref<Texture2D> texture = Texture2D::Create(spec,texturepath);
-							mtl->SetTexture(MaterialAsset::GetDiffuseMapLocation(), texture);
+							mtlAsset->SetDiffuseMap(texture);
 							
 							{
 								//LightMap
 								std::string Lightmappath = texturepath;
 								size_t index = Lightmappath.find_last_of(".");
+								if(index!= std::string::npos)
 								Lightmappath.insert(index, "_Light");
 								if (KansFileSystem::Exists(Lightmappath))
 								{
@@ -253,6 +290,7 @@ namespace Kans
 								//RampMap
 								std::string Rampmappath = texturepath;
 								size_t index = Rampmappath.find_last_of(".");
+								if (index != std::string::npos)
 								Rampmappath.insert(index, "_Ramp");
 
 								if (KansFileSystem::Exists(Rampmappath))
@@ -271,7 +309,7 @@ namespace Kans
 						else
 						{
 							CORE_WARN("{0} don't have DIFFUSE texture", mtlName.c_str());
-							mtl->SetTexture(MaterialAsset::GetDiffuseMapLocation(), Renderer::GetWhiteTexture());
+							mtlAsset->SetSpecularMap(Renderer::GetWhiteTexture());
 						}
 					}
 					//SPECULAR
@@ -285,38 +323,16 @@ namespace Kans
 							CORE_INFO("{0} SPECULAR texture: {1} ", mtlName.c_str(), aistr.C_Str());
 							std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
 							Ref<Texture2D> texture = Texture2D::Create(spec,texturepath);
-							mtl->SetTexture(MaterialAsset::GetSpecularMapLocation(), texture);
-
+							
+							mtlAsset->SetSpecularMap(texture);
 						}
 						else
 						{
 							CORE_WARN("{0} don't have Specular texture", mtlName.c_str());
-							mtl->SetTexture(MaterialAsset::GetSpecularMapLocation(), Renderer::GetBlackTexture());
+							mtlAsset->SetSpecularMap(Renderer::GetBlackTexture());
 						}
 					}
-					//Normal
-					{
-						int materialcount = 0;
-						materialcount = aimaterial->GetTextureCount(aiTextureType_SPECULAR);
-						if (materialcount)
-						{
-							int materialcount = 0;
-							materialcount = aimaterial->GetTextureCount(aiTextureType_NORMALS);
-							if (materialcount)
-							{
-								aiString aistr;
-								aimaterial->GetTexture(aiTextureType_NORMALS, 0, &aistr);
-								CORE_INFO("{0} Normal texture: {1} ", mtlName.c_str(), aistr.C_Str());
-								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
-								Ref<Texture2D> texture = Texture2D::Create(spec,texturepath);
-								mtl->SetTexture("U_NormalTexture", texture);
-							}
-						}
-						else
-						{
-							CORE_WARN("{0} don't have Normal texture", mtlName.c_str());
-						}
-					}
+					
 					//shininess
 					{
 						float shininess;
@@ -327,10 +343,142 @@ namespace Kans
 				}
 				//PBR material
 				{
+					TextureSpecification spec;
 
+					//Albedo
+					{
+						int materialcount = 0;
+						materialcount = aimaterial->GetTextureCount(aiTextureType_BASE_COLOR);
+						if (materialcount)
+						{
+
+							if (materialcount)
+							{
+								aiString aistr;
+								aimaterial->GetTexture(aiTextureType_BASE_COLOR, 0, &aistr);
+								CORE_INFO("{0} Albedo texture: {1} ", mtlName.c_str(), aistr.C_Str());
+								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
+								if (KansFileSystem::Exists(texturepath))
+								{
+									Ref<Texture2D> texture = Texture2D::Create(spec, texturepath);
+									mtlAsset->SetAlbedoMap(texture);
+								}
+								else
+								{
+									mtlAsset->SetAOMap(Renderer::GetWhiteTexture());
+									CORE_WARN("{0} invalid Albedo texture path", mtlName.c_str());
+								}
+								
+							}
+						}
+						else
+						{
+							mtlAsset->SetAOMap(Renderer::GetWhiteTexture());
+							CORE_WARN("{0} don't have Albedo texture", mtlName.c_str());
+						}
+					}
+					//AO
+					{
+						int materialcount = 0;
+						materialcount = aimaterial->GetTextureCount(aiTextureType_AMBIENT_OCCLUSION);
+						if (materialcount)
+						{
+
+							if (materialcount)
+							{
+								aiString aistr;
+								aimaterial->GetTexture(aiTextureType_AMBIENT_OCCLUSION, 0, &aistr);
+								CORE_INFO("{0} AO texture: {1} ", mtlName.c_str(), aistr.C_Str());
+								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
+								if (KansFileSystem::Exists(texturepath))
+								{
+									Ref<Texture2D> texture = Texture2D::Create(spec, texturepath);
+									mtlAsset->SetAOMap(texture);
+								}
+								else
+								{
+									mtlAsset->SetAOMap(Renderer::GetWhiteTexture());
+									CORE_WARN("{0} invalid AO texture path", mtlName.c_str());
+								}
+								
+							}
+						}
+						else
+						{
+							mtlAsset->SetAOMap(Renderer::GetWhiteTexture());
+							CORE_WARN("{0} don't have AO texture", mtlName.c_str());
+						}
+					}
+					//Rough
+					{
+						int materialcount = 0;
+						materialcount = aimaterial->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS);
+						if (materialcount)
+						{
+
+							if (materialcount)
+							{
+								aiString aistr;
+								aimaterial->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &aistr);
+								CORE_INFO("{0} Rough texture: {1} ", mtlName.c_str(), aistr.C_Str());
+								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
+								
+
+								if (KansFileSystem::Exists(texturepath))
+								{
+									Ref<Texture2D> texture = Texture2D::Create(spec, texturepath);
+									mtlAsset->SetRoughMap(texture);
+								}
+								else
+								{
+									mtlAsset->SetRoughMap(Renderer::GetWhiteTexture());
+									CORE_WARN("{0} invalid Rough texture path", mtlName.c_str());
+								}
+							}
+						}
+						else
+						{
+							mtlAsset->SetRoughMap(Renderer::GetWhiteTexture());
+							CORE_WARN("{0} don't have Rough texture", mtlName.c_str());
+						}
+					}
+
+					//Metal
+					{
+						int materialcount = 0;
+						materialcount = aimaterial->GetTextureCount(aiTextureType_METALNESS);
+						if (materialcount)
+						{
+
+							if (materialcount)
+							{
+								aiString aistr;
+								aimaterial->GetTexture(aiTextureType_METALNESS, 0, &aistr);
+								CORE_INFO("{0} Metalness texture: {1} ", mtlName.c_str(), aistr.C_Str());
+								std::string texturepath = m_LoadPath + "/" + aistr.C_Str();
+								
+
+								if (KansFileSystem::Exists(texturepath))
+								{
+									Ref<Texture2D> texture = Texture2D::Create(spec, texturepath);
+									mtlAsset->SetMetalMap(texture);
+								}
+								else
+								{
+									mtlAsset->SetMetalMap(Renderer::GetBlackTexture());
+									CORE_WARN("{0} invalid Metalness texture path", mtlName.c_str());
+								}
+							}
+						}
+						else
+						{
+							mtlAsset->SetMetalMap(Renderer::GetBlackTexture());
+							CORE_WARN("{0} don't have Metalness texture", mtlName.c_str());
+						}
+					}
 				}
 
-				m_Materials.push_back(mtl);
+				m_Materials.push_back(mtlAsset);
 			}
 			else
 			{
@@ -344,7 +492,7 @@ namespace Kans
 
 	void MeshSource::GenVertexArry()
 	{
-		HZ_PROFILE_FUCTION()
+		PROFILE_FUCTION()
 		double offset = 1.0 / 8000;
 		std::vector<glm::vec3> SmoothNormal;
 		Utils::MeshUtils::SmoothNormal(m_Verteices, SmoothNormal);

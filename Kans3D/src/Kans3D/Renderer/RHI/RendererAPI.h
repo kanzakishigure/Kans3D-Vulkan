@@ -23,6 +23,7 @@ namespace Kans {
 		INVERT
 	};
 	enum class CullFaceOption {
+		NONE,
 		BACK,
 		FRONT,
 		FRONT_AND_BACK
@@ -44,20 +45,25 @@ namespace Kans {
 		virtual void Init() = 0;
 
 		static RendererAPIType Current() { return s_API; }
-		static void SetAPI(RendererAPIType api);
+		static void SetBackEnd(RendererAPIType api);
 		//TODO : Vulkan Renderer will Inherited this
 	public:
 		virtual void EnableDepthTest(bool enabled)=0;
 		virtual void EnableSetStencil(bool enabled) =0;
 		virtual void EnableCullFace(bool enabled) = 0;
-
+		virtual void EnableBlend(bool enabled) = 0;
+		
+		
 		virtual void SetStencilMask(uint32_t mask) =0;
 		virtual void SetStencilFunc(StencilFunction func, uint32_t value, uint32_t mask) = 0;
 		virtual void StencilOp(StencilOption sfail, StencilOption dpfail, StencilOption dppass) = 0;
 		virtual void CullFace(CullFaceOption option) =0;
-
+		
+		virtual uint32_t GetError() = 0;
 		//Temp function
 		virtual void BindTexture(uint32_t texture, uint32_t slot) = 0;
+		virtual void DrawQuad() = 0;
+		
 	private:
 		inline static RendererAPIType s_API = RendererAPIType::NONE;
 

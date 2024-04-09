@@ -11,6 +11,7 @@ namespace Kans {
 		{
 		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
 		case RendererAPIType::OPENGL:  return CreateScope<OpenGLVertexBuffer>(vertices, size);
+		case RendererAPIType::Vulkan:  CORE_WARN("Function[VertexBuffer::Create(float* vertices, uint32_t size)] not implemented"); return nullptr;
 		}
 		CORE_ASSERT(false, "unknow RendererAPI");
 		return nullptr;
@@ -24,6 +25,7 @@ namespace Kans {
 		{
 		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
 		case RendererAPIType::OPENGL:  return CreateScope<OpenGLVertexBuffer>(size);
+		case RendererAPIType::Vulkan:  CORE_WARN("Function[VertexBuffer::Create(uint32_t size)] not implemented"); return nullptr;
 		}
 		CORE_ASSERT(false, "unknow RendererAPI");
 		return nullptr;
@@ -34,7 +36,8 @@ namespace Kans {
 		switch (RendererAPI::Current())
 		{
 		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return CreateScope<OpenGLIndexBuffer>(indices, count);;
+		case RendererAPIType::OPENGL:  return CreateScope<OpenGLIndexBuffer>(indices, count);
+		case RendererAPIType::Vulkan:  CORE_WARN("Function[IndexBuffer::Create(uint32_t* indices, uint32_t count)] not implemented"); return nullptr;
 		}
 		CORE_ASSERT(false, "unknow RendererAPI");
 		return nullptr;

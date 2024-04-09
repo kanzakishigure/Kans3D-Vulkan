@@ -15,22 +15,22 @@ namespace Kans {
 
 	void OrthographicCameraController::OnUpdate(TimeStep ts)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
-		if (Input::IsKeyPressed(HZ_KEY_W))
+		if (Input::IsKeyPressed(KeyCode::W))
 			m_CameraPos.y += m_CameraTranslationSpeed * ts;
-		if (Input::IsKeyPressed(HZ_KEY_S))
+		if (Input::IsKeyPressed(KeyCode::S))
 			m_CameraPos.y -= m_CameraTranslationSpeed * ts;
-		if (Input::IsKeyPressed(HZ_KEY_A))
+		if (Input::IsKeyPressed(KeyCode::A))
 			m_CameraPos.x -= m_CameraTranslationSpeed * ts;
-		if (Input::IsKeyPressed(HZ_KEY_D))
+		if (Input::IsKeyPressed(KeyCode::D))
 			m_CameraPos.x += m_CameraTranslationSpeed * ts;
 
 		if (m_Rotation)
 		{
-			if (Input::IsKeyPressed(HZ_KEY_Q))
+			if (Input::IsKeyPressed(KeyCode::Q))
 				m_CameraRotation += m_CameraRotationSpeed * ts;
-			if (Input::IsKeyPressed(HZ_KEY_E))
+			if (Input::IsKeyPressed(KeyCode::E))
 				m_CameraRotation -= m_CameraRotationSpeed * ts;
 			m_Camera.SetRotation(m_Rotation);
 		}
@@ -41,7 +41,7 @@ namespace Kans {
 
 	void OrthographicCameraController::OnEvent(Event& e)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<MouseScrolledEvent>(BIND_EVENT_FN(OrthographicCameraController::OnMouseScrolled));
@@ -59,7 +59,7 @@ namespace Kans {
 
 	bool OrthographicCameraController::OnMouseScrolled(MouseScrolledEvent& e)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		m_ZoomLevel -= (float)e.GetYOffset()*0.25;
 		m_ZoomLevel = std::max(m_ZoomLevel,0.25f);
@@ -72,7 +72,7 @@ namespace Kans {
 
 	bool OrthographicCameraController::OnWindowResize(WindowResizeEvent& e)
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		OnResize(e.GetWidth(), e.GetHeight());
 		

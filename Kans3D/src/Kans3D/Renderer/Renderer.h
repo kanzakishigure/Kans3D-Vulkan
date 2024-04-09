@@ -1,17 +1,31 @@
 #pragma once
+#include "Kans3D/Core/Window.h"
 #include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h"
 #include "Kans3D/Renderer/RHI/RHI.h"
+#include "Kans3D/Renderer/RenderPipeline.h"
 
-#include "Kans3D/Core/Window.h"
+#include "Resource/Camera.h"
+#include "Resource/Texture.h"
+#include "Resource/Shader.h"
 
-#include "Kans3D/Renderer/Resource/Shader.h"
-
-//temp
-#include "Kans3D/Renderer/Resource/Camera.h"
-#include "Kans3D/Scene/Scene.h"
 namespace Kans {
 	
+	
+	class Texture2D;
+	class ShaderLibrary;
+	struct GlobalRendererResource
+	{
+		glm::mat4 ViewProjectionMatix;
 
+		Ref<VertexArray> Quad;
+		Ref<Texture2D> WhiteTexture;
+		Ref<Texture2D> BlackTexture;
+		Ref<ShaderLibrary> m_ShaderLibrary;
+
+		std::unordered_map<std::string, std::string> GlobalShaderMacros;
+
+	};
+	
 	class Renderer
 	{
 	public:
@@ -21,6 +35,9 @@ namespace Kans {
 		static void	Init();
 		static void Init(const Scope<Window>& window);
 		static void InitGlobalRendererResource();
+
+		static void InitRenderPipline(const RenderPipelineSpecification& spec);
+
 		static void	Shutdown();
 		
 
@@ -40,6 +57,7 @@ namespace Kans {
 
 		static Ref<Texture2D> GetWhiteTexture();
 		static Ref<Texture2D> GetBlackTexture();
+		static Ref<VertexArray> GetQuad();
 		static Ref<ShaderLibrary> GetShaderLibrary();
 		
 		// Add macro from shader.
@@ -47,6 +65,7 @@ namespace Kans {
 
 	private:
 		static Ref<RHI> s_RHI;
+		static Ref<RenderPipeline> s_RenderPipeline;
 		
 	};
 	

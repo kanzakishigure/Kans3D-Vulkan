@@ -33,28 +33,20 @@ namespace Kans {
 		return nullptr;
 	}
 
-	Ref<TextureCube> TextureCube::Create(const std::string& path)
+	
+
+	Ref<TextureCube> TextureCube::Create(const TextureSpecification& specification, Buffer buffer)
 	{
 		switch (RendererAPI::Current())
 		{
 		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return CreateRef<OpenGLTextureCube>(path);
+		case RendererAPIType::OPENGL:  return CreateRef<OpenGLTextureCube>(specification, buffer);
 		case RendererAPIType::Vulkan:  return nullptr;
 		}
 		CORE_ASSERT(false, "unknow RendererAPI");
 		return nullptr;
 	}
 
-	Ref<TextureCube> TextureCube::Create(uint32_t width, uint32_t height)
-	{
-		switch (RendererAPI::Current())
-		{
-		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return CreateRef<OpenGLTextureCube>(width, height);
-		case RendererAPIType::Vulkan:  return nullptr;
-		}
-		CORE_ASSERT(false, "unknow RendererAPI");
-		return nullptr;
-	}
+
 
 }

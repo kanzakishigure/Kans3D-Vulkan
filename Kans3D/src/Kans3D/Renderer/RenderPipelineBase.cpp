@@ -5,10 +5,6 @@
 namespace Kans
 {
 
-	Kans::Ref<Kans::RenderPipelineBase> RenderPipelineBase::Create()
-	{
-
-		return CreateRef<RenderPipeline>();
-	}
+	
 
 }

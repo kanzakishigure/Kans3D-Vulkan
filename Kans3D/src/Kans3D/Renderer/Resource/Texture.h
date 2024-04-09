@@ -11,10 +11,19 @@ namespace Kans {
 		uint32_t Width{ 0 };
 		uint32_t Height{ 0 };
 		uint32_t Depth{ 0 };
-		uint32_t Mip_levels{ 0 };
+		
 		uint32_t Array_layers{ 0 };
 		RHIFormat Format = RHI_FORMAT_MAX_ENUM;
+		RHIFilter Minf = RHIFilter::RHI_FILTER_LINEAR;
+		RHIFilter Maxf = RHIFilter::RHI_FILTER_NEAREST;
+		RHISamplerAddressMode Wrap = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_REPEAT;
+		
+		bool GenerateMips = false;
+		bool SRGB = false;
+
+
 	}; 
+	
 
 	class Texture : public Asset
 	{
@@ -35,18 +44,23 @@ namespace Kans {
 	{
 
 	public:
-		static	Ref<Texture2D> Create(const TextureSpecification& specification,Buffer buffer = Buffer());
 		static	Ref<Texture2D> Create(const TextureSpecification& specification, const std::filesystem::path& filepath);
+		static	Ref<Texture2D> Create(const TextureSpecification& specification,Buffer buffer = Buffer());
 
 	};
 
+
+	
 	class TextureCube :public Texture
 	{
 
 	public:
-		static	Ref<TextureCube> Create(const std::string& path);
-		static	Ref<TextureCube> Create(uint32_t width, uint32_t height);
+		static	Ref<TextureCube> Create(const TextureSpecification& specification, Buffer buffer = Buffer());
+
+		virtual void GenerateMipmap() const = 0;
 
 	};
+
+
 
 }

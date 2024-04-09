@@ -10,26 +10,20 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 
 
+#include "Resource/MaterialAsset.h"
+//temp
+#include "Resource/Camera.h"
+#include "Resource/RenderScene.h"
+#include "Resource/MeshFactory.h"
+
 namespace Kans {
 	
 	
 
-	Ref<RHI> Renderer::s_RHI = nullptr;
-	static RendererAPI* s_RendererAPI = nullptr;
-
-	
-	struct GlobalRendererResource
-	{
-		glm::mat4 ViewProjectionMatix;
-
-		Ref<Texture2D> WhiteTexture;
-		Ref<Texture2D> BlackTexture;
-		Ref<ShaderLibrary> m_ShaderLibrary;
-
-		std::unordered_map<std::string, std::string> GlobalShaderMacros;
-
-	};
-	static GlobalRendererResource* s_GlobalRendererResource = nullptr;
+	Ref<RHI>						Renderer::s_RHI = nullptr;
+	Ref<RenderPipeline>				Renderer::s_RenderPipeline = nullptr;
+	static RendererAPI*				s_RendererAPI = nullptr;
+	static GlobalRendererResource*	s_GlobalRendererResource = nullptr;
 
 	static RendererAPI* InitRendererAPI()
 	{
@@ -43,7 +37,7 @@ namespace Kans {
 	}
 	void Renderer::Init()
 	{
-		HZ_PROFILE_FUCTION();
+		PROFILE_FUCTION();
 
 		
 		s_RHI = RHI::Create();
@@ -59,25 +53,30 @@ namespace Kans {
 			OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
 
 		
+		
 	}
 
 	void Renderer::Init(const Scope<Window>& window)
 	{
 
-		
-
 		s_RHI = RHI::Create(window);
 		s_RHI->Init();
-		//we need support Vulkan, so need change the architecture, just temp for now
-		if (RendererAPI::Current() == RendererAPIType::OPENGL)
 		{
-			s_RendererAPI = InitRendererAPI();
-			s_RendererAPI->Init();
-			OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
+			//we need support Vulkan, so need change the architecture, just temp for now
+			if (RendererAPI::Current() == RendererAPIType::OPENGL)
+			{
+				s_RendererAPI = InitRendererAPI();
+				s_RendererAPI->Init();
+				OpenGLRenderCommand::s_RendererAPI = s_RendererAPI;
+			}
 		}
 
+		
 		s_GlobalRendererResource = DEBUG_NEW GlobalRendererResource();
 		s_GlobalRendererResource->m_ShaderLibrary = CreateRef<ShaderLibrary>();
+
+		
+		
 		Renderer::InitGlobalRendererResource();
 		
 	}
@@ -100,18 +99,89 @@ namespace Kans {
 			s_GlobalRendererResource->BlackTexture = Texture2D::Create(spec, Buffer(&Blackdata, sizeof(uint32_t)));
 
 		}
+		
+		//QuadsBuff
+		{
+				s_GlobalRendererResource->Quad = MeshFactory::CreatQuad(glm::vec2(1.0));
+		}
+		
 		//shader
 		//TODO technically we can use SPIR-V reflect the Vulkan-GLSL layout to get the uniformStorgeBuffer
 		{
-			std::string& shaderpath = KansFileSystem::GetShaderFolder().generic_string() + "/";
+			std::string shaderpath = KansFileSystem::GetShaderFolder().generic_string();
+			shaderpath += RendererAPI::Current() == RendererAPIType::OPENGL ? "OpenGL/" : "Vulkan/";
+			if (RendererAPI::Current() == RendererAPIType::OPENGL)
 			{
-				
-				auto StaticShader = Shader::Create(shaderpath + "StaticMeshShader.glsl");
-				StaticShader->SetShaderBuffer({
-						{ShaderDataType::Float, MaterialAsset::GetShininessLocation()},
-						
+				{
+					auto StaticShader = Shader::Create(shaderpath + "StaticMeshShader.glsl");
+
+					StaticShader->SetShaderBuffer({
+							{ShaderDataType::Float, MaterialAsset::GetShininessLocation()},
+
+						});
+					s_GlobalRendererResource->m_ShaderLibrary->Add(StaticShader);
+				}
+
+				{
+					auto StandardShader = Shader::Create(shaderpath + "StandardShader.glsl");
+					StandardShader->SetShaderBuffer({
+						{ShaderDataType::Color4,"material.U_Color"}
+
+						});
+					s_GlobalRendererResource->m_ShaderLibrary->Add(StandardShader);
+				}
+
+				{
+					auto SpotCloudShader = Shader::Create(shaderpath + "SpotCloud/SpotCloudShader.glsl");
+					SpotCloudShader->SetShaderBuffer({});
+					s_GlobalRendererResource->m_ShaderLibrary->Add(SpotCloudShader);
+
+					SpotCloudShader->SetShaderBuffer({
+							{ShaderDataType::Float,"U_PerlinBias"},
+							{ShaderDataType::Float3,"U_Effect"},
+
+						});
+				}
+
+				{
+					auto PostShader = Shader::Create(shaderpath + "PostShader.glsl");
+					PostShader->SetShaderBuffer({});
+					s_GlobalRendererResource->m_ShaderLibrary->Add(PostShader);
+				}
+
+				{
+					auto ToneShader = Shader::Create(shaderpath + "ToneShader.glsl");
+					ToneShader->SetShaderBuffer({
+							{ShaderDataType::Float3,MaterialAsset::GetDiffuseLocation()},
+							{ShaderDataType::Float3,MaterialAsset::GetSpecularLocation()},
+							{ShaderDataType::Float3,MaterialAsset::GetEmissionLocation()},
+							{ShaderDataType::Float, MaterialAsset::GetShininessLocation()}
+						});
+					s_GlobalRendererResource->m_ShaderLibrary->Add(ToneShader);
+				}
+
+				{
+					auto DebugShader = Shader::Create(shaderpath + "DebugShader.glsl");
+					DebugShader->SetShaderBuffer({
+							{ShaderDataType::Float,MaterialAsset::GetShininessLocation()},
+							{ShaderDataType::Float,"U_Debug"},
+							{ShaderDataType::Color3,"U_DarkColor"},
+							{ShaderDataType::Color4,"U_DarkColor4"},
+
+						});
+					s_GlobalRendererResource->m_ShaderLibrary->Add(DebugShader);
+				}
+			}
+
+
+			{
+				auto GridShader = Shader::Create(shaderpath + "GridShader.glsl");
+				GridShader->SetShaderBuffer({
+					{ShaderDataType::Float,"U_Settings.Scale"},
+					{ShaderDataType::Float,"U_Settings.Size"}
 					});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(StaticShader);
+				s_GlobalRendererResource->m_ShaderLibrary->Add(GridShader);
+
 			}
 
 			{
@@ -120,11 +190,7 @@ namespace Kans {
 				s_GlobalRendererResource->m_ShaderLibrary->Add(StencilShader);
 			}
 
-			{
-				auto PostShader = Shader::Create(shaderpath + "PostShader.glsl");
-				PostShader->SetShaderBuffer({});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(PostShader);
-			}
+			
 			
 			{
 				auto OutLineShader = Shader::Create(shaderpath + "OutLineShader.glsl");
@@ -132,30 +198,6 @@ namespace Kans {
 				s_GlobalRendererResource->m_ShaderLibrary->Add(OutLineShader);
 				
 			}
-
-			{
-				auto ToneShader = Shader::Create(shaderpath + "ToneShader.glsl");
-				ToneShader->SetShaderBuffer({
-						{ShaderDataType::Float3,MaterialAsset::GetDiffuseLocation()},
-						{ShaderDataType::Float3,MaterialAsset::GetSpecularLocation()},
-						{ShaderDataType::Float3,MaterialAsset::GetEmissionLocation()},
-						{ShaderDataType::Float, MaterialAsset::GetShininessLocation()}
-					});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(ToneShader);
-			}
-
-			{
-				auto DebugShader = Shader::Create(shaderpath + "DebugShader.glsl");
-				DebugShader->SetShaderBuffer({
-						{ShaderDataType::Float,MaterialAsset::GetShininessLocation()},
-						{ShaderDataType::Float,"U_Debug"},
-						{ShaderDataType::Color3,"U_DarkColor"},
-						{ShaderDataType::Color4,"U_DarkColor4"},
-
-					});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(DebugShader);
-			}
-			
 
 			{
 				auto DebugnormalShader = Shader::Create(shaderpath + "DebugNormalShader.glsl");
@@ -192,46 +234,21 @@ namespace Kans {
 			}
 
 
-			{
-				auto StandardShader = Shader::Create(shaderpath + "StandardShader.glsl");
-				StandardShader->SetShaderBuffer({
-					{ShaderDataType::Color4,"material.U_Color"}
-					
-					});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(StandardShader);
-			}
-				
-			{
-				auto SpotCloudShader = Shader::Create(shaderpath + "SpotCloud/SpotCloudShader.glsl");
-				SpotCloudShader->SetShaderBuffer({});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(SpotCloudShader);
-
-				SpotCloudShader->SetShaderBuffer({
-						{ShaderDataType::Float,"U_PerlinBias"},
-						{ShaderDataType::Float3,"U_Effect"},
-
-					});
-			}
-
-			{
-				auto pbrShader = Shader::Create(shaderpath + "PBR/pbrShader.glsl");
-				pbrShader->SetShaderBuffer({});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(pbrShader);
-			}
-
+			
+			// PBR-Pipeline
 			{
 				auto skyboxShader = Shader::Create(shaderpath + "PBR/skybox.glsl");
 				skyboxShader->SetShaderBuffer({});
 				s_GlobalRendererResource->m_ShaderLibrary->Add(skyboxShader);
 			}
-
+			
 			{
 				auto HdrToCubeMap = Shader::Create(shaderpath + "PBR/HdrToCubeMap.glsl");
 				HdrToCubeMap->SetShaderBuffer({});
 				s_GlobalRendererResource->m_ShaderLibrary->Add(HdrToCubeMap);
 			}
 			{
-				auto prtShader = Shader::Create(shaderpath + "PBR/prt.glsl");
+				auto prtShader = Shader::Create(shaderpath + "PBR/genIrradiance.glsl");
 				prtShader->SetShaderBuffer({});
 				s_GlobalRendererResource->m_ShaderLibrary->Add(prtShader);
 			}
@@ -246,13 +263,27 @@ namespace Kans {
 				s_GlobalRendererResource->m_ShaderLibrary->Add(brdfShader);
 			}
 			{
-				auto pbrTextureShader = Shader::Create(shaderpath + "PBR/pbrTextureShader.glsl");
-				pbrTextureShader->SetShaderBuffer({});
-				s_GlobalRendererResource->m_ShaderLibrary->Add(pbrTextureShader);
+				auto PBRStaticMesh = Shader::Create(shaderpath + "PBR/PBRStaticMesh.glsl");
+				PBRStaticMesh->SetShaderBuffer({});
+				s_GlobalRendererResource->m_ShaderLibrary->Add(PBRStaticMesh);
 				
 			}
+
 		}
 
+	}
+
+	void Renderer::InitRenderPipline(const RenderPipelineSpecification& spec)
+	{
+		//Init render pipeline
+		//maybe we show move this to editor layer on attach
+		//we don't now what we should to Rendering until we have load the Scene From the project
+		//maybe the  the pipeline implement by the project
+		{
+			s_RenderPipeline = CreateRef<RenderPipeline>();
+			s_RenderPipeline->m_RHI = s_RHI;
+			s_RenderPipeline->Init(spec);
+		}
 	}
 
 	void Renderer::Shutdown()
@@ -264,13 +295,15 @@ namespace Kans {
 		
 		s_RHI->Shutdown();
 		s_RHI.reset();
+		s_RenderPipeline->clear();
+		s_RenderPipeline.reset();
 
 	}
 
 	void Renderer::BeginScene(const Camera& camera, const glm::mat4& transform)
 	{
 		
-		s_GlobalRendererResource->ViewProjectionMatix = camera.GetProjectMatrix()*glm::inverse(transform);
+		s_GlobalRendererResource->ViewProjectionMatix = camera.GetProjectionMatrix()*glm::inverse(transform);
 		
 	}
 	void Renderer::EndScene()
@@ -294,6 +327,11 @@ namespace Kans {
 		return s_GlobalRendererResource->BlackTexture;
 	}
 
+
+	Kans::Ref<Kans::VertexArray> Renderer::GetQuad()
+	{
+		return s_GlobalRendererResource->Quad;
+	}
 
 	Ref<ShaderLibrary> Renderer::GetShaderLibrary()
 	{
