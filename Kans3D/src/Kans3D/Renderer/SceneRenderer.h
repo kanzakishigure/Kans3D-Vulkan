@@ -34,6 +34,7 @@ namespace Kans
 
 			void Init();
 			void PrepareEnvironment();
+			void UpdateEnvironment(std::string path);
 			void BeginScene(SceneInfo info);
 			void EndScene();
 			void SetScene(RenderScene* scene);

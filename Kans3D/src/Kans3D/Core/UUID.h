@@ -6,6 +6,7 @@ namespace Kans
 	//uuid通常为128bit，用来唯一标识场景内的资源,目前暂时使用64bit用作uuid
 	class UUID
 	{
+
 	public:
 		UUID();
 		UUID(uint64_t uuid);
@@ -13,11 +14,12 @@ namespace Kans
 
 		operator uint64_t() { return m_UUID; }
 		operator const uint64_t() const { return m_UUID; }
-
-		bool operator ==(const UUID& other) const { return other.m_UUID == m_UUID; }
-		bool operator !=(const UUID& other) const { return !(other == *this); }
+	
+	public:
+		 static constexpr uint64_t None = 0;
 	private:
 		uint64_t m_UUID;
+		
 	};
 
 
@@ -30,8 +32,9 @@ namespace Kans
 
 		operator uint32_t() { return m_UUID; }
 		operator const uint32_t() const { return m_UUID; }
-		bool operator ==(const UUID32& other) const { return other.m_UUID == m_UUID; }
-		bool operator !=(const UUID32& other) const { return !(other == *this); }
+		
+	public:
+		static constexpr  uint32_t None = 0;
 	private:
 		uint32_t m_UUID;
 	};

@@ -192,7 +192,7 @@ void main()
     kD *= 1.0 - metallic;	  
     
     
-    vec3 irradiance = texture(U_IrradianceMap, N).rgb;
+    vec3 irradiance = textureLod(U_IrradianceMap, N,0.0).rgb;
     vec3 diffuse    = irradiance * albedo;
     
     //使用预计算结果得到IBL的镜面反射部分
@@ -205,6 +205,7 @@ void main()
 
     vec3 ambient = (kD * diffuse + specular) * ao; 
     vec3 color   = ambient + Lo;
+    
     //我们的计算是在线性空间，需要进行伽玛矫正，防止超过1的值被截断
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0/2.2));  

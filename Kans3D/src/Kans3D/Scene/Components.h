@@ -165,6 +165,7 @@ namespace Kans
 		}
 
 		std::string ClassName;
+		bool IsLoaded = false;
 	};
 
 

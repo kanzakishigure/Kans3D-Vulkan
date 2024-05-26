@@ -365,7 +365,7 @@ namespace Kans
 								}
 								else
 								{
-									mtlAsset->SetAOMap(Renderer::GetWhiteTexture());
+									mtlAsset->SetAlbedoMap(Renderer::GetWhiteTexture());
 									CORE_WARN("{0} invalid Albedo texture path", mtlName.c_str());
 								}
 								
@@ -406,6 +406,7 @@ namespace Kans
 						else
 						{
 							mtlAsset->SetAOMap(Renderer::GetWhiteTexture());
+
 							CORE_WARN("{0} don't have AO texture", mtlName.c_str());
 						}
 					}
@@ -428,6 +429,7 @@ namespace Kans
 								{
 									Ref<Texture2D> texture = Texture2D::Create(spec, texturepath);
 									mtlAsset->SetRoughMap(texture);
+									
 								}
 								else
 								{

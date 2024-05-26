@@ -214,7 +214,6 @@ namespace Kans
 
 		// Post effect
 		{
-
 		}
 
 

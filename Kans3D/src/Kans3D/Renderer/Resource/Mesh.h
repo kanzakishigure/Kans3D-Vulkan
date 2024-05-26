@@ -15,7 +15,7 @@
 
 namespace Kans
 {
-	//c++有个优秀的性质，struct在内存中是连续存储的
+	
 	struct Vertex
 	{
 		glm::vec3 Position;
@@ -96,6 +96,7 @@ namespace Kans
 		BindBox m_BindingBox;
 
 		friend class Entity;
+		friend class AssimpMeshImporter;
 	};
 
 	class Mesh :public Asset

@@ -150,6 +150,10 @@ namespace Kans {
 		GLenum ByteType = GL_UNSIGNED_BYTE;
 		switch (m_InternalFormat)
 		{
+		case GL_RGBA32F:;
+		case GL_RGB32F:;
+		case GL_RG32F:;
+
 		case GL_RGBA16F:;
 		case GL_RGB16F:;
 		case GL_RG16F:;
@@ -207,6 +211,16 @@ namespace Kans {
 		m_Height = specification.Height;
 		switch (specification.Format)
 		{
+		case RHIFormat::RHI_FORMAT_R32G32B32A32_SFLOAT:
+		{
+			m_InternalFormat = GL_RGBA32F;
+			m_DataFormat = GL_RGBA;
+		}break;
+		case RHIFormat::RHI_FORMAT_R32G32B32_SFLOAT:
+		{
+			m_InternalFormat = GL_RGB32F;
+			m_DataFormat = GL_RGB;
+		}break;
 		case RHIFormat::RHI_FORMAT_R16G16B16A16_SFLOAT:
 		{
 			m_InternalFormat = GL_RGBA16F;
@@ -240,6 +254,8 @@ namespace Kans {
 		GLenum ByteType = GL_UNSIGNED_BYTE;
 		switch (m_InternalFormat)
 		{
+		case GL_RGBA32F:;
+		case GL_RGB32F:;
 		case GL_RGBA16F:;
 		case GL_RGB16F:;
 		case GL_RG16F:;

@@ -24,7 +24,7 @@ void main()
 {
     TexCoords = a_TextureCroods;
     WorldPos = vec3(U_Transform * vec4(a_Position, 1.0));
-    //法线没有位移运算，所以直接乘�??mat3忽略齐�?�坐标的位移
+    //法线没有位移运算，所以直接乘�??mat3忽略齐�?�坐标的位移
     Normal = mat3(U_Transform) * a_Normal;
     gl_Position =  U_ViewProjection* vec4(WorldPos, 1.0);
 }
@@ -78,7 +78,7 @@ layout(set = 0, binding = 0) readonly buffer _unused_name_perframe
 
 
 
-//将贴图的切线空间发现�??换到世界空间
+//将贴图的切线空间发现�??换到世界空间
 vec3 getNormalFromMap()
 {
     vec3 tangentNormal = texture(material.U_NormalTexture, TexCoords).xyz * 2.0 - 1.0;
@@ -123,7 +123,7 @@ float GeometrySchlickGGX(float NdotV, float roughness)
 
     return nom / denom;
 }
-//几何函数，为了满足反射光线能量守�??
+//几何函数，为了满足反射光线能量守�??
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 {
     float NdotV = max(dot(N, V), 0.0);
@@ -133,7 +133,7 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 
     return ggx1 * ggx2;
 }
-//使用数值方法拟合菲涅尔�??
+//使用数值方法拟合菲涅尔�??
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
@@ -154,21 +154,21 @@ void main()
     float metallic = texture(material.U_MetalTexture, TexCoords).b;
 
 
-    //使用�??表面模型求解出brdf项，具体数�?�推理�?�computer graphics虎书相关章节，或者�?�rtr4相关章节
+    //使用�??表面模型求解出brdf项，具体数�?�推理�?�computer graphics虎书相关章节，或者�?�rtr4相关章节
     vec3 N = getNormalFromMap();
     vec3 V = normalize(U_ViewPos - WorldPos);
-    //使用反射光�?��?��?�算�?? 镜面反射进�?�采�??
+    //使用反射光�?��?��?�算�?? 镜面反射进�?�采�??
     vec3 R = reflect(-V,N);
     
-    //对于非金属材质来说，FO基本保持�??0.04这个�??
+    //对于非金属材质来说，FO基本保持�??0.04这个�??
     vec3 F0 = vec3(0.04); 
     F0 = mix(F0,albedo,metallic);
 
     vec3 Lo = vec3(0.0);
-    //因半球上�??分并无数值解，若不采用蒙特卡洛方法或罗曼�??分则无解决问题，此�?�使用hack直接假�?�光源到着色点�??有一条光�??能发生反射。则�??需进�?�数值累加求和并进�?�归一化�?�理，就能得到积分的对应数值解
+    //因半球上�??分并无数值解，若不采用蒙特卡洛方法或罗曼�??分则无解决问题，此�?�使用hack直接假�?�光源到着色点�??有一条光�??能发生反射。则�??需进�?�数值累加求和并进�?�归一化�?�理，就能得到积分的对应数值解
     for(int i = 0; i < 4; ++i) 
     {
-        // 计算光源的radiance 光源在单位面�??单位立体角上的辐照度
+        // 计算光源的radiance 光源在单位面�??单位立体角上的辐照度
         vec3 L = normalize(lightPositions[i] - WorldPos);
         vec3 H = normalize(V + L);
         
@@ -177,7 +177,7 @@ void main()
         float attenuation = 1.0 / (distance * distance);
         vec3  radiance     = lightColors[i] * attenuation;        
 
-        // �??表面模型 brdf
+        // �??表面模型 brdf
         float NDF = DistributionGGX(N, H, roughness);        
         float G   = GeometrySmith(N, V, L, roughness);      
         vec3  F   = fresnelSchlick(max(dot(H, V), 0.0), F0);       
@@ -189,39 +189,39 @@ void main()
 
         //反射系数
         vec3 kS = F;
-        //�??反射系数
+        //�??反射系数
         vec3 kD = vec3(1.0) - kS;
         kD *= 1.0 - metallic;     
 
     
-        //使用ndotl来表示微表面的受光面�??
+        //使用ndotl来表示微表面的受光面�??
         float NdotL = max(dot(N, L), 0.0);                
-        // 黎曼�??�??
+        // 黎曼�??�??
         Lo += (kD * albedo / PI + specular) * radiance * NdotL; 
     }   
 
-    //补足�??境光的菲涅尔项，我们�?�??��?�算的时候并�??考虑F项，因为F�??以比较简便的实时运算得到
+    //补足�??境光的菲涅尔项，我们�?�??��?�算的时候并�??考虑F项，因为F�??以比较简便的实时运算得到
     vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-    //�??境光
+    //�??境光
     vec3 kS = F;
     vec3 kD = 1.0 - kS;
     kD *= 1.0 - metallic;	  
     
     
-    vec3 irradiance = texture(U_IrradianceMap, N).rgb;
+    vec3 irradiance = textureLod(U_IrradianceMap, N,0.0).rgb;
     vec3 diffuse    = irradiance * albedo;
     
-    //使用预�?�算结果得到IBL的镜面反射部�??
-    //我们预先计算�??5�??级别的mipmap，防�?�??�不存在mipmap采样
+    //使用预�?�算结果得到IBL的镜面反射部�??
+    //我们预先计算�??5�??级别的mipmap，防�?�??�不存在mipmap采样
     const float MAX_REFLECTION_LOD = 4.0;
-    //粗糙度越高，则在更高的层级采样，采样结果更加的模糊（glosse�??
+    //粗糙度越高，则在更高的层级采样，采样结果更加的模糊（glosse�??
     vec3 prefilteredColor = textureLod(U_PrefilterMap, R,  roughness * MAX_REFLECTION_LOD).rgb;
     vec2 brdf  = texture(U_BrdfLUTMap, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
     vec3 ambient = (kD * diffuse + specular) * ao; 
     vec3 color   = ambient + Lo;
-    //我们的�?�算�??在线性空间，需要进行伽玛矫正，防�?�超�??1的值�??�??�??
+    //我们的�?�算�??在线性空间，需要进行伽玛矫正，防�?�超�??1的值�??�??�??
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0/2.2));  
     

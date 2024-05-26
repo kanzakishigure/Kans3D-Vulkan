@@ -10,7 +10,7 @@
 #include <Kans3D/ImGui/Colors.h>
 #include <Kans3D/Renderer/Resource/MeshFactory.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define ShowImguiDemo		false
+#define ShowImguiDemo		false	
 #define ShowEditorUI		true
 #define EnbaleDocking		true
 #define CreatePrimitives	false
@@ -18,7 +18,7 @@
 #define TestLoadNPRMaterial	false
 #define TestLoadSkinMesh	false	
 #define TestLoadPBRMaterial false
-#define TestCrash			false
+#define TestCrash			false	
 
 #define SpotCloudTest		false
 #define NativeScript		false
@@ -175,7 +175,7 @@ namespace Kans
 				auto shibahu_Entity = m_ActiveScene->CreateEntity("modern_coffee_table");
 				auto& meshCMP = shibahu_Entity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = shibahu_Entity.AddComponent<MaterialComponent>();
-				auto meshSrouce = CreateRef<MeshSource>("assets/model/modern_coffee_table/modern_coffee_table_01_1k.gltf");
+				auto meshSrouce = CreateRef<MeshSource>("assets/model/modern_coffee_table/modern_coffee_table_01_4k.gltf");
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
 				materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
@@ -208,7 +208,7 @@ namespace Kans
 #if TestCrash
 			// the performance is sucks
 			{
-				for (int i = 0; i <1 ; i++)
+				for (int i = 0; i <1000 ; i++)
 				{
 					{
 						std::string name = fmt::format("Cube_{0}", i);
@@ -221,7 +221,7 @@ namespace Kans
 						auto& TransformCMP = CubeEntity.GetComponent<TransformComponent>();
 						TransformCMP.Position = { 0.0f,0.0f,-3.0f };
 						TransformCMP.Rotation = { 0.0f,0.0f,0.0f };
-						TransformCMP.Scale = { 0.5f,0.5f,0.5f };
+						TransformCMP.Scale = { 0.1f,0.1f,0.1f };
 						CubeEntity.AddComponent<ScriptComponent>("Sandbox.Player");
 					}
 				}
@@ -528,6 +528,7 @@ namespace Kans
 		//Color FrameBuffer
 	if(ShowColorBuffer)
 	{
+		
 		ImGui::Begin("ViewPort1");
 		ImVec2 viewportsize = ImGui::GetContentRegionAvail();
 		if (m_ViewportSize != *(glm::vec2*) & viewportsize)
@@ -539,6 +540,50 @@ namespace Kans
 		}
 		uint64_t colorframebufferID = (uint64_t)m_ViewportRenderer->GetOutput(0);
 		ImGui::Image((void*)colorframebufferID, viewportsize, ImVec2(0, 1), ImVec2(1, 0));
+		//drag drop to scene
+
+		if (ImGui::BeginDragDropTarget())
+		{
+			auto data = ImGui::AcceptDragDropPayload("asset_payload");
+			if (data)
+			{
+				std::string path = std::string((char*)data->Data, data->DataSize);
+				std::filesystem::path filePath = path;
+				if (filePath.has_extension())
+				{
+					if (filePath.extension() == ".fbx"|| filePath.extension() == ".gltf")
+					{
+						{
+
+							auto Entity = m_ActiveScene->CreateEntity(filePath.filename().generic_string());
+							auto& meshCMP = Entity.AddComponent<StaticMeshComponent>();
+							auto& materialCMP = Entity.AddComponent<MaterialComponent>();
+							auto meshSrouce = CreateRef<MeshSource>(filePath.generic_string());
+							meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
+							meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+							materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
+
+							auto& TransformCMP = Entity.GetComponent<TransformComponent>();
+							TransformCMP.Position = { 0.0f,0.0f,-1.0f };
+							TransformCMP.Rotation = { 0.0f,glm::radians(90.0f),0.0f };
+
+						}
+					}
+
+					if (filePath.extension() == ".hdr" )
+					{
+						{
+							m_ViewportRenderer->UpdateEnvironment(path);
+						}
+					}
+				}
+				
+			}
+			ImGui::EndDragDropTarget();
+		}
+		
+
+
 
 		//ImGuizmo
 		Entity currentEntity = m_SceneHierachyPanel.getSelectEntity();
@@ -636,23 +681,24 @@ namespace Kans
 
 	bool EditorLayer::OnKeyPressedEvent(KeyPressedEvent& e)
 	{
+		if (Input::IsMouseButtonPressed(MouseButton::Button1))
+			return false;
 
-			switch (e.GetKeyCode())
-			{
-			case KeyCode::Q :
-				m_GizmoType = -1;
-				break;
-			case KeyCode::W:
-				m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
-				break;
-			case KeyCode::E:
-				m_GizmoType = ImGuizmo::OPERATION::ROTATE;
-				break;
-			case KeyCode::R:
-				m_GizmoType = ImGuizmo::OPERATION::SCALE;
-				break;
-			
-			}
+		switch (e.GetKeyCode())
+		{
+		case KeyCode::Q:
+			m_GizmoType = ImGuizmo::OPERATION::BOUNDS;
+			break;
+		case KeyCode::W:
+			m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+			break;
+		case KeyCode::E:
+			m_GizmoType = ImGuizmo::OPERATION::ROTATE;
+			break;
+		case KeyCode::R:
+			m_GizmoType = ImGuizmo::OPERATION::SCALE;
+			break;
+		}
 
 		return false;
 	}

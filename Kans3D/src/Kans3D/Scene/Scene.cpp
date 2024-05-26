@@ -205,6 +205,6 @@ namespace Kans
 	template<>
 	void Scene::OnComponentAdd<ScriptComponent>(Entity entity, ScriptComponent& component)
 	{
-
+		
 	}
 }

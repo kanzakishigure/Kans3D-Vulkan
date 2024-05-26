@@ -170,4 +170,110 @@ namespace Kans
 		return digest;
 	}
 
+	uint64_t  Hash::Generate64MD5Hash(const std::string& source)
+	{
+		std::string str = source;
+
+		if (sineTable.empty())
+		{
+			sineTable.resize(64);
+			for (size_t i = 0; i < 64; i++)
+			{
+				sineTable[i] = static_cast<uint32_t>(abs(sin(i + 1)) * pow(2, 32));
+			}
+		}
+
+		//Initialize variables:
+		std::vector<uint32_t> state = { 0x67452301,0xEFCDAB89,0x98BADCFE,0x10325476 };
+
+		uint32_t sourceBitsize = str.size() * 8;
+
+		char apendHead = 0x80;
+		str = str + apendHead;
+
+		uint32_t messagebitsize = str.size() * 8;
+		uint32_t appendsize = messagebitsize % 512;
+
+		std::vector<uint8_t>appendmsg;
+		size_t count = 0;
+		if (appendsize > 448)
+		{
+			count = 64 + (512 - appendsize) / 8;
+			appendmsg.resize(count);
+		}
+		else
+		{
+			count = (512 - appendsize) / 8;
+			appendmsg.resize(count);
+		}
+		*(uint64_t*)(&appendmsg[appendmsg.size() - 8]) = sourceBitsize;
+
+		std::string apendStr(appendmsg.begin(), appendmsg.end());
+
+		str = str + apendStr;
+
+
+		size_t chunksize = str.size() / 64;
+
+		size_t chunkIndex = 0;
+		while (chunkIndex < chunksize)
+		{
+
+			std::string chunk = str.substr(64 * chunkIndex, 64);
+			std::vector<uint32_t> words(16);
+			for (size_t j = 0; j < 16; j++)
+			{
+				words[j] = *(uint32_t*)(chunk.data() + j * 4);
+			}
+
+			uint32_t a = state[0];
+			uint32_t b = state[1];
+			uint32_t c = state[2];
+			uint32_t d = state[3];
+
+			uint32_t temp = 0;
+			uint32_t f = 0;
+			uint32_t g = 0;
+
+			for (int i = 0; i < 64; i++)
+			{
+				if (i < 16)
+				{
+					f = HashUtils::HashFunF(b, c, d);
+					g = i;
+				}
+				if (16 <= i && i < 32)
+				{
+					f = HashUtils::HashFunG(b, c, d);
+					g = (5 * i + 1) % 16;
+				}
+				if (32 <= i && i < 48)
+				{
+					f = HashUtils::HashFunH(b, c, d);
+					g = (3 * i + 5) % 16;
+				}
+				if (48 <= i && i < 64)
+				{
+					f = HashUtils::HashFunI(b, c, d);
+					g = (7 * i) % 16;
+				}
+				temp = d;
+				d = c;
+				c = b;
+				b = HashUtils::Left_Rotete((a + f + sineTable[i] + words[g]), shiftAmounts[i]) + b;
+				a = temp;
+			}
+
+
+
+			state[0] = state[0] + a;
+			state[1] = state[1] + b;
+			state[2] = state[2] + c;
+			state[3] = state[3] + d;
+
+			chunkIndex++;
+		}
+		uint64_t result = (uint64_t)(*state.data());
+		return result;
+	}
 }

@@ -39,7 +39,9 @@ namespace Kans {
 
 		virtual void SetTexture(const std::string& name, Ref<Texture> value) override;
 		virtual void SetTextures(const std::map<std::string, Ref<Texture>>& textures) override { m_Textures = textures; }
-		virtual const std::map<std::string, Ref<Texture>>& GetTextures() override { return m_Textures; }
+		
+		virtual const std::map<std::string, Ref<Texture>>& GetTextures() const override  { return m_Textures; }
+		virtual std::map<std::string, Ref<Texture>>& GetTextures() override { return m_Textures; }
 
 		virtual glm::mat4& GetMat4(const std::string& name) override;
 		virtual float& GetFloat(const std::string& name)     override;

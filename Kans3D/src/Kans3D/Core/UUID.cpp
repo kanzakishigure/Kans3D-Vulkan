@@ -14,7 +14,7 @@ namespace Kans
 	static std::mt19937 re32(s_RandomDevice());
 	static std::uniform_int_distribution<int64_t> s_UniformDistribution32;
 
-
+	
 	//默认构造函数提供一个uuid
 	UUID::UUID()
 		:m_UUID(s_UniformDistribution(re))

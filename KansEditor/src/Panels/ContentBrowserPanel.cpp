@@ -1,16 +1,21 @@
 #include "ContentBrowserPanel.h"
 #include "Kans3D/ImGui/KansUI.h"
 #include "Kans3D/ImGui/Colors.h"
+#include "Kans3D/Core/Hash.h"
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
 #define ADJUST_CONTRNTBROWSER false
 namespace Kans
 {
+	ContentBrowserPanel* ContentBrowserPanel::s_Instance = nullptr;
+
 	ContentBrowserPanel::ContentBrowserPanel()
 		:m_CurrentPath(KansFileSystem::GetAssetFolder().parent_path())
 	{
-
+		s_Instance = this;
+		m_ContentBrowserItemList.clear();
 	}
 
 	void ContentBrowserPanel::onImGuiRender(bool isOpen)
@@ -95,7 +100,9 @@ namespace Kans
 						}
 						if (ImGui::Button("<<---"))
 						{
+							
 							m_CurrentPath = m_CurrentPath.parent_path();
+							NeedRefresh = true;
 							CLIENT_WARN("current path:{0}",m_CurrentPath.string());
 						}
 						
@@ -198,41 +205,52 @@ namespace Kans
 				ItemInnerSpacing.y = ImageButtonSize * 0.25;
 				int contentListCol = ImGui::GetContentRegionAvail().x / (ImageButtonSize +FramePadding+ ItemInnerSpacing.x);
 				contentListCol = contentListCol > 1 ? contentListCol : 1;
-				std::filesystem::directory_iterator fit(m_CurrentPath);
-	
+				
 
+				
+				
+				if (NeedRefresh)
+				{
+					NeedRefresh = false;
+					m_ContentBrowserItemList.clear();
+
+
+					std::filesystem::directory_iterator dit(m_CurrentPath);
+					for (auto& entry : dit)
+					{
+						std::string filename = entry.path().filename().string();
+
+						if (entry.is_directory())
+						{
+							m_ContentBrowserItemList.push_back(ContentBrowserItem(ContentBrowserItem::ItemType::Directory, Hash::Generate64MD5Hash(filename), filename, EditorResources::FolderIcon));
+						}
+
+					}
+					std::filesystem::directory_iterator fit(m_CurrentPath);
+					for (auto& entry : fit)
+					{
+						std::string filename = entry.path().filename().string();
+
+						if (!entry.is_directory())
+						{
+							m_ContentBrowserItemList.push_back(ContentBrowserItem(ContentBrowserItem::ItemType::Asset, Hash::Generate64MD5Hash(filename), filename, EditorResources::FbxFileIcon));
+						}
+
+					}
+				}
 			
 				if (ImGui::BeginTable("ContentList", contentListCol, contentListFlag,{ OuterSize.x,TabelSize.y }))
 				{
-					
 					ImGui::BeginGroup();
 					ImGui::PushItemWidth(ImageButtonSize + FramePadding + ItemInnerSpacing.x);
-					std::filesystem::directory_iterator it(m_CurrentPath);
-					for (auto& path : it)
+					ImGui::TableNextColumn();
+					//draw content item
+					for (auto item : m_ContentBrowserItemList)
 					{
-
-						std::string filename = path.path().filename().string();
-
-						ImGui::PushID(filename.c_str());
+						item.OnRenderBegin();
+						item.OnRender();
+						item.OnRenderEnd();
 						ImGui::TableNextColumn();
-						if (path.is_directory())
-						{
-							ImTextureID IconID = (ImTextureID)EditorResources::FolderIcon->GetRenererID();
-							if (ImGui::ImageButton(IconID, { ImageButtonSize,ImageButtonSize }, { 0,1 }, { 1,0 }))
-							{
-								m_CurrentPath = path;
-							}
-						}
-						else
-						{
-							ImTextureID IconID = (ImTextureID)EditorResources::FbxFileIcon->GetRenererID();
-							if (ImGui::ImageButton(IconID, { ImageButtonSize,ImageButtonSize }, { 0,1 }, { 1,0 }))
-							{
-
-							}
-						}
-						ImGui::Text("%s", filename.c_str());
-						ImGui::PopID();
 					}
 					ImGui::PopItemWidth();
 					ImGui::EndGroup();

@@ -52,6 +52,7 @@ namespace Kans
 
 	void SceneRenderer::PrepareEnvironment()
 	{
+		OpenGLRenderCommand::GetError();
 		//prepareSceneEnv
 		OpenGLRenderCommand::EnableCullFace(false);
 		OpenGLRenderCommand::Clear();
@@ -65,7 +66,7 @@ namespace Kans
 
 			Ref<FrameBuffer> framebuffer = FrameBuffer::Create(frameBufferSpec);
 
-
+			
 			TextureSpecification textureSepc;
 			textureSepc.Wrap = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 			textureSepc.Minf = RHIFilter::RHI_FILTER_LINEAR;
@@ -100,6 +101,7 @@ namespace Kans
 			envCubemapspec.Minf = RHIFilter::RHI_FILTER_CUBIC_EXT;
 			envCubemapspec.Maxf = RHIFilter::RHI_FILTER_LINEAR;
 
+			
 			Ref<TextureCube> envCubemap = TextureCube::Create(envCubemapspec);
 
 
@@ -116,6 +118,7 @@ namespace Kans
 			hdrToCubeMapShader->UploadUniformMat4("projection", captureProjection);
 			OpenGLRenderCommand::EnableSetStencil(false);
 			OpenGLRenderCommand::EnableBlend(false);
+			
 			for (unsigned int i = 0; i < 6; ++i)
 			{
 
@@ -125,7 +128,7 @@ namespace Kans
 				SubmitStaticMesh(cube, Renderer::GetShaderLibrary()->Get("HdrToCubeMap"));
 
 			}
-			OpenGLRenderCommand::GetError();
+			
 			framebuffer->Unbind();
 
 			envCubemap->GenerateMipmap();
@@ -134,15 +137,15 @@ namespace Kans
 			//---irradiancemap--------------------------------------------------//
 
 			TextureSpecification irradianceCubemapspec;
-			irradianceCubemapspec.Width = 32;
-			irradianceCubemapspec.Height = 32;
+			irradianceCubemapspec.Width = 512;
+			irradianceCubemapspec.Height = 512;
 			irradianceCubemapspec.Format = RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT;
 			irradianceCubemapspec.Wrap = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 			irradianceCubemapspec.Minf = RHIFilter::RHI_FILTER_CUBIC_EXT;
 			irradianceCubemapspec.Maxf = RHIFilter::RHI_FILTER_LINEAR;
 			irradianceCubemapspec.GenerateMips = true;
 			Ref<TextureCube> irradiancemap = TextureCube::Create(irradianceCubemapspec);
-			framebuffer->Resize(32, 32);
+			framebuffer->Resize(512, 512);
 
 			OpenGLShader* genIrradianceShader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("genIrradiance").get());
 			genIrradianceShader->Bind();
@@ -239,6 +242,12 @@ namespace Kans
 		}
 		OpenGLRenderCommand::EnableCullFace(true);
 		OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
+	}
+
+	void SceneRenderer::UpdateEnvironment(std::string path)
+	{
+		m_RenderScene->m_EnvironmentPath = path;
+		PrepareEnvironment();
 	}
 
 	void SceneRenderer::BeginScene(SceneInfo info)

@@ -49,21 +49,23 @@ namespace Kans{
 			std::filesystem::path parentPath;
 			while (tempPath.has_parent_path())
 			{
-				tempPath = tempPath.parent_path();
+				
 
 				//we should use some value like hash value to check is the path is legal
 				if (s_Specification->IsLegalWorkSpace(tempPath))
 				{
-					parentPath = tempPath;
+					parentPath = tempPath.parent_path();
 					CORE_TRACE_TAG("Filesystem", "Kans3D run in the root directory:[{0}]", parentPath);
 					break;
 					
 				}
 				if (tempPath == tempPath.parent_path())
 				{
-					CORE_ASSERT(false,"Kans3D unable to retrieval a legal root directory")
+					
+					CORE_ASSERT(false, "Kans3D unable to retrieval a legal root directory");
 					break;
 				}
+				tempPath = tempPath.parent_path();
 
 			}
 			if (!parentPath.empty())
@@ -151,7 +153,12 @@ namespace Kans{
 	bool FileSystemSpecification::IsLegalWorkSpace(std::filesystem::path path)
 	{
 		std::set<std::string> whiteList;
-		whiteList.emplace(".git");
+		whiteList.emplace("assets");
+		whiteList.emplace("mono");
+		whiteList.emplace("Resources");
+		whiteList.emplace("Project.ini");
+		
+
 		
 
 
@@ -160,14 +167,18 @@ namespace Kans{
 		for (const auto& filepath : it)
 		{
 			std::string filename = filepath.path().filename().string();
-			if (whiteList.find(filename) == whiteList.end())
+			if (whiteList.find(filename) != whiteList.end())
 			{
+				
 				hashString += filename;
 			}
 
 		}
 		std::string HashValue = Hash::GenerateMD5Hash(hashString);
-		return HashValue == m_RootPathHashValue;
+
+		std::string Secretkey = "assetsmonoProject.iniResources";
+
+		return HashValue == Hash::GenerateMD5Hash(Secretkey);
 
 	}
 

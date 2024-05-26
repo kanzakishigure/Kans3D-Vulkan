@@ -24,7 +24,8 @@ namespace Kans
 
 		virtual void SetTexture(const std::string& name, Ref<Texture> value) = 0;
 		virtual void SetTextures(const std::map<std::string, Ref<Texture>>& textures) = 0;
-		virtual const std::map<std::string, Ref<Texture>>& GetTextures() = 0;
+		virtual const std::map<std::string, Ref<Texture>>& GetTextures() const = 0;
+		virtual std::map<std::string, Ref<Texture>>& GetTextures() = 0;
 
 		virtual void SetIntArray(const std::string& name, const int count, const int* value) = 0;
 		virtual const std::string& GetName()const =0;

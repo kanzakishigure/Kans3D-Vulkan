@@ -73,7 +73,7 @@ namespace Kans
 					}
 					if (ImGui::MenuItem("Script Component"))
 					{
-						m_SelectionContext.AddComponent<ScriptComponent>();
+						auto& ScriptCMP = m_SelectionContext.AddComponent<ScriptComponent>();
 						ImGui::CloseCurrentPopup();
 					}
 					ImGui::EndPopup();
@@ -298,6 +298,16 @@ namespace Kans
 			const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_Framed
 				| ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
 			auto materialCount = component.MaterialTable->GetMaterialCount();
+
+			// Child 1: no border, enable horizontal scrollbar
+			{
+				ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar;
+				if (false)
+					window_flags |= ImGuiWindowFlags_NoScrollWithMouse;
+				ImGui::BeginChild("ChildL", ImVec2(ImGui::GetContentRegionAvail().x , ImGui::GetContentRegionAvail().y*0.5), false, window_flags);
+				
+				
+			}
 			////////////////////////////////////////////////////
 
 			std::map<std::string, ShaderUniform> GlobelShaderUniforms;
@@ -363,144 +373,174 @@ namespace Kans
 				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));
 				auto contentregion = ImGui::GetContentRegionAvail();
 				float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
-				bool open = ImGui::TreeNodeEx((void*)i, treeNodeFlags, material->GetName().c_str());
+				
 				ImGui::PopStyleVar();
 				
 				////////////////////////////////////////////////////
-				for (auto& UniformMap : materialBuffer.ShaderUniforms)
+				ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
+				if (ImGui::BeginTabBar("MaterialTabBar", tab_bar_flags))
 				{
-					const std::string& uniformName = UniformMap.first;
-					auto& uniform = UniformMap.second;
-					
-					if(GlobelShaderUniforms.find(uniformName)!= GlobelShaderUniforms.end())
-					{
-						switch (uniform.GetType())
-						{
-						case ShaderDataType::Float:
-						{
-							float value = 0.0f;
-							value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetFloat(uniformName);
-							material->Set(uniformName, value);
-						}break;
-						case ShaderDataType::Float2:
-						{
-							glm::vec2 value = glm::vec2(1.0);
-							value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetVec2(uniformName);
-							material->Set(uniformName, value);
-						}break;
-						case ShaderDataType::Float3:
-						{
-							glm::vec3 value = glm::vec3(1.0);
-							value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetVec3(uniformName);
-							material->Set(uniformName, value);
-						}break;
-						case ShaderDataType::Bool:
-						{
-							bool value = false;
-							value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetBool(uniformName);
-							material->Set(uniformName, value);
-						}break;
-						}
-					}
-				}
-				////////////////////////////////////////////////////
-				if (open)
-				{
-					ImGui::Text("Shader : %s", material->GetShader()->GetName().c_str());
-					ImGui::NewLine();
+					//set the global uniform Value
 					for (auto& UniformMap : materialBuffer.ShaderUniforms)
 					{
-						
 						const std::string& uniformName = UniformMap.first;
 						auto& uniform = UniformMap.second;
 
 						if (GlobelShaderUniforms.find(uniformName) != GlobelShaderUniforms.end())
 						{
-							continue;
-						}
-						ImGui::Separator();
-						switch (uniform.GetType())
-						{
-						case ShaderDataType::Float:
-						{
-							float value = 0.0f;
-							value = material->GetFloat(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-
-							UI::DrawFloatControl(label, value);
-							material->Set(uniformName, value);
-						}
-						break;
-						case ShaderDataType::Float2:
-						{
-							glm::vec2 value = glm::vec2(1.0);
-							value = material->GetVec2(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-							UI::DrawVec2Control(label, value);
-							material->Set(uniformName, value);
-						}
-						break;
-						case ShaderDataType::Float3:
-						{
-							glm::vec3 value = glm::vec3(1.0);
-							value = material->GetVec3(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-							UI::DrawVec3Control(label, value);
-							material->Set(uniformName, value);
-						}
-						break;
-						case ShaderDataType::Float4:
-						{
-							glm::vec4 value = glm::vec4(1.0);
-							value = material->GetVec4(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-							UI::DrawVec4Control(label, value);
-							material->Set(uniformName, value);
-						}
-						break;
-						case ShaderDataType::Color4:
-						{
-							glm::vec4 value = glm::vec4(1.0);
-							value = material->GetVec4(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-							ImGui::ColorEdit4(label.c_str(), glm::value_ptr(value));
-							material->Set(uniformName, value);
-						}
-						break;
-						case ShaderDataType::Color3:
-						{
-							glm::vec3 value = glm::vec3(1.0);
-							value = material->GetVec4(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-							ImGui::ColorEdit3(label.c_str(), glm::value_ptr(value));
-							material->Set(uniformName, value);
-						}
-						break;
-						case ShaderDataType::Int2:
-						{
-							glm::ivec2 value = glm::ivec2(0);
-							value = material->GetIVec2(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-							ImGui::DragInt2(label.c_str(), glm::value_ptr(value),1,0,255);
-							material->Set(uniformName, value);
-						}
-						break;
-						case ShaderDataType::Bool:
-						{
-							bool value = false;
-							value = material->GetBool(uniformName);
-							std::string label = material->GetName() + ":[ " + uniformName + " ]";
-							ImGui::Checkbox(label.c_str(), &value);
-							material->Set(uniformName, value);
-						}
-						break;
-
+							switch (uniform.GetType())
+							{
+							case ShaderDataType::Float:
+							{
+								float value = 0.0f;
+								value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetFloat(uniformName);
+								material->Set(uniformName, value);
+							}break;
+							case ShaderDataType::Float2:
+							{
+								glm::vec2 value = glm::vec2(1.0);
+								value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetVec2(uniformName);
+								material->Set(uniformName, value);
+							}break;
+							case ShaderDataType::Float3:
+							{
+								glm::vec3 value = glm::vec3(1.0);
+								value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetVec3(uniformName);
+								material->Set(uniformName, value);
+							}break;
+							case ShaderDataType::Bool:
+							{
+								bool value = false;
+								value = component.MaterialTable->GetMaterialAsset(0)->GetMaterial()->GetBool(uniformName);
+								material->Set(uniformName, value);
+							}break;
+							}
 						}
 					}
-					ImGui::TreePop();
+					//set the  native uniform Value
+					if (ImGui::BeginTabItem(material->GetName().c_str()))
+					{
+						ImGui::Text("Shader : %s", material->GetShader()->GetName().c_str());
+						ImGui::NewLine();
+						for (auto& UniformMap : materialBuffer.ShaderUniforms)
+						{
+
+							const std::string& uniformName = UniformMap.first;
+							auto& uniform = UniformMap.second;
+
+							if (GlobelShaderUniforms.find(uniformName) != GlobelShaderUniforms.end())
+							{
+								continue;
+							}
+							ImGui::Separator();
+							switch (uniform.GetType())
+							{
+							case ShaderDataType::Float:
+							{
+								float value = 0.0f;
+								value = material->GetFloat(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+
+								UI::DrawFloatControl(label, value);
+								material->Set(uniformName, value);
+							}
+							break;
+							case ShaderDataType::Float2:
+							{
+								glm::vec2 value = glm::vec2(1.0);
+								value = material->GetVec2(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+								UI::DrawVec2Control(label, value);
+								material->Set(uniformName, value);
+							}
+							break;
+							case ShaderDataType::Float3:
+							{
+								glm::vec3 value = glm::vec3(1.0);
+								value = material->GetVec3(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+								UI::DrawVec3Control(label, value);
+								material->Set(uniformName, value);
+							}
+							break;
+							case ShaderDataType::Float4:
+							{
+								glm::vec4 value = glm::vec4(1.0);
+								value = material->GetVec4(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+								UI::DrawVec4Control(label, value);
+								material->Set(uniformName, value);
+							}
+							break;
+							case ShaderDataType::Color4:
+							{
+								glm::vec4 value = glm::vec4(1.0);
+								value = material->GetVec4(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+								ImGui::ColorEdit4(label.c_str(), glm::value_ptr(value));
+								material->Set(uniformName, value);
+							}
+							break;
+							case ShaderDataType::Color3:
+							{
+								glm::vec3 value = glm::vec3(1.0);
+								value = material->GetVec4(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+								ImGui::ColorEdit3(label.c_str(), glm::value_ptr(value));
+								material->Set(uniformName, value);
+							}
+							break;
+							case ShaderDataType::Int2:
+							{
+								glm::ivec2 value = glm::ivec2(0);
+								value = material->GetIVec2(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+								ImGui::DragInt2(label.c_str(), glm::value_ptr(value), 1, 0, 255);
+								material->Set(uniformName, value);
+							}
+							break;
+							case ShaderDataType::Bool:
+							{
+								bool value = false;
+								value = material->GetBool(uniformName);
+								std::string label = material->GetName() + ":[ " + uniformName + " ]";
+								ImGui::Checkbox(label.c_str(), &value);
+								material->Set(uniformName, value);
+							}
+							break;
+
+							}
+						}
+						for (auto& texture : material->GetTextures())
+						{
+							
+							ImGui::Text(texture.first.c_str());
+							ImGui::BeginGroup();
+							ImGui::Image((void*)texture.second->GetRenererID(), ImVec2(150, 150));
+							
+							if (ImGui::BeginDragDropTarget( ))
+							{
+								auto data = ImGui::AcceptDragDropPayload("asset_payload");
+								if (data)
+								{
+									std::string path = std::string((char*)data->Data,data->DataSize);
+									TextureSpecification spec;
+									texture.second = Texture2D::Create(spec, path);
+								}
+								ImGui::EndDragDropTarget();	
+							}
+							ImGui::EndGroup();
+							ImGui::Separator();
+						}
+						ImGui::EndTabItem();
+					}
+					ImGui::EndTabBar();
 				}
+				////////////////////////////////////////////////////
+				
 				ImGui::Separator();
 			}
+			ImGui::EndChild();
 			});
 		UI::DrawComponent<ScriptComponent>("Script", entity, [](ScriptComponent& component) {
 			ImGui::Text("Class :");
@@ -509,7 +549,6 @@ namespace Kans
 			strcat(buffer, name.c_str());
 			if (ScriptEngine::EntityClassExists(name))
 			{
-				
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::text));
 			}
 			else

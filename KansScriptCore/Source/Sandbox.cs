@@ -6,6 +6,7 @@ namespace Sandbox
     public class Player : Entity
     {
         public float MyPublicFloatVar = 5.0f;
+        public Vector3 m_move;
         public void PrintFloatVar()
         {
 
@@ -35,6 +36,10 @@ namespace Sandbox
         protected override void OnCreate()
         {
             Console.WriteLine($"call OnCreate,m id is {ID}");
+            Random random = new Random();
+
+
+            m_move = new Vector3((float)random.NextDouble(), (float)random.NextDouble(), (float)random.NextDouble());
         }
         protected override void OnUpdate(float ts)
         {
@@ -43,6 +48,9 @@ namespace Sandbox
             {
                 Vector3 position =  GetComponent<TransformComponent>().Translation;
                 Vector3 rotation = GetComponent<TransformComponent>().Rotation;
+                position += m_move* ts;
+
+
 
                 if (Input.IsKeyPressed(KeyCode.W))
                         position.Y += ts;
