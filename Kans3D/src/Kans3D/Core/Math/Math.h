@@ -9,7 +9,7 @@ namespace Kans
 	public:
 		static void Init()
 		{
-			s_RandomEngine.seed(std::random_device()());
+			s_RandomEngine.seed(std::random_device());
 		}
 
 		static float Float()

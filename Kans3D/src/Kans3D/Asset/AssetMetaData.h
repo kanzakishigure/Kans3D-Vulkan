@@ -3,13 +3,21 @@
 #include <filesystem>
 namespace Kans
 {
-	struct AssetMetaData
+	class AssetMetaData
 	{
-		AssetHandle Handle = 0;
-		
+	public:
+		AssetMetaData() {}
+		~AssetMetaData() = default;
+		bool IsValid() { return Handle != AssetHandle::None; }
+	public:
+
 		std::filesystem::path FilePath;
+		AssetType Type = AssetType::None;
+		AssetHandle Handle = AssetHandle::None;
 		bool IsDataLoad = false;
-		
-		bool IsValid() { return Handle != 0; }
+				
 	};
+
+	
+
 }

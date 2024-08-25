@@ -15,9 +15,10 @@ namespace Kans
 		Scene		= 1,
 		Texture		= 2,
 		Material	= 3,
-		Mesh		= 4,
-		MeshSource  = 5,
-		EnvMap		= 6,
+		StaticMesh  = 4,
+		Mesh		= 5,
+		MeshSource  = 6,
+		EnvMap		= 7,
 	  
 	};
 }
