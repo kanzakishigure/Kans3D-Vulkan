@@ -216,6 +216,12 @@ namespace Kans
 			colors[ImGuiCol_Separator]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
 			colors[ImGuiCol_SeparatorActive]	= ImGui::ColorConvertU32ToFloat4(Colors::Theme::highlight);
 			colors[ImGuiCol_SeparatorHovered]	= ImColor(39, 185, 242, 150);
+
+			// Scrollbar
+			colors[ImGuiCol_ScrollbarBg]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
+			colors[ImGuiCol_ScrollbarGrab]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
+			colors[ImGuiCol_ScrollbarGrabHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_5);
+			colors[ImGuiCol_ScrollbarGrabActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
 		//========================================================
 		/// Style
 
@@ -225,6 +231,7 @@ namespace Kans
 			style.WindowPadding = ImVec2(1.1, 1.4);
 			style.GrabRounding = 3.0;
 			style.ScrollbarRounding = 12.0;
+			style.ScrollbarSize    = 10.0f;
 
 			
 	}
