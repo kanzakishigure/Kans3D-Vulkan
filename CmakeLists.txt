@@ -1,0 +1,124 @@
+cmake_minimum_required(VERSION 3.15)
+project(Kans3D LANGUAGES C CXX)
+
+# ============================================================
+# Enable CMP0091 so CMAKE_MSVC_RUNTIME_LIBRARY takes effect
+# ============================================================
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+
+# ============================================================
+# MSVC runtime library: /MD for all configs (Vulkan SDK 1.4+ shaderc libs
+# no longer ship Debug CRT variants; use Release CRT globally to match)
+# ============================================================
+
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+# ============================================================
+# Custom configuration types: Debug, Release, Dist
+# ============================================================
+set(CMAKE_CONFIGURATION_TYPES "Debug;Release;Dist" CACHE STRING "" FORCE)
+
+# ============================================================
+# Global C++ standard
+# ============================================================
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# ============================================================
+# Detect architecture & system (for output=dir naming)
+# ============================================================
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(ARCH "x64")
+else()
+    set(ARCH "x86")
+endif()
+
+if(WIN32)
+    set(SYSTEM_NAME "Windows")
+elseif(UNIX AND NOT APPLE)
+    set(SYSTEM_NAME "Linux")
+else()
+    set(SYSTEM_NAME "macOS")
+endif()
+
+# ============================================================
+# Output & intermediate directories (matching premake layout)
+#   premake: bin/<cfg>-<system>-<arch>/<prj>
+#   premake: bin-int/<cfg>-<system>-<arch>/<prj>
+# ============================================================
+foreach(CONFIG ${CMAKE_CONFIGURATION_TYPES})
+    set(OUTDIR_BASE_${CONFIG} "${CMAKE_BINARY_DIR}/bin/${CONFIG}-${SYSTEM_NAME}-${ARCH}" CACHE INTERNAL "")
+    set(INTDIR_BASE_${CONFIG} "${CMAKE_BINARY_DIR}/bin-int/${CONFIG}-${SYSTEM_NAME}-${ARCH}" CACHE INTERNAL "")
+endforeach()
+
+# ============================================================
+# Helper function: set per-target output dirs (calls from any subdir)
+# ============================================================
+function(kans_set_output_dirs TARGET_NAME)
+    foreach(CONFIG ${CMAKE_CONFIGURATION_TYPES})
+        set_target_properties(${TARGET_NAME} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${CONFIG}   "${OUTDIR_BASE_${CONFIG}}/${TARGET_NAME}"
+            ARCHIVE_OUTPUT_DIRECTORY_${CONFIG}   "${OUTDIR_BASE_${CONFIG}}/${TARGET_NAME}"
+            LIBRARY_OUTPUT_DIRECTORY_${CONFIG}   "${OUTDIR_BASE_${CONFIG}}/${TARGET_NAME}"
+        )
+    endforeach()
+endfunction()
+
+# ============================================================
+# Vulkan SDK (from environment, matching dependencies.lua)
+# ============================================================
+if(NOT DEFINED ENV{VULKAN_SDK})
+    message(WARNING "VULKAN_SDK environment variable is not set. Vulkan features may not build.")
+    set(VULKAN_SDK_DIR "" CACHE INTERNAL "")
+else()
+    set(VULKAN_SDK_DIR "$ENV{VULKAN_SDK}" CACHE INTERNAL "")
+endif()
+
+# ============================================================
+# Path shortcuts (workspace-root-relative, visible to all subdirs)
+# ============================================================
+set(KANS3D_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/Kans3D"      CACHE INTERNAL "")
+set(KANSEDITOR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/KansEditor"  CACHE INTERNAL "")
+set(VENDOR_DIR     "${KANS3D_DIR}/vendor"                   CACHE INTERNAL "")
+
+
+# ============================================================
+# Config-specific compile definitions (all targets inherit)
+# ============================================================
+add_compile_definitions(
+    $<$<CONFIG:Debug>:KS_DEBUG>
+    $<$<CONFIG:Release>:KS_RELEASE>
+    $<$<CONFIG:Dist>:KS_DIST>
+)
+
+# ============================================================
+# "Dist" configuration: same flags as Release (multi-config generators
+# pick these up for the Dist config type)
+# ============================================================
+set(CMAKE_CXX_FLAGS_DIST        "${CMAKE_CXX_FLAGS_RELEASE}"        CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS_DIST          "${CMAKE_C_FLAGS_RELEASE}"          CACHE STRING "" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_DIST "${CMAKE_EXE_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
+set(CMAKE_SHARED_LINKER_FLAGS_DIST "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
+
+# ============================================================
+# Dependencies — vendor static libraries (centralized in vendor/CMakeLists.txt)
+# ============================================================
+add_subdirectory(${VENDOR_DIR})
+
+# ============================================================
+# Core — Kans3D engine static library
+# ============================================================
+add_subdirectory(${KANS3D_DIR})
+
+# ============================================================
+# Core — KansScriptCore C# shared library
+# ============================================================
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/KansScriptCore)
+
+# ============================================================
+# Editor — KansEditor console application
+# ============================================================
+add_subdirectory(${KANSEDITOR_DIR})
+

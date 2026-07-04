@@ -29,4 +29,6 @@ Intermediates/
 KansEditor/Resources/Scripts
 # python cache
 script/__pycache__
+# cmake build
+build/
 
