@@ -18,5 +18,9 @@ file(GLOB_RECURSE SCRIPTCORE_SOURCES CONFIGURE_DEPENDS ${SCRIPTCORE_SRCDIR}/*.cs
 
 add_library(ScriptCore SHARED 
  ${SCRIPTCORE_SOURCES})
-set_target_properties(ScriptCore PROPERTIES LANGUAGE CSharp)
+set_target_properties(ScriptCore PROPERTIES 
+    LANGUAGE CSharp
+    FOLDER "Core"
+)
+
 

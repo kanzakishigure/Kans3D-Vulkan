@@ -9,7 +9,7 @@ file(GLOB_RECURSE EDITOR_SOURCES
 )
 
 add_executable(KansEditor ${EDITOR_SOURCES})
-add_dependencies(KansEditor ScriptCore) 
+
 # ---- Include directories (vendor headers propagate via Kans3D PUBLIC links) ----
 target_include_directories(KansEditor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -17,6 +17,11 @@ target_include_directories(KansEditor PRIVATE
 
 # ---- Link Kans3D engine ----
 target_link_libraries(KansEditor PRIVATE Kans3D)
+
+# ---- Windows: common dialogs (OpenFileDialog) ----
+if(WIN32)
+    target_link_libraries(KansEditor PRIVATE comdlg32)
+endif()
 
 # ---- assimp DLL is now linked via Kans3D -> assimp (IMPORTED) target ----
 # (KansEditor still needs to copy the DLL at post-build)
@@ -66,19 +71,19 @@ add_custom_command(TARGET KansEditor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${KANSEDITOR_DIR}/Project.ini
         "$<TARGET_FILE_DIR:KansEditor>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${KANSEDITOR_DIR}/imgui.ini
-        "$<TARGET_FILE_DIR:KansEditor>"
 
     COMMAND ${CMAKE_COMMAND} -E echo "Copying Editor resources to $<TARGET_FILE_DIR:KansEditor>/"
 )
 #Script Core
-add_custom_command(TARGET KansEditor POST_BUILD
-   
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:ScriptCore>"
-        "$<TARGET_FILE_DIR:KansEditor>/Resources/Scripts/ScriptCore.dll"
-        
-    COMMAND ${CMAKE_COMMAND} -E echo "Copying ScriptCore to $<TARGET_FILE_DIR:KansEditor>/Resources/Scripts"
-    
-)
+
+if(DEFINED CMAKE_VS_MSBUILD_COMMAND)
+    add_dependencies(KansEditor ScriptCore) 
+
+    add_custom_command(TARGET KansEditor POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:ScriptCore>"
+            "$<TARGET_FILE_DIR:KansEditor>/Resources/Scripts/ScriptCore.dll"
+            
+        COMMAND ${CMAKE_COMMAND} -E echo "Copying ScriptCore to $<TARGET_FILE_DIR:KansEditor>/Resources/Scripts"
+    )
+endif()

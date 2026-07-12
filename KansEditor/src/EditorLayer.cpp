@@ -380,7 +380,7 @@ namespace Kans
 
 		}
 		//rendering
-		// 此处应该有renderpipline和renderpass
+		// 姝ゅ搴旇鏈塺enderpipline鍜宺enderpass
 		{
 			PROFILE_SCOPE("rendering")
 			m_ActiveRenderScene->OnRenderEditor( m_ViewportRenderer,ts,m_EditorCamera);

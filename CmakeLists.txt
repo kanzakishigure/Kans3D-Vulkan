@@ -25,6 +25,7 @@ set(CMAKE_CONFIGURATION_TYPES "Debug;Release;Dist" CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ============================================================
 # Detect architecture & system (for output=dir naming)
@@ -115,8 +116,10 @@ add_subdirectory(${KANS3D_DIR})
 # ============================================================
 # Core — KansScriptCore C# shared library
 # ============================================================
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/KansScriptCore)
-
+if(DEFINED CMAKE_VS_MSBUILD_COMMAND)
+    message("-- build c# script by MSBuild")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/KansScriptCore)
+endif()
 # ============================================================
 # Editor — KansEditor console application
 # ============================================================

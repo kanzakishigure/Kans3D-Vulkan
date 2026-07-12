@@ -31,4 +31,4 @@ KansEditor/Resources/Scripts
 script/__pycache__
 # cmake build
 build/
-
+build_clangd/
