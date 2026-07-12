@@ -51,7 +51,6 @@ namespace Kans
 	public: 
 		MaterialAsset();
 		MaterialAsset(const Ref<Material> material);
-		MaterialAsset(const MaterialAsset& ) =default;
 		~MaterialAsset();
 
 		static const std::string& GetEmissionMapLocation() { return s_EmissionMapUnifrom; }

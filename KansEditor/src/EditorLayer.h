@@ -3,6 +3,7 @@
 
 #include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/ImporterPanel.h"
 #include "Kans3D/Editor/EditorCamera.h"
 namespace Kans {
 	class EditorLayer :public Kans::Layer
@@ -48,6 +49,8 @@ namespace Kans {
 		SceneHierachyPanel m_SceneHierachyPanel;
 		//ContentBrowserPanel
 		ContentBrowserPanel m_ContentBrowserPanel;
+		//ImporterPanel
+		ImporterPanel m_ImporterPanel;
 	};
 
 

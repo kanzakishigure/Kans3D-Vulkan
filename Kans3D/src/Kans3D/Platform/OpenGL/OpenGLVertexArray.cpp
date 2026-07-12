@@ -25,14 +25,14 @@ namespace Kans {
 		case ShaderDataType::Bool:		return GL_BOOL;
 		}
 
-		CORE_ASSERT(false, "unknown shaderdatatype！");
+		CORE_ASSERT(false, "unknown shaderdatatype锟斤拷");
 		return 0;
 
 	}
 	OpenGLVertexArray::OpenGLVertexArray()
 	{
 		PROFILE_FUCTION();
-		//此处同样需要渲染级别的性能检测配置，暂时使用PROFILE_FUCTION进行测试
+		//锟剿达拷同锟斤拷锟斤拷要锟斤拷染锟斤拷锟斤拷锟斤拷锟斤拷芗锟斤拷锟斤拷锟矫ｏ拷锟斤拷时使锟斤拷PROFILE_FUCTION锟斤拷锟叫诧拷锟斤拷
 		glCreateVertexArrays(1, &m_RendererID);
 	}
 

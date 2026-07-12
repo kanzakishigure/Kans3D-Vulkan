@@ -7,8 +7,13 @@
 #include "ImGuizmo.h"
 //TestInclude
 #include <Kans3D/Core/UUID.h>
+#include <Kans3D/Core/Hash.h>
 #include <Kans3D/ImGui/Colors.h>
 #include <Kans3D/Renderer/Resource/MeshFactory.h>
+#include <Kans3D/Asset/AssetMetaData.h>
+#include <Kans3D/Asset/Importer/AssetImporter.h>
+#include <Kans3D/Asset/Importer/AssimpMeshImporter.h>
+#include "Panels/ImporterPanel.h"
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define ShowImguiDemo		false	
 #define ShowEditorUI		true
@@ -43,6 +48,40 @@ namespace Kans
 		//Resource Init
 		EditorResources::Init();
 
+		//Asset Importer Init
+		AssetImporter::Init();
+
+		//ImporterPanel callback — 导入完成后创建 Entity
+		m_ImporterPanel.SetImportCompleteCallback(
+			[this](const ImportResult& result, const ImportConfig& config)
+			{
+				if (!result.Success || !result.MeshSource)
+				{
+					CORE_WARN("EditorLayer — import failed for: {}", config.SourcePath.string());
+					return;
+				}
+
+				auto entity = m_ActiveScene->CreateEntity(config.AssetName);
+				auto& meshCMP = entity.AddComponent<StaticMeshComponent>();
+				auto& materialCMP = entity.AddComponent<MaterialComponent>();
+
+				Ref<StaticMesh> staticMesh = CreateRef<StaticMesh>(result.MeshSource);
+				staticMesh->Handle = config.ExistingAssetHandle;
+
+				meshCMP.StaticMesh = staticMesh;
+				meshCMP.MaterialTable = staticMesh->GetMaterialTable();
+				materialCMP.MaterialTable = staticMesh->GetMaterialTable();
+
+				auto& transformCMP = entity.GetComponent<TransformComponent>();
+				transformCMP.Position = { 0.0f, 0.0f, -1.0f };
+				transformCMP.Rotation = { 0.0f, glm::radians(90.0f), 0.0f };
+
+				CORE_INFO("EditorLayer — created entity '{}' from imported mesh: {} submeshes, {} verts, {} tris",
+				          config.AssetName,
+				          result.FinalProgress.SubMeshesDetected,
+				          result.FinalProgress.VerticesDetected,
+				          result.FinalProgress.TrianglesDetected);
+			});
 
 		// scene init
 		{
@@ -116,7 +155,7 @@ namespace Kans
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = GY_LightEntity.AddComponent<MaterialComponent>();
-				auto meshSrouce = CreateRef<MeshSource>("assets/model/GY/GY.FBX");
+				auto meshSrouce = AssimpMeshImporter("assets/model/GY/GY.FBX").ImportToMeshSource();
 				
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
@@ -153,7 +192,7 @@ namespace Kans
 				auto shibahu_Entity = m_ActiveScene->CreateEntity("shibahu");
 				auto& meshCMP = shibahu_Entity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = shibahu_Entity.AddComponent<MaterialComponent>();
-				auto meshSrouce = CreateRef<MeshSource>("assets/model/shibahu/scene.gltf");
+				auto meshSrouce = AssimpMeshImporter("assets/model/shibahu/scene.gltf").ImportToMeshSource();
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
 				materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
@@ -175,7 +214,7 @@ namespace Kans
 				auto shibahu_Entity = m_ActiveScene->CreateEntity("modern_coffee_table");
 				auto& meshCMP = shibahu_Entity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = shibahu_Entity.AddComponent<MaterialComponent>();
-				auto meshSrouce = CreateRef<MeshSource>("assets/model/modern_coffee_table/modern_coffee_table_01_4k.gltf");
+				auto meshSrouce = AssimpMeshImporter("assets/model/modern_coffee_table/modern_coffee_table_01_4k.gltf").ImportToMeshSource();
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
 				materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
@@ -191,7 +230,7 @@ namespace Kans
 				auto shibahu_Entity = m_ActiveScene->CreateEntity("boombox_4k");
 				auto& meshCMP = shibahu_Entity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = shibahu_Entity.AddComponent<MaterialComponent>();
-				auto meshSrouce = CreateRef<MeshSource>("assets/model/boombox_4k/boombox_4k.gltf");
+				auto meshSrouce = AssimpMeshImporter("assets/model/boombox_4k/boombox_4k.gltf").ImportToMeshSource();
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
 				materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
@@ -295,18 +334,15 @@ namespace Kans
 			
 			//InitPanel
 			{
-					m_SceneHierachyPanel.setSceneContext(m_ActiveScene);
-					
+				m_SceneHierachyPanel.setSceneContext(m_ActiveScene);	
 			}
-				
+
 			m_ActiveScene->OnRuntimeStart();
 		}
 		
 		//post Init Renderer pipeline
 		{
 			m_ActiveRenderScene = CreateRef<RenderScene>(m_ActiveScene);
-			m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
-			//m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
 			RenderPipelineSpecification pipline_init_specification;
 			pipline_init_specification.render_scene = m_ActiveRenderScene;
 			Renderer::InitRenderPipline(pipline_init_specification);
@@ -323,6 +359,7 @@ namespace Kans
 		{
 			
 			m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
+			m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
 			m_ViewportRenderer->PrepareEnvironment();  
 
 		}
@@ -380,7 +417,6 @@ namespace Kans
 
 		}
 		//rendering
-		// 姝ゅ搴旇鏈塺enderpipline鍜宺enderpass
 		{
 			PROFILE_SCOPE("rendering")
 			m_ActiveRenderScene->OnRenderEditor( m_ViewportRenderer,ts,m_EditorCamera);
@@ -399,7 +435,6 @@ namespace Kans
 	void EditorLayer::OnImGuiRender()
 	{
 		PROFILE_FUCTION();
-		
 //Imgui docking Init
 #if EnbaleDocking
 		static bool p_open = true;
@@ -442,10 +477,11 @@ namespace Kans
 		
 		
 		// DockSpace
-		//set the min docking windowsSize tO 340
+		//set the min docking windowsSize to 20% of window width
 		auto& style = ImGui::GetStyle();
 		float minsize = style.WindowMinSize.x;
-		style.WindowMinSize.x = 340;
+		float minPanelWidth = (float)Application::Get().GetWindow().GetWidth() * 0.2f;
+		style.WindowMinSize.x = minPanelWidth;
 		if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 		{
 			ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -524,6 +560,7 @@ namespace Kans
 	//HierachyPanel
 	m_SceneHierachyPanel.onImGuiRender(true);
 	m_ContentBrowserPanel.onImGuiRender(true);
+	m_ImporterPanel.onImGuiRender(true);
 	//Viewport
 		//Color FrameBuffer
 	if(ShowColorBuffer)
@@ -551,33 +588,22 @@ namespace Kans
 				std::filesystem::path filePath = path;
 				if (filePath.has_extension())
 				{
-					if (filePath.extension() == ".fbx"|| filePath.extension() == ".gltf")
+					// ── StaticMesh / Mesh 资产：打开 ImporterPanel 进行导入 ──
+					static const std::unordered_set<std::string> s_MeshExtensions =
 					{
-						{
+						".fbx", ".obj", ".3ds", ".blend", ".gltf"
+					};
 
-							auto Entity = m_ActiveScene->CreateEntity(filePath.filename().generic_string());
-							auto& meshCMP = Entity.AddComponent<StaticMeshComponent>();
-							auto& materialCMP = Entity.AddComponent<MaterialComponent>();
-							auto meshSrouce = CreateRef<MeshSource>(filePath.generic_string());
-							meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
-							meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
-							materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
-
-							auto& TransformCMP = Entity.GetComponent<TransformComponent>();
-							TransformCMP.Position = { 0.0f,0.0f,-1.0f };
-							TransformCMP.Rotation = { 0.0f,glm::radians(90.0f),0.0f };
-
-						}
+					if (s_MeshExtensions.count(filePath.extension().string()) > 0)
+					{
+						m_ImporterPanel.OpenWithFile(filePath);
 					}
 
-					if (filePath.extension() == ".hdr" )
+					if (filePath.extension() == ".hdr")
 					{
-						{
-							m_ViewportRenderer->UpdateEnvironment(path);
-						}
+						m_ViewportRenderer->UpdateEnvironment(path);
 					}
 				}
-				
 			}
 			ImGui::EndDragDropTarget();
 		}

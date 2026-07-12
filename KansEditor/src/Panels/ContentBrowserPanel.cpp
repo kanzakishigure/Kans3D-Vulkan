@@ -17,7 +17,7 @@ namespace Kans
 {
 	ContentBrowserPanel* ContentBrowserPanel::s_Instance = nullptr;
 
-	// â”€â”€ tiny helpers (file-size / date formatting for item metadata) â”€â”€
+	// ©¤©¤ tiny helpers (file-size / date formatting for item metadata) ©¤©¤
 	static std::string FormatFileSize(uint64_t bytes)
 	{
 		const char* units[] = { "B", "KB", "MB", "GB", "TB" };
@@ -54,7 +54,7 @@ namespace Kans
 	}
 
 	// ------------------------------------------------------------------
-	//  CalculateLayout  â€“  snap to discrete icon-size tier based on
+	//  CalculateLayout  ¨C  snap to discrete icon-size tier based on
 	//  the *panel content area* width (not total window width).
 	// ------------------------------------------------------------------
 	void ContentBrowserPanel::CalculateLayout(float availableWidth)
@@ -67,7 +67,7 @@ namespace Kans
 			return;
 		}
 
-		// Walk tiers largest â†’ smallest; pick the largest that fits â‰¥ kMinColumns.
+		// Walk tiers largest ¡ú smallest; pick the largest that fits ¡Ý kMinColumns.
 		for (int i = kNumIconTiers - 1; i >= 0; --i)
 		{
 			float candidate = kIconTiers[i];
@@ -81,7 +81,7 @@ namespace Kans
 				break;
 			}
 
-			// Last resort â€“ smallest tier, at least 1 column
+			// Last resort ¨C smallest tier, at least 1 column
 			if (i == 0)
 			{
 				m_CurrentIconSize = candidate;
@@ -89,14 +89,14 @@ namespace Kans
 			}
 		}
 
-		// â”€â”€ Map discrete tier â†’ view mode â”€â”€
+		// ©¤©¤ Map discrete tier ¡ú view mode ©¤©¤
 		if      (m_CurrentIconSize <= 64.0f)  m_CurrentViewMode = ViewMode::CompactGrid;
 		else if (m_CurrentIconSize <= 96.0f)  m_CurrentViewMode = ViewMode::StandardGrid;
 		else if (m_CurrentIconSize <= 128.0f) m_CurrentViewMode = ViewMode::DetailedGrid;
 		else                                  m_CurrentViewMode = ViewMode::ExpandedGrid;
 	}
 
-	// â”€â”€ Draw a thin horizontal separator line â”€â”€
+	// ©¤©¤ Draw a thin horizontal separator line ©¤©¤
 	static void DrawThinSeparator(ImColor color, float thickness = 1.0f)
 	{
 		ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -114,7 +114,7 @@ namespace Kans
 
 		ImGui::Begin("ContentBrowser", nullptr, windowFlags);
 
-		// â”€â”€ Background colors for  panels â”€â”€
+		// ©¤©¤ Background colors for  panels ©¤©¤
 		const ImVec4 colSourcePanel = ImGui::ColorConvertU32ToFloat4(IM_COL32(24, 24, 24, 255));    // very dark source panel
 		const ImVec4 colAssetPanel  = ImGui::ColorConvertU32ToFloat4(IM_COL32(32, 32, 32, 255));    // slightly lighter asset area
 		const ImVec4 colBreadcrumb  = ImGui::ColorConvertU32ToFloat4(IM_COL32(20, 20, 20, 255));    // breadcrumb bar background
@@ -138,7 +138,7 @@ namespace Kans
 
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 
-		// â”€â”€ Outer split table: left = source panel, right = asset panel â”€â”€
+		// ©¤©¤ Outer split table: left = source panel, right = asset panel ©¤©¤
 		{
 			static ImGuiTableFlags flags =
 				ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV |
@@ -152,16 +152,16 @@ namespace Kans
 		ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, ImVec4(0.18f, 0.18f, 0.18f, 1.0f));
 		if (ImGui::BeginTable("ContentBrowserSplit", 2, flags, { 0, tableSize.y }))
 			{
-				// â”€â”€ Column setup with widths â”€â”€
+				// ©¤©¤ Column setup with widths ©¤©¤
 				ImGui::TableSetupColumn(
 					KansFileSystem::GetAssetFolder().filename().string().c_str(),
 					ImGuiTableColumnFlags_NoHeaderLabel | ImGuiTableColumnFlags_NoHide /*| ImGuiTableColumnFlags_WidthFixed*/,
 					220.0f);   // default source panel width like UE5
 				ImGui::TableSetupColumn("", ImGuiTableColumnFlags_NoHide /*| ImGuiTableColumnFlags_WidthStretch*/);
 
-				// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 				//  ROW 1: column headers (breadcrumb row)
-				// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 				ImGui::TableNextRow(ImGuiTableRowFlags_Headers, 28.0f);
 
 				// --- Left column header: "Sources" label ---
@@ -324,9 +324,9 @@ namespace Kans
 					ImGui::PopID();
 				}
 
-				// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 				//  ROW 2: source panel (left)  +  asset panel (right)
-				// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+				// ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 				ImGui::TableNextRow(ImGuiTableRowFlags_None, 0);
 
 				// --- LEFT: Source / folder tree (UE5 dark source panel) ---
@@ -340,7 +340,7 @@ namespace Kans
 
 					if (ImGui::BeginTable("SourcePanelTree", 1, treeFlags, { 0, 0 }))
 					{
-						// â”€â”€ Render folder tree â”€â”€
+						// ©¤©¤ Render folder tree ©¤©¤
 						std::function<void(const std::filesystem::path&)> DrawFolderNode;
 						DrawFolderNode = [&](const std::filesystem::path& dirPath)
 						{
@@ -466,7 +466,7 @@ namespace Kans
 							ImGui::PopStyleColor(1);
 						}
 
-							// â”€â”€ Asset grid container (child window adds margin) â”€â”€
+							// ©¤©¤ Asset grid container (child window adds margin) ©¤©¤
 						ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
 						ImGui::BeginChild("AssetGridContainer", { 0, 0 }, false,
 							ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -496,7 +496,7 @@ namespace Kans
 						ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,   4.0f);
 						ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,     { 8.0f, 4.0f });
 
-						// â”€â”€ Refresh directory listing â”€â”€
+						// ©¤©¤ Refresh directory listing ©¤©¤
 						if (NeedRefresh)
 						{
 							NeedRefresh = false;
@@ -533,7 +533,7 @@ namespace Kans
 								});
 						}
 
-						// â”€â”€ Render items in grid â”€â”€
+						// ©¤©¤ Render items in grid ©¤©¤
 						if (ImGui::BeginTable("AssetGrid", m_ComputedColumns, contentListFlag, { 0, 0 }))
 						{
 							ImGui::TableNextColumn();

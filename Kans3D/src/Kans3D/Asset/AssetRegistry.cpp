@@ -14,7 +14,7 @@ namespace Kans
 
 	}
 
-	const  Ref<AssetMetaData>& AssetRegistry::GetAssetMetaData(AssetHandle handle) const
+	const Ref<AssetMetaData> AssetRegistry::GetAssetMetaData(AssetHandle handle) const
 	{
 		if (m_AssetMetaDatas.find(handle) != m_AssetMetaDatas.end())
 		{

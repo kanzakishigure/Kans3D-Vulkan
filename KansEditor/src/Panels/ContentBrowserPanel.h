@@ -12,13 +12,13 @@ namespace Kans
 	class ContentBrowserPanel : public EditorPanel
 	{
 	public:
-		// â”€â”€ View modes: progressively richer layout as icon tier grows â”€â”€
+		// ©¤©¤ View modes: progressively richer layout as icon tier grows ©¤©¤
 		enum class ViewMode : uint8_t
 		{
-			CompactGrid,   // 48 / 64 px   â†’  icon + truncated name
-			StandardGrid,  // 80 / 96 px   â†’  icon + name + extension badge
-			DetailedGrid,  // 128 px       â†’  icon + name + ext + size + date
-			ExpandedGrid   // 160 / 192 px â†’  icon + name + ext + size + full date
+			CompactGrid,   // 48 / 64 px   ¡ú  icon + truncated name
+			StandardGrid,  // 80 / 96 px   ¡ú  icon + name + extension badge
+			DetailedGrid,  // 128 px       ¡ú  icon + name + ext + size + date
+			ExpandedGrid   // 160 / 192 px ¡ú  icon + name + ext + size + full date
 		};
 
 	public:
@@ -27,7 +27,7 @@ namespace Kans
 
 		static ContentBrowserPanel* Get() { return s_Instance; }
 
-		// â”€â”€ Queries (called by ContentBrowserItem) â”€â”€
+		// ©¤©¤ Queries (called by ContentBrowserItem) ©¤©¤
 		float    GetCurrentIconSize() const { return m_CurrentIconSize; }
 		ViewMode GetCurrentViewMode() const { return m_CurrentViewMode; }
 
@@ -35,7 +35,7 @@ namespace Kans
 		// Snaps icon size to the best discrete tier based on available panel width.
 		void CalculateLayout(float availableWidth);
 
-		// â”€â”€ Discrete icon-size tiers (snap-to sizes, not smooth interpolation) â”€â”€
+		// ©¤©¤ Discrete icon-size tiers (snap-to sizes, not smooth interpolation) ©¤©¤
 		static constexpr float kIconTiers[]    = { 48.0f, 64.0f, 80.0f, 96.0f, 128.0f  };
 		static constexpr int   kNumIconTiers   = 5;
 		static constexpr int   kMinColumns     = 2;
@@ -51,7 +51,7 @@ namespace Kans
 		float FrameBorderSize = 1.5f;
 		float FrameRounding   = 8.0f;
 
-		// â”€â”€ Auto-scaling state â”€â”€
+		// ©¤©¤ Auto-scaling state ©¤©¤
 		float    m_CurrentIconSize   = 96.0f;
 		int      m_ComputedColumns   = 4;          // derived from layout calc
 		float    m_LastAvailableWidth = 0.0f;

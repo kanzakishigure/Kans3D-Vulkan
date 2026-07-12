@@ -16,6 +16,7 @@ namespace Kans {
 			case RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_REPEAT: return GL_REPEAT; 
 			default:
 				CORE_ASSERT(false, "Unknow Wrap Type");
+				return GL_NONE;
 			}
 		}
 
@@ -28,6 +29,7 @@ namespace Kans {
 			case RHIFilter::RHI_FILTER_CUBIC_EXT :  return GL_LINEAR_MIPMAP_LINEAR;
 			default:
 				CORE_ASSERT(false, "Unknow Filter Type");
+				return GL_NONE;
 			}
 
 		}
@@ -39,7 +41,7 @@ namespace Kans {
 
 		int width, height, channel;
 		std::string path = m_Path.generic_string();
-		//±£Ö¤ÓëopenglÖÐµÄuv×ø±êÏµÎÇºÏ£¬·­×ªyÖá
+		//ï¿½ï¿½Ö¤ï¿½ï¿½openglï¿½Ðµï¿½uvï¿½ï¿½ï¿½ï¿½Ïµï¿½ÇºÏ£ï¿½ï¿½ï¿½×ªyï¿½ï¿½
 		stbi_set_flip_vertically_on_load(1);
 
 		Buffer imageBuffer;
@@ -82,7 +84,7 @@ namespace Kans {
 
 		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
 		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
-		//ID,ÌùÍ¼Î»ÖÃ£¬xÆ«ÒÆÁ¿£¬yÆ«ÒÆÁ¿£¬¿í£¬¸ß£¬Í¨µÀ£¬Êý¾ÝÀàÐÍ£¬Êý¾Ý
+		//ID,ï¿½ï¿½Í¼Î»ï¿½Ã£ï¿½xÆ«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½yÆ«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ß£ï¿½Í¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í£ï¿½ï¿½ï¿½ï¿½ï¿½
 		if (stbi_is_hdr(path.c_str()))
 		{
 			glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_FLOAT, imageBuffer.Data);
@@ -272,7 +274,7 @@ namespace Kans {
 
 
 
-		//ÌùÍ¼±ßÔµ´¦ÀíÉèÖÃ
+		//ï¿½ï¿½Í¼ï¿½ï¿½Ôµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 		
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
@@ -281,7 +283,7 @@ namespace Kans {
 		
 		
 		
-		//ÌùÍ¼²åÖµÉèÖÃ
+		//ï¿½ï¿½Í¼ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Minf));
 		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Maxf));
 		
