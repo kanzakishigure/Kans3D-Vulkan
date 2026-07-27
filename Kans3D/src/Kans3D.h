@@ -22,7 +22,7 @@
 //------Renderer---------------
 #include "Kans3D/Renderer/RHI/FrameBuffer.h"
 #include "Kans3D/Renderer/RHI/Buffer.h"
-#include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h "
+#include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h"
 #include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
 
 #include "Kans3D/Renderer/Renderer.h"
@@ -40,12 +40,12 @@
 //-----script---------------
 #include "Kans3D/Scene/ScriptableEntity.h"
 
-//------äÖÈ¾Ğ§¹û---------------
+//------æ¸²æŸ“æ•ˆæœ---------------
 #include "Kans3D/Physics/ParticleSystem.h"
-//------¸¨Öú¹¤¾ß---------------
+//------è¾…åŠ©å·¥å…·---------------
 #include "Kans3D/Debug/Instrumentor.h"
 #include "Kans3D/Utilities/MaterialUtils.h"//temp
-//------³ÌĞòÈë¿Úµã--------------
+//------ç¨‹åºå…¥å£ç‚¹--------------
 
 //#include"Kans3D/Core/EntryPoint.h"
 //------------------------------

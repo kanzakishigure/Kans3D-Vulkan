@@ -1,8 +1,8 @@
 #include "kspch.h"
 #include "SceneHierachyPanel.h"
 
-#include "kans3D/Scene/Components.h"
-#include "kans3D/ImGui/KansUI.h"
+#include "Kans3D/Scene/Components.h"
+#include "Kans3D/ImGui/KansUI.h"
 
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Script/ScriptEngine.h"
@@ -154,7 +154,7 @@ namespace Kans
 			auto& tag = entity.GetComponent<TagComponent>().Tag;
 			char buffer[256];
 			memset(buffer, 0, sizeof(buffer));
-			strcpy_s(buffer, sizeof(buffer) ,tag.c_str());
+			strcpy(buffer, tag.c_str());
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)),ImGuiInputTextFlags_AutoSelectAll)
 			{
 				tag = std::string(buffer);
@@ -313,7 +313,7 @@ namespace Kans
 			std::map<std::string, ShaderUniform> GlobelShaderUniforms;
 			if (materialCount > 0)
 			{
-				auto& material = component.MaterialTable->GetMaterialAsset(0)->GetMaterial();
+				auto material = component.MaterialTable->GetMaterialAsset(0)->GetMaterial();
 				auto& materialBuffer = material->GetShaderBuffer();
 
 				for (auto& UniformMap : materialBuffer.ShaderUniforms)
@@ -367,7 +367,7 @@ namespace Kans
 			for (uint32_t i = 0; i < materialCount; i++)
 			{
 				
-				auto& material = component.MaterialTable->GetMaterialAsset(i)->GetMaterial();
+				auto material = component.MaterialTable->GetMaterialAsset(i)->GetMaterial();
 				auto& materialBuffer = material->GetShaderBuffer();
 
 				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 2));

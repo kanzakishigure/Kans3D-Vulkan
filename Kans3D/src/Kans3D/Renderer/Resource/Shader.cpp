@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "Shader.h"
 
-#include "kans3D/Renderer/Renderer.h"
+#include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Platform/Vulkan/VulkanShader.h"
 
@@ -30,7 +30,7 @@ namespace Kans {
 
 	}
 
-	void ShaderLibrary::Add(Ref<Shader>& shader)
+	void ShaderLibrary::Add(Ref<Shader> shader)
 	{
 		auto name = shader->GetName();
 		Add(name,shader);

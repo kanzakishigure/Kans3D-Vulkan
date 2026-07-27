@@ -24,7 +24,7 @@ namespace Kans
 		 float getCameraSpeed();
 		 float getRotateSpeed();
 		 float getZoomSpeed();
-		 bool EditorCamera::onMouseScroll(MouseScrolledEvent& e);
+		 bool onMouseScroll(MouseScrolledEvent& e);
 		 void mouseZoom(float delta);
 		 void setViewportSize(uint32_t width, uint32_t height);
 		 

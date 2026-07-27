@@ -137,8 +137,8 @@ namespace Kans
 	};
 
 	template<typename ShaderUtils::ShaderLang Lang>
-	static std::map<VkShaderStageFlagBits, std::string>
-		Kans::ShaderPreprocessor::PreprocessShader(const std::string& source)
+	std::map<VkShaderStageFlagBits, std::string>
+		ShaderPreprocessor::PreprocessShader(const std::string& source)
 	{
 		//get the source code without explanatory 
 		std::stringstream preFilterSource;
@@ -221,14 +221,25 @@ namespace Kans
 
 	}
 
-	template<typename ShaderUtils::ShaderLang Lang>
-	void ShaderPreprocessor::PreprocessHeader(std::string& contents, bool& isGuarded, const std::filesystem::path& fullPath)
+	template<>
+	inline void ShaderPreprocessor::PreprocessHeader<ShaderUtils::ShaderLang::GLSL>(std::string& contents, bool& isGuarded, const std::filesystem::path& fullPath)
 	{
 		std::stringstream sourceStream;
 		PreprocessUtils::CopyWithoutComments(contents.begin(), contents.end(), std::ostream_iterator<char>(sourceStream));
 		contents = sourceStream.str();
 
-		isGuarded = PreprocessUtils::ContainsHeaderGuard<Lang==ShaderUtils::ShaderLang::GLSL>(contents);
+		isGuarded = PreprocessUtils::ContainsHeaderGuard<true>(contents);
+				
+	}
+
+	template<>
+	inline void ShaderPreprocessor::PreprocessHeader<ShaderUtils::ShaderLang::HLSL>(std::string& contents, bool& isGuarded, const std::filesystem::path& fullPath)
+	{
+		std::stringstream sourceStream;
+		PreprocessUtils::CopyWithoutComments(contents.begin(), contents.end(), std::ostream_iterator<char>(sourceStream));
+		contents = sourceStream.str();
+
+		isGuarded = PreprocessUtils::ContainsHeaderGuard<false>(contents);
 				
 	}
 

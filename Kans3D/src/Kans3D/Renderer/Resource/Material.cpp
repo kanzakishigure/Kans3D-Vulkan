@@ -1,6 +1,6 @@
 #include "kspch.h"
 #include "Material.h"
-#include "kans3D/Renderer/Renderer.h"
+#include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Platform/OpenGL/OpenGLMaterial.h"
 
 namespace Kans

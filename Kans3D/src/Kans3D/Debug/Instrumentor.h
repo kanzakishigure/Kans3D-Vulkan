@@ -115,7 +115,7 @@ namespace KansTools
 			Instrumentor::Get().WriteProfile({ m_Name,start,end,0 });
 		}
 	private:
-		std::chrono::time_point<std::chrono::steady_clock> m_StartTimePoint;
+		std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTimePoint;
 		bool m_Stoped;
 		const char* m_Name;
 	};
@@ -145,7 +145,7 @@ namespace KansTools
 			CORE_ERROR_TAG("Instrumentor","{} takes time : {}s", m_Name, duration);
 		}
 	private:
-		std::chrono::time_point<std::chrono::steady_clock> m_StartTimePoint;
+		std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTimePoint;
 		bool m_Stoped;
 		const char* m_Name;
 	};

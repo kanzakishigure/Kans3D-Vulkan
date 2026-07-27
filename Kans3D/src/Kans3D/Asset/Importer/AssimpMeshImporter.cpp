@@ -5,11 +5,13 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Utilities/MeshUtils.h"
+#include "spdlog/fmt/bundled/core.h"
 
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <filesystem>
 #include <stb_image.h>
 
 namespace {
@@ -23,14 +25,26 @@ constexpr uint32_t kImportFlag = aiProcess_CalcTangentSpace // 计算切线空间
 
 namespace Kans {
 
+// Normalize cross-platform paths from assimp.
+// Assimp may return Windows-style separators (e.g. "textures\\expr.png"),
+// which are invalid on POSIX where '\\' is a regular filename character.
+// This helper replaces all '\\' with '/' and joins with the base path correctly.
+static std::filesystem::path NormalizeAssimpTexturePath(const std::string& basePath,
+                                                         const char* aiSubPath) {
+    std::string subPath = aiSubPath;
+    std::replace(subPath.begin(), subPath.end(), '\\', '/');
+    return std::filesystem::path(basePath) / subPath;
+}
+
 AssimpMeshImporter::AssimpMeshImporter(const std::filesystem::path &path)
-    : m_Path(path) {}
+    : m_Path(std::filesystem::current_path().string()+"/"+path.string()) {}
 
 // ================================================================
 // ImportToMeshSource — 主入口
 // ================================================================
 Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource() {
-  CORE_INFO_TAG("Mesh", "Loading mesh: {0}", m_Path.string());
+  CORE_INFO_TAG("Mesh", "Try loading mesh: {0}", m_Path.string());
+
 
   // ---- 基础检查 ----
   if (!std::filesystem::exists(m_Path)) {
@@ -269,15 +283,15 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   Ref<MaterialAsset> mtlAsset = CreateRef<MaterialAsset>(mtl);
   TextureSpecification spec;
 
-  // ══════════════════════════════════════════════════════════
-  // Blinn-Phong 贴图
-  // ══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════
+// Blinn-Phong 贴图
+// ══════════════════════════════════════════════════════════
 
   // Normal Map
   if (aiMat->GetTextureCount(aiTextureType_NORMALS) > 0) {
     aiString path;
     aiMat->GetTexture(aiTextureType_NORMALS, 0, &path);
-    std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+    std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
     CORE_TRACE("  [{}] Normal: {}", mtlName, texPath);
     mtlAsset->SetNormalMap(KansFileSystem::Exists(texPath)
                                ? Texture2D::Create(spec, texPath)
@@ -290,7 +304,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   if (aiMat->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
     aiString path;
     aiMat->GetTexture(aiTextureType_DIFFUSE, 0, &path);
-    std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+    std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
     CORE_TRACE("  [{}] Diffuse: {}", mtlName, texPath);
     Ref<Texture2D> tex = Texture2D::Create(spec, texPath);
     mtlAsset->SetDiffuseMap(tex);
@@ -333,7 +347,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   if (aiMat->GetTextureCount(aiTextureType_SPECULAR) > 0) {
     aiString path;
     aiMat->GetTexture(aiTextureType_SPECULAR, 0, &path);
-    std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+    std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
     CORE_TRACE("  [{}] Specular: {}", mtlName, texPath);
     mtlAsset->SetSpecularMap(Texture2D::Create(spec, texPath));
   } else {
@@ -348,7 +362,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   if (aiMat->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
     aiString path;
     aiMat->GetTexture(aiTextureType_BASE_COLOR, 0, &path);
-    std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+    std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
     if (KansFileSystem::Exists(texPath)) {
       mtlAsset->SetAlbedoMap(Texture2D::Create(spec, texPath));
       CORE_TRACE("  [{}] Albedo: {}", mtlName, texPath);
@@ -363,7 +377,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   if (aiMat->GetTextureCount(aiTextureType_AMBIENT_OCCLUSION) > 0) {
     aiString path;
     aiMat->GetTexture(aiTextureType_AMBIENT_OCCLUSION, 0, &path);
-    std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+    std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
     if (KansFileSystem::Exists(texPath)) {
       mtlAsset->SetAOMap(Texture2D::Create(spec, texPath));
       CORE_TRACE("  [{}] AO: {}", mtlName, texPath);
@@ -378,7 +392,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   if (aiMat->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS) > 0) {
     aiString path;
     aiMat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &path);
-    std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+    std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
     if (KansFileSystem::Exists(texPath)) {
       mtlAsset->SetRoughMap(Texture2D::Create(spec, texPath));
       CORE_TRACE("  [{}] Roughness: {}", mtlName, texPath);
@@ -393,7 +407,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   if (aiMat->GetTextureCount(aiTextureType_METALNESS) > 0) {
     aiString path;
     aiMat->GetTexture(aiTextureType_METALNESS, 0, &path);
-    std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+    std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
     if (KansFileSystem::Exists(texPath)) {
       mtlAsset->SetMetalMap(Texture2D::Create(spec, texPath));
       CORE_TRACE("  [{}] Metalness: {}", mtlName, texPath);
@@ -473,7 +487,7 @@ void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial *aiMat,
     if (aiMat->GetTextureCount(aiType) > 0) {
       aiString path;
       aiMat->GetTexture(aiType, 0, &path);
-      std::string texPath = ms->m_LoadPath + "/" + path.C_Str();
+      std::filesystem::path texPath = NormalizeAssimpTexturePath(ms->m_LoadPath, path.C_Str());
 
       if (KansFileSystem::Exists(texPath)) {
         int width, height, channels;

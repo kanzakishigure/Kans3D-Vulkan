@@ -4,7 +4,7 @@
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/Input/Input.h"
 #include "Kans3D/Input/KeyCodes.h"
-#include "kans3D/Renderer/Renderer.h"
+#include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Script/ScriptEngine.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 

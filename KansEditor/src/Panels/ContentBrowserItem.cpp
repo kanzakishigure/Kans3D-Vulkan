@@ -33,8 +33,7 @@ namespace Kans
 			ftime - std::filesystem::file_time_type::clock::now() +
 			std::chrono::system_clock::now());
 		std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
-		std::tm tm_buf{};
-		localtime_s(&tm_buf, &tt);
+		std::tm tm_buf = *std::localtime(&tt);
 		std::ostringstream oss;
 		oss << std::put_time(&tm_buf, "%Y-%m-%d");
 		return oss.str();

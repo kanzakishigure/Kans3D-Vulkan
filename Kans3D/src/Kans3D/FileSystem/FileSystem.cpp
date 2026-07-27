@@ -162,21 +162,25 @@ namespace Kans{
 		
 
 
+		std::set<std::string> foundNames;
 		std::filesystem::directory_iterator it(path);
-		std::string hashString;
 		for (const auto& filepath : it)
 		{
 			std::string filename = filepath.path().filename().string();
 			if (whiteList.find(filename) != whiteList.end())
 			{
-				
-				hashString += filename;
+				foundNames.insert(filename);
 			}
 
 		}
+
+		std::string hashString;
+		for (const auto& name : foundNames)
+			hashString += name;
+
 		std::string HashValue = Hash::GenerateMD5Hash(hashString);
 
-		std::string Secretkey = "assetsmonoProject.iniResources";
+		std::string Secretkey = "Project.iniResourcesassetsmono";
 
 		return HashValue == Hash::GenerateMD5Hash(Secretkey);
 

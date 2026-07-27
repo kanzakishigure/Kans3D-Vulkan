@@ -186,7 +186,7 @@ namespace Kans
 		Ref<MeshSource> GetMeshSource() { return m_MeshSource; }
 		Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
 
-		void StaticMesh::SetMaterial(Ref<Material> material, uint32_t submeshIndex);
+		void SetMaterial(Ref<Material> material, uint32_t submeshIndex);
 		void SetMeshAsset(Ref<MeshSource> meshAsset) { m_MeshSource = meshAsset; }
 
 		Ref<MaterialTable> GetMaterialTable() const { return m_MaterialTable; }
@@ -208,7 +208,7 @@ namespace Kans
 		Ref<MeshSource> GetMeshSource() { return m_MeshSource; }
 		Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
 
-		void DynamicMesh::SetMaterial(Ref<Material> material, uint32_t submeshIndex);
+		void SetMaterial(Ref<Material> material, uint32_t submeshIndex);
 		void SetMeshAsset(Ref<MeshSource> meshAsset) { m_MeshSource = meshAsset; }
 
 		Ref<MaterialTable> GetMaterialTable() const { return m_MaterialTable; }

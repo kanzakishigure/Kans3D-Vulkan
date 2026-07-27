@@ -28,7 +28,7 @@ namespace  Kans
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		Entity CreateEntity(const std::string name = std::string());
-		Entity Scene::CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap);
+		Entity CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap);
 		void DestroyEntity(Entity entity);
 		Entity GetEntityByUUID(UUID uuid) const;
 

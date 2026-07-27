@@ -49,8 +49,8 @@ namespace Kans
 	};
 	struct GlobalRenderResource
 	{
-		IBLResource          IBLResource;
-		ColorGradingResource ColorGradingResource;
+		IBLResource          IBL;
+		ColorGradingResource ColorGrading;
 		StorageBuffer        Buffer;
 	};
 

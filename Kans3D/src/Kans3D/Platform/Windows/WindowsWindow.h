@@ -5,9 +5,9 @@
 
 
 
-#include "kans3D/Core/Events/ApplicationEvent.h"
-#include "kans3D/Core/Events/KeyEvent.h"
-#include "kans3D/Core/Events/MouseEvent.h"
+#include "Kans3D/Core/Events/ApplicationEvent.h"
+#include "Kans3D/Core/Events/KeyEvent.h"
+#include "Kans3D/Core/Events/MouseEvent.h"
 
 #include<GLFW/glfw3.h>
 

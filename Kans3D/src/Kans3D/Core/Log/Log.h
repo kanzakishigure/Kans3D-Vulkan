@@ -88,7 +88,7 @@ inline OStream& operator<< (OStream& os, const glm::vec<L, T, Q>& vector)
 namespace Kans
 {
 	template<typename... Args>
-	static void Log::PrintMessage(Log::Type type, Log::Level level, std::string_view tag, Args&&... args)
+	void Log::PrintMessage(Log::Type type, Log::Level level, std::string_view tag, Args&&... args)
 	{
 		auto logger = type == Log::Type::Core ? Log::GetCoreLogger() : Log::GetClientLogger();
 

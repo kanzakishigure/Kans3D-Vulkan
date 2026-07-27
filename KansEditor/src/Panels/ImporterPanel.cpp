@@ -277,7 +277,7 @@ namespace Kans
 			ImGui::SameLine(100);
 			ImGui::SetNextItemWidth(250);
 			char nameBuf[256];
-			strncpy_s(nameBuf, m_Config.AssetName.c_str(), sizeof(nameBuf));
+			snprintf(nameBuf, sizeof(nameBuf), "%s", m_Config.AssetName.c_str());
 			if (ImGui::InputText("##AssetName", nameBuf, sizeof(nameBuf)))
 				m_Config.AssetName = nameBuf;
 			ImGui::Spacing();
@@ -307,7 +307,7 @@ namespace Kans
 				ImGui::SameLine();
 				ImGui::SetNextItemWidth(150);
 				char buf[256];
-				strncpy_s(buf, m_Config.MaterialSearchPath.c_str(), sizeof(buf));
+				snprintf(buf, sizeof(buf), "%s", m_Config.MaterialSearchPath.c_str());
 				if (ImGui::InputText("##MatSearchPath", buf, sizeof(buf)))
 					m_Config.MaterialSearchPath = buf;
 				ImGui::Unindent(10);
@@ -340,7 +340,7 @@ namespace Kans
 		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, kColorProgressFill);
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, kColorProgressBg);
 		char overlay[64];
-		sprintf_s(overlay, "%.0f%%", progress.Percentage);
+		snprintf(overlay, sizeof(overlay), "%.0f%%", progress.Percentage);
 		ImGui::ProgressBar(progress.Percentage / 100.0f, ImVec2(region.x - 180, 18), overlay);
 		ImGui::PopStyleColor(2);
 		ImGui::SameLine();
@@ -362,7 +362,7 @@ namespace Kans
 			ImGui::SameLine(60);
 			ImGui::SetNextItemWidth(120);
 			char buf[32];
-			sprintf_s(buf, "%.0f%%", pct);
+			snprintf(buf, sizeof(buf), "%.0f%%", pct);
 			ImGui::ProgressBar(pct / 100.0f, ImVec2(120, 10), buf);
 			ImGui::SameLine();
 		};
@@ -423,8 +423,7 @@ namespace Kans
 		m_Config = ImportConfig::FromFile(filePath,
 			std::filesystem::current_path() / "Assets" / "MeshSources");
 		m_IsOpen = true;
-		strncpy_s(m_OutputPathBuffer, m_Config.OutputDirectory.string().c_str(),
-		          sizeof(m_OutputPathBuffer) - 1);
+		snprintf(m_OutputPathBuffer, sizeof(m_OutputPathBuffer), "%s", m_Config.OutputDirectory.string().c_str());
 
 		m_PreviewReady   = false;
 		m_PreviewLoading = true;
@@ -485,7 +484,7 @@ namespace Kans
 		int idx = 0;
 		double size = (double)bytes;
 		while (size >= 1024.0 && idx < 4) { size /= 1024.0; ++idx; }
-		sprintf_s(buf, "(%d %s)", (int)size, units[idx]);
+		snprintf(buf, sizeof(buf), "(%d %s)", (int)size, units[idx]);
 		return buf;
 	}
 

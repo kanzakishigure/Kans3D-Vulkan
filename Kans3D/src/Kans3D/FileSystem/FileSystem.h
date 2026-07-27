@@ -2,7 +2,7 @@
 
 #include <functional>
 #include <filesystem>
-#include "Kans3D/Core/byteBuffer.h"
+#include "Kans3D/Core/ByteBuffer.h"
 
 namespace Kans
 {

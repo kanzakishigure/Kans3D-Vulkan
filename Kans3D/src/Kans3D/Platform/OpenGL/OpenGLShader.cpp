@@ -27,7 +27,7 @@ namespace Kans {
 		std::string shadersrc = ReadFile(shaderpath);
 		auto source = PreProcess(shadersrc);
 		Compile(source);
-		//´ÓÎÄ¼şÃû»ñÈ¡shaderµÄÃüÃû
+		//ä»æ–‡ä»¶åè·å–shaderçš„å‘½å
 		auto lastSlash = shaderpath.find_last_of("/\\");
 		lastSlash = lastSlash == std::string::npos ? 0 : lastSlash + 1;
 		auto lastDot = shaderpath.rfind('.');
@@ -72,15 +72,15 @@ namespace Kans {
 		std::ifstream in(filepath, std::ios::in|std::ios::binary);
 		if (in)
 		{
-			//Îªµ±Ç°ÎÄ¼şÁ÷ÉèÖÃÏÂÒ»¸ö¶ÁÈ¡µÄÁ÷Î»ÖÃ
+			//ä¸ºå½“å‰æ–‡ä»¶æµè®¾ç½®ä¸‹ä¸€ä¸ªè¯»å–çš„æµä½ç½®
 			/*
 			ios_base::beg	beginning of the stream
 			ios_base::cur	current position in the stream
 			ios_base::end	end of the stream
 			*/
-					//Æ«ÒÆÁ¿£¬ÀàĞÍ
+					//åç§»é‡ï¼Œç±»å‹
 			in.seekg(0, std::ios::end);
-			//½«tellgÒÆ¶¯µ½ÎÄ¼şÎ²
+			//å°†tellgç§»åŠ¨åˆ°æ–‡ä»¶å°¾
 			result.resize(in.tellg());
 			//tellg() 
 			//Returns the position of the current character in the input stream.
@@ -133,7 +133,7 @@ namespace Kans {
 		GLenum test1 = GL_FRAGMENT_SHADER;
 		GLenum test2 = GL_VERTEX_SHADER;
 		int test3 = GL_GEOMETRY_SHADER;
-		for each (auto & kv in shadersource)
+		for (auto & kv : shadersource)
 		{
 			GLenum type = kv.first;
 			std::string source = kv.second;
@@ -142,7 +142,7 @@ namespace Kans {
 			const GLchar* sourceStr = source.c_str();
 			glShaderSource(shader, 1, &sourceStr, nullptr);
 			glCompileShader(shader);
-			//²é¿´ÊÇ·ñ±àÒë³É¹¦
+			//æŸ¥çœ‹æ˜¯å¦ç¼–è¯‘æˆåŠŸ
 			glGetShaderiv(shader, GL_COMPILE_STATUS, &isCompiled);
 			if (isCompiled == GL_FALSE)
 			{
@@ -153,8 +153,8 @@ namespace Kans {
 
 				CORE_ERROR("{0}", infolog.data());
 				
-				CORE_ASSERT(false, "shader compilation failure!{0}");
-				//É¾³ıshaderÎÄ¼ş
+				CORE_ASSERT(false, "shader compilation failure!");
+				//åˆ é™¤shaderæ–‡ä»¶
 				glDeleteShader(shader);
 				break;
 			}
@@ -179,17 +179,17 @@ namespace Kans {
 
 			CORE_ERROR("{0}", infolog.data());
 			CORE_ASSERT(false, "shaderpragram link failure!");
-			//·ÀÖ¹ÄÚ´æĞ¹Â©£¬É¾³ı³ÌĞò
+			//é˜²æ­¢å†…å­˜æ³„æ¼ï¼Œåˆ é™¤ç¨‹åº
 			glDeleteProgram(id);
-			// Í¬Àí.
-			for each (auto shaderid in glShaderIDs)
+			// åŒç†.
+			for (auto shaderid : glShaderIDs)
 			{
 				glDeleteShader(shaderid);
 			}
 			return;
 		}
-		//³É¹¦Á´½ÓÖ®ºó²»ÓÃ¼ÌĞøÁ´½Ó
-		for each (auto shaderid in glShaderIDs)
+		//æˆåŠŸé“¾æ¥ä¹‹åä¸ç”¨ç»§ç»­é“¾æ¥
+		for (auto shaderid : glShaderIDs)
 		{
 			glDetachShader(id,shaderid);
 			glDeleteShader(shaderid);

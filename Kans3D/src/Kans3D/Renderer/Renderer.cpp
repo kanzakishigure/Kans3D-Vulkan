@@ -1,3 +1,4 @@
+#include "Kans3D/Renderer/RHI/Buffer.h"
 #include "kspch.h"
 #include "Renderer.h"
 #include "Renderer2D.h"
@@ -194,7 +195,8 @@ namespace Kans {
 			
 			{
 				auto OutLineShader = Shader::Create(shaderpath + "OutLineShader.glsl");
-				OutLineShader->SetShaderBuffer({});
+				OutLineShader->SetShaderBuffer({
+				});
 				s_GlobalRendererResource->m_ShaderLibrary->Add(OutLineShader);
 				
 			}

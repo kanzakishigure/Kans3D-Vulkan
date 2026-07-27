@@ -1,7 +1,7 @@
 #include "kspch.h"
-#include "kans3D/Platform/Windows/WindowsWindow.h"
-#include "kans3D/Platform/OpenGL/OpenGLRHI.h"
-#include "kans3D/Platform/Vulkan/VulkanRHI.h"
+#include "Kans3D/Platform/Windows/WindowsWindow.h"
+#include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
+#include "Kans3D/Platform/Vulkan/VulkanRHI.h"
 
 #include "Kans3D/Input/Input.h"
 #include "Kans3D/FileSystem/FileSystem.h"
@@ -44,7 +44,7 @@ namespace Kans {
 		CORE_INFO("create window [{0}] : ({1},{2})", m_Specification.Title, m_Specification.Width, m_Specification.Height);
 		if (!s_GLiFWIntialized)
 		{
-			//TODO£∫glfwterminate on system shutdown
+			//TODO glfwterminate on system shutdown
 			PROFILE_SCOPE("glfwInit");
 			
 			int success = glfwInit();
@@ -54,6 +54,12 @@ namespace Kans {
 		}
 		if (RendererAPI::Current() == RendererAPIType::Vulkan)
 			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+		else if(RendererAPI::Current() == RendererAPIType::OPENGL)
+		{
+			glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+			glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+			glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+		}
 
 		if (m_Specification.HideTitlebar)
 		{
@@ -108,10 +114,13 @@ namespace Kans {
 		{
 			GLFWimage icon;
 			int channels;
-			std::filesystem::path iconpath = KansFileSystem::GetResoucesFolder() / "Icon\\Kanslogo.png";
+			std::filesystem::path iconpath = KansFileSystem::GetResoucesFolder() / "Icon/Kanslogo.png";
 			icon.pixels = stbi_load(iconpath.string().c_str(), &icon.width, &icon.height, &channels, 4);
-			glfwSetWindowIcon(m_Window, 1, &icon);
-			stbi_image_free(icon.pixels);
+			if (icon.pixels)
+			{
+				glfwSetWindowIcon(m_Window, 1, &icon);
+				stbi_image_free(icon.pixels);
+			}
 		}
 		
 		
@@ -140,7 +149,7 @@ namespace Kans {
 	void WindowsWindow::SetVSync(bool enable)
 	{
 		PROFILE_FUCTION();
-		//∆Ù∂Ø“Ï≤Ω
+		
 		if (enable)
 			glfwSwapInterval(1);
 		else

@@ -1,6 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
-#include "kans3D/Renderer/Resource/Material.h"
+#include "Kans3D/Renderer/Resource/Material.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 #include "Kans3D/Core/ByteBuffer.h"
 namespace Kans {

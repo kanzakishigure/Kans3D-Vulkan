@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "ParticleSystem.h"
-#include "kans3D/Renderer/Renderer2D.h"
-#include "kans3D/Core/Math/Math.h"
+#include "Kans3D/Renderer/Renderer2D.h"
+#include "Kans3D/Core/Math/Math.h"
 
 #include <glm/gtc/constants.hpp>
 #define GLM_ENABLE_EXPERIMENTAL

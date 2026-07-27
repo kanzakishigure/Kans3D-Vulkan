@@ -99,7 +99,7 @@ namespace Kans
 	public: 
 		ShaderLibrary();
 		~ShaderLibrary();
-		void Add(Ref<Shader>& shader);
+		void Add(Ref<Shader> shader);
 		void Add(const std::string& name, Ref<Shader>& shader);
 		Ref<Shader> Load(const std::string& Filepath);
 		Ref<Shader> Load(const std::string& name,const std::string& Filepath);

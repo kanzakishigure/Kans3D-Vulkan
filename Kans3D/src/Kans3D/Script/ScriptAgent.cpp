@@ -13,7 +13,7 @@ namespace Kans
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	//Script Native Function
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define  ADD_INTERNAL_CALL(Name) mono_add_internal_call("Kans.InternalCalls::"#Name, Name);
+#define  ADD_INTERNAL_CALL(Name) mono_add_internal_call("Kans.InternalCalls::"#Name, (const void*)Name);
 
 #define  RegisterMaco(ClassType)
 
@@ -37,13 +37,13 @@ namespace Kans
 	}
 	static void Entity_GetTranslation(uint64_t id, glm::vec3* parameter)
 	{
-		auto& entity = GetEntity(id);
+		auto entity = GetEntity(id);
 		*parameter = entity.GetComponent<TransformComponent>().Position;
 
 	}
 	static void Entity_SetTranslation(uint64_t id, glm::vec3* parameter)
 	{
-		auto& entity = GetEntity(id);
+		auto entity = GetEntity(id);
 		if (!entity)
 		{
 			CORE_WARN("Entity.SetTranslation - Invalid entity!");
@@ -54,13 +54,13 @@ namespace Kans
 
 	static void Entity_GetRotation(uint64_t id, glm::vec3* parameter)
 	{
-		auto& entity = GetEntity(id);
+		auto entity = GetEntity(id);
 		*parameter = entity.GetComponent<TransformComponent>().Rotation;
 
 	}
 	static void Entity_SetRotation(uint64_t id, glm::vec3* parameter)
 	{
-		auto& entity = GetEntity(id);
+		auto entity = GetEntity(id);
 		if (!entity)
 		{
 			CORE_WARN("Entity.SetRotation - Invalid entity!");
@@ -71,7 +71,7 @@ namespace Kans
 
 	static bool Entity_HasComponent(uint64_t id, MonoReflectionType* type)
 	{
-		auto& entity = GetEntity(id);
+		auto entity = GetEntity(id);
 		if (!entity)
 		{
 			CORE_WARN("Entity.HasComponent - Invalid entity!");

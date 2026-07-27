@@ -22,7 +22,7 @@ namespace Kans{
 		EventCategoryMouse			= BIT(3),
 		EventCategoryMouseButton	= BIT(4)
 	};
-#define EVENT_CLASS_TYPE(type) static EventType GetStaticType(){return  EventType::##type;}\
+#define EVENT_CLASS_TYPE(type) static EventType GetStaticType(){return  EventType::type;}\
 							   virtual EventType GetEventType() const override { return GetStaticType();}\
 							   virtual const char* GetName() const override {return #type;}
 //宏定义中#是字符串化得意思，会将之后的参数转换为字符串

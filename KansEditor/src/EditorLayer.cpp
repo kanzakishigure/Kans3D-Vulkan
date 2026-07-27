@@ -1,4 +1,5 @@
 #include "EditorLayer.h"
+#include <filesystem>
 #include <imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -155,8 +156,8 @@ namespace Kans
 				auto GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
 				auto& meshCMP = GY_LightEntity.AddComponent<StaticMeshComponent>();
 				auto& materialCMP = GY_LightEntity.AddComponent<MaterialComponent>();
-				auto meshSrouce = AssimpMeshImporter("assets/model/GY/GY.FBX").ImportToMeshSource();
-				
+				auto meshSrouce = AssimpMeshImporter("/assets/model/GY/GY.fbx").ImportToMeshSource();
+			
 				meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
 				meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
 				Ref<Shader> toneShader = Renderer::GetShaderLibrary()->Get("ToneCharactorShader");

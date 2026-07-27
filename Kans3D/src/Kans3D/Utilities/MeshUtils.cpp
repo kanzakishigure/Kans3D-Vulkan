@@ -32,7 +32,7 @@ namespace Kans::Utils {
 				}
 			}
 			norm = glm::normalize(norm);
-			for each (auto var in sameposition)
+			for (auto var : sameposition)
 			{
 				*var = norm;
 			}

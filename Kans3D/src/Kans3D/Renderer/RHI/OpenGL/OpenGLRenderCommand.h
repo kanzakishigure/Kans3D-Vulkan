@@ -1,5 +1,5 @@
 #pragma once
-#include "kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
+#include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
 namespace Kans {
 
 	class OpenGLRenderCommand

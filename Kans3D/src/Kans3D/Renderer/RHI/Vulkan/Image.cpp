@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "Image.h"
 #include "Kans3D/Renderer/Renderer.h"
-#include "kans3D/Platform/Vulkan/VulkanImage.h"
+#include "Kans3D/Platform/Vulkan/VulkanImage.h"
 
 
 namespace Kans
