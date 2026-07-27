@@ -85,11 +85,11 @@ vec3 CalcDirLight(DirLight dirLight,vec3 norm,vec3 viewdir)
 	vec3 reflectDir = reflect(-lightDir, norm);
 	float spec = pow(max(dot(reflectDir,viewdir),0.0),material.U_Shininess);
 	//Ambient
-	vec3 ambient  = dirLight.Ambient_Intensity*texture2D(material.U_DiffuseTexture,V_TexCroods).rgb;
+	vec3 ambient  = dirLight.Ambient_Intensity*texture(material.U_DiffuseTexture,V_TexCroods).rgb;
 	//Difusse
-	vec3 diffuse  = diff*dirLight.Diffuse_Intensity*texture2D(material.U_DiffuseTexture,V_TexCroods).rgb;
+	vec3 diffuse  = diff*dirLight.Diffuse_Intensity*texture(material.U_DiffuseTexture,V_TexCroods).rgb;
 	//Specular
-	vec3 specular = spec*dirLight.Specular_Intensity*texture2D(material.U_SpecularTexture,V_TexCroods).rgb;
+	vec3 specular = spec*dirLight.Specular_Intensity*texture(material.U_SpecularTexture,V_TexCroods).rgb;
 	return (ambient + diffuse + specular);
 }
 vec3 CalcPointLight(PointLight pointLight,vec3 norm,vec3 fragPos,vec3 viewDir)
@@ -104,9 +104,9 @@ vec3 CalcPointLight(PointLight pointLight,vec3 norm,vec3 fragPos,vec3 viewDir)
     float distance = length(pointLight.Position - fragPos);
     float attenuation = 1.0 /(4*PI*distance*distance);    
     // combine results
-    vec3 ambient = pointLight.Ambient_Intensity * texture2D(material.U_DiffuseTexture,V_TexCroods).rgb;
-    vec3 diffuse = pointLight.Diffuse_Intensity * diff * texture2D(material.U_DiffuseTexture,V_TexCroods).rgb;
-    vec3 specular = pointLight.Specular_Intensity * spec * texture2D(material.U_SpecularTexture,V_TexCroods).rgb;
+    vec3 ambient = pointLight.Ambient_Intensity * texture(material.U_DiffuseTexture,V_TexCroods).rgb;
+    vec3 diffuse = pointLight.Diffuse_Intensity * diff * texture(material.U_DiffuseTexture,V_TexCroods).rgb;
+    vec3 specular = pointLight.Specular_Intensity * spec * texture(material.U_SpecularTexture,V_TexCroods).rgb;
     
     //diffuse *= attenuation;
     specular *= attenuation;
@@ -124,7 +124,7 @@ void main()
 	//CalcPointLight
 	result += CalcPointLight(pointLight,norm,V_FragPos,viewDir);
 	
-	result = texture2D(material.U_DiffuseTexture,V_TexCroods).rgb;
+	result = texture(material.U_DiffuseTexture,V_TexCroods).rgb;
 	O_Color = vec4(result,1.0);
 
 }

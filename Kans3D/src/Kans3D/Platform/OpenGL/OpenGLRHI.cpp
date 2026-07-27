@@ -5,10 +5,43 @@
 #include <glad/glad.h>
 namespace Kans {
 
-	OpenGLRHI::OpenGLRHI(const Scope<Window>& window)
+void OpenGLRHI::EnsureDSAFunctionsLoaded(GLADloadproc load) {
+  // GLAD already loaded DSA via GL 4.5 core â€” nothing to do
+  if (glad_glCreateTextures != nullptr)
+    return;
+
+  GLint numExt = 0;
+  glGetIntegerv(GL_NUM_EXTENSIONS, &numExt);
+  for (GLint i = 0; i < numExt; ++i) {
+    const char *ext = (const char *)glGetStringi(GL_EXTENSIONS, i);
+    if (ext && strcmp(ext, "GL_ARB_direct_state_access") == 0) {
+      // Load all DSA (GL_ARB_direct_state_access) entry points.
+     
+      // -- Buffers --
+      glad_glCreateBuffers    = (PFNGLCREATEBUFFERSPROC)   load("glCreateBuffers");
+      glad_glNamedBufferData  = (PFNGLNAMEDBUFFERDATAPROC) load("glNamedBufferData");
+
+      // -- Textures --
+      glad_glCreateTextures    = (PFNGLCREATETEXTURESPROC)    load("glCreateTextures");
+      glad_glTextureStorage2D  = (PFNGLTEXTURESTORAGE2DPROC)  load("glTextureStorage2D");
+      glad_glTextureSubImage2D = (PFNGLTEXTURESUBIMAGE2DPROC) load("glTextureSubImage2D");
+      glad_glTextureParameteri = (PFNGLTEXTUREPARAMETERIPROC) load("glTextureParameteri");
+      glad_glBindTextureUnit   = (PFNGLBINDTEXTUREUNITPROC)   load("glBindTextureUnit");
+
+      // -- Vertex Arrays --
+      glad_glCreateVertexArrays = (PFNGLCREATEVERTEXARRAYSPROC)load("glCreateVertexArrays");
+
+      // -- Framebuffers --
+      glad_glCreateFramebuffers = (PFNGLCREATEFRAMEBUFFERSPROC)load("glCreateFramebuffers");
+
+      break;
+    }
+  }
+}
+        OpenGLRHI::OpenGLRHI(const Scope<Window>& window)
 		:m_WindowHandle(window.get())
 	{
-		CORE_ASSERT(m_WindowHandle,"´°¿Ú¾ä±úÎª¿Õ£¬ÎŞ·¨°ó¶¨äÖÈ¾ÉÏÏÂÎÄµ½´°¿Ú")
+		CORE_ASSERT(m_WindowHandle,"çª—å£å¥æŸ„ä¸ºç©ºï¼Œæ— æ³•ç»‘å®šæ¸²æŸ“ä¸Šä¸‹æ–‡åˆ°çª—å£")
 	}
 
 	OpenGLRHI::OpenGLRHI()
@@ -28,11 +61,12 @@ namespace Kans {
 		}
 		
 		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-		CORE_ASSERT(status, "ÎŞ·¨³õÊ¼»¯Gald");
+		CORE_ASSERT(status, "æ— æ³•åˆå§‹åŒ–Gald");
 		CORE_INFO("opengl info:");
 		CORE_INFO("opengl vendor:{0}", glGetString(GL_VENDOR));
 		CORE_INFO("opengl render:{0}", glGetString(GL_RENDERER));
 		CORE_INFO("opengl version:{0}", glGetString(GL_VERSION));
+		EnsureDSAFunctionsLoaded((GLADloadproc)glfwGetProcAddress);
 	}
 	
 	void OpenGLRHI::Shutdown()

@@ -1,6 +1,7 @@
 #pragma once
 #include "Kans3D/Renderer/RHI/RHI.h"
 #include <GLFW/glfw3.h>
+#include <glad/glad.h>	
 namespace Kans {
 
 	class OpenGLRHI :public RHI
@@ -15,6 +16,7 @@ namespace Kans {
 		virtual void RecreateSwapchain() override;
 
 	private:
+	static void EnsureDSAFunctionsLoaded(GLADloadproc load); 
 		Window* m_WindowHandle;
 		
 	};

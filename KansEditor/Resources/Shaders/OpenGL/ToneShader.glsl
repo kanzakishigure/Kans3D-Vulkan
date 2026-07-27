@@ -148,7 +148,7 @@ void main()
 	vec3 lightdir = normalize(pointLight.Position - V_FragPos);
 	vec3 HalfVector = normalize(lightdir + viewDir);
 
-	vec4 Texcolor = texture2D(material.U_DiffuseTexture,V_TexCroods);
+	vec4 Texcolor = texture(material.U_DiffuseTexture,V_TexCroods);
 
 	float NoL = max(dot(lightdir,norm),0.0);
 	float NoV = dot(viewDir,norm);
@@ -157,11 +157,11 @@ void main()
 	float NoH = pow(dot(HalfVector,norm),2) + U_ShadowAttWeight * (atten - 1);
 
 	//diffuse
-	float AO = texture2D(material.U_ToneLightMap,V_TexCroods).g;
-	float Noloffset = texture2D(material.U_ToneLightMap,V_TexCroods).b;
-	float Metalmask = texture2D(material.U_ToneLightMap,V_TexCroods).r;
-	vec4 diffuse = vec4(texture2D(material.U_ToneRampMap,vec2(0,max(NoL,0.0))).rgb,1.0);
-	//diffuse = NoL*AO < r ? vec4(texture2D(material.U_ToneRampMap,vec2(0,NoL*AO)).rgb,1.0): vec4(1.0);
+	float AO = texture(material.U_ToneLightMap,V_TexCroods).g;
+	float Noloffset = texture(material.U_ToneLightMap,V_TexCroods).b;
+	float Metalmask = texture(material.U_ToneLightMap,V_TexCroods).r;
+	vec4 diffuse = vec4(texture(material.U_ToneRampMap,vec2(0,max(NoL,0.0))).rgb,1.0);
+	//diffuse = NoL*AO < r ? vec4(texture(material.U_ToneRampMap,vec2(0,NoL*AO)).rgb,1.0): vec4(1.0);
 	//diffuse = mix(Texcolor,diffuse,diffuse.g);
 	//Spec
 	float spec = pow(NoH,32.0);
@@ -177,7 +177,7 @@ void main()
 	//O_Normal  = vec4(V_Normal,1.0);
 	//O_Normal = vec4( V_BaseColor*0.5 + vec4(vec3(0.5),1.0));
 	//O_Normal = vec4(vec3(r),1.0);
-	O_Normal =  vec4(texture2D(material.U_ToneRampMap,vec2(0,NoL*AO)).rgb,1.0)*Texcolor*vec4(pointLight.Diffuse_Intensity,1.0) ;
+	O_Normal =  vec4(texture(material.U_ToneRampMap,vec2(0,NoL*AO)).rgb,1.0)*Texcolor*vec4(pointLight.Diffuse_Intensity,1.0) ;
 	//+ Texcolor*specColor*vec4(pointLight.Specular_Intensity,1.0);
 	//O_Normal = specColor;
 	{

@@ -85,7 +85,7 @@ void main()
 	float pout = noise(pin)*U_PerlinBias;
 
 	vec3 pcolor =  vec3(noise(V_FragPos.x)*U_Effect.x,noise(V_FragPos.y)*U_Effect.y,noise(V_FragPos.z)*U_Effect.z);
-	O_Color = texture2D(material.U_ToneRampMap,vec2(pout,0.5));
+	O_Color = texture(material.U_ToneRampMap,vec2(pout,0.5));
 	//O_Color = vec4(pcolor,1.0);
 	//O_Color = vec4(color,1.0);
 	//O_Normal = vec4(V_Normal,1.0);
