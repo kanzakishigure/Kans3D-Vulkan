@@ -33,8 +33,9 @@
 #define PLATFORM_ANDROID
 #error "Android is not supported!"
 #elif defined(__linux__)
-#define PLATFORM_LINUX
-#error "Linux is not supported!"
+	#ifndef PLATFORM_LINUX
+		#define PLATFORM_LINUX
+	#endif
 #else
 /* Unknown compiler/platform */
 #error "Unknown platform!"

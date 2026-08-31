@@ -124,43 +124,117 @@ set_target_properties(ImGuizmo PROPERTIES
 )
 
 # ============================================================
-# assimp — Pre-built IMPORTED library
+# assimp — Pre-built IMPORTED library (Windows) / system (Linux)
 # ============================================================
-add_library(assimp INTERFACE)                                                                                                                                                                                              
-target_include_directories(assimp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/assimp/include)                                                                                                                                    
-target_link_libraries(assimp INTERFACE                                                                                                                                                                                     
-    "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/assimp/bin/Debug/assimp-vc142-mtd.lib>"                                                                                                                                 
-    "$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${CMAKE_CURRENT_SOURCE_DIR}/assimp/bin/Release/assimp-vc142-mt.lib>"                                                                                                         
-)     
+if(WIN32)
+    add_library(assimp INTERFACE)                                                                                                                                                                                              
+    target_include_directories(assimp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/assimp/include)                                                                                                                                    
+    target_link_libraries(assimp INTERFACE                                                                                                                                                                                     
+        "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/assimp/bin/Debug/assimp-vc142-mtd.lib>"                                                                                                                                 
+        "$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${CMAKE_CURRENT_SOURCE_DIR}/assimp/bin/Release/assimp-vc142-mt.lib>"                                                                                                         
+    )
+else()
+    find_library(ASSIMP_LIBRARY assimp)
+    find_path(ASSIMP_INCLUDE_DIR assimp/Importer.hpp)
+    if(ASSIMP_LIBRARY AND ASSIMP_INCLUDE_DIR)
+        add_library(assimp INTERFACE)
+        target_include_directories(assimp INTERFACE ${ASSIMP_INCLUDE_DIR})
+        target_link_libraries(assimp INTERFACE ${ASSIMP_LIBRARY})
+    else()
+        message(WARNING "assimp not found. Install: sudo pacman -S assimp")
+        add_library(assimp INTERFACE)
+    endif()
+endif()
 
 set_target_properties(assimp PROPERTIES
     FOLDER "Dependencies"
     CXX_STANDARD 17
 )
 # ============================================================
-# mono — Pre-built IMPORTED library (config-dependent path)
+# mono — Pre-built IMPORTED library (Windows) / system (Linux)
 # ============================================================
-add_library(mono INTERFACE)                                                                                                                                                                                                
-target_include_directories(mono INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/mono/include)                                                                                                                                        
-target_link_libraries(mono INTERFACE                                                                                                                                                                                       
-    "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/mono-2.0-sgen.lib>"                                                                                                                                      
-    "$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/mono-2.0-sgen.lib>"                                                                                                             
-)       
+if(WIN32)
+    add_library(mono INTERFACE)                                                                                                                                                                                                
+    target_include_directories(mono INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/mono/include)                                                                                                                                        
+    target_link_libraries(mono INTERFACE                                                                                                                                                                                       
+        "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/mono-2.0-sgen.lib>"                                                                                                                                      
+        "$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/mono-2.0-sgen.lib>"                                                                                                             
+    )
+else()
+    find_library(MONO_LIBRARY mono-2.0)
+    find_path(MONO_INCLUDE_DIR mono/jit/jit.h
+        PATHS /usr/include/mono-2.0
+    )
+    if(MONO_LIBRARY AND MONO_INCLUDE_DIR)
+        add_library(mono INTERFACE)
+        target_include_directories(mono INTERFACE ${MONO_INCLUDE_DIR})
+        target_link_libraries(mono INTERFACE ${MONO_LIBRARY})
+    else()
+        message(WARNING "mono not found. Install: sudo pacman -S mono")
+        add_library(mono INTERFACE)
+    endif()
+endif()       
 
 # ============================================================
 # Vulkan SDK — INTERFACE library bundling shaderc, spirv-cross, vulkan
 # ============================================================
 if(VULKAN_SDK_DIR)
-    add_library(vulkan_sdk INTERFACE)
-    target_link_libraries(vulkan_sdk INTERFACE
-        ${VULKAN_SDK_DIR}/Lib/shaderc_combined.lib
-        ${VULKAN_SDK_DIR}/Lib/spirv-cross-core.lib
-        ${VULKAN_SDK_DIR}/Lib/spirv-cross-glsl.lib
-        ${VULKAN_SDK_DIR}/Lib/SPIRV-Tools$<$<CONFIG:Debug>:d>.lib
-        ${VULKAN_SDK_DIR}/Lib/vulkan-1.lib
-    )
-    target_include_directories(vulkan_sdk INTERFACE ${VULKAN_SDK_DIR}/Include
-                                                    ${CMAKE_CURRENT_SOURCE_DIR}/shaderc/libshaderc_util/include)
+    if(WIN32)
+        # Windows: use monolithic Vulkan SDK directory
+        add_library(vulkan_sdk INTERFACE)
+        target_link_libraries(vulkan_sdk INTERFACE
+            ${VULKAN_SDK_DIR}/Lib/shaderc_combined.lib
+            ${VULKAN_SDK_DIR}/Lib/spirv-cross-core.lib
+            ${VULKAN_SDK_DIR}/Lib/spirv-cross-glsl.lib
+            ${VULKAN_SDK_DIR}/Lib/SPIRV-Tools$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_SDK_DIR}/Lib/vulkan-1.lib
+        )
+        target_include_directories(vulkan_sdk INTERFACE ${VULKAN_SDK_DIR}/Include
+                                                        ${CMAKE_CURRENT_SOURCE_DIR}/shaderc/libshaderc_util/include)
+    else()
+        # Linux: use system-installed packages (headers/libs are in separate locations)
+        find_package(Vulkan REQUIRED)
+
+        # shaderc (use combined static lib which includes shaderc_util symbols)
+        find_library(SHADERC_LIBRARY shaderc_combined REQUIRED)
+        find_path(SHADERC_INCLUDE_DIR shaderc/shaderc.h REQUIRED)
+
+        # glslang (required by shaderc_combined)
+        find_library(GLSLANG_LIBRARY glslang REQUIRED)
+
+        # spirv-cross (install: sudo apt install libspirv-cross-dev or equivalent)
+        find_library(SPIRV_CROSS_CORE_LIB spirv-cross-core)
+        find_path(SPIRV_CROSS_INCLUDE_DIR spirv_cross/spirv_cross.hpp)
+        if(NOT SPIRV_CROSS_CORE_LIB OR NOT SPIRV_CROSS_INCLUDE_DIR)
+            message(WARNING "spirv-cross not found. Shader reflection will not build. "
+                            "Install it: sudo apt install libspirv-cross-dev")
+        endif()
+
+        # SPIRV-Tools (multiple libs: shaderc_combined needs opt + link)
+        find_library(SPIRV_TOOLS_LIB SPIRV-Tools)
+        find_library(SPIRV_TOOLS_OPT_LIB SPIRV-Tools-opt)
+        find_library(SPIRV_TOOLS_LINK_LIB SPIRV-Tools-link)
+        find_library(SPIRV_LIB SPIRV)
+        find_path(SPIRV_TOOLS_INCLUDE_DIR spirv-tools/libspirv.h)
+
+        add_library(vulkan_sdk INTERFACE)
+        target_link_libraries(vulkan_sdk INTERFACE
+            Vulkan::Vulkan
+            ${SHADERC_LIBRARY}
+            ${GLSLANG_LIBRARY}
+            ${SPIRV_CROSS_CORE_LIB}
+            ${SPIRV_TOOLS_OPT_LIB}
+            ${SPIRV_TOOLS_LINK_LIB}
+            ${SPIRV_TOOLS_LIB}
+            ${SPIRV_LIB}
+        )
+        target_include_directories(vulkan_sdk INTERFACE
+            ${SHADERC_INCLUDE_DIR}
+            ${SPIRV_CROSS_INCLUDE_DIR}
+            ${SPIRV_TOOLS_INCLUDE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaderc/libshaderc_util/include
+        )
+    endif()
 endif()
 
 # ============================================================

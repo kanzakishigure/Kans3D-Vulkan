@@ -15,8 +15,12 @@ target_include_directories(KansEditor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# ---- Link Kans3D engine ----
-target_link_libraries(KansEditor PRIVATE Kans3D)
+# ---- Link Kans3D engine (--start-group handles circular refs inside libKans3D.a) ----
+if(UNIX AND NOT APPLE)
+    target_link_libraries(KansEditor PRIVATE -Wl,--start-group Kans3D -Wl,--end-group)
+else()
+    target_link_libraries(KansEditor PRIVATE Kans3D)
+endif()
 
 # ---- Windows: common dialogs (OpenFileDialog) ----
 if(WIN32)
@@ -35,21 +39,23 @@ set_target_properties(KansEditor PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${OUTDIR_BASE_Debug}/KansEditor"
 )
 
-# ---- Post-build: copy assimp DLL + mono DLL to output ----
+# ---- Post-build: copy assimp DLL + mono DLL to output (Windows only) ----
 # premake postbuildcommands:
 #   {COPY} "%{Binaries.Assimp_Debug}" "%{cfg.targetdir}"
 #   {COPY} "../kans3D/vendor/mono/bin/Debug/mono-2.0-sgen.dll" "%{cfg.targetdir}"
-add_custom_command(TARGET KansEditor POST_BUILD 
-    # assimp DLL
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<$<CONFIG:Debug>:${VENDOR_DIR}/assimp/bin/Debug/assimp-vc142-mtd.dll>
-        $<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${VENDOR_DIR}/assimp/bin/Release/assimp-vc142-mt.dll>
-        "$<TARGET_FILE_DIR:KansEditor>"
-    # mono DLL
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${VENDOR_DIR}/mono/bin/$<$<CONFIG:Debug>:Debug>$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:Release>/mono-2.0-sgen.dll
-        "$<TARGET_FILE_DIR:KansEditor>"
-)   
+if(WIN32)
+    add_custom_command(TARGET KansEditor POST_BUILD 
+        # assimp DLL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<$<CONFIG:Debug>:${VENDOR_DIR}/assimp/bin/Debug/assimp-vc142-mtd.dll>
+            $<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${VENDOR_DIR}/assimp/bin/Release/assimp-vc142-mt.dll>
+            "$<TARGET_FILE_DIR:KansEditor>"
+        # mono DLL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${VENDOR_DIR}/mono/bin/$<$<CONFIG:Debug>:Debug>$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:Release>/mono-2.0-sgen.dll
+            "$<TARGET_FILE_DIR:KansEditor>"
+    )
+endif()   
 # project Resource
 set(DIRS_TO_COPY assets mono Resources)
 
@@ -71,7 +77,6 @@ add_custom_command(TARGET KansEditor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${KANSEDITOR_DIR}/Project.ini
         "$<TARGET_FILE_DIR:KansEditor>"
-
     COMMAND ${CMAKE_COMMAND} -E echo "Copying Editor resources to $<TARGET_FILE_DIR:KansEditor>/"
 )
 #Script Core

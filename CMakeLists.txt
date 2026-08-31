@@ -27,6 +27,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Allow member names identical to type names (MSVC-compatible pattern)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wno-changes-meaning)
+endif()
+
 # ============================================================
 # Detect architecture & system (for output=dir naming)
 # ============================================================
@@ -68,13 +73,20 @@ function(kans_set_output_dirs TARGET_NAME)
 endfunction()
 
 # ============================================================
-# Vulkan SDK (from environment, matching dependencies.lua)
+# Vulkan SDK
+#   Windows: single SDK directory from VULKAN_SDK environment variable
+#   Linux:   system-installed packages (vulkan, shaderc, spirv-cross, SPIRV-Tools)
 # ============================================================
-if(NOT DEFINED ENV{VULKAN_SDK})
-    message(WARNING "VULKAN_SDK environment variable is not set. Vulkan features may not build.")
-    set(VULKAN_SDK_DIR "" CACHE INTERNAL "")
+if(WIN32)
+    if(NOT DEFINED ENV{VULKAN_SDK})
+        message(WARNING "VULKAN_SDK environment variable is not set. Vulkan features may not build.")
+        set(VULKAN_SDK_DIR "" CACHE INTERNAL "")
+    else()
+        set(VULKAN_SDK_DIR "$ENV{VULKAN_SDK}" CACHE INTERNAL "")
+    endif()
 else()
-    set(VULKAN_SDK_DIR "$ENV{VULKAN_SDK}" CACHE INTERNAL "")
+    # Linux: use system packages, no monolithic SDK directory
+    set(VULKAN_SDK_DIR "SYSTEM" CACHE INTERNAL "")
 endif()
 
 # ============================================================
@@ -104,24 +116,24 @@ set(CMAKE_EXE_LINKER_FLAGS_DIST "${CMAKE_EXE_LINKER_FLAGS_RELEASE}" CACHE STRING
 set(CMAKE_SHARED_LINKER_FLAGS_DIST "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
 
 # ============================================================
-# Dependencies — vendor static libraries (centralized in vendor/CMakeLists.txt)
+# Dependencies - vendor static libraries (centralized in vendor/CMakeLists.txt)
 # ============================================================
 add_subdirectory(${VENDOR_DIR})
 
 # ============================================================
-# Core — Kans3D engine static library
+# Core - Kans3D engine static library
 # ============================================================
 add_subdirectory(${KANS3D_DIR})
 
 # ============================================================
-# Core — KansScriptCore C# shared library
+# Core - KansScriptCore C# shared library
 # ============================================================
 if(DEFINED CMAKE_VS_MSBUILD_COMMAND)
     message("-- build c# script by MSBuild")
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/KansScriptCore)
 endif()
 # ============================================================
-# Editor — KansEditor console application
+# Editor - KansEditor console application
 # ============================================================
 add_subdirectory(${KANSEDITOR_DIR})
 

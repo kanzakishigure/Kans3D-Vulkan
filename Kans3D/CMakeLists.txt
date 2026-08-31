@@ -1,5 +1,5 @@
 # ============================================================
-# Kans3D â€” StaticLib (C++17, PCH: kspch.h)
+# Kans3D â€? StaticLib (C++17, PCH: kspch.h)
 # premake: project "Kans3D", location "Kans3D"
 # ============================================================
 set(KANS3D_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -20,12 +20,17 @@ target_precompile_headers(Kans3D PRIVATE
 )
 
 # ---- Compile definitions ----
+target_compile_definitions(Kans3D PUBLIC
+    GLFW_INCLUDE_NONE
+)
 if(WIN32)
     target_compile_definitions(Kans3D PUBLIC
-        GLFW_INCLUDE_NONE
         PLATFORM_WINDOWS
         _CRT_SECURE_NO_WARNINGS)
     target_link_libraries(Kans3D PUBLIC opengl32.lib)
+elseif(LINUX)
+    target_compile_definitions(Kans3D PUBLIC
+        PLATFORM_LINUX)
 endif()
 
 # ---- Include directories (engine only; vendor headers come via targets) ----
