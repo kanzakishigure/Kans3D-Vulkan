@@ -1,4 +1,5 @@
 #include "ContentBrowserPanel.h"
+#include "ContentBrowserLayout.h"
 #include "Kans3D/ImGui/KansUI.h"
 #include "Kans3D/ImGui/Colors.h"
 #include "Kans3D/Core/Hash.h"
@@ -6,10 +7,13 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <functional>
 #include <iomanip>
 #include <sstream>
+#include <fstream>
+#include <stb_image.h>
 
 #define ADJUST_CONTRNTBROWSER false
 
@@ -52,41 +56,177 @@ namespace Kans
 		m_ContentBrowserItemList.clear();
 	}
 
-	// ------------------------------------------------------------------
-	//  CalculateLayout  -C  snap to discrete icon-size tier based on
-	//  the *panel content area* width (not total window width).
-	// ------------------------------------------------------------------
-	void ContentBrowserPanel::CalculateLayout(float availableWidth)
+	static std::string LowerExtension(const std::filesystem::path& path)
 	{
-		if (availableWidth <= 0.0f)
+		std::string ext = path.extension().string();
+		std::transform(ext.begin(), ext.end(), ext.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return ext;
+	}
+
+	void ContentBrowserPanel::OnItemClicked(const std::filesystem::path& path,
+		bool isDirectory, bool doubleClick)
+	{
+		SelectItem(path, isDirectory);
+		if (!doubleClick)
+			return;
+		if (isDirectory)
 		{
-			m_CurrentIconSize = kIconTiers[0];
-			m_ComputedColumns = 1;
-			m_CurrentViewMode = ViewMode::CompactGrid;
+			m_CurrentPath = path;
+			NeedRefresh = true;
+			return;
+		}
+		// File editors are registered here when they become available.
+		m_PreviewMessage = "No editor is registered for this file type.";
+	}
+
+	void ContentBrowserPanel::SelectItem(const std::filesystem::path& path, bool isDirectory)
+	{
+		if (m_SelectedPath == path)
+			return;
+		m_SelectedPath = path;
+		m_PreviewTexture.reset();
+		m_PreviewText.clear();
+		m_PreviewMessage.clear();
+		m_PreviewType = PreviewType::Other;
+		m_MaterialColor = ImVec4(0.65f, 0.65f, 0.65f, 1.0f);
+		if (isDirectory)
+		{
+			m_PreviewType = PreviewType::Folder;
 			return;
 		}
 
-		// Walk tiers largest -- smallest; pick the largest that fits -- kMinColumns.
-		for (int i = kNumIconTiers - 1; i >= 0; --i)
+		const std::string ext = LowerExtension(path);
+		if (ext == ".mat" || ext == ".material" || ext == ".mtl")
 		{
-			float candidate = kIconTiers[i];
-			float perCol    = candidate + FramePadding * 2.0f + ItemInnerSpacing.x;
-			int   cols      = static_cast<int>(availableWidth / perCol);
-
-			if (cols >= kMinColumns)
+			m_PreviewType = PreviewType::Material;
+			if (ext == ".mtl")
 			{
-				m_CurrentIconSize = candidate;
-				m_ComputedColumns = std::min(cols, kMaxColumns);
-				break;
+				m_PreviewMessage = "Showing diffuse color; textures and shader lighting are not rendered.";
+				std::ifstream file(path);
+				std::string token;
+				while (file >> token)
+				{
+					if (token == "Kd")
+					{
+						float r, g, b;
+						if (file >> r >> g >> b)
+								m_MaterialColor = ImVec4(std::clamp(r, 0.0f, 1.0f),
+									std::clamp(g, 0.0f, 1.0f), std::clamp(b, 0.0f, 1.0f), 1.0f);
+						break;
+					}
+				}
 			}
-
-			// Last resort -C smallest tier, at least 1 column
-			if (i == 0)
-			{
-				m_CurrentIconSize = candidate;
-				m_ComputedColumns = std::max(static_cast<int>(availableWidth / perCol), 1);
-			}
+			else
+				m_PreviewMessage = "Material format has no preview loader yet; showing a neutral sphere.";
+			return;
 		}
+
+		static const std::unordered_set<std::string> imageExtensions = {
+			".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr", ".gif"};
+		if (imageExtensions.count(ext))
+		{
+			m_PreviewType = PreviewType::Image;
+			int width = 0, height = 0, channels = 0;
+			if (stbi_info(path.string().c_str(), &width, &height, &channels) &&
+				width > 0 && height > 0 && (channels == 3 || channels == 4))
+			{
+				TextureSpecification spec;
+				m_PreviewTexture = Texture2D::Create(spec, path);
+			}
+			else
+				m_PreviewMessage = "This image cannot be previewed.";
+			return;
+		}
+
+		static const std::unordered_set<std::string> textExtensions = {
+			".txt", ".md", ".json", ".yaml", ".yml", ".xml", ".ini",
+			".csv", ".glsl", ".shader", ".hlsl", ".vert", ".frag",
+			".geom", ".comp", ".h", ".hpp", ".c", ".cpp", ".cs",
+			".py", ".lua", ".toml", ".cmake"};
+		const bool knownText = textExtensions.count(ext) != 0;
+		std::ifstream file(path, std::ios::binary);
+		if (file)
+		{
+			m_PreviewText.resize(64 * 1024);
+			file.read(m_PreviewText.data(), m_PreviewText.size());
+			m_PreviewText.resize(static_cast<size_t>(file.gcount()));
+			const bool binary = std::any_of(m_PreviewText.begin(), m_PreviewText.end(),
+				[](unsigned char c) { return c == 0 || (c < 32 && c != '\n' && c != '\r' && c != '\t'); });
+			if (!binary && (!m_PreviewText.empty() || knownText))
+			{
+				m_PreviewType = PreviewType::Text;
+				if (file.peek() != EOF)
+					m_PreviewMessage = "Showing the first 64 KB.";
+				return;
+			}
+			m_PreviewText.clear();
+		}
+		m_PreviewMessage = knownText ? "This text file cannot be previewed."
+			: "No preview is available for this file type.";
+	}
+
+	void ContentBrowserPanel::DrawPreview()
+	{
+		ImGui::BeginChild("AssetPreview", { 0, 0 }, false);
+		if (m_SelectedPath.empty())
+		{
+			ImGui::TextWrapped("Select a file or folder to preview it.");
+			ImGui::EndChild();
+			return;
+		}
+		ImGui::TextWrapped("%s", m_SelectedPath.filename().string().c_str());
+		ImGui::TextDisabled("%s", m_SelectedPath.extension().string().c_str());
+		ImGui::Separator();
+		if (m_PreviewType == PreviewType::Image && m_PreviewTexture)
+		{
+			const float w = static_cast<float>(m_PreviewTexture->GetWidth());
+			const float h = static_cast<float>(m_PreviewTexture->GetHeight());
+			const ImVec2 avail = ImGui::GetContentRegionAvail();
+			const float scale = std::min({1.0f, avail.x / w, std::max(1.0f, avail.y - 55.0f) / h});
+			ImGui::Image((ImTextureID)(uintptr_t)m_PreviewTexture->GetRenererID(),
+				{w * scale, h * scale}, {0, 1}, {1, 0});
+			ImGui::TextDisabled("%u x %u", m_PreviewTexture->GetWidth(), m_PreviewTexture->GetHeight());
+		}
+		else if (m_PreviewType == PreviewType::Material)
+		{
+			const float diameter = std::min(190.0f, ImGui::GetContentRegionAvail().x - 12.0f);
+			const ImVec2 origin = ImGui::GetCursorScreenPos();
+			const ImVec2 center(origin.x + diameter * 0.5f, origin.y + diameter * 0.5f);
+			ImDrawList* draw = ImGui::GetWindowDrawList();
+			for (int ring = 20; ring >= 1; --ring)
+			{
+				const float t = static_cast<float>(ring) / 20.0f;
+				const float light = 0.26f + 0.90f * (1.0f - t);
+				const ImVec4 color(std::min(1.0f, m_MaterialColor.x * light),
+					std::min(1.0f, m_MaterialColor.y * light),
+					std::min(1.0f, m_MaterialColor.z * light), 1.0f);
+				draw->AddCircleFilled({center.x - diameter * 0.08f * (1.0f - t),
+					center.y - diameter * 0.08f * (1.0f - t)}, diameter * 0.5f * t,
+					ImGui::ColorConvertFloat4ToU32(color), 64);
+			}
+			ImGui::Dummy({diameter, diameter});
+		}
+		else if (m_PreviewType == PreviewType::Text && !m_PreviewText.empty())
+			ImGui::InputTextMultiline("##TextPreview", m_PreviewText.data(),
+				m_PreviewText.size() + 1, {-1, -1}, ImGuiInputTextFlags_ReadOnly);
+		else if (m_PreviewType == PreviewType::Folder)
+			ImGui::TextDisabled("Folder - double-click to enter");
+		if (!m_PreviewMessage.empty())
+			ImGui::TextWrapped("%s", m_PreviewMessage.c_str());
+		ImGui::EndChild();
+	}
+
+	// ------------------------------------------------------------------
+	// Choose a tier from the current viewport and grid dimensions.
+	// ------------------------------------------------------------------
+	void ContentBrowserPanel::CalculateLayout(float gridWidth, float gridHeight,
+		float viewportWidth, float viewportHeight)
+	{
+		const auto layout = ContentBrowserLayout::Calculate(gridWidth, gridHeight,
+			viewportWidth, viewportHeight, ImGui::GetTextLineHeight());
+		m_CurrentIconSize = layout.IconSize;
+		m_ComputedColumns = layout.Columns;
 
 		// ---- Map discrete tier -- view mode ----
 		if      (m_CurrentIconSize <= 64.0f)  m_CurrentViewMode = ViewMode::CompactGrid;
@@ -109,9 +249,12 @@ namespace Kans
 	void ContentBrowserPanel::onImGuiRender(bool isOpen)
 	{
 		ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-		auto& style = ImGui::GetStyle();
-
+		const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+		ImGui::SetNextWindowSizeConstraints(
+			{ std::min(700.0f, displaySize.x * 0.9f), displaySize.y * 0.20f },
+			{ FLT_MAX, FLT_MAX });
 		ImGui::Begin("ContentBrowser", nullptr, windowFlags);
+		const ImVec2 viewportSize = ImGui::GetWindowViewport()->Size;
 
 		// ---- Background colors for  panels ----
 		const ImVec4 colSourcePanel = ImGui::ColorConvertU32ToFloat4(IM_COL32(24, 24, 24, 255));    // very dark source panel
@@ -131,10 +274,6 @@ namespace Kans
 		}
 #endif
 
-		ImVec2 display_size = ImGui::GetIO().DisplaySize;
-		style.WindowMinSize.x = 600;
-		style.WindowMinSize.y = display_size.y * 0.20f;
-
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 
 		// ---- Outer split table: left = source panel, right = asset panel ----
@@ -142,21 +281,22 @@ namespace Kans
 			static ImGuiTableFlags flags =
 				ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV |
 				ImGuiTableFlags_NoPadInnerX | ImGuiTableFlags_NoPadOuterX |
-				ImGuiTableFlags_SizingFixedSame;
+				ImGuiTableFlags_SizingStretchProp;
 
 			ImVec2 tableSize = ImGui::GetWindowSize();
 			tableSize.y *= 0.94f;
 
 			// Subtle  vertical separator
 		ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, ImVec4(0.18f, 0.18f, 0.18f, 1.0f));
-		if (ImGui::BeginTable("ContentBrowserSplit", 2, flags, { 0, tableSize.y }))
+		if (ImGui::BeginTable("ContentBrowserSplit", 3, flags, { 0, tableSize.y }))
 			{
 				// ---- Column setup with widths ----
 				ImGui::TableSetupColumn(
 					KansFileSystem::GetAssetFolder().filename().string().c_str(),
-					ImGuiTableColumnFlags_NoHeaderLabel | ImGuiTableColumnFlags_NoHide /*| ImGuiTableColumnFlags_WidthFixed*/,
-					220.0f);   // default source panel width like UE5
-				ImGui::TableSetupColumn("", ImGuiTableColumnFlags_NoHide /*| ImGuiTableColumnFlags_WidthStretch*/);
+					ImGuiTableColumnFlags_NoHeaderLabel | ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed,
+					200.0f);
+				ImGui::TableSetupColumn("Assets", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch);
+				ImGui::TableSetupColumn("Preview", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 260.0f);
 
 				// ----------------------------------------------------------------------------------------------------------------
 				//  ROW 1: column headers (breadcrumb row)
@@ -322,6 +462,9 @@ namespace Kans
 
 					ImGui::PopID();
 				}
+				ImGui::TableSetColumnIndex(2);
+				ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImColor(colBreadcrumb));
+				ImGui::TextDisabled("  Preview");
 
 				// ----------------------------------------------------------------------------------------------------------------
 				//  ROW 2: source panel (left)  +  asset panel (right)
@@ -368,6 +511,7 @@ namespace Kans
 								ImGui::TableNextColumn();
 
 								bool isCurrent = (m_CurrentPath == subPath);
+								bool isSelected = (m_SelectedPath == subPath);
 								bool hasSubDirs = false;
 								try
 								{
@@ -384,7 +528,7 @@ namespace Kans
 									ImGuiTreeNodeFlags_OpenOnDoubleClick |
 									ImGuiTreeNodeFlags_FramePadding;
 
-								if (isCurrent)
+								if (isSelected)
 									nodeFlags |= ImGuiTreeNodeFlags_Selected;
 								if (!hasSubDirs)
 									nodeFlags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -393,7 +537,7 @@ namespace Kans
 								bool open = ImGui::TreeNodeEx(folderName.c_str(), nodeFlags);
 
 								// Selection highlight - draw a blue left border for selected
-								if (isCurrent)
+								if (isCurrent || isSelected)
 								{
 									ImDrawList* draw = ImGui::GetWindowDrawList();
 									ImVec2 itemMin = ImGui::GetItemRectMin();
@@ -404,10 +548,12 @@ namespace Kans
 										IM_COL32(60, 160, 255, 220));
 								}
 
-								if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+								if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
 								{
-									m_CurrentPath = subPath;
-									NeedRefresh = true;
+									const bool arrowClick = ImGui::GetMousePos().x <
+										ImGui::GetItemRectMin().x + ImGui::GetTreeNodeToLabelSpacing();
+									if (!arrowClick)
+										OnItemClicked(subPath, true, ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left));
 								}
 
 								if (open && hasSubDirs)
@@ -471,17 +617,14 @@ namespace Kans
 							ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 						{
 						// --- Asset grid ---
-						float panelAvailW = ImGui::GetContentRegionAvail().x;
-						if (std::abs(panelAvailW - m_LastAvailableWidth) > 1.0f)
-						{
-							m_LastAvailableWidth = panelAvailW;
-							CalculateLayout(panelAvailW);
-						}
-
-						ItemInnerSpacing.y = m_CurrentIconSize * 0.25f;
+						// ScrollY gives the table its own scrollbar; reserve that width
+						// before deciding how many fixed-size cards can fit.
+						const ImVec2 gridAvail = ImGui::GetContentRegionAvail();
+						CalculateLayout(gridAvail.x - ImGui::GetStyle().ScrollbarSize,
+							gridAvail.y, viewportSize.x, viewportSize.y);
 
 						ImGuiTableFlags contentListFlag =
-							ImGuiTableFlags_ScrollY | ImGuiTableFlags_NoBordersInBody |
+							ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoBordersInBody |
 							ImGuiTableFlags_NoPadInnerX | ImGuiTableFlags_NoPadOuterX;
 
 						// Push item card colors
@@ -515,10 +658,19 @@ namespace Kans
 								}
 								else
 								{
+									// Source metadata and its atomic-write temporary files are internal assets.
+									std::string normalizedName = filename;
+									std::transform(normalizedName.begin(), normalizedName.end(), normalizedName.begin(),
+										[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+									if ((normalizedName.size() >= 6 &&
+										normalizedName.compare(normalizedName.size() - 6, 6, ".kmeta") == 0) ||
+										normalizedName.find(".kmeta.tmp-") != std::string::npos)
+										continue;
+
 									std::string ext = entry.path().extension().string();
 									m_ContentBrowserItemList.emplace_back(
 										ContentBrowserItem::ItemType::Asset,
-										handle, filename, EditorResources::FbxFileIcon,
+										handle, filename, EditorResources::GetFileIcon(entry.path()),
 										entry.file_size(), entry.last_write_time(), ext);
 								}
 							}
@@ -535,14 +687,12 @@ namespace Kans
 						// ---- Render items in grid ----
 						if (ImGui::BeginTable("AssetGrid", m_ComputedColumns, contentListFlag, { 0, 0 }))
 						{
-							ImGui::TableNextColumn();
-
 							for (auto& item : m_ContentBrowserItemList)
 							{
+								ImGui::TableNextColumn();
 								item.OnRenderBegin();
 								item.OnRender();
 								item.OnRenderEnd();
-								ImGui::TableNextColumn();
 							}
 
 							ImGui::EndTable();
@@ -558,6 +708,8 @@ namespace Kans
 					ImGui::PopStyleColor(1); // ChildBg(colAssetPanel)
 				}
 
+				ImGui::TableSetColumnIndex(2);
+				DrawPreview();
 				ImGui::EndTable();
 			}
 		}

@@ -137,8 +137,8 @@ namespace Kans
 		{
 
 			ImGuiIO& io = ImGui::GetIO();
-			e.Handeled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
-			e.Handeled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
+			e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
+			e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
 
 		}
 

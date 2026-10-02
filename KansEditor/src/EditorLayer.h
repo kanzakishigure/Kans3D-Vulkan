@@ -28,7 +28,8 @@ namespace Kans {
 		glm::vec2 m_ViewportSize = glm::vec2(0.0f,0.0f);
 
 		bool m_ViewportFocused = false;
-		bool m_viewprotHovered = false;
+		bool m_ViewportHovered = false;
+		bool m_CameraNavigating = false;
 		bool Switchcamera	   = false;
 		
 		Ref<Scene> m_ActiveScene;

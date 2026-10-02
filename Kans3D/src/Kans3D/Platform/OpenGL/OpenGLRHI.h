@@ -15,8 +15,9 @@ namespace Kans {
 		virtual void CreateSwapChain() override;
 		virtual void RecreateSwapchain() override;
 
+		// Shared by windowed and offscreen contexts after GLAD initialization.
+		static void EnsureDSAFunctionsLoaded(GLADloadproc load);
 	private:
-	static void EnsureDSAFunctionsLoaded(GLADloadproc load); 
 		Window* m_WindowHandle;
 		
 	};

@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "ContentBrowserItem.h"
+#include "ContentBrowserLayout.h"
 #include "ContentBrowserPanel.h"
 
 #include <imgui.h>
@@ -123,19 +124,30 @@ namespace Kans
 		ImGui::PopID();
 	}
 
+	void ContentBrowserItem::HandleClick()
+	{
+		if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+			ContentBrowserPanel::Get()->OnItemClicked(
+				ContentBrowserPanel::Get()->m_CurrentPath / m_FileName,
+				m_Itemtype == ItemType::Directory,
+				ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left));
+	}
+
 	// ────────────────────────────────────────────────────────────────────
 	//  card rendering helpers
 	// ────────────────────────────────────────────────────────────────────
 
 	// Draw the card background and hover highlight, returns true if clicked
-	static bool DrawAssetCard(const ImVec2& cardMin, const ImVec2& cardMax,
-		float rounding, bool isDirectory, bool isHovered)
+	static void DrawAssetCard(const ImVec2& cardMin, const ImVec2& cardMax,
+		float rounding, bool isDirectory, bool isHovered, bool isSelected)
 	{
 		ImDrawList* draw = ImGui::GetWindowDrawList();
 
 		// Card background
 		ImU32 bgColor = IM_COL32(42, 42, 42, 255);
-		if (isHovered)
+		if (isSelected)
+			bgColor = IM_COL32(42, 62, 82, 255);
+		else if (isHovered)
 			bgColor = isDirectory ? IM_COL32(55, 55, 55, 255) : IM_COL32(58, 58, 58, 255);
 
 		// Draw card background with rounded corners
@@ -154,12 +166,12 @@ namespace Kans
 		}
 
 		// Hover glow
-		if (isHovered)
+		if (isSelected)
+			draw->AddRect(cardMin, cardMax, IM_COL32(70, 150, 230, 255), rounding, 0, 2.0f);
+		else if (isHovered)
 		{
 			draw->AddRect(cardMin, cardMax, IM_COL32(80, 80, 80, 255), rounding, 0, 1.5f);
 		}
-
-		return false;
 	}
 
 	// ── CompactGrid: small card with icon + truncated name ─────────────
@@ -169,7 +181,7 @@ namespace Kans
 		ImDrawList* draw = ImGui::GetWindowDrawList();
 
 		float cardW = iconSize.x + 12.0f;
-		float cardH = iconSize.y + 32.0f;
+		float cardH = ContentBrowserLayout::CardHeight(iconSize.y, ImGui::GetTextLineHeight());
 		float rounding = 4.0f;
 
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
@@ -182,7 +194,9 @@ namespace Kans
 		bool isHovered = ImGui::IsMouseHoveringRect(cardMin, cardMax, false);
 
 		// Draw card background
-		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory, isHovered);
+		const auto* panel = ContentBrowserPanel::Get();
+		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory,
+			isHovered, panel->m_SelectedPath == panel->m_CurrentPath / m_FileName);
 
 		// Center icon in the card with padding
 		float padX = (cardW - iconSize.x) * 0.5f;
@@ -205,12 +219,7 @@ namespace Kans
 		// Click handling
 		ImGui::SetCursorScreenPos(cardMin);
 		ImGui::InvisibleButton("click", { cardW, cardH });
-		if (ImGui::IsItemActivated() && m_Itemtype == ItemType::Directory)
-		{
-			auto* panel = ContentBrowserPanel::Get();
-			panel->m_CurrentPath /= m_FileName;
-			panel->NeedRefresh = true;
-		}
+		HandleClick();
 	}
 
 	// ── StandardGrid: card with icon + name + extension badge ──────────
@@ -219,7 +228,7 @@ namespace Kans
 		ImDrawList* draw = ImGui::GetWindowDrawList();
 
 		float cardW = iconSize.x + 16.0f;
-		float cardH = iconSize.y + 50.0f;
+		float cardH = ContentBrowserLayout::CardHeight(iconSize.y, ImGui::GetTextLineHeight());
 		float rounding = 5.0f;
 
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
@@ -229,7 +238,9 @@ namespace Kans
 		ImGui::Dummy({ cardW, cardH });
 
 		bool isHovered = ImGui::IsMouseHoveringRect(cardMin, cardMax, false);
-		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory, isHovered);
+		const auto* panel = ContentBrowserPanel::Get();
+		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory,
+			isHovered, panel->m_SelectedPath == panel->m_CurrentPath / m_FileName);
 
 		// Center icon
 		float padX = (cardW - iconSize.x) * 0.5f;
@@ -259,12 +270,7 @@ namespace Kans
 		// Click handling
 		ImGui::SetCursorScreenPos(cardMin);
 		ImGui::InvisibleButton("click", { cardW, cardH });
-		if (ImGui::IsItemActivated() && m_Itemtype == ItemType::Directory)
-		{
-			auto* panel = ContentBrowserPanel::Get();
-			panel->m_CurrentPath /= m_FileName;
-			panel->NeedRefresh = true;
-		}
+		HandleClick();
 	}
 
 	// ── DetailedGrid: card with icon + name + ext + size + date ────────
@@ -273,7 +279,7 @@ namespace Kans
 		ImDrawList* draw = ImGui::GetWindowDrawList();
 
 		float cardW = iconSize.x + 20.0f;
-		float cardH = iconSize.y + 66.0f;
+		float cardH = ContentBrowserLayout::CardHeight(iconSize.y, ImGui::GetTextLineHeight());
 		float rounding = 5.0f;
 
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
@@ -283,7 +289,9 @@ namespace Kans
 		ImGui::Dummy({ cardW, cardH });
 
 		bool isHovered = ImGui::IsMouseHoveringRect(cardMin, cardMax, false);
-		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory, isHovered);
+		const auto* panel = ContentBrowserPanel::Get();
+		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory,
+			isHovered, panel->m_SelectedPath == panel->m_CurrentPath / m_FileName);
 
 		// Icon
 		float padX = (cardW - iconSize.x) * 0.5f;
@@ -326,12 +334,7 @@ namespace Kans
 		// Click
 		ImGui::SetCursorScreenPos(cardMin);
 		ImGui::InvisibleButton("click", { cardW, cardH });
-		if (ImGui::IsItemActivated() && m_Itemtype == ItemType::Directory)
-		{
-			auto* panel = ContentBrowserPanel::Get();
-			panel->m_CurrentPath /= m_FileName;
-			panel->NeedRefresh = true;
-		}
+		HandleClick();
 	}
 
 	// ── ExpandedGrid: full card with all metadata ──────────────────────
@@ -340,7 +343,7 @@ namespace Kans
 		ImDrawList* draw = ImGui::GetWindowDrawList();
 
 		float cardW = iconSize.x + 24.0f;
-		float cardH = iconSize.y + 80.0f;
+		float cardH = ContentBrowserLayout::CardHeight(iconSize.y, ImGui::GetTextLineHeight());
 		float rounding = 6.0f;
 
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
@@ -350,7 +353,9 @@ namespace Kans
 		ImGui::Dummy({ cardW, cardH });
 
 		bool isHovered = ImGui::IsMouseHoveringRect(cardMin, cardMax, false);
-		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory, isHovered);
+		const auto* panel = ContentBrowserPanel::Get();
+		DrawAssetCard(cardMin, cardMax, rounding, m_Itemtype == ItemType::Directory,
+			isHovered, panel->m_SelectedPath == panel->m_CurrentPath / m_FileName);
 
 		// Icon
 		float padX = (cardW - iconSize.x) * 0.5f;
@@ -405,12 +410,7 @@ namespace Kans
 		// Click
 		ImGui::SetCursorScreenPos(cardMin);
 		ImGui::InvisibleButton("click", { cardW, cardH });
-		if (ImGui::IsItemActivated() && m_Itemtype == ItemType::Directory)
-		{
-			auto* panel = ContentBrowserPanel::Get();
-			panel->m_CurrentPath /= m_FileName;
-			panel->NeedRefresh = true;
-		}
+		HandleClick();
 	}
 
 }

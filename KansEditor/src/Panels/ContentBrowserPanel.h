@@ -32,18 +32,23 @@ namespace Kans
 		ViewMode GetCurrentViewMode() const { return m_CurrentViewMode; }
 
 	private:
-		// Snaps icon size to the best discrete tier based on available panel width.
-		void CalculateLayout(float availableWidth);
+		// Chooses an icon tier using the viewport and the grid dimensions.
+		void CalculateLayout(float gridWidth, float gridHeight, float viewportWidth, float viewportHeight);
+		void OnItemClicked(const std::filesystem::path& path, bool isDirectory, bool doubleClick);
+		void SelectItem(const std::filesystem::path& path, bool isDirectory);
+		void DrawPreview();
 
-		// ©¤©¤ Discrete icon-size tiers (snap-to sizes, not smooth interpolation) ©¤©¤
-		static constexpr float kIconTiers[]    = { 48.0f, 64.0f, 80.0f, 96.0f, 128.0f  };
-		static constexpr int   kNumIconTiers   = 5;
-		static constexpr int   kMinColumns     = 2;
-		static constexpr int   kMaxColumns     = 16;
 
 		std::vector<ContentBrowserItem> m_ContentBrowserItemList;
 
 		std::filesystem::path m_CurrentPath;
+		std::filesystem::path m_SelectedPath;
+		Ref<Texture2D> m_PreviewTexture;
+		std::string m_PreviewText;
+		std::string m_PreviewMessage;
+		enum class PreviewType { None, Folder, Image, Text, Material, Other };
+		PreviewType m_PreviewType = PreviewType::None;
+		ImVec4 m_MaterialColor = ImVec4(0.65f, 0.65f, 0.65f, 1.0f);
 		int open_action = -1;
 
 		// Layout / styling
@@ -54,7 +59,6 @@ namespace Kans
 		// ©¤©¤ Auto-scaling state ©¤©¤
 		float    m_CurrentIconSize   = 96.0f;
 		int      m_ComputedColumns   = 4;          // derived from layout calc
-		float    m_LastAvailableWidth = 0.0f;
 		ViewMode m_CurrentViewMode   = ViewMode::StandardGrid;
 
 		glm::vec2 OuterSize        = { 0, 0 };

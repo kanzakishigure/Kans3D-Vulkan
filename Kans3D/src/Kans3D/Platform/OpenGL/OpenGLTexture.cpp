@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "OpenGLTexture.h"
 #include <stb_image.h>
+#include <algorithm>
 
 #include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h"
 namespace Kans {
@@ -77,10 +78,20 @@ namespace Kans {
 		CORE_ASSERT(m_InternalFormat & m_DataFormat, "Texture format error !");
 
 		glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
-		glTextureStorage2D(m_RendererID, 1, m_InternalFormat, m_Width, m_Height);
+		// Allocate the full chain before generating mipmaps for minified UI textures.
+		GLsizei mipLevels = 1;
+		if (specification.GenerateMips)
+			for (uint32_t size = std::max(m_Width, m_Height); size > 1; size >>= 1)
+				++mipLevels;
+		glTextureStorage2D(m_RendererID, mipLevels, m_InternalFormat, m_Width, m_Height);
 
-		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Minf));
-		glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Minf));
+		GLenum minFilter = Utils::RHIFilterTypeToGLType(specification.Minf);
+		if (specification.GenerateMips)
+			minFilter = specification.Minf == RHIFilter::RHI_FILTER_NEAREST
+				? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_LINEAR;
+		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, minFilter);
+		glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER,
+			specification.Maxf == RHIFilter::RHI_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
 
 		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
 		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
@@ -95,6 +106,8 @@ namespace Kans {
 			glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, imageBuffer.Data);
 			
 		}
+		if (specification.GenerateMips)
+			glGenerateTextureMipmap(m_RendererID);
 		stbi_image_free(imageBuffer.Data);
 		
 	}
