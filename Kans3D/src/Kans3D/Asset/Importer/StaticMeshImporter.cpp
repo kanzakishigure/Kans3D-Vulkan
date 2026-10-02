@@ -1,4 +1,5 @@
-﻿#include "kspch.h"
+﻿#include "Kans3D/Asset/Asset.h"
+#include "kspch.h"
 #include "Kans3D/Asset/Importer/StaticMeshImporter.h"
 
 #include "Kans3D/Asset/Importer/MeshSourceImporter.h"
@@ -19,7 +20,7 @@ namespace Kans
 	{
 		uint32_t Magic          = KSMESH_MAGIC;
 		uint32_t Version        = KSMESH_VERSION;
-		UUID     SourceHandle;
+		SourceAssetID     SourceHandle;
 		uint32_t SubMeshCount;
 		uint32_t MaterialCount;
 		uint32_t Reserved[4] = {0};
@@ -27,14 +28,14 @@ namespace Kans
 	#pragma pack(pop)
 
 	// ============================================================
-	// Importe — 主入口
+	// Import — 主入口
 	// ============================================================
 
-	void StaticMeshImporter::Importe(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const
+	void StaticMeshImporter::Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const
 	{
 		if (!metadata)
 		{
-			CORE_ERROR("StaticMeshImporter::Importe — metadata is null");
+			CORE_ERROR("StaticMeshImporter::Import — metadata is null");
 			asset = nullptr;
 			return;
 		}
@@ -42,7 +43,7 @@ namespace Kans
 		const auto& filePath = metadata->FilePath;
 		if (filePath.empty() || !std::filesystem::exists(filePath))
 		{
-			CORE_ERROR("StaticMeshImporter::Importe — file not found: {}", filePath.string());
+			CORE_ERROR("StaticMeshImporter::Import — file not found: {}", filePath.string());
 			asset = nullptr;
 			return;
 		}
@@ -55,16 +56,16 @@ namespace Kans
 			StaticMeshSourceRef sourceRef;
 			if (!LoadKSMeshHeader(filePath, sourceRef))
 			{
-				CORE_ERROR("StaticMeshImporter::Importe — failed to read .ksmesh header: {}", filePath.string());
+				CORE_ERROR("StaticMeshImporter::Import — failed to read .ksmesh header: {}", filePath.string());
 				asset = nullptr;
 				return;
 			}
 
 			Ref<StaticMesh> staticMesh = CreateRef<StaticMesh>(nullptr);
-			staticMesh->Handle = metadata->Handle;
+			staticMesh->assetID = metadata->assetID;
 
 			CORE_INFO("StaticMeshImporter — deserialized .ksmesh: {} (source handle: {})",
-			          filePath.filename().string(), (uint64_t)sourceRef.SourceHandle);
+			          filePath.filename().string(), sourceRef.SourceHandle.GetUUID());
 
 			asset = staticMesh;
 			return;
@@ -79,7 +80,7 @@ namespace Kans
 		// ============================================================
 		if (!IsSupportedSourceExtension(filePath.extension()))
 		{
-			CORE_ERROR("StaticMeshImporter::Importe — unsupported format: {}", filePath.extension().string());
+			CORE_ERROR("StaticMeshImporter::Import — unsupported format: {}", filePath.extension().string());
 			asset = nullptr;
 			return;
 		}
@@ -88,7 +89,7 @@ namespace Kans
 		Ref<MeshSource> meshSource = MeshSourceImporter::ImportMeshSource(filePath);
 		if (!meshSource)
 		{
-			CORE_ERROR("StaticMeshImporter::Importe — MeshSourceImporter failed for: {}", filePath.string());
+			CORE_ERROR("StaticMeshImporter::Import — MeshSourceImporter failed for: {}", filePath.string());
 			asset = nullptr;
 			return;
 		}
@@ -101,12 +102,12 @@ namespace Kans
 		Ref<StaticMesh> staticMesh = GenerateStaticMeshFromSource(meshSource);
 		if (!staticMesh)
 		{
-			CORE_ERROR("StaticMeshImporter::Importe — failed to generate StaticMesh from MeshSource");
+			CORE_ERROR("StaticMeshImporter::Import — failed to generate StaticMesh from MeshSource");
 			asset = nullptr;
 			return;
 		}
 
-		staticMesh->Handle = metadata->Handle;
+		staticMesh->assetID = metadata->assetID;
 
 		CORE_INFO("StaticMeshImporter — generated StaticMesh from MeshSource: {} ({} submeshes)",
 		          filePath.filename().string(),
@@ -203,7 +204,7 @@ namespace Kans
 	// ★ MODE_SOURCE 预检委托 MeshSourceImporter，不再直接调 Assimp
 	// ============================================================
 
-	bool StaticMeshImporter::TryLoadData(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const
+	bool StaticMeshImporter::TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const
 	{
 		if (!metadata)
 			return false;

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Kans3D/Asset/AssetMetaData.h"
-#include "AssetImporterbase.h"
+#include "Kans3D/Asset/AssetMetadata.h"
+#include "AssetImporterBase.h"
 
 #include <unordered_map>
 
@@ -26,21 +26,21 @@ namespace Kans
 		static void Init();
 
 		// 动态注册/注销自定义导入器
-		static void RegisterImporter(AssetType type, Scope<AssetImporterbase> importer);
+		static void RegisterImporter(AssetType type, Scope<AssetImporterBase> importer);
 		static void UnregisterImporter(AssetType type);
 		static bool HasImporter(AssetType type);
 
 		// 完整导入（委托给对应类型的导入器）
-		static void Import(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset);
+		static void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset);
 
 		// 轻量预检（委托给对应类型的导入器）
-		static bool TryLoad(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset);
+		static bool TryLoad(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset);
 
 		// 获取已注册的导入器数量
 		static size_t GetImporterCount() { return s_Importers.size(); }
 
 	private:
-		static std::unordered_map<AssetType, Scope<AssetImporterbase>> s_Importers;
+		static std::unordered_map<AssetType, Scope<AssetImporterBase>> s_Importers;
 	};
 
 } // namespace Kans

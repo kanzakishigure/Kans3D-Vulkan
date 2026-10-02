@@ -9,16 +9,16 @@ namespace Kans
 
 	}
 
-	void AssetRegistry::LoadAllAssetMetaData()
+	void AssetRegistry::LoadAllAssetMetadata()
 	{
 
 	}
 
-	const Ref<AssetMetaData> AssetRegistry::GetAssetMetaData(AssetHandle handle) const
+	const Ref<AssetMetadata> AssetRegistry::GetAssetMetadata(AssetID handle) const
 	{
-		if (m_AssetMetaDatas.find(handle) != m_AssetMetaDatas.end())
+		if (m_AssetMetadatas.find(handle) != m_AssetMetadatas.end())
 		{
-			return m_AssetMetaDatas.at(handle);
+			return m_AssetMetadatas.at(handle);
 		}
 		return nullptr;
 	}

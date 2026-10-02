@@ -1,7 +1,8 @@
 ﻿#pragma once
 
-#include "Kans3D/Asset/Importer/AssetImporterbase.h"
-#include "Kans3D/Asset/AssetMetaData.h"
+#include "Kans3D/Asset/Asset.h"
+#include "Kans3D/Asset/Importer/AssetImporterBase.h"
+#include "Kans3D/Asset/AssetMetadata.h"
 #include "Kans3D/Core/UUID.h"
 #include "Kans3D/Renderer/Resource/Mesh.h"
 
@@ -37,17 +38,17 @@ namespace Kans
 	// ---- .ksmesh 序列化文件中的 MeshSource 引用 ----
 	struct StaticMeshSourceRef
 	{
-		AssetHandle SourceHandle = 0;
+		SourceAssetID SourceHandle ;
 		std::filesystem::path SourcePath;
 	};
 
-	class StaticMeshImporter : public AssetImporterbase
+	class StaticMeshImporter : public AssetImporterBase
 	{
 	public:
 		StaticMeshImporter() = default;
 
-		void Importe(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
-		bool TryLoadData(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
+		void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
+		bool TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
 
 		// 引擎生成：从 MeshSource 生成 StaticMesh
 		static Ref<StaticMesh> GenerateStaticMeshFromSource(

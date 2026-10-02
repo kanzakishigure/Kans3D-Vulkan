@@ -1,8 +1,8 @@
 ﻿#pragma once
 
 #include "MeshSourceBackend.h"
-#include "Kans3D/Asset/Importer/AssetImporterbase.h"
-#include "Kans3D/Asset/AssetMetaData.h"
+#include "Kans3D/Asset/Importer/AssetImporterBase.h"
+#include "Kans3D/Asset/AssetMetadata.h"
 
 #include <vector>
 
@@ -18,14 +18,14 @@ namespace Kans
 	//   - GetBackendNames() 列出可用后端
 	// ============================================================
 
-	class MeshSourceImporter : public AssetImporterbase
+	class MeshSourceImporter : public AssetImporterBase
 	{
 	public:
 		MeshSourceImporter() = default;
 
-		// ---- AssetImporterbase 接口 ----
-		void Importe(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
-		bool TryLoadData(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
+		// ---- AssetImporterBase 接口 ----
+		void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
+		bool TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
 
 		// ---- 后端管理 ----
 		static void RegisterBackend(Scope<MeshSourceBackend> backend);

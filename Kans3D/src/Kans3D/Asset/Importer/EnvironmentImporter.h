@@ -1,14 +1,14 @@
 #pragma once
-#include "AssetImporterbase.h"
-#include "Kans3D/Asset/AssetMetaData.h"
+#include "AssetImporterBase.h"
+#include "Kans3D/Asset/AssetMetadata.h"
 #include <filesystem>
 namespace Kans
 {
-	class EnvironmentImporter :public AssetImporterbase
+	class EnvironmentImporter :public AssetImporterBase
 	{
 	public:
-		void Importe(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
-		bool TryLoadData(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
+		void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
+		bool TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
 		
 	private:
   void PrepareEnvironment();

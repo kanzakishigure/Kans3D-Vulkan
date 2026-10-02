@@ -1,7 +1,7 @@
 #include "EnvironmentImporter.h"
 
 namespace Kans {
-  void Importe(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset)
+  void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset)
   {
 
 		throw std::logic_error("The method or operation is not implemented.");
@@ -205,7 +205,7 @@ namespace Kans {
 		
 		*/
   }
-	bool TryLoadData(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset)
+	bool TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset)
   {
 		throw std::logic_error("The method or operation is not implemented.");
   }

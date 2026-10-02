@@ -8,7 +8,7 @@
 
 namespace Kans
 {
-	std::unordered_map<AssetType, Scope<AssetImporterbase>> AssetImporter::s_Importers;
+	std::unordered_map<AssetType, Scope<AssetImporterBase>> AssetImporter::s_Importers;
 
 	// ============================================================
 	// Init — 注册全部内置导入器 + 后端
@@ -44,7 +44,7 @@ namespace Kans
 	// RegisterImporter / UnregisterImporter / HasImporter
 	// ============================================================
 
-	void AssetImporter::RegisterImporter(AssetType type, Scope<AssetImporterbase> importer)
+	void AssetImporter::RegisterImporter(AssetType type, Scope<AssetImporterBase> importer)
 	{
 		if (!importer)
 		{
@@ -68,7 +68,7 @@ namespace Kans
 	// Import — 调度导入
 	// ============================================================
 
-	void AssetImporter::Import(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset)
+	void AssetImporter::Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset)
 	{
 		if (!metadata)
 		{
@@ -86,14 +86,14 @@ namespace Kans
 			return;
 		}
 
-		it->second->Importe(metadata, asset);
+		it->second->Import(metadata, asset);
 	}
 
 	// ============================================================
 	// TryLoad — 预检调度
 	// ============================================================
 
-	bool AssetImporter::TryLoad(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset)
+	bool AssetImporter::TryLoad(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset)
 	{
 		if (!metadata)
 			return false;

@@ -9,24 +9,24 @@ namespace Kans
 		//load asset metadata cache to registry
 		AssetImporter::Init();
 		//load initial scene asset to memory
-		m_AssetRegistry.LoadAllAssetMetaData();
+		m_AssetRegistry.LoadAllAssetMetadata();
 	}
 
-	Ref<Asset> EditorAssetManager::GetAsset(AssetHandle handle)
+	Ref<Asset> EditorAssetManager::GetAsset(AssetID assetID)
 	{
 		//return the memoryAssets
-		if (m_MemoryAssets.count(handle))
+		if (m_MemoryAssets.count(assetID))
 		{
-			return m_MemoryAssets.at(handle);
+			return m_MemoryAssets.at(assetID);
 		}
 
-		if (m_RegisteredAssets.count(handle))
+		if (m_RegisteredAssets.count(assetID))
 		{
-			return m_RegisteredAssets.at(handle);
+			return m_RegisteredAssets.at(assetID);
 		}
 
 		//try load asset 
-		Ref<AssetMetaData> metadata = m_AssetRegistry.GetAssetMetaData(handle);
+		Ref<AssetMetadata> metadata = m_AssetRegistry.GetAssetMetadata(assetID);
 		if (metadata == nullptr)
 		{
 			return nullptr;
@@ -40,11 +40,11 @@ namespace Kans
 		if (!metadata->IsDataLoad)
 		{
 			AssetImporter::Import(metadata,asset);
-			m_RegisteredAssets[metadata->Handle] = asset;
+			m_RegisteredAssets[metadata->assetID] = asset;
 		}
 		else
 		{
-			asset =  m_RegisteredAssets[metadata->Handle];
+			asset =  m_RegisteredAssets[metadata->assetID];
 		}
 		
 		return asset;

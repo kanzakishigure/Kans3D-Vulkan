@@ -136,13 +136,13 @@ namespace Kans
 	}
 
 	// ============================================================
-	// Importe — AssetImporterbase 接口
+	// Import — AssetImporterBase 接口
 	// ============================================================
-	void MeshSourceImporter::Importe(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const
+	void MeshSourceImporter::Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const
 	{
 		if (!metadata)
 		{
-			CORE_ERROR("MeshSourceImporter::Importe — metadata is null");
+			CORE_ERROR("MeshSourceImporter::Import — metadata is null");
 			asset = nullptr;
 			return;
 		}
@@ -150,14 +150,14 @@ namespace Kans
 		const auto& filePath = metadata->FilePath;
 		if (filePath.empty() || !std::filesystem::exists(filePath))
 		{
-			CORE_ERROR("MeshSourceImporter::Importe — file not found: {}", filePath.string());
+			CORE_ERROR("MeshSourceImporter::Import — file not found: {}", filePath.string());
 			asset = nullptr;
 			return;
 		}
 
 		if (!CanImport(filePath))
 		{
-			CORE_ERROR("MeshSourceImporter::Importe — unsupported: {} ({})",
+			CORE_ERROR("MeshSourceImporter::Import — unsupported: {} ({})",
 			           filePath.filename().string(), filePath.extension().string());
 			asset = nullptr;
 			return;
@@ -166,12 +166,12 @@ namespace Kans
 		Ref<MeshSource> meshSource = ImportMeshSource(filePath);
 		if (!meshSource)
 		{
-			CORE_ERROR("MeshSourceImporter::Importe — all backends failed for: {}", filePath.string());
+			CORE_ERROR("MeshSourceImporter::Import — all backends failed for: {}", filePath.string());
 			asset = nullptr;
 			return;
 		}
 
-		meshSource->Handle = metadata->Handle;
+		meshSource->assetID = metadata->assetID;
 		meshSource->SetFlag(AssetFlag::None, false);
 
 		const auto& subMeshes = meshSource->GetSubMesh();
@@ -182,7 +182,7 @@ namespace Kans
 		asset = meshSource;
 	}
 
-	bool MeshSourceImporter::TryLoadData(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const
+	bool MeshSourceImporter::TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const
 	{
 		if (!metadata)
 			return false;
