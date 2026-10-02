@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
 project(Kans3D LANGUAGES C CXX)
 
+include(CTest)
+
 # ============================================================
 # Enable CMP0091 so CMAKE_MSVC_RUNTIME_LIBRARY takes effect
 # ============================================================
@@ -137,3 +139,6 @@ endif()
 # ============================================================
 add_subdirectory(${KANSEDITOR_DIR})
 
+if(BUILD_TESTING)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/test)
+endif()

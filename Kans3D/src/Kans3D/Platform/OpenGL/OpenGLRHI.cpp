@@ -7,7 +7,7 @@ namespace Kans {
 
 void OpenGLRHI::EnsureDSAFunctionsLoaded(GLADloadproc load) {
   // GLAD already loaded DSA via GL 4.5 core — nothing to do
-  if (glad_glCreateTextures != nullptr)
+  if (glad_glCreateTextures != nullptr && glad_glGenerateTextureMipmap != nullptr)
     return;
 
   GLint numExt = 0;
@@ -26,6 +26,7 @@ void OpenGLRHI::EnsureDSAFunctionsLoaded(GLADloadproc load) {
       glad_glTextureStorage2D  = (PFNGLTEXTURESTORAGE2DPROC)  load("glTextureStorage2D");
       glad_glTextureSubImage2D = (PFNGLTEXTURESUBIMAGE2DPROC) load("glTextureSubImage2D");
       glad_glTextureParameteri = (PFNGLTEXTUREPARAMETERIPROC) load("glTextureParameteri");
+      glad_glGenerateTextureMipmap = (PFNGLGENERATETEXTUREMIPMAPPROC) load("glGenerateTextureMipmap");
       glad_glBindTextureUnit   = (PFNGLBINDTEXTUREUNITPROC)   load("glBindTextureUnit");
 
       // -- Vertex Arrays --
