@@ -1,5 +1,6 @@
 #pragma once
 #include <Kans3D.h>
+#include "Kans3D/Project/Project.h"
 
 #include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
@@ -22,6 +23,8 @@ namespace Kans {
 
 		bool OnKeyPressedEvent(KeyPressedEvent& e);
 	private:
+		void OpenProject();
+		std::unique_ptr<Project> m_Project;
 		
 		
 		

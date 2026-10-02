@@ -11,7 +11,7 @@
 #include <Kans3D/Core/Hash.h>
 #include <Kans3D/ImGui/Colors.h>
 #include <Kans3D/Renderer/Resource/MeshFactory.h>
-#include <Kans3D/Asset/AssetMetaData.h>
+#include <Kans3D/Asset/AssetMetadata.h>
 #include <Kans3D/Asset/Importer/AssetImporter.h>
 #include <Kans3D/Asset/Importer/AssimpMeshImporter.h>
 #include "Panels/ImporterPanel.h"
@@ -45,6 +45,8 @@ namespace Kans
 	{
 		PROFILE_FUCTION();
 
+		OpenProject();
+
 
 		//Resource Init
 		EditorResources::Init();
@@ -67,7 +69,7 @@ namespace Kans
 				auto& materialCMP = entity.AddComponent<MaterialComponent>();
 
 				Ref<StaticMesh> staticMesh = CreateRef<StaticMesh>(result.MeshSource);
-				staticMesh->Handle = config.ExistingAssetHandle;
+				staticMesh->assetID = config.ExistingAssetID;
 
 				meshCMP.StaticMesh = staticMesh;
 				meshCMP.MaterialTable = staticMesh->GetMaterialTable();
