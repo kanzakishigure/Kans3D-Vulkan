@@ -32,3 +32,6 @@ script/__pycache__
 # cmake build
 build/
 build_clangd/
+# Rebuildable local source asset snapshots
+SourceAssetDatabase.cache.yaml
+SourceAssetDatabase.cache.yaml.tmp-*/
