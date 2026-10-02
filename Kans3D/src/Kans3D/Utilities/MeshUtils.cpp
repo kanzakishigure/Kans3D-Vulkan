@@ -11,38 +11,27 @@ namespace Kans::Utils {
 	void MeshUtils::SmoothNormal(std::vector<Vertex>& verteices, std::vector<glm::vec3>& smoothedNormal)
 	{
 		PROFILE_FUCTION();
-		//std::vector<Vertex> SmoothNormalVertex;
-		std::vector<glm::vec3*> sameposition;
-		smoothedNormal.reserve(verteices.size());
-		for (int i = 0; i < verteices.size(); i++)
+		smoothedNormal.resize(verteices.size());
+
+		// å¯¹æ¯ä¸ªé¡¶ç‚¹ï¼Œç´¯åŠ æ‰€æœ‰åŒä½ç½®é¡¶ç‚¹çš„æ³•çº¿å¹¶å½’ä¸€åŒ–ã€‚
+		// ç»“æœå†™å› smoothedNormal[i]ï¼ˆåŒ…å«ç»„å†…ç¬¬ä¸€ä¸ªé¡¶ç‚¹ï¼‰ï¼Œé¿å…æ—§å®ç°
+		// åªæ›´æ–°åç»­é‡å¤é¡¶ç‚¹ã€ä¸”è¢«éƒ¨åˆ†å’Œè¦†ç›–çš„é—®é¢˜ã€‚
+		for (size_t i = 0; i < verteices.size(); ++i)
 		{
-			smoothedNormal.emplace_back(verteices[i].Normal);
-		}
-		for (int i = 0; i <verteices.size()-1; i++)
-		{
-			sameposition.clear();
-			glm::vec3 norm = verteices[i].Normal;
-			for (int j = i+1; j < verteices.size(); j++)
+			glm::vec3 sum(0.0f);
+			for (size_t j = 0; j < verteices.size(); ++j)
 			{
-				
 				if (verteices[j].Position == verteices[i].Position)
-				{
-					sameposition.push_back(&smoothedNormal[j]);
-					norm += verteices[j].Normal;
-				}
+					sum += verteices[j].Normal;
 			}
-			norm = glm::normalize(norm);
-			for (auto var : sameposition)
-			{
-				*var = norm;
-			}
+			smoothedNormal[i] = glm::normalize(sum);
 		}
 	}
 
 	struct Vec3Hash 
 	{
 		std::size_t operator()(const glm::vec3& v) const {
-				// ½«¸¡µãÊı°´Î»×ª»»ÎªÕûÊı½øĞĞ¹şÏ£
+				// å°†æµ®ç‚¹æ•°æŒ‰ä½è½¬æ¢ä¸ºæ•´æ•°è¿›è¡Œå“ˆå¸Œ
 				std::size_t h1 = std::hash<float>{}(v.x);
 				std::size_t h2 = std::hash<float>{}(v.y);
 				std::size_t h3 = std::hash<float>{}(v.z);
@@ -50,11 +39,11 @@ namespace Kans::Utils {
 		}
 	};
 
-// ×Ô¶¨ÒåÏàµÈ±È½Ïº¯Êı£¨Ö§³ÖÈİ²î£©
+// è‡ªå®šä¹‰ç›¸ç­‰æ¯”è¾ƒå‡½æ•°ï¼ˆæ”¯æŒå®¹å·®ï¼‰
 	struct Vec3Equal 
 	{
 		bool operator()(const glm::vec3& a, const glm::vec3& b) const {
-				// Ê¹ÓÃÈİ²î±È½Ï£¬±ÜÃâ¸¡µã¾«¶ÈÎÊÌâ
+				// ä½¿ç”¨å®¹å·®æ¯”è¾ƒï¼Œé¿å…æµ®ç‚¹ç²¾åº¦é—®é¢˜
 				const float EPSILON = 1e-6f;
 				return glm::distance(a, b) < EPSILON;
 		}
@@ -67,26 +56,26 @@ namespace Kans::Utils {
 
 		smoothedNormal.resize(verteices.size());
 		
-		// Ê¹ÓÃ unordered_map °´Î»ÖÃ·Ö×é£¬key = Î»ÖÃ£¬value = {·¨ÏßÀÛ¼ÓÖµ, ¶¥µãË÷ÒıÁĞ±í}
+		// ä½¿ç”¨ unordered_map æŒ‰ä½ç½®åˆ†ç»„ï¼Œkey = ä½ç½®ï¼Œvalue = {æ³•çº¿ç´¯åŠ å€¼, é¡¶ç‚¹ç´¢å¼•åˆ—è¡¨}
 		std::unordered_map<glm::vec3, std::pair<glm::vec3, std::vector<size_t>>, Vec3Hash, Vec3Equal> positionMap;
 		positionMap.reserve(verteices.size() * 2);
 		
-		// µÚÒ»±é£º±éÀúËùÓĞ¶¥µã£¬°´Î»ÖÃ·Ö×é²¢ÀÛ¼Ó·¨Ïß
+		// ç¬¬ä¸€éï¼šéå†æ‰€æœ‰é¡¶ç‚¹ï¼ŒæŒ‰ä½ç½®åˆ†ç»„å¹¶ç´¯åŠ æ³•çº¿
 		for (size_t i = 0; i < verteices.size(); ++i) {
 				const auto& vertex = verteices[i];
 				auto it = positionMap.find(vertex.Position);
 				
 				if (it == positionMap.end()) {
-						// ĞÂÎ»ÖÃ£º³õÊ¼»¯ÀÛ¼Ó·¨ÏßºÍË÷ÒıÁĞ±í
+						// æ–°ä½ç½®ï¼šåˆå§‹åŒ–ç´¯åŠ æ³•çº¿å’Œç´¢å¼•åˆ—è¡¨
 						positionMap.emplace(vertex.Position, std::make_pair(vertex.Normal, std::vector<size_t>{i}));
 				} else {
-						// ÒÑÓĞÎ»ÖÃ£ºÀÛ¼Ó·¨Ïß²¢Ìí¼ÓË÷Òı
+						// å·²æœ‰ä½ç½®ï¼šç´¯åŠ æ³•çº¿å¹¶æ·»åŠ ç´¢å¼•
 						it->second.first += vertex.Normal;
 						it->second.second.push_back(i);
 				}
 		}
 		
-		// µÚ¶ş±é£º¶ÔÃ¿¸öÎ»ÖÃ£¬¹éÒ»»¯ÀÛ¼Ó·¨Ïß²¢¸³Öµ¸øËùÓĞ¹²Ïí¸ÃÎ»ÖÃµÄ¶¥µã
+		// ç¬¬äºŒéï¼šå¯¹æ¯ä¸ªä½ç½®ï¼Œå½’ä¸€åŒ–ç´¯åŠ æ³•çº¿å¹¶èµ‹å€¼ç»™æ‰€æœ‰å…±äº«è¯¥ä½ç½®çš„é¡¶ç‚¹
 		for (auto& kv : positionMap) {
 				glm::vec3 normalizedNormal = glm::normalize(kv.second.first);
 				for (size_t index : kv.second.second) {
