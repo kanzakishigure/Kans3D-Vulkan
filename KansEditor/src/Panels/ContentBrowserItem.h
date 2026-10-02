@@ -19,7 +19,7 @@ namespace Kans
 		};
 
 	public:
-		ContentBrowserItem(ItemType type, AssetHandle handle, std::string name,
+		ContentBrowserItem(ItemType type, UUID handle, std::string name,
 			const Ref<Texture2D>& icon,
 			uint64_t fileSize = 0,
 			std::filesystem::file_time_type lastWriteTime = {},
@@ -32,7 +32,7 @@ namespace Kans
 	private:
 		// ── Metadata ──
 		ItemType                           m_Itemtype;
-		AssetHandle                        m_AssetHandle;
+		UUID                        m_AssetHandle;
 		std::string                        m_FileName;
 		Ref<Texture2D>                     m_Icon;
 

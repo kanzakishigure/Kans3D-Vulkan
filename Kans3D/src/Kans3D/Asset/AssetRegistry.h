@@ -1,5 +1,8 @@
 #pragma once
-#include "AssetMetaData.h"
+#include "AssetMetadata.h"
+#include "Kans3D/Asset/Asset.h"
+#include <filesystem>
+#include <unordered_map>
 namespace Kans
 {
 
@@ -9,11 +12,11 @@ namespace Kans
 		AssetRegistry();
 		~AssetRegistry() = default;
 
-		void LoadAllAssetMetaData();
-		const Ref<AssetMetaData> GetAssetMetaData(AssetHandle handle) const;
+		void LoadAllAssetMetadata();
+		const Ref<AssetMetadata> GetAssetMetadata(AssetID handle) const;
 
 	private:
-		std::map<UUID, Ref<AssetMetaData>> m_AssetMetaDatas;
+		std::unordered_map<AssetID, Ref<AssetMetadata>> m_AssetMetadatas;
 
 	};
 

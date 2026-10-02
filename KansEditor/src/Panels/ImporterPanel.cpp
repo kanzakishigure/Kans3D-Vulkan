@@ -511,7 +511,7 @@ namespace Kans
 			m_CpuImport = std::async(std::launch::async,
 				[sharedJob]()
 				{
-					ImportResult& result = sharedJob->Result;
+					LegacyImportResult& result = sharedJob->Result;
 
 					sharedJob->UpdateProgress(0.0f, 0.0f, 0.0f, 0.0f, "Validating file...");
 
@@ -583,7 +583,7 @@ namespace Kans
 		{
 			m_ImportRequested = false;
 			m_SharedJob.reset();
-			m_LastResult = ImportResult{};
+			m_LastResult = LegacyImportResult{};
 			m_LastResult.FinalProgress.HasError = true;
 			m_LastResult.FinalProgress.IsComplete = true;
 			m_LastResult.FinalProgress.ErrorMessage = error.what();

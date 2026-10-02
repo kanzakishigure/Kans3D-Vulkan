@@ -1,29 +1,29 @@
 #pragma once
 
-#include "AssetManagerbase.h"
+#include "AssetManagerBase.h"
 #include "Kans3D/Asset/AssetRegistry.h"
 namespace Kans
 {
-	class EditorAssetManager : AssetManagerbase
+	class EditorAssetManager : AssetManagerBase
 	{
 
 	public:
 		EditorAssetManager();
 
-		Ref<Asset> GetAsset(AssetHandle handle) override;
+		Ref<Asset> GetAsset(AssetID assetID) override;
 		void AddAsset(Ref<Asset> asset) override;
-		bool RemoveAsset(AssetHandle handle) override;
-		bool ReloadAsset(AssetHandle handle) override;
-		bool IsMemoryAsset(AssetHandle handle) override;
-		bool IsAssetLoaded(AssetHandle handle) override;
+		bool RemoveAsset(AssetID assetID) override;
+		bool ReloadAsset(AssetID assetID) override;
+		bool IsMemoryAsset(AssetID assetID) override;
+		bool IsAssetLoaded(AssetID assetID) override;
 
-		std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) override;
-		const std::unordered_map<AssetHandle, Ref<Asset>>& GetMemoryAssets() override;
-		const std::unordered_map<AssetHandle, Ref<Asset>>& GetRegisteredAssets() override;
+		std::unordered_set<AssetID> GetAllAssetsWithType(AssetType type) override;
+		const std::unordered_map<AssetID, Ref<Asset>>& GetMemoryAssets() override;
+		const std::unordered_map<AssetID, Ref<Asset>>& GetRegisteredAssets() override;
 
 	private:
-		std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;
-		std::unordered_map<AssetHandle, Ref<Asset>> m_RegisteredAssets;	
+		std::unordered_map<AssetID, Ref<Asset>> m_MemoryAssets;
+		std::unordered_map<AssetID, Ref<Asset>> m_RegisteredAssets;
 
 		AssetRegistry m_AssetRegistry;
 

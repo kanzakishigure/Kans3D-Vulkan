@@ -103,75 +103,113 @@
     "buildPresets": [
         {
             "name": "linux-gcc-debug",
-            "displayName": "Debug",
+            "displayName": "Linux GCC Debug",
             "configurePreset": "linux-gcc",
             "configuration": "Debug"
         },
         {
             "name": "linux-gcc-release",
-            "displayName": "Release",
+            "displayName": "Linux GCC Release",
             "configurePreset": "linux-gcc",
             "configuration": "Release"
         },
         {
             "name": "linux-gcc-dist",
-            "displayName": "Dist",
+            "displayName": "Linux GCC Dist",
             "configurePreset": "linux-gcc",
             "configuration": "Dist"
         },
         {
             "name": "linux-clang-debug",
-            "displayName": "Debug",
+            "displayName": "Linux Clang Debug",
             "configurePreset": "linux-clang",
             "configuration": "Debug"
         },
         {
             "name": "linux-clang-release",
-            "displayName": "Release",
+            "displayName": "Linux Clang Release",
             "configurePreset": "linux-clang",
             "configuration": "Release"
         },
         {
             "name": "linux-clang-dist",
-            "displayName": "Dist",
+            "displayName": "Linux Clang Dist",
             "configurePreset": "linux-clang",
             "configuration": "Dist"
         },
         {
             "name": "windows-msvc-debug",
-            "displayName": "Debug",
+            "displayName": "Windows MSVC Debug",
             "configurePreset": "windows-msvc",
             "configuration": "Debug"
         },
         {
             "name": "windows-msvc-release",
-            "displayName": "Release",
+            "displayName": "Windows MSVC Release",
             "configurePreset": "windows-msvc",
             "configuration": "Release"
         },
         {
             "name": "windows-msvc-dist",
-            "displayName": "Dist",
+            "displayName": "Windows MSVC Dist",
             "configurePreset": "windows-msvc",
             "configuration": "Dist"
         },
         {
             "name": "windows-clang-debug",
-            "displayName": "Debug",
+            "displayName": "Windows Clang Debug",
             "configurePreset": "windows-clang",
             "configuration": "Debug"
         },
         {
             "name": "windows-clang-release",
-            "displayName": "Release",
+            "displayName": "Windows Clang Release",
             "configurePreset": "windows-clang",
             "configuration": "Release"
         },
         {
             "name": "windows-clang-dist",
-            "displayName": "Dist",
+            "displayName": "Windows Clang Dist",
             "configurePreset": "windows-clang",
             "configuration": "Dist"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "linux-gcc-test-debug",
+            "displayName": "Linux GCC Tests (Debug)",
+            "configurePreset": "linux-gcc",
+            "configuration": "Debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error"
+            }
+        },
+        {
+            "name": "linux-gcc-test-release",
+            "displayName": "Linux GCC Tests (Release)",
+            "configurePreset": "linux-gcc",
+            "configuration": "Release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error"
+            }
+        },
+        {
+            "name": "linux-gcc-test-dist",
+            "displayName": "Linux GCC Tests (Dist)",
+            "configurePreset": "linux-gcc",
+            "configuration": "Dist",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error"
+            }
         }
     ]
 }

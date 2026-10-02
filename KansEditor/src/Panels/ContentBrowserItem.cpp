@@ -69,7 +69,7 @@ namespace Kans
 
 	// ── Constructor ────────────────────────────────────────────────────
 
-	ContentBrowserItem::ContentBrowserItem(ItemType type, AssetHandle handle,
+	ContentBrowserItem::ContentBrowserItem(ItemType type, UUID handle,
 		std::string name, const Ref<Texture2D>& icon,
 		uint64_t fileSize, std::filesystem::file_time_type lastWriteTime,
 		std::string extension)

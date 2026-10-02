@@ -1,32 +1,30 @@
 #include "kspch.h"
 #include "EditorAssetManager.h"
-#include "Kans3D/Asset/Importer/AssetImporter.h"
 namespace Kans
 {
 
 	EditorAssetManager::EditorAssetManager()
 	{
 		//load asset metadata cache to registry
-		AssetImporter::Init();
 		//load initial scene asset to memory
-		m_AssetRegistry.LoadAllAssetMetaData();
+		m_AssetRegistry.LoadAllAssetMetadata();
 	}
 
-	Ref<Asset> EditorAssetManager::GetAsset(AssetHandle handle)
+	Ref<Asset> EditorAssetManager::GetAsset(AssetID assetID)
 	{
 		//return the memoryAssets
-		if (m_MemoryAssets.count(handle))
+		if (m_MemoryAssets.count(assetID))
 		{
-			return m_MemoryAssets.at(handle);
+			return m_MemoryAssets.at(assetID);
 		}
 
-		if (m_RegisteredAssets.count(handle))
+		if (m_RegisteredAssets.count(assetID))
 		{
-			return m_RegisteredAssets.at(handle);
+			return m_RegisteredAssets.at(assetID);
 		}
 
 		//try load asset 
-		Ref<AssetMetaData> metadata = m_AssetRegistry.GetAssetMetaData(handle);
+		Ref<AssetMetadata> metadata = m_AssetRegistry.GetAssetMetadata(assetID);
 		if (metadata == nullptr)
 		{
 			return nullptr;
@@ -36,18 +34,10 @@ namespace Kans
 			return nullptr;
 		}
 
-		Ref<Asset> asset = nullptr;
-		if (!metadata->IsDataLoad)
-		{
-			AssetImporter::Import(metadata,asset);
-			m_RegisteredAssets[metadata->Handle] = asset;
-		}
-		else
-		{
-			asset =  m_RegisteredAssets[metadata->Handle];
-		}
-		
-		return asset;
+		// Product lookup/byte IO and typed Loader dispatch are not wired yet.
+		// Never substitute source importing for runtime asset loading.
+		CORE_WARN("Product loading is not implemented for requested asset");
+		return nullptr;
 	}
 
 	

@@ -647,7 +647,7 @@ namespace Kans
 							for (auto& entry : std::filesystem::directory_iterator(m_CurrentPath))
 							{
 								std::string filename = entry.path().filename().string();
-								AssetHandle handle = Hash::Generate64MD5Hash(filename);
+								UUID handle = Hash::Generate64MD5Hash(filename);
 
 								if (entry.is_directory())
 								{

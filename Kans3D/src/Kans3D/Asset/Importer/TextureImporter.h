@@ -1,13 +1,13 @@
 #pragma once
-#include "AssetImporterbase.h"
+#include "LegacyAssetImporterBase.h"
 #include <filesystem>
 namespace Kans
 {
-	class TextureImporter :public AssetImporterbase
+	class TextureImporter :public LegacyAssetImporterBase
 	{
 	public:
-		void Importe(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
-		bool TryLoadData(const Ref<AssetMetaData>& metadata, Ref<Asset>& asset) const override;
+		void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
+		bool TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;
 
 	private:
 		const std::filesystem::path m_Path;

@@ -1,7 +1,8 @@
 #pragma once
 
-#include "Kans3D/Asset/AssetMetaData.h"
+#include "Kans3D/Asset/AssetMetadata.h"
 #include<functional>
+#include <sys/stat.h>
 
 namespace Kans
 {
@@ -15,17 +16,18 @@ namespace Kans
 		
 		static void SetAssetChangeCallBack(const AssetChangeEventFn& callback);
 
-		static const AssetMetaData& GetMetaData(AssetHandle handle);
-		static const AssetMetaData& GetMetaData(const std::filesystem::path& path);
-		static const AssetMetaData& GetMetaData(const Ref<Asset>& asset) { return GetMetaData(asset->Handle); };
+		static const AssetMetadata& GetMetadata(AssetID assetID);
+		static const AssetMetadata& GetMetadata(const std::filesystem::path& path);
+		static const AssetMetadata& GetMetadata(const Ref<Asset>& asset) { return GetMetadata(asset->assetID); };
 
-		
+		static const Ref<Asset>& LoadRAMAsset(AssetID assetID){return  s_RAMAssets.at(assetID);}
+		static const Ref<Asset>& LoadDiskAsset(AssetID assetID){return  s_LoadedAssets.at(assetID);}
 
 	private:
 		//The mapping of the disk asset we loaded to our project
-		std::unordered_map<AssetHandle, Ref<Asset>> s_LoadedAssets;
+		static std::unordered_map<AssetID, Ref<Asset>> s_LoadedAssets;
 		//we don't need to load all asset in our RAM we Just Load 
-		std::unordered_map<AssetHandle, Ref<Asset>> s_RAMAssets;
+		static std::unordered_map<AssetID, Ref<Asset>> s_RAMAssets;
 	};
 }
 

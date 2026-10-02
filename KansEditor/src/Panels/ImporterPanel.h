@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "Kans3D/Editor/EditorPanel.h"
 #include "Kans3D/Asset/Importer/ImportConfig.h"
@@ -45,9 +45,9 @@ namespace Kans
 	};
 
 	// ============================================================
-	// ImportResult — 导入结果
+	// LegacyImportResult — 导入结果
 	// ============================================================
-	struct ImportResult
+	struct LegacyImportResult
 	{
 		Ref<Kans::MeshSource> MeshSource;
 		ImportProgress   FinalProgress;
@@ -63,7 +63,7 @@ namespace Kans
 	struct ImportJob
 	{
 		ImportConfig  Config;
-		ImportResult  Result;
+		LegacyImportResult  Result;
 
 		mutable std::mutex        ProgressMutex;
 		ImportProgress            Progress;
@@ -108,7 +108,7 @@ namespace Kans
 
 		virtual void onImGuiRender(bool isOpen) override;
 
-		using ImportCompleteCallback = std::function<void(const ImportResult&, const ImportConfig&)>;
+		using ImportCompleteCallback = std::function<void(const LegacyImportResult&, const ImportConfig&)>;
 		void SetImportCompleteCallback(ImportCompleteCallback callback) { m_OnImportComplete = std::move(callback); }
 
 		void OpenWithFile(const std::filesystem::path& filePath);
@@ -151,7 +151,7 @@ namespace Kans
 		char                      m_OutputPathBuffer[512] = {};
 
 		ImportCompleteCallback    m_OnImportComplete;
-		ImportResult              m_LastResult;
+		LegacyImportResult              m_LastResult;
 		bool                      m_HasLastResult = false;
 	};
 

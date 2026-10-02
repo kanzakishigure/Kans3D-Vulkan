@@ -51,7 +51,7 @@ namespace Kans
 		bool   bRemoveDegenerates   = true;       // 移除退化三角形
 
 		// ---- 资产句柄 ----
-		AssetHandle ExistingAssetHandle = AssetHandle{};       // 如果替换现有资产,指定其句柄
+		AssetID ExistingAssetID = AssetID{};       // 如果替换现有资产,指定其句柄
 
 		// ---- 验证 ----
 		bool IsValid() const

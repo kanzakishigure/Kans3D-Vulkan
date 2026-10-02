@@ -9,8 +9,9 @@
 // TestInclude
 #include "Kans3D/Core/Log/Log.h"
 #include "Panels/ImporterPanel.h"
-#include <Kans3D/Asset/AssetMetaData.h>
-#include <Kans3D/Asset/Importer/AssetImporter.h>
+#include <Kans3D/Asset/AssetMetadata.h>
+#include <Kans3D/Asset/Importer/MeshSourceImporter.h>
+#include <Kans3D/Asset/Importer/AssimpMeshSourceBackend.h>
 #include <Kans3D/Asset/Importer/AssimpMeshImporter.h>
 #include <Kans3D/Core/Hash.h>
 #include <Kans3D/Core/UUID.h>
@@ -40,16 +41,20 @@ EditorLayer::EditorLayer()
 void EditorLayer::OnAttach() {
   PROFILE_FUCTION();
 
+  OpenProject();
+
 
   // Resource Init
   EditorResources::Init();
 
   // Asset Importer Init
-  AssetImporter::Init();
+  // Register the legacy preview backend independently of the Product pipeline.
+  if (MeshSourceImporter::GetBackendCount() == 0)
+    MeshSourceImporter::RegisterBackend(CreateScope<AssimpMeshSourceBackend>());
 
   // ImporterPanel callback — 导入完成后创建 Entity
   m_ImporterPanel.SetImportCompleteCallback(
-      [this](const ImportResult &result, const ImportConfig &config) {
+      [this](const LegacyImportResult &result, const ImportConfig &config) {
         if (!result.Success || !result.MeshSource) {
           CORE_WARN("EditorLayer — import failed for: {}",
                     config.SourcePath.string());
@@ -61,7 +66,7 @@ void EditorLayer::OnAttach() {
         auto &materialCMP = entity.AddComponent<MaterialComponent>();
 
         Ref<StaticMesh> staticMesh = CreateRef<StaticMesh>(result.MeshSource);
-        staticMesh->Handle = config.ExistingAssetHandle;
+        staticMesh->assetID = config.ExistingAssetID;
 
         meshCMP.StaticMesh = staticMesh;
         meshCMP.MaterialTable = staticMesh->GetMaterialTable();
