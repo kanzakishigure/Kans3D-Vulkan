@@ -59,9 +59,17 @@ namespace Kans
 		}
 		s_Context = new ScrtiptEngineContext();
 
+		// Check if script assembly exists; skip scripting if not (e.g. on Linux without MSBuild)
+		const auto& assemblyPath = KansFileSystem::GetScriptAssemblyPath();
+		if (!std::filesystem::exists(assemblyPath))
+		{
+			CORE_WARN("Script assembly not found at '{}', skipping script engine init", assemblyPath.string());
+			return;
+		}
+
 		InitMono();
-		//load MetaData from class
-		LoadAssembly(KansFileSystem::GetScriptAssemblyPath());
+		//load Metadata from class
+		LoadAssembly(assemblyPath);
 		s_Context->EntityClass = ScriptClass("Kans", "Entity");
 		LoadAssemblyClasses(s_Context->CoreAssembly);
 		
@@ -136,7 +144,7 @@ namespace Kans
 		auto&scriptCMP = entity.GetComponent<ScriptComponent>();
 		if (EntityClassExists(scriptCMP.ClassName))
 		{
-			auto& id = entity.GetUUID();
+			auto id = entity.GetUUID();
 			auto klass = s_Context->EntityClasses[scriptCMP.ClassName];
 			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(klass,entity);
 			s_Context->EntityInstances[id] = instance;
@@ -150,7 +158,7 @@ namespace Kans
 	void ScriptEngine::OnUpdateEntity(Entity entity, TimeStep ts)
 	{
 		auto& scriptCMP = entity.GetComponent<ScriptComponent>();
-		auto& id = entity.GetUUID();
+		auto id = entity.GetUUID();
 		if (EntityClassExists(scriptCMP.ClassName))
 		{
 			
@@ -182,19 +190,28 @@ namespace Kans
 	{
 		//todo mono can't release correctly
 
-		mono_image_close(s_Context->CoreAssemblyImage);
-		s_Context->CoreAssemblyImage = nullptr;
+		if (s_Context->CoreAssemblyImage)
+		{
+			mono_image_close(s_Context->CoreAssemblyImage);
+			s_Context->CoreAssemblyImage = nullptr;
+		}
 
-		mono_assembly_close(s_Context->CoreAssembly);
-		s_Context->CoreAssembly = nullptr;
+		if (s_Context->CoreAssembly)
+		{
+			mono_assembly_close(s_Context->CoreAssembly);
+			s_Context->CoreAssembly = nullptr;
+		}
 		
 		//mono_domain_set(mono_get_root_domain(), false);
 
 		//mono_domain_free(s_Context->AppDomain,false);
 		//s_Context->AppDomain = nullptr;
 
-		mono_jit_cleanup(s_Context->RootDomain);
-		s_Context->RootDomain = nullptr;
+		if (s_Context->RootDomain)
+		{
+			mono_jit_cleanup(s_Context->RootDomain);
+			s_Context->RootDomain = nullptr;
+		}
 	}
 
 	
