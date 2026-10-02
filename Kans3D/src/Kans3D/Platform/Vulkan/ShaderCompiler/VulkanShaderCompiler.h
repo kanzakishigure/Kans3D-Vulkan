@@ -63,9 +63,9 @@ namespace Kans
 
 		// I not sure should cache the metadata or just load meta data from file £¿
 
-		bool TryReadReflectionMetaDataFromCahce();
-		void SerializeReflectionMetaData();
-		void ReflectMetaData(VkShaderStageFlagBits stage,const std::vector<uint32_t>& data);
+		bool TryReadReflectionMetadataFromCahce();
+		void SerializeReflectionMetadata();
+		void ReflectMetadata(VkShaderStageFlagBits stage,const std::vector<uint32_t>& data);
 	private:
 		std::filesystem::path m_ShaderSourcePath;
 		bool m_DisableOptimization = false;

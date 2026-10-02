@@ -158,7 +158,7 @@ namespace Kans
 		}
 		//Once we have the SPIR-V byte code we can use for shader reflection
 		// use SPIR-V spirv_cross Get the ShaderLayout
-		SerializeReflectionMetaData();
+		SerializeReflectionMetadata();
 
 		
 
@@ -332,15 +332,15 @@ namespace Kans
 		stream.close();
 	}
 
-	void VulkanShaderCompiler::SerializeReflectionMetaData()
+	void VulkanShaderCompiler::SerializeReflectionMetadata()
 	{
 		for (const auto& [Stage, data] : m_SPIRVDebugData)
 		{
-			ReflectMetaData(Stage, data);
+			ReflectMetadata(Stage, data);
 		}
 	}
 
-	void VulkanShaderCompiler::ReflectMetaData(VkShaderStageFlagBits stage, const std::vector<uint32_t>& data)
+	void VulkanShaderCompiler::ReflectMetadata(VkShaderStageFlagBits stage, const std::vector<uint32_t>& data)
 	{
 		spirv_cross::Compiler compiler(data);
 
