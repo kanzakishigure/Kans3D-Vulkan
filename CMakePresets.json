@@ -74,21 +74,6 @@
             }
         },
         {
-            "name": "windows-clang",
-            "displayName": "Windows Clang (clang-cl)",
-            "description": "Build with Clang (clang-cl) on Windows",
-            "inherits": "windows-common",
-            "cacheVariables": {
-                "CMAKE_C_COMPILER": "clang-cl",
-                "CMAKE_CXX_COMPILER": "clang-cl"
-            },
-            "vendor": {
-                "microsoft.com/VisualStudioSettings/CMake/1.0": {
-                    "intelliSenseMode": "windows-clang-x64"
-                }
-            }
-        },
-        {
             "name": "windows-clangd",
             "displayName": "Windows Ninja (compile_commands only)",
             "description": "Single-config Ninja build to generate compile_commands.json for clangd",
@@ -153,24 +138,6 @@
             "name": "windows-msvc-dist",
             "displayName": "Windows MSVC Dist",
             "configurePreset": "windows-msvc",
-            "configuration": "Dist"
-        },
-        {
-            "name": "windows-clang-debug",
-            "displayName": "Windows Clang Debug",
-            "configurePreset": "windows-clang",
-            "configuration": "Debug"
-        },
-        {
-            "name": "windows-clang-release",
-            "displayName": "Windows Clang Release",
-            "configurePreset": "windows-clang",
-            "configuration": "Release"
-        },
-        {
-            "name": "windows-clang-dist",
-            "displayName": "Windows Clang Dist",
-            "configurePreset": "windows-clang",
             "configuration": "Dist"
         }
     ],

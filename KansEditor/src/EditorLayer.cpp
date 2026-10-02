@@ -52,11 +52,11 @@ void EditorLayer::OnAttach() {
   if (MeshSourceImporter::GetBackendCount() == 0)
     MeshSourceImporter::RegisterBackend(CreateScope<AssimpMeshSourceBackend>());
 
-  // ImporterPanel callback ¡ª µ¼ÈëÍê³Éºó´´½¨ Entity
+  // ImporterPanel callback ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Éºó´´½ï¿½ Entity
   m_ImporterPanel.SetImportCompleteCallback(
       [this](const LegacyImportResult &result, const ImportConfig &config) {
         if (!result.Success || !result.MeshSource) {
-          CORE_WARN("EditorLayer ¡ª import failed for: {}",
+          CORE_WARN("EditorLayer ï¿½ï¿½ import failed for: {}",
                     config.SourcePath.string());
           return;
         }
@@ -76,7 +76,7 @@ void EditorLayer::OnAttach() {
         transformCMP.Position = {0.0f, 0.0f, -1.0f};
         transformCMP.Rotation = {0.0f, glm::radians(90.0f), 0.0f};
 
-        CORE_INFO("EditorLayer ¡ª created entity '{}' from imported mesh: {} "
+        CORE_INFO("EditorLayer ï¿½ï¿½ created entity '{}' from imported mesh: {} "
                   "submeshes, {} verts, {} tris",
                   config.AssetName, result.FinalProgress.SubMeshesDetected,
                   result.FinalProgress.VerticesDetected,
@@ -409,8 +409,6 @@ void EditorLayer::OnUpdate(TimeStep ts) {
 
 void EditorLayer::OnEvent(Event &e) {
   PROFILE_FUCTION();
-  CORE_INFO("m_ViewportHovered : {0}", m_ViewportHovered);
-  CORE_INFO("m_ViewportFocused : {0}", m_ViewportFocused);
   EventDispatcher dispatcher(e);
   dispatcher.Dispatch<KeyPressedEvent>(
       [this](KeyPressedEvent &event) { return OnKeyPressedEvent(event); });
@@ -594,7 +592,7 @@ void EditorLayer::OnImGuiRender() {
         std::string path = std::string((char *)data->Data, data->DataSize);
         std::filesystem::path filePath = path;
         if (filePath.has_extension()) {
-          // ©¤©¤ StaticMesh / Mesh ×Ê²ú£º´ò¿ª ImporterPanel ½øÐÐµ¼Èë ©¤©¤
+          // ï¿½ï¿½ï¿½ï¿½ StaticMesh / Mesh ï¿½Ê²ï¿½ï¿½ï¿½ï¿½ï¿½ ImporterPanel ï¿½ï¿½ï¿½Ðµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
           static const std::unordered_set<std::string> s_MeshExtensions = {
               ".fbx", ".obj", ".3ds", ".blend", ".gltf"};
 

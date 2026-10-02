@@ -311,7 +311,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
 
     // ×Ô¶¯¼ì²â _Light ÌùÍ¼
     {
-      std::string lightPath = texPath;
+      std::string lightPath = texPath.string();
       size_t dot = lightPath.find_last_of('.');
       if (dot != std::string::npos)
         lightPath.insert(dot, "_Light");
@@ -326,7 +326,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
     }
     // ×Ô¶¯¼ì²â _Ramp ÌùÍ¼
     {
-      std::string rampPath = texPath;
+      std::string rampPath = texPath.string();
       size_t dot = rampPath.find_last_of('.');
       if (dot != std::string::npos)
         rampPath.insert(dot, "_Ramp");
@@ -496,15 +496,15 @@ void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial *aiMat,
         Buffer imageBuffer;
         RHIFormat format = defaultFormat;
 
-        if (stbi_is_hdr(texPath.c_str())) {
-          imageBuffer.Data = stbi_loadf(texPath.c_str(), &width, &height, &channels, 0);
+        if (stbi_is_hdr(texPath.string().c_str())) {
+          imageBuffer.Data = stbi_loadf(texPath.string().c_str(), &width, &height, &channels, 0);
           imageBuffer.Size = width * height * channels * sizeof(float);
           switch (channels) {
             case 3: format = RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT; break;
             case 4: format = RHIFormat::RHI_FORMAT_R16G16B16A16_SFLOAT; break;
           }
         } else {
-          imageBuffer.Data = stbi_load(texPath.c_str(), &width, &height, &channels, 0);
+          imageBuffer.Data = stbi_load(texPath.string().c_str(), &width, &height, &channels, 0);
           imageBuffer.Size = width * height * channels;
           switch (channels) {
             case 3: format = RHIFormat::RHI_FORMAT_R8G8B8_SRGB; break;

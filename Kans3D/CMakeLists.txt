@@ -24,6 +24,9 @@ target_compile_definitions(Kans3D PUBLIC
     GLFW_INCLUDE_NONE
 )
 if(WIN32)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        target_compile_options(Kans3D PUBLIC /Zc:preprocessor)
+    endif()
     target_compile_definitions(Kans3D PUBLIC
         PLATFORM_WINDOWS
         _CRT_SECURE_NO_WARNINGS)

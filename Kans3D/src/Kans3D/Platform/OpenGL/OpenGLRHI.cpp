@@ -42,7 +42,7 @@ void OpenGLRHI::EnsureDSAFunctionsLoaded(GLADloadproc load) {
         OpenGLRHI::OpenGLRHI(const Scope<Window>& window)
 		:m_WindowHandle(window.get())
 	{
-		CORE_ASSERT(m_WindowHandle,"窗口句柄为空，无法绑定渲染上下文到窗口")
+		CORE_ASSERT(m_WindowHandle, "Window handle is null; cannot bind the rendering context")
 	}
 
 	OpenGLRHI::OpenGLRHI()
