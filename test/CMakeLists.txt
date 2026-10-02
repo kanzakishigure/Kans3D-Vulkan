@@ -20,3 +20,8 @@ if(UNIX AND NOT APPLE)
         ENVIRONMENT "MESA_GL_VERSION_OVERRIDE=4.3;LIBGL_ALWAYS_SOFTWARE=1"
         LABELS "OpenGL")
 endif()
+
+add_executable(Kans3DTests ContentBrowserLayoutTests.cpp)
+target_link_libraries(Kans3DTests PRIVATE Kans3D GTest::gtest_main)
+target_compile_features(Kans3DTests PRIVATE cxx_std_17)
+gtest_discover_tests(Kans3DTests)

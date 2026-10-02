@@ -46,6 +46,7 @@ namespace Kans
 		void RenderStandardGrid(const ImVec2& iconSize, ImTextureID texID);
 		void RenderDetailedGrid(const ImVec2& iconSize, ImTextureID texID);
 		void RenderExpandedGrid(const ImVec2& iconSize, ImTextureID texID);
+		void HandleClick();
 
 		// drag-drop
 		std::string m_path;
