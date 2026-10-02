@@ -136,4 +136,7 @@ endif()
 # Editor - KansEditor console application
 # ============================================================
 add_subdirectory(${KANSEDITOR_DIR})
-
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()
