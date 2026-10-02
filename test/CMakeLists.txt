@@ -1,5 +1,6 @@
 find_package(GTest REQUIRED)
 add_executable(Kans3DTests
+    ImportPipelineTests.cpp
     SourceAssetIDTests.cpp
     AssetIDTests.cpp
     AssetPathTests.cpp

@@ -1,11 +1,16 @@
 #pragma once
-#include "Kans3D/Asset/AssetMetadata.h"
-namespace Kans
-{
-	class AssetImporterBase
-	{
-	public:
-		virtual void Import(const Ref<AssetMetadata>& metadata,  Ref<Asset>& asset) const = 0;
-		virtual bool TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const = 0;
-	};
-}
+#include "ImportContext.h"
+#include "Kans3D/Asset/AssetError.h"
+#include <variant>
+
+namespace Kans {
+class AssetImporterBase {
+public:
+  virtual ~AssetImporterBase() = default;
+  virtual uint32_t GetVersion() const = 0;
+  // Source -> complete staged Product set. No runtime Asset/GPU construction.
+  // Implementations must preserve LocalIDs and never modify the live registry.
+  [[nodiscard]] virtual std::variant<ImportResult, AssetError>
+  Import(const ImportContext &context) const = 0;
+};
+} // namespace Kans

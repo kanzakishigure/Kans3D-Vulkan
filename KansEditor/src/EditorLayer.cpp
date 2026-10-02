@@ -12,7 +12,8 @@
 #include <Kans3D/ImGui/Colors.h>
 #include <Kans3D/Renderer/Resource/MeshFactory.h>
 #include <Kans3D/Asset/AssetMetadata.h>
-#include <Kans3D/Asset/Importer/AssetImporter.h>
+#include <Kans3D/Asset/Importer/MeshSourceImporter.h>
+#include <Kans3D/Asset/Importer/AssimpMeshSourceBackend.h>
 #include <Kans3D/Asset/Importer/AssimpMeshImporter.h>
 #include "Panels/ImporterPanel.h"
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -52,11 +53,13 @@ namespace Kans
 		EditorResources::Init();
 
 		//Asset Importer Init
-		AssetImporter::Init();
+		// Legacy preview only; not the Product pipeline.
+		if (MeshSourceImporter::GetBackendCount() == 0)
+			MeshSourceImporter::RegisterBackend(CreateScope<AssimpMeshSourceBackend>());
 
 		//ImporterPanel callback — 导入完成后创建 Entity
 		m_ImporterPanel.SetImportCompleteCallback(
-			[this](const ImportResult& result, const ImportConfig& config)
+			[this](const LegacyImportResult& result, const ImportConfig& config)
 			{
 				if (!result.Success || !result.MeshSource)
 				{

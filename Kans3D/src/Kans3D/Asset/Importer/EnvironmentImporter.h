@@ -1,10 +1,10 @@
 #pragma once
-#include "AssetImporterBase.h"
+#include "LegacyAssetImporterBase.h"
 #include "Kans3D/Asset/AssetMetadata.h"
 #include <filesystem>
 namespace Kans
 {
-	class EnvironmentImporter :public AssetImporterBase
+	class EnvironmentImporter :public LegacyAssetImporterBase
 	{
 	public:
 		void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;

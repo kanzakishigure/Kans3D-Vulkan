@@ -54,7 +54,7 @@ namespace Kans
 
 		// 启动异步任务（复制 config，避免悬空引用）
 		m_Future = std::async(std::launch::async,
-			[this, config]() -> ImportResult {
+			[this, config]() -> LegacyImportResult {
 				return ExecuteImport(config);
 			});
 
@@ -77,10 +77,10 @@ namespace Kans
 	// ============================================================
 	// WaitForResult — 阻塞等待完成
 	// ============================================================
-	ImportResult ImportTask::WaitForResult()
+	LegacyImportResult ImportTask::WaitForResult()
 	{
 		if (!m_Future.valid())
-			return ImportResult{};
+			return LegacyImportResult{};
 
 		try
 		{
@@ -89,7 +89,7 @@ namespace Kans
 		catch (const std::exception& e)
 		{
 			CORE_ERROR("ImportTask::WaitForResult — exception: {}", e.what());
-			ImportResult result;
+			LegacyImportResult result;
 			result.Success = false;
 			result.FinalProgress.ErrorMessage = e.what();
 			return result;
@@ -174,9 +174,9 @@ namespace Kans
 	//   - 完成后进入 State::CpuDone，主线程在 ImGui 渲染前
 	//     调用 MeshSource::FinalizeGpuResources() 创建 GL 资源
 	// ============================================================
-	ImportResult ImportTask::ExecuteImport(const ImportConfig& config)
+	LegacyImportResult ImportTask::ExecuteImport(const ImportConfig& config)
 	{
-		ImportResult result;
+		LegacyImportResult result;
 
 		// ---- 阶段 1: 校验文件（0-5%）----
 		UpdateProgress(0.0f, 0.0f, 0.0f, 0.0f, "Validating file...");

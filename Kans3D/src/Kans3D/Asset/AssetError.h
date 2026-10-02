@@ -12,6 +12,7 @@ enum class AssetErrorCode {
   IoError,
   DuplicateID,
   DuplicatePath,
+  NotImplemented,
 };
 
 struct AssetError {

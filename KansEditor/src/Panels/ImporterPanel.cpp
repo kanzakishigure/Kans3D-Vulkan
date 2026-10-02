@@ -36,7 +36,7 @@ namespace Kans
 		if (m_Task.GetState() == ImportTask::State::CpuDone && m_ImportRequested)
 		{
 			// 获取 CPU-only 导入结果并立即完成 GPU 上传
-			ImportResult cpuResult = m_Task.WaitForResult();
+			LegacyImportResult cpuResult = m_Task.WaitForResult();
 			if (cpuResult.Success && cpuResult.MeshSource && !cpuResult.MeshSource->IsGpuReady())
 			{
 				CORE_INFO("ImporterPanel — finalizing GPU resources on main thread...");

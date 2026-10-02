@@ -49,9 +49,9 @@ namespace Kans
 	};
 
 	// ============================================================
-	// ImportResult — 导入结果
+	// LegacyImportResult — 导入结果
 	// ============================================================
-	struct ImportResult
+	struct LegacyImportResult
 	{
 		Ref<MeshSource> MeshSource;       // 导入的 MeshSource（成功时非空）
 		ImportProgress   FinalProgress;    // 最终进度
@@ -82,7 +82,7 @@ namespace Kans
 		void Cancel();
 
 		// 等待导入完成并获取结果（阻塞调用）
-		ImportResult WaitForResult();
+		LegacyImportResult WaitForResult();
 
 		// 手动标记为已完成（用于 CpuDone → Completed 转换）
 		void MarkCompleted() { m_State.store(State::Completed); }
@@ -112,14 +112,14 @@ namespace Kans
 
 	private:
 		// 在工作线程中执行的导入逻辑
-		ImportResult ExecuteImport(const ImportConfig& config);
+		LegacyImportResult ExecuteImport(const ImportConfig& config);
 
 		// 更新进度（工作线程调用）
 		void UpdateProgress(float readPct, float parsePct, float processPct, float uploadPct,
 		                    const char* phase, const std::string& file = "");
 
 		// ---- 成员 ----
-		std::future<ImportResult> m_Future;
+		std::future<LegacyImportResult> m_Future;
 
 		mutable std::mutex          m_ProgressMutex;
 		ImportProgress              m_Progress;

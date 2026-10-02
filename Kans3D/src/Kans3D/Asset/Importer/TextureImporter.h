@@ -1,9 +1,9 @@
 #pragma once
-#include "AssetImporterBase.h"
+#include "LegacyAssetImporterBase.h"
 #include <filesystem>
 namespace Kans
 {
-	class TextureImporter :public AssetImporterBase
+	class TextureImporter :public LegacyAssetImporterBase
 	{
 	public:
 		void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset) const override;

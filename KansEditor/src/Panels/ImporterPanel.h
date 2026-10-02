@@ -32,7 +32,7 @@ namespace Kans
 		virtual void onImGuiRender(bool isOpen) override;
 
 		// 导入完成回调（EditorLayer 注册）
-		using ImportCompleteCallback = std::function<void(const ImportResult&, const ImportConfig&)>;
+		using ImportCompleteCallback = std::function<void(const LegacyImportResult&, const ImportConfig&)>;
 		void SetImportCompleteCallback(ImportCompleteCallback callback) { m_OnImportComplete = std::move(callback); }
 
 		// 打开面板并加载指定文件
@@ -74,7 +74,7 @@ namespace Kans
 		char                     m_OutputPathBuffer[512] = {};
 
 		ImportCompleteCallback m_OnImportComplete;
-		ImportResult           m_LastResult;
+		LegacyImportResult           m_LastResult;
 		bool                   m_HasLastResult = false;
 	};
 
