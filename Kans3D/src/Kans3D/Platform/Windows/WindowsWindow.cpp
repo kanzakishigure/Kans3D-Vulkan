@@ -97,6 +97,7 @@ namespace Kans {
 		glfwSetWindowSizeCallback(m_Window, windowSizeCallback);
 		glfwSetWindowCloseCallback(m_Window, windowCloseCallback);
 		glfwSetKeyCallback(m_Window, keyCallback);
+		glfwSetMouseButtonCallback(m_Window, mouseButtonCallback);
 		glfwSetScrollCallback(m_Window, scrollCallback);
 		glfwSetCursorPosCallback(m_Window, cursorPosCallback);
 		glfwSetCharCallback(m_Window, charCallback);

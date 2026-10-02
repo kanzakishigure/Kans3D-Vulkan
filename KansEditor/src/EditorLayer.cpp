@@ -407,8 +407,13 @@ namespace Kans
 	
 		//update
 		{
-			if(!m_ViewportFocused)
-			m_EditorCamera.onUpdate(ts);
+			const bool rightPressed = Input::IsMouseButtonPressed(MouseButton::ButtonRight);
+    m_CameraNavigating = m_ViewportFocused && rightPressed &&
+                         (m_ViewportHovered || m_CameraNavigating);
+    if (m_CameraNavigating)
+      m_EditorCamera.onUpdate(ts);
+    else
+      m_EditorCamera.resetMotion();
 
 		}
 
@@ -427,7 +432,6 @@ namespace Kans
 	void EditorLayer::OnEvent(Event& e)
 	{
 		PROFILE_FUCTION();
-		m_EditorCamera.onEvent(e);
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event) { return OnKeyPressedEvent(event); });
@@ -526,10 +530,6 @@ namespace Kans
 	{
 		ImGui::Begin("ProjectSpecication");
 
-		//BlockEvent
-		m_ViewportFocused = ImGui::IsWindowFocused();
-		m_viewprotHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportFocused || m_viewprotHovered);
 		//renderStats
 		ImGui::Text("Render2DStats");
 		
@@ -568,6 +568,18 @@ namespace Kans
 	{
 		
 		ImGui::Begin("ViewPort1");
+    m_ViewportFocused =
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    m_ViewportHovered =
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+    Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportFocused ||
+                                                    m_ViewportHovered);
+    // Use the wheel and hover state from the same ImGui frame.
+    if (m_ViewportHovered && ImGui::GetIO().MouseWheel != 0.0f) {
+      MouseScrolledEvent scrollEvent(ImGui::GetIO().MouseWheelH,
+                                     ImGui::GetIO().MouseWheel);
+      m_EditorCamera.onEvent(scrollEvent);
+    }
 		ImVec2 viewportsize = ImGui::GetContentRegionAvail();
 		if (m_ViewportSize != *(glm::vec2*) & viewportsize)
 		{
@@ -683,6 +695,12 @@ namespace Kans
 		}
 
 		ImGui::End();
+	}
+	else
+	{
+		m_ViewportFocused = false;
+		m_ViewportHovered = false;
+		Application::Get().GetImGuiLayer()->BlockEvents(false);
 	}
 
 	//Depth FrameBuffer

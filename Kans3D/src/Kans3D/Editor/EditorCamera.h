@@ -13,6 +13,7 @@ namespace Kans
 		
 		 void onEvent( Event& e);
 		 void onUpdate(TimeStep ts);
+		 void resetMotion();
 
 		 void updateViewMatrix();
 		 glm::vec3 getUpDirection();

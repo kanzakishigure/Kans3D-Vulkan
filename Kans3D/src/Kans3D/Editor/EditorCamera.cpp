@@ -55,19 +55,20 @@ namespace Kans
 	}
 	void EditorCamera::onUpdate(TimeStep ts)
 	{
+  Input::SetCursorMode(Input::IsMouseButtonPressed(MouseButton::ButtonRight)
+                           ? CursorMode::Disable : CursorMode::Normal);
 		glm::vec2 mousePos = { Input::GetMouseX() ,Input::GetMouseY()};
 		glm::vec2 mousedelta = (mousePos - m_MousePos) *0.002f;
 
 
 		
-		if (Input::IsMouseButtonPressed(MouseButton::ButtonRight))
+  if (Input::IsMouseButtonPressed(MouseButton::ButtonRight))
 		{
 			
 
 			float up = getUpDirection().y>=0 ? 1: -1;
 			
 			float speed = getCameraSpeed();
-			Input::SetCursorMode(CursorMode::Disable);	
 			//Get CameraUp Direction
 			if (Input::IsKeyPressed(KeyCode::Q))
 			{
@@ -112,10 +113,6 @@ namespace Kans
 			m_FocusPosition = m_Position + getFrontDirection() * distance;
 			
 		}
-		else
-		{
-			Input::SetCursorMode(CursorMode::Normal);
-		}
 
 		
 			
@@ -130,7 +127,15 @@ namespace Kans
 
 	
 
-	void EditorCamera::updateViewMatrix()
+	void EditorCamera::resetMotion() {
+  Input::SetCursorMode(CursorMode::Normal);
+  m_MoveDelta = {};
+  m_YawDelta = 0.0f;
+  m_PitchDelta = 0.0f;
+  m_MousePos = {Input::GetMouseX(), Input::GetMouseY()};
+}
+
+void EditorCamera::updateViewMatrix()
 	{
 		float up = getUpDirection().y >= 0.0f ? 1.0 : -1.0;
 		glm::vec3 lookatPos = m_Position + getFrontDirection();
