@@ -1,8 +1,10 @@
-﻿#include "ImporterPanel.h"
+#include "ImporterPanel.h"
 
+#include "Kans3D/Asset/Importer/AssimpMeshImporter.h"
 #include "Kans3D/Asset/Importer/MeshSourceImporter.h"
 
 #include <imgui.h>
+#include <stdexcept>
 
 #ifdef _WIN32
 #include <commdlg.h>
@@ -26,51 +28,80 @@ namespace Kans
 		RefreshBackendList();
 	}
 
+
+	ImporterPanel::~ImporterPanel()
+	{
+		CancelImport();
+		// Keep the job alive until CPU parsing exits, before renderer shutdown.
+		if (m_CpuImport.valid())
+			m_CpuImport.wait();
+	}
+
+	void ImporterPanel::PollImport()
+	{
+		if (!m_CpuImport.valid() ||
+			m_CpuImport.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+			return;
+
+		auto job = m_SharedJob;
+		auto& result = job->Result;
+		try
+		{
+			// get() publishes CPU writes and rethrows any parsing exception.
+			m_CpuImport.get();
+			if (job->CancelRequested.load())
+			{
+				result.Success = false;
+				result.FinalProgress.IsCancelled = true;
+				result.MeshSource.reset();
+			}
+			else if (result.Success && result.MeshSource)
+			{
+				result.MeshSource->FinalizeGpuResources();
+				result.Success = result.MeshSource->IsGpuReady();
+				if (!result.Success)
+					throw std::runtime_error("GPU resource creation failed");
+				job->UpdateProgress(100.0f, 100.0f, 100.0f, 100.0f, "Import complete");
+			}
+		}
+		catch (const std::exception& error)
+		{
+			result.Success = false;
+			result.FinalProgress.HasError = true;
+			result.FinalProgress.ErrorMessage = error.what();
+		}
+		catch (...)
+		{
+			result.Success = false;
+			result.FinalProgress.HasError = true;
+			result.FinalProgress.ErrorMessage = "Unknown model import error";
+		}
+
+		// Preserve terminal flags and mesh statistics while copying progress.
+		auto progress = job->GetProgress();
+		progress.IsComplete = true;
+		progress.IsCancelled = result.FinalProgress.IsCancelled;
+		progress.HasError = result.FinalProgress.HasError;
+		progress.ErrorMessage = result.FinalProgress.ErrorMessage;
+		progress.VerticesDetected = result.FinalProgress.VerticesDetected;
+		progress.TrianglesDetected = result.FinalProgress.TrianglesDetected;
+		progress.SubMeshesDetected = result.FinalProgress.SubMeshesDetected;
+		progress.MaterialsDetected = result.FinalProgress.MaterialsDetected;
+		result.FinalProgress = std::move(progress);
+
+		m_LastResult = std::move(result);
+		m_HasLastResult = true;
+		m_ImportRequested = false;
+		m_SharedJob.reset();
+		if (m_LastResult.Success && m_OnImportComplete)
+			m_OnImportComplete(m_LastResult, job->Config);
+	}
+
 	void ImporterPanel::onImGuiRender(bool isOpen)
 	{
+		// Even a closed panel must finish imports on the main thread.
+		PollImport();
 		if (!m_IsOpen) return;
-
-		// ═══ 关键：主线程 GPU 资源创建（在 ImGui 渲染之前）═══
-		// 工作线程完成 CPU 导入后进入 CpuDone 状态，
-		// 此时在主线程（OpenGL context 持有者）创建所有 GL 资源
-		if (m_Task.GetState() == ImportTask::State::CpuDone && m_ImportRequested)
-		{
-			// 获取 CPU-only 导入结果并立即完成 GPU 上传
-			ImportResult cpuResult = m_Task.WaitForResult();
-			if (cpuResult.Success && cpuResult.MeshSource && !cpuResult.MeshSource->IsGpuReady())
-			{
-				CORE_INFO("ImporterPanel — finalizing GPU resources on main thread...");
-				cpuResult.MeshSource->FinalizeGpuResources();
-				m_Task.MarkCompleted();
-
-				// 更新进度到 100%
-				{
-					ImportProgress finalProgress = cpuResult.FinalProgress;
-					finalProgress.Percentage = 100.0f;
-					finalProgress.IsComplete = true;
-					finalProgress.Phase = "Import complete";
-					cpuResult.FinalProgress = finalProgress;
-				}
-
-				m_ImportRequested = false;
-				m_HasLastResult = true;
-				m_LastResult = cpuResult;
-
-				if (m_OnImportComplete)
-					m_OnImportComplete(cpuResult, m_Config);
-			}
-			else
-			{
-				m_ImportRequested = false;
-				m_HasLastResult = true;
-				m_LastResult = cpuResult;
-			}
-		}
-		else if (m_Task.IsComplete() && m_ImportRequested)
-		{
-			m_ImportRequested = false;
-			OnImportFinished();
-		}
 
 		ImGui::SetNextWindowSize(ImVec2(680, 520), ImGuiCond_FirstUseEver);
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, kColorPanelBg);
@@ -88,14 +119,12 @@ namespace Kans
 
 			ImGui::Columns(2, "ImportColumns", false);
 			ImGui::SetColumnWidth(0, 260);
-
 			DrawPreviewSection();
 			ImGui::NextColumn();
 			DrawImportSettingsSection();
 
 			ImGui::Columns(1);
 			ImGui::Separator();
-
 			DrawProgressSection();
 			DrawActionButtons();
 		}
@@ -332,8 +361,21 @@ namespace Kans
 
 	void ImporterPanel::DrawProgressSection()
 	{
-		if (!m_Task.IsRunning() && m_Task.GetState() != ImportTask::State::CpuDone) return;
-		ImportProgress progress = m_Task.GetProgress();
+		if (!m_SharedJob)
+		{
+			if (m_HasLastResult)
+			{
+				if (m_LastResult.FinalProgress.HasError)
+					ImGui::TextWrapped("Import failed: %s", m_LastResult.FinalProgress.ErrorMessage.c_str());
+				else if (m_LastResult.FinalProgress.IsCancelled)
+					ImGui::TextUnformatted("Import cancelled.");
+				else if (m_LastResult.Success)
+					ImGui::TextUnformatted("Import complete.");
+			}
+			return;
+		}
+
+		ImportProgress progress = m_SharedJob->GetProgress();
 		ImGui::Spacing();
 		ImVec2 region = ImGui::GetContentRegionAvail();
 
@@ -380,7 +422,7 @@ namespace Kans
 		float totalW = btnW * 2 + pad;
 		ImGui::SetCursorPosX(availW - totalW - 20);
 
-		bool canImport = m_Config.IsValid() && !m_Task.IsRunning();
+		bool canImport = m_Config.IsValid() && !IsImporting();
 		if (!canImport)
 		{
 			ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
@@ -420,6 +462,7 @@ namespace Kans
 
 	void ImporterPanel::OpenWithFile(const std::filesystem::path& filePath)
 	{
+		if (IsImporting()) return;
 		m_Config = ImportConfig::FromFile(filePath,
 			std::filesystem::current_path() / "Assets" / "MeshSources");
 		m_IsOpen = true;
@@ -437,7 +480,7 @@ namespace Kans
 
 		RefreshBackendList();
 		m_PreferredBackendIdx = 0;
-		CORE_INFO("ImporterPanel — opened with file: {}", filePath.string());
+		CORE_INFO("ImporterPanel: opened with file: {}", filePath.string());
 	}
 
 	void ImporterPanel::RefreshBackendList()
@@ -445,37 +488,121 @@ namespace Kans
 		m_BackendNames = MeshSourceImporter::GetBackendNames();
 	}
 
+	// CPU parsing is asynchronous; GPU resource creation stays on the main thread.
 	void ImporterPanel::StartImport()
 	{
-		if (!m_Config.IsValid()) return;
+		if (IsImporting() || !m_Config.IsValid()) return;
 		m_Config.OutputDirectory = m_OutputPathBuffer;
 		m_Config.bAutoSelectBackend = (m_PreferredBackendIdx == 0);
 		m_Config.SelectedBackendIndex = m_PreferredBackendIdx;
 
-		if (m_Task.Start(m_Config))
+		// Snapshot the configuration; the worker never accesses the panel.
+		auto sharedJob = CreateRef<ImportJob>();
+		sharedJob->Config = m_Config;
+		sharedJob->StartTime = std::chrono::steady_clock::now();
+		sharedJob->CancelRequested.store(false);
+		m_SharedJob = sharedJob;
+		m_HasLastResult = false;
+		m_ImportRequested = true;
+
+		// Start one background parser for this import.
+		try
 		{
-			m_ImportRequested = true;
-			m_HasLastResult = false;
+			m_CpuImport = std::async(std::launch::async,
+				[sharedJob]()
+				{
+					ImportResult& result = sharedJob->Result;
+
+					sharedJob->UpdateProgress(0.0f, 0.0f, 0.0f, 0.0f, "Validating file...");
+
+					if (sharedJob->CancelRequested.load())
+					{
+						result.Success = false;
+						result.FinalProgress.IsCancelled = true;
+						return;
+					}
+
+					const auto& path = sharedJob->Config.SourcePath;
+					if (!std::filesystem::exists(path) || std::filesystem::file_size(path) < 64)
+					{
+						result.Success = false;
+						result.FinalProgress.ErrorMessage = "File not found or too small: " + path.string();
+						result.FinalProgress.HasError = true;
+						return;
+					}
+
+					sharedJob->UpdateProgress(5.0f, 0.0f, 0.0f, 0.0f, "Validation passed");
+
+					if (sharedJob->CancelRequested.load())
+					{
+						result.Success = false;
+						result.FinalProgress.IsCancelled = true;
+						return;
+					}
+
+					sharedJob->UpdateProgress(5.0f, 0.0f, 0.0f, 0.0f, "Importing mesh (CPU only)...");
+
+					// Parse CPU data without calling OpenGL.
+					AssimpMeshImporter importer(path);
+					auto meshSource = importer.ImportToMeshSourceCpu();
+
+					sharedJob->UpdateProgress(100.0f, 100.0f, 100.0f, 0.0f, "CPU import complete");
+
+					if (!meshSource)
+					{
+						result.Success = false;
+						result.FinalProgress.ErrorMessage = "Mesh processing failed. File may be corrupted.";
+						result.FinalProgress.HasError = true;
+						return;
+					}
+
+					result.MeshSource = meshSource;
+					result.Success = true;
+
+					// Collect model statistics.
+					const auto& subMeshes = meshSource->GetSubMesh();
+					result.FinalProgress.SubMeshesDetected = static_cast<uint32_t>(subMeshes.size());
+					for (const auto& sm : subMeshes)
+					{
+						result.FinalProgress.VerticesDetected  += sm.VertexCount;
+						result.FinalProgress.TrianglesDetected += sm.IndexCount / 3;
+					}
+					if (meshSource->GetMaterialTable())
+						result.FinalProgress.MaterialsDetected = meshSource->GetMaterialTable()->GetMaterialCount();
+
+					sharedJob->UpdateProgress(100.0f, 100.0f, 100.0f, 0.0f, "Waiting for GPU resource creation");
+
+					CORE_INFO("ImporterPanel: CPU parse complete: {} ({} submeshes, {} verts, {} tris)",
+					          path.filename().string(),
+					          result.FinalProgress.SubMeshesDetected,
+					          result.FinalProgress.VerticesDetected,
+					          result.FinalProgress.TrianglesDetected);
+				});
 		}
+		catch (const std::exception& error)
+		{
+			m_ImportRequested = false;
+			m_SharedJob.reset();
+			m_LastResult = ImportResult{};
+			m_LastResult.FinalProgress.HasError = true;
+			m_LastResult.FinalProgress.IsComplete = true;
+			m_LastResult.FinalProgress.ErrorMessage = error.what();
+			m_HasLastResult = true;
+			return;
+		}
+		CORE_INFO("ImporterPanel: started CPU import: {}", m_Config.SourcePath.string());
 	}
 
 	void ImporterPanel::CancelImport()
 	{
-		m_Task.Cancel();
-		m_ImportRequested = false;
+		if (m_SharedJob)
+			m_SharedJob->CancelRequested.store(true);
 	}
 
-	void ImporterPanel::OnImportFinished()
+	bool ImporterPanel::IsImporting() const
 	{
-		m_ImportRequested = false;
-		m_HasLastResult = true;
-		m_LastResult = m_Task.WaitForResult();
-
-		if (m_LastResult.Success && m_OnImportComplete)
-			m_OnImportComplete(m_LastResult, m_Config);
+		return m_ImportRequested;
 	}
-
-	bool ImporterPanel::IsImporting() const { return m_Task.IsRunning(); }
 
 	const char* ImporterPanel::GetSizeString(uint64_t bytes)
 	{

@@ -12,7 +12,7 @@ namespace Kans
 	// ImportConfig — 资产导入配置
 	//
 	// 存储用户在导入面板中设置的全部选项。在异步导入任务
-	// 启动前由 ImporterPanel 填充，传递给 ImportTask。
+	// 启动前由 ImporterPanel 填充，复制到当前模型导入的 ImportJob。
 	//
 	// 设计参考 UE5 的 FBX Import Options 对话框。
 	// ============================================================
