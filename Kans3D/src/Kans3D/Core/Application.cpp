@@ -118,7 +118,7 @@ namespace Kans
 		{
 			
 			(*it)->OnEvent(e);//the processing order of events depends on render order ,the last layer will handle the event fast
-			if (e.Handeled)
+			if (e.Handled)
 				break;
 		}
 	}

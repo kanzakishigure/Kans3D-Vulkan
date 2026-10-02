@@ -46,7 +46,7 @@ namespace Kans{
 		{
 			return GetCategoryFlags() & category;//位检测，是否与模板相符
 		}
-		bool Handeled = false;//用于标识事件是否已经被处理
+		bool Handled = false;//用于标识事件是否已经被处理
 		
 	};
 	class  EventDispatcher
@@ -62,7 +62,7 @@ namespace Kans{
 		{
 			if (m_Event.GetEventType()==T::GetStaticType())
 			{
-				m_Event.Handeled = func(*(T*)&m_Event);
+				m_Event.Handled = func(*(T*)&m_Event);
 				return true;
 			}
 			return false;
