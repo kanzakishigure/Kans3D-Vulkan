@@ -21,7 +21,7 @@ void main()
 	V_BaseColor = a_BaseColor;
 
 	//the V_Normal is in worldspcae
-	//��Moldle-1��T
+	//（Moldle-1）T
 	V_Normal = mat3(transpose(inverse(U_Transform)))*a_Normal;
 	//Get the position in worldspcae
 	vec4 pos = U_Transform*vec4(a_Position, 1.0);

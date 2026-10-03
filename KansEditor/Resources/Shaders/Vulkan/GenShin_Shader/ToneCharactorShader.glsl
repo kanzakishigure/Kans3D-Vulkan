@@ -141,7 +141,7 @@ void main()
 	{
 		
 		
-		//浠巐ightMap涓?璇诲彇鍒板?瑰簲鏉愯川鎵€鍦ㄥ尯闂?
+		//从lightMap中读取到对应材质所在区间
 		float rampV = LightMapColor.a;
 		float ShadowAOMask = LightMapColor.g;
 		ShadowAOMask = smoothstep(0.2, 0.6,clamp(ShadowAOMask*2.0,0.0,1.0));
@@ -186,7 +186,7 @@ void main()
 		*/
 		
 		vec3 BaseMapShadowed = mix(BaseColor.rgb * rampColor, BaseColor.rgb,ShadowAOMask); //AO rampShadowColor
-		BaseMapShadowed = mix(BaseColor.rgb,BaseMapShadowed,U_AOIntensity); //鎺у埗AO鐨勫己搴?
+		BaseMapShadowed = mix(BaseColor.rgb,BaseMapShadowed,U_AOIntensity); //控制AO的强度
 
 		float isLightSide = ShadowAOMask*step(U_RampShadowRange,lambert);//AO区域保持常暗
 		vec3 shadowWithAO =  mix(BaseMapShadowed, BaseColor.rgb * rampColor, U_RampAOShadowRange) * U_ShadowIntensity;		
@@ -201,20 +201,20 @@ void main()
 		//丝绸
 		if(specularType<10)
 		{
-			StepSpecular = clamp(NoV,0.0,1.0)*U_SpecularIntensity_1*vec3(specularMask); //鍙?鍋氫慨鏀?* SpecularIntensityMask
+			StepSpecular = clamp(NoV,0.0,1.0)*U_SpecularIntensity_1*vec3(specularMask); //可做修改* SpecularIntensityMask
             StepSpecular *= BaseColor.rgb;           
 		}
 
 		//黑丝
 		if(specularType>15&&specularType<35)
 		{
-			StepSpecular = clamp(NoV,0.0,1.0) *U_SpecularIntensity_2*vec3(specularMask);; //鍙?鍋氫慨鏀?* SpecularIntensityMask
+			StepSpecular = clamp(NoV,0.0,1.0) *U_SpecularIntensity_2*vec3(specularMask);; //可做修改* SpecularIntensityMask
             StepSpecular *= BaseColor.rgb;  
 		}
 		//绳子
 		if(specularType>125&&specularType<135)
 		{
-			StepSpecular = clamp(NoV,0.0,1.0) *U_SpecularIntensity_3*vec3(specularMask);; //鍙?鍋氫慨鏀?* SpecularIntensityMask
+			StepSpecular = clamp(NoV,0.0,1.0) *U_SpecularIntensity_3*vec3(specularMask);; //可做修改* SpecularIntensityMask
             StepSpecular *= BaseColor.rgb;  
 		}
 		//hair

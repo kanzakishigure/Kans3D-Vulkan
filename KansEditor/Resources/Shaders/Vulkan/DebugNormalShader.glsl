@@ -72,9 +72,9 @@ void GenerateLine(int index)
     EndPrimitive();
 }
 void main() {    
-    GenerateLine(0); // 绗?涓€涓?椤剁偣娉曠嚎
-    GenerateLine(1); // 绗?浜屼釜椤剁偣娉曠嚎
-    GenerateLine(2); // 绗?涓変釜椤剁偣娉曠嚎
+    GenerateLine(0); // 第一个顶点法线
+    GenerateLine(1); // 第二个顶点法线
+    GenerateLine(2); // 第三个顶点法线
 }
 
 
