@@ -14,7 +14,15 @@
 
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-add_subdirectory(GLFW)
+# The pinned GLFW declares CMake 3.1 policies, unsupported by CMake 4.
+# Scope the compatibility override to this dependency, not the whole project.
+function(kans_add_glfw)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+        set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    endif()
+    add_subdirectory(GLFW)
+endfunction()
+kans_add_glfw()
 if(WIN32)
     target_link_libraries(glfw PRIVATE dwmapi.lib)
 endif()
@@ -72,6 +80,13 @@ file(GLOB_RECURSE YAML_SOURCES
 )
 add_library(yaml-cpp STATIC ${YAML_SOURCES})
 target_include_directories(yaml-cpp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/include)
+# The pinned emitterutils.cpp uses fixed-width integers without including
+# <cstdint>. Keep the workaround private to yaml-cpp and leave its checkout clean.
+target_compile_options(yaml-cpp PRIVATE
+    "$<$<CXX_COMPILER_ID:MSVC>:/FIcstdint>"
+    "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-include>"
+    "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:cstdint>"
+)
 kans_set_output_dirs(yaml-cpp)
 set_target_properties(yaml-cpp PROPERTIES
     FOLDER "Dependencies"
