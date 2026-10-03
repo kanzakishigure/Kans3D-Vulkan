@@ -8,9 +8,6 @@ namespace Kans
     std::vector<Scope<MeshSourceBackend>> MeshSourceImporter::s_Backends;
     thread_local const char*              MeshSourceImporter::s_LastUsedBackend = nullptr;
 
-    // ============================================================
-    // 后端管理
-    // ============================================================
     void MeshSourceImporter::RegisterBackend(Scope<MeshSourceBackend> backend)
     {
         if (!backend)
@@ -40,15 +37,12 @@ namespace Kans
     {
         std::vector<const char*> names;
         names.reserve(s_Backends.size());
-        names.push_back("Auto (Best Match)"); // 索引 0 = 自动
+        names.push_back("Auto (Best Match)");
         for (auto& b : s_Backends)
             names.push_back(b->GetName());
         return names;
     }
 
-    // ============================================================
-    // ImportMeshSource — 同步导入
-    // ============================================================
     Ref<MeshSource> MeshSourceImporter::ImportMeshSource(const std::filesystem::path& filePath,
                                                          BackendProgressCallback      progress,
                                                          int                          preferredBackendIndex)
@@ -61,7 +55,7 @@ namespace Kans
 
         const auto& ext = filePath.extension();
 
-        // 如果指定了后端索引 > 0，直接用那个后端
+        // 选择项的索引从 1 开始，转换为后端数组下标后优先尝试。
         if (preferredBackendIndex > 0 && preferredBackendIndex <= static_cast<int>(s_Backends.size()))
         {
             auto& backend = s_Backends[preferredBackendIndex - 1];
@@ -77,7 +71,7 @@ namespace Kans
             }
         }
 
-        // 自动模式：遍历所有后端
+        // 未得到导入结果时，按列表顺序尝试支持该扩展名的后端。
         for (auto& backend : s_Backends)
         {
             if (!backend->Supports(ext))

@@ -11,7 +11,7 @@ namespace Kans
                                                    aiProcess_JoinIdenticalVertices | aiProcess_SortByPType |
                                                    aiProcess_GenSmoothNormals;
 
-    // ---- 轻量预览标志（只加载结构，不做重后处理）----
+    // 预览将面三角化并按图元类型拆分网格，用于统计场景数据。
     static constexpr uint32_t kAssimpPreviewFlags = aiProcess_Triangulate | aiProcess_SortByPType;
 
     const std::unordered_set<std::string>& AssimpMeshSourceBackend::GetSupportedExtensions()
@@ -29,9 +29,6 @@ namespace Kans
         return GetSupportedExtensions().count(extension.string()) > 0;
     }
 
-    // ================================================================
-    // Import — 完整导入（V3：新增进度回调）
-    // ================================================================
     Ref<MeshSource> AssimpMeshSourceBackend::Import(const std::filesystem::path& filePath,
                                                     BackendProgressCallback      progress)
     {
@@ -69,12 +66,6 @@ namespace Kans
         return meshSource;
     }
 
-    // ================================================================
-    // Preview — 轻量预览（V3 新增）
-    //
-    // 使用最小标志位快速解析，获取顶点数/三角面数/材质数等
-    // 不创建 GPU 资源，不执行重后处理。
-    // ================================================================
     MeshSourcePreview AssimpMeshSourceBackend::Preview(const std::filesystem::path& filePath)
     {
         MeshSourcePreview preview;
@@ -90,7 +81,7 @@ namespace Kans
             if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
                 return preview;
 
-            // 遍历所有网格统计顶点和三角形
+            // 按场景的网格数组累计顶点、面和子网格数量。
             for (unsigned int i = 0; i < scene->mNumMeshes; ++i)
             {
                 const aiMesh* mesh = scene->mMeshes[i];
@@ -109,7 +100,7 @@ namespace Kans
             if (scene->HasAnimations())
                 preview.AnimationCount = scene->mNumAnimations;
 
-            // 检测嵌入纹理
+            // 当前纹理标记依据材质是否引用漫反射贴图设置。
             for (unsigned int i = 0; i < scene->mNumMaterials; ++i)
             {
                 aiMaterial* mat = scene->mMaterials[i];
@@ -120,10 +111,10 @@ namespace Kans
                 }
             }
 
-            // 文件名 → 格式名
+            // 使用去掉点号的大写扩展名作为格式名称。
             std::string ext = filePath.extension().string();
             if (!ext.empty())
-                preview.FormatName = ext.substr(1); // 去掉点号
+                preview.FormatName = ext.substr(1);
             std::transform(preview.FormatName.begin(), preview.FormatName.end(), preview.FormatName.begin(), ::toupper);
 
             CORE_INFO_TAG("AssimpBackend",

@@ -2,13 +2,15 @@
 
 namespace Kans
 {
+    // 当前占位函数直接抛出未实现异常。
     void Import(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset)
     {
 
         throw std::logic_error("The method or operation is not implemented.");
+        // 以下环境贴图生成代码不参与编译。
         /*
 
-        //prepareSceneEnv
+        // 设置环境贴图生成所用的渲染状态。
         OpenGLRenderCommand::EnableCullFace(false);
         OpenGLRenderCommand::Clear();
         Environment environment;
@@ -32,10 +34,9 @@ namespace Kans
 
             Ref<Texture2D> hdrTexture = Texture2D::Create(textureSepc, m_RenderScene->m_EnvironmentPath);
 
-            // ????cubemap6?????viewmatrix
-            // ----------------------------------------------------------------------------------------------
+            // 使用 90 度视场角覆盖立方体贴图的单个面。
             glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-            //???��cube???????????????6?????view????
+            // 从原点沿正负 X、Y、Z 方向构造六个面的视图矩阵。
             glm::mat4 captureViews[] =
             {
                 glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
@@ -92,7 +93,7 @@ namespace Kans
             envCubemap->GenerateMipmap();
             OpenGLRenderCommand::GetError();
 
-            //---irradianceMap--------------------------------------------------//
+            // 对环境立方体贴图积分，生成漫反射辐照度贴图。
 
             TextureSpecification irradianceCubemapspec;
             irradianceCubemapspec.Width = 512;
@@ -126,7 +127,7 @@ namespace Kans
             environment.IrradianceMap = irradianceMap;
 
 
-            //------PreFilterRadianceMap-----------------------------------------//
+            // 按粗糙度预过滤环境光，并将结果写入不同 mip 层级。
 
 
             TextureSpecification prefilterMapspec;
@@ -150,7 +151,7 @@ namespace Kans
             uint32_t  maxMipLevels = 5;
             for (unsigned int mip = 0; mip < maxMipLevels; ++mip)
             {
-                //???? ViewPort??��,????? mip-level ?????
+                // 按当前 mip 层级缩小帧缓冲尺寸。
                 unsigned int mipWidth = static_cast<unsigned int>(128 * std::pow(0.5, mip));
                 unsigned int mipHeight = static_cast<unsigned int>(128 * std::pow(0.5, mip));
                 framebuffer->Resize(mipWidth, mipHeight);
@@ -169,7 +170,7 @@ namespace Kans
             framebuffer->Unbind();
             OpenGLRenderCommand::GetError();
 
-            //------PreCompute BRDF-LUT----------------------------------//
+            // 渲染全屏四边形，生成 BRDF 积分查找表。
             TextureSpecification  brdfLUTspec;
             brdfLUTspec.Width = 512;
             brdfLUTspec.Height = 512;
@@ -192,13 +193,11 @@ namespace Kans
             framebuffer->Unbind();
 
 
-            //----Init the Scene Environment
+            // 保存天空盒、BRDF 查找表和环境光贴图引用。
             m_SkyBox = envCubemap;
             m_BrdfLUT = brdfLUTTexture;
             environment.IrradianceMap = irradianceMap;
             environment.RadianceMap = prefilterMap;
-            //now the cube map is cahed in to memory
-            //but how to cache the memory in to disk
 
             environment.IrradianceMap = Texture2DImport(irradianceMap) ;
             environment.RadianceMap = Texture2DImport(irradianceMap);
@@ -209,6 +208,7 @@ namespace Kans
 
         */
     }
+    // 当前占位函数直接抛出未实现异常。
     bool TryLoadData(const Ref<AssetMetadata>& metadata, Ref<Asset>& asset)
     {
         throw std::logic_error("The method or operation is not implemented.");

@@ -16,18 +16,15 @@ namespace
 {
     constexpr uint32_t kImportFlag = aiProcess_CalcTangentSpace        // 计算切线空间
                                      | aiProcess_Triangulate           // 三角化
-                                     | aiProcess_JoinIdenticalVertices // 合并重复顶点
-                                     | aiProcess_SortByPType           // 按图元类型排序
-                                     | aiProcess_GenSmoothNormals;     // 生成平滑法线
+                                     | aiProcess_JoinIdenticalVertices // 合并属性相同的顶点
+                                     | aiProcess_SortByPType           // 按图元类型拆分网格
+                                     | aiProcess_GenSmoothNormals;     // 为缺少法线的网格生成平滑法线
 }
 
 namespace Kans
 {
 
-    // Normalize cross-platform paths from assimp.
-    // Assimp may return Windows-style separators (e.g. "textures\\expr.png"),
-    // which are invalid on POSIX where '\\' is a regular filename character.
-    // This helper replaces all '\\' with '/' and joins with the base path correctly.
+    // 将贴图引用中的反斜杠转换为通用分隔符，再与模型所在目录拼接。
     static std::filesystem::path NormalizeAssimpTexturePath(const std::string& basePath, const char* aiSubPath)
     {
         std::string subPath = aiSubPath;
@@ -39,14 +36,10 @@ namespace Kans
         m_Path(std::filesystem::current_path().string() + "/" + path.string())
     {}
 
-    // ================================================================
-    // ImportToMeshSource — 主入口
-    // ================================================================
     Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource()
     {
         CORE_INFO_TAG("Mesh", "Try loading mesh: {0}", m_Path.string());
 
-        // ---- 基础检查 ----
         if (!std::filesystem::exists(m_Path))
         {
             CORE_ERROR_TAG("Mesh", "File not found: {0}", m_Path.string());
@@ -59,7 +52,7 @@ namespace Kans
             return nullptr;
         }
 
-        // ---- 预校验 ----
+        // 验证文件可解析且包含网格。
         Assimp::Importer quickImporter;
         const aiScene*   testScene = quickImporter.ReadFile(m_Path.string(), kImportFlag);
         if (!testScene || testScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !testScene->mRootNode)
@@ -76,32 +69,28 @@ namespace Kans
 
         CORE_INFO_TAG("Mesh", "Validated — {0} meshes, {1} materials", testScene->mNumMeshes, testScene->mNumMaterials);
 
-        // ---- 完整导入 ----
         Assimp::Importer importer;
         const aiScene*   scene = importer.ReadFile(m_Path.string(), kImportFlag);
 
         Ref<MeshSource> ms = CreateRef<MeshSource>();
 
-        // 路径
+        // 保存模型所在目录，用于解析外部贴图路径。
         ms->m_LoadPath = m_Path.string();
         size_t slash   = ms->m_LoadPath.find_last_of("/\\");
         if (slash != std::string::npos)
             ms->m_LoadPath = ms->m_LoadPath.substr(0, slash);
 
-        // Shader
         ms->m_MeshShader = Renderer::GetShaderLibrary()->Get("StaticMeshShader");
 
-        // 遍历节点树
         ms->m_SubMeshes.reserve(scene->mNumMeshes);
         ProcessNode(scene->mRootNode, scene, ms);
 
-        // 构建材质表
+        // 将按遍历顺序收集的材质写入材质表，并清空临时数组。
         ms->m_MaterialTable = CreateRef<MaterialTable>(ms->m_Materials.size());
         for (size_t i = 0; i < ms->m_Materials.size(); ++i)
             ms->m_MaterialTable->SetMaterial(i, ms->m_Materials[i]);
         ms->m_Materials.clear();
 
-        // GPU 缓冲
         GenVertexArrays(ms);
 
         CORE_INFO_TAG("Mesh",
@@ -116,14 +105,10 @@ namespace Kans
         return ms;
     }
 
-    // ================================================================
-    // ImportToMeshSourceCpu — CPU-only 导入（无 GL 调用）
-    // ================================================================
     Ref<MeshSource> AssimpMeshImporter::ImportToMeshSourceCpu()
     {
         CORE_INFO_TAG("Mesh", "Loading mesh (CPU-only): {0}", m_Path.string());
 
-        // ---- 基础检查 ----
         if (!std::filesystem::exists(m_Path))
         {
             CORE_ERROR_TAG("Mesh", "File not found: {0}", m_Path.string());
@@ -136,7 +121,7 @@ namespace Kans
             return nullptr;
         }
 
-        // ---- 预校验 ----
+        // 验证文件可解析且包含网格。
         Assimp::Importer quickImporter;
         const aiScene*   testScene = quickImporter.ReadFile(m_Path.string(), kImportFlag);
         if (!testScene || testScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !testScene->mRootNode)
@@ -151,38 +136,32 @@ namespace Kans
             return nullptr;
         }
 
-        // ---- 完整导入 ----
         Assimp::Importer importer;
         const aiScene*   scene = importer.ReadFile(m_Path.string(), kImportFlag);
 
         Ref<MeshSource> ms = CreateRef<MeshSource>();
 
-        // 路径
+        // 保存模型所在目录，用于解析外部贴图路径。
         ms->m_LoadPath = m_Path.string();
         size_t slash   = ms->m_LoadPath.find_last_of("/\\");
         if (slash != std::string::npos)
             ms->m_LoadPath = ms->m_LoadPath.substr(0, slash);
 
-        // Shader
         ms->m_MeshShader = Renderer::GetShaderLibrary()->Get("StaticMeshShader");
 
-        // 设置为 CPU-only 模式
+        // 在本次节点遍历中收集材质贴图的像素数据。
         m_CpuOnly = true;
 
-        // 遍历节点树
         ms->m_SubMeshes.reserve(scene->mNumMeshes);
         ProcessNode(scene->mRootNode, scene, ms);
 
         m_CpuOnly = false;
 
-        // 构建材质表
+        // 将按遍历顺序收集的材质写入材质表，并清空临时数组。
         ms->m_MaterialTable = CreateRef<MaterialTable>(ms->m_Materials.size());
         for (size_t i = 0; i < ms->m_Materials.size(); ++i)
             ms->m_MaterialTable->SetMaterial(i, ms->m_Materials[i]);
         ms->m_Materials.clear();
-
-        // 注意：不调 GenVertexArrays！GPU 资源延迟到主线程创建
-        // 注意：纹理在 ImportMaterialCpu 中存储为 PendingGpuTexture
 
         CORE_INFO_TAG("Mesh",
                       "Imported (CPU-only): {0} ({1} submeshes, {2} verts, {3} indices, {4} pending textures)",
@@ -195,9 +174,6 @@ namespace Kans
         return ms;
     }
 
-    // ================================================================
-    // ProcessNode — 递归处理节点树
-    // ================================================================
     void AssimpMeshImporter::ProcessNode(const aiNode* node, const aiScene* scene, Ref<MeshSource>& ms)
     {
         for (unsigned int i = 0; i < node->mNumMeshes; ++i)
@@ -210,9 +186,6 @@ namespace Kans
             ProcessNode(node->mChildren[i], scene, ms);
     }
 
-    // ================================================================
-    // ProcessMesh — 处理单个网格
-    // ================================================================
     SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh* mesh, const aiScene* scene, Ref<MeshSource>& ms)
     {
         SubMesh submesh;
@@ -222,7 +195,7 @@ namespace Kans
         submesh.IndexCount    = 0;
         submesh.MaterialIndex = mesh->mMaterialIndex;
 
-        // ── 顶点 ──
+        // 将网格顶点追加到共享顶点数组。
         for (unsigned int i = 0; i < mesh->mNumVertices; ++i)
         {
             Vertex v;
@@ -230,7 +203,7 @@ namespace Kans
             v.Position = {mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z};
             v.Normal   = {mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z};
 
-            // Tangent + bitangent → w 分量
+            // 切线的 w 分量记录切线空间的手性，用于重建副切线。
             if (mesh->HasTangentsAndBitangents())
             {
                 glm::vec3 t = {mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z};
@@ -243,13 +216,13 @@ namespace Kans
                 v.Tangent = {1.0f, 0.0f, 0.0f, 1.0f};
             }
 
-            // UV
+            // 使用第一组纹理坐标；缺失时取零。
             if (mesh->mTextureCoords[0])
                 v.Texturecroods = {mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y};
             else
                 v.Texturecroods = {0.0f, 0.0f};
 
-            // 顶点色
+            // 使用第一组顶点色；缺失时取零。
             if (mesh->HasVertexColors(0))
                 v.BaseColor = {
                     mesh->mColors[0][i].r, mesh->mColors[0][i].g, mesh->mColors[0][i].b, mesh->mColors[0][i].a};
@@ -260,7 +233,7 @@ namespace Kans
             ++submesh.VertexCount;
         }
 
-        // ── 索引 ──
+        // 每条索引记录保存一个三角形，IndexCount 计数的是三角形记录。
         for (unsigned int i = 0; i < mesh->mNumFaces; ++i)
         {
             const aiFace& face = mesh->mFaces[i];
@@ -271,7 +244,6 @@ namespace Kans
             }
         }
 
-        // ── 材质 ──
         if (scene->HasMaterials())
         {
             aiMaterial* aiMat = scene->mMaterials[mesh->mMaterialIndex];
@@ -284,9 +256,6 @@ namespace Kans
         return submesh;
     }
 
-    // ================================================================
-    // ImportMaterial — 材质导入（Blinn-Phong + PBR）
-    // ================================================================
     void AssimpMeshImporter::ImportMaterial(const aiMaterial* aiMat, const aiScene* /*scene*/, Ref<MeshSource>& ms)
     {
         std::string          mtlName  = aiMat->GetName().C_Str();
@@ -294,11 +263,7 @@ namespace Kans
         Ref<MaterialAsset>   mtlAsset = CreateRef<MaterialAsset>(mtl);
         TextureSpecification spec;
 
-        // ══════════════════════════════════════════════════════════
-        // Blinn-Phong 贴图
-        // ══════════════════════════════════════════════════════════
-
-        // Normal Map
+        // 法线贴图
         if (aiMat->GetTextureCount(aiTextureType_NORMALS) > 0)
         {
             aiString path;
@@ -313,7 +278,7 @@ namespace Kans
             mtlAsset->SetNormalMap(Renderer::GetWhiteTexture());
         }
 
-        // Diffuse
+        // 漫反射贴图
         if (aiMat->GetTextureCount(aiTextureType_DIFFUSE) > 0)
         {
             aiString path;
@@ -323,7 +288,7 @@ namespace Kans
             Ref<Texture2D> tex = Texture2D::Create(spec, texPath);
             mtlAsset->SetDiffuseMap(tex);
 
-            // 自动检测 _Light 贴图
+            // 在漫反射贴图文件名的扩展名前插入 _Light，查找配套光照贴图。
             {
                 std::string lightPath = texPath.string();
                 size_t      dot       = lightPath.find_last_of('.');
@@ -339,7 +304,7 @@ namespace Kans
                     mtl->SetTexture(MaterialAsset::GetToneLightMapLocation(), Renderer::GetWhiteTexture());
                 }
             }
-            // 自动检测 _Ramp 贴图
+            // 在漫反射贴图文件名的扩展名前插入 _Ramp，查找配套渐变贴图。
             {
                 std::string rampPath = texPath.string();
                 size_t      dot      = rampPath.find_last_of('.');
@@ -361,7 +326,7 @@ namespace Kans
             mtlAsset->SetDiffuseMap(Renderer::GetWhiteTexture());
         }
 
-        // Specular
+        // 镜面反射贴图
         if (aiMat->GetTextureCount(aiTextureType_SPECULAR) > 0)
         {
             aiString path;
@@ -375,11 +340,9 @@ namespace Kans
             mtlAsset->SetSpecularMap(Renderer::GetBlackTexture());
         }
 
-        // ══════════════════════════════════════════════════════════
         // PBR 贴图
-        // ══════════════════════════════════════════════════════════
 
-        // Albedo
+        // 基础颜色贴图
         if (aiMat->GetTextureCount(aiTextureType_BASE_COLOR) > 0)
         {
             aiString path;
@@ -400,7 +363,7 @@ namespace Kans
             mtlAsset->SetAlbedoMap(Renderer::GetWhiteTexture());
         }
 
-        // AO
+        // 环境遮蔽贴图
         if (aiMat->GetTextureCount(aiTextureType_AMBIENT_OCCLUSION) > 0)
         {
             aiString path;
@@ -421,7 +384,7 @@ namespace Kans
             mtlAsset->SetAOMap(Renderer::GetWhiteTexture());
         }
 
-        // Roughness
+        // 粗糙度贴图
         if (aiMat->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS) > 0)
         {
             aiString path;
@@ -442,7 +405,7 @@ namespace Kans
             mtlAsset->SetRoughMap(Renderer::GetWhiteTexture());
         }
 
-        // Metalness
+        // 金属度贴图
         if (aiMat->GetTextureCount(aiTextureType_METALNESS) > 0)
         {
             aiString path;
@@ -466,9 +429,6 @@ namespace Kans
         ms->m_Materials.push_back(mtlAsset);
     }
 
-    // ================================================================
-    // GenVertexArrays — GPU 缓冲生成
-    // ================================================================
     void AssimpMeshImporter::GenVertexArrays(Ref<MeshSource>& ms)
     {
         const double offset = 1.0 / 8000.0;
@@ -506,25 +466,16 @@ namespace Kans
         }
     }
 
-    // ================================================================
-    // ImportMaterialCpu — 材质导入（CPU-only，无 GL 调用）
-    //
-    // 与 ImportMaterial 的区别：
-    //   1. 不调用 Texture2D::Create（会触发 GL）
-    //   2. 使用 stbi_load 将图片加载到 CPU 内存
-    //   3. 创建 PendingGpuTexture 存储原始数据
-    //   4. MaterialAsset 先使用占位纹理（white/black texture）
-    // ================================================================
     void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial* aiMat, const aiScene* /*scene*/, Ref<MeshSource>& ms)
     {
         std::string        mtlName  = aiMat->GetName().C_Str();
         Ref<Material>      mtl      = Material::Create(ms->m_MeshShader, mtlName);
         Ref<MaterialAsset> mtlAsset = CreateRef<MaterialAsset>(mtl);
 
-        // 当前材质的索引 = 已存在的材质数
+        // 待上传贴图通过材质索引关联到稍后追加的材质。
         uint32_t materialIndex = static_cast<uint32_t>(ms->m_Materials.size());
 
-        // 辅助 lambda：加载纹理到 CPU 内存，创建 PendingGpuTexture
+        // 解码指定类型的第一张外部贴图，并记录像素格式和材质绑定位置。
         auto LoadTextureCpu = [&](aiTextureType      aiType,
                                   const std::string& uniformName,
                                   RHIFormat          defaultFormat,
@@ -594,10 +545,6 @@ namespace Kans
             return false;
         };
 
-        // ══════════════════════════════════════════════════════════
-        // Blinn-Phong 贴图
-        // ══════════════════════════════════════════════════════════
-
         bool hasNormal   = LoadTextureCpu(aiTextureType_NORMALS,
                                         MaterialAsset::GetNormalMapLocation(),
                                         RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB,
@@ -618,10 +565,9 @@ namespace Kans
         if (!hasSpecular)
             mtlAsset->SetSpecularMap(Renderer::GetBlackTexture());
 
-        // Diffuse 相关：自动检测 _Light / _Ramp 贴图
+        // 光照与渐变贴图槽位使用共享白色纹理。
         if (hasDiffuse)
         {
-            // 占位 Light/Ramp（这些贴图可选，不强制延迟加载）
             mtl->SetTexture(MaterialAsset::GetToneLightMapLocation(), Renderer::GetWhiteTexture());
             mtl->SetTexture(MaterialAsset::GetToneRampMapLocation(), Renderer::GetWhiteTexture());
         }
@@ -631,9 +577,7 @@ namespace Kans
             mtl->SetTexture(MaterialAsset::GetToneRampMapLocation(), Renderer::GetWhiteTexture());
         }
 
-        // ══════════════════════════════════════════════════════════
         // PBR 贴图
-        // ══════════════════════════════════════════════════════════
 
         bool hasAlbedo    = LoadTextureCpu(aiTextureType_BASE_COLOR,
                                         MaterialAsset::GetAlbedoMapLocation(),

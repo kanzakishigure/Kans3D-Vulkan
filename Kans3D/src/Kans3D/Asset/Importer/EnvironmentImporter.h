@@ -4,6 +4,7 @@
 #include "LegacyAssetImporterBase.h"
 namespace Kans
 {
+    // 环境资源导入接口声明，成员函数尚未实现。
     class EnvironmentImporter : public LegacyAssetImporterBase
     {
     public:
