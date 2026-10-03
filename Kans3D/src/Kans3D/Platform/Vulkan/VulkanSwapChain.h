@@ -1,6 +1,6 @@
 #pragma once
-#include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
+#include <GLFW/glfw3.h>
 #include "VulkanBase.h"
 #include "VulkanDevice.h"
 namespace Kans

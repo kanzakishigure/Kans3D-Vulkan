@@ -65,6 +65,12 @@ IncludeCategories:
   # Glad must precede GLFW/OpenGL headers within the same include block.
   - Regex: '^[<"]glad/'
     Priority: 1
+  # Vulkan types must be visible before GLFW declares its Vulkan API.
+  - Regex: '^[<"]vulkan/'
+    Priority: 1
+  # Initialize spdlog configuration before its other headers.
+  - Regex: '^[<"]spdlog/spdlog\.h[>"]$'
+    Priority: 1
   # Kans3D/src is the engine include root (quoted and angle-bracket forms).
   - Regex: '^[<"]Kans3D(/|\.h[>"])'
     Priority: 5

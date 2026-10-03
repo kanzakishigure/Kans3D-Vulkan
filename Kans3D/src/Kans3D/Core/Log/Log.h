@@ -3,10 +3,9 @@
 
 #include <glm/gtx/string_cast.hpp>
 
-#include <spdlog/fmt/bundled/format.h>
+#include <spdlog/spdlog.h>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
-#include <spdlog/spdlog.h>
 
 namespace Kans
 {

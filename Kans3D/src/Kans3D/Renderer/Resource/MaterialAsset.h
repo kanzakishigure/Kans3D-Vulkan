@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include "Kans3D/Asset/Asset.h"
 #include "Kans3D/Renderer/Resource/Material.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
