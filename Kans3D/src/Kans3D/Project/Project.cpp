@@ -51,7 +51,6 @@ namespace Kans
             {
                 project->m_SourceAssetDatabase = std::move(std::get<SourceAssetDatabase>(cached));
             }
-            // Never expose stale cached records: require a complete successful scan.
             auto initialized = project->ScanAndSaveAssets();
             if (const auto* error = std::get_if<AssetError>(&initialized))
                 return *error;
