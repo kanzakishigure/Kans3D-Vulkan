@@ -75,7 +75,7 @@ namespace Kans
 		glm::vec4 Color = { 1.0f ,1.0f ,1.0f ,1.0f };
 		Ref<Texture2D> Texture;
 		float TilingFactor = 1.0f;
-		//目前未实现texture
+		//鐩墠鏈疄鐜皌exture
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent& ) = default;
 		SpriteRendererComponent(glm::vec4 color,Ref<Texture2D> texture = nullptr )

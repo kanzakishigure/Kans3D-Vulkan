@@ -62,7 +62,7 @@ namespace Kans {
 
 		bool SwapChainTarget = false;
 		//glBindFramebuffer(0)
-		//ÊÇ·ñ½«¸ÃFrameBufferäÖÈ¾µ½ÆÁÄ»
+		//æ˜¯å¦å°†è¯¥FrameBufferæ¸²æŸ“åˆ°å±å¹•
 	};
 	class FrameBuffer : public RefCounter
 	{

@@ -14,7 +14,7 @@ namespace Kans
 {
 	#define BIND_EVENT_FN(x) std::bind(&x,this,std::placeholders::_1)
 	Application* Application::s_Instance = nullptr;
-	//Ê¹ÓÃÔÚbindÖÐÊ¹ÓÃthisÖ¸Õë»áÓÀ¾ÃµÄ½«º¯ÊýthisÖ¸Õë°ó¶¨ÎªµÚÒ»¸ö²ÎÊý
+	//ä½¿ç”¨åœ¨bindä¸­ä½¿ç”¨thisæŒ‡é’ˆä¼šæ°¸ä¹…çš„å°†å‡½æ•°thisæŒ‡é’ˆç»‘å®šä¸ºç¬¬ä¸€ä¸ªå‚æ•°
 	
 
 	Application::Application(const ApplicationSpecification& spec)
@@ -90,13 +90,13 @@ namespace Kans
 			{
 				{
 					PROFILE_SCOPE("application_layerstark_update");
-					//ÆÕÍ¨layer½øÐÐäÖÈ¾
+					//æ™®é€šlayerè¿›è¡Œæ¸²æŸ“
 					for (Layer* layer : m_LayerStack)
 					layer->OnUpdate(m_TimeStep);
 				}
 				{
 					PROFILE_SCOPE("application_imgui_layerstark_update");
-					//´¦Àí ImGuiLayeräÖÈ¾
+					//å¤„ç† ImGuiLayeræ¸²æŸ“
 					m_ImGuiLayer->Begin();
 					for (Layer* layer : m_LayerStack)
 					layer->OnImGuiRender();

@@ -13,21 +13,21 @@ Kans::LayerStack::~LayerStack()
 
 void Kans::LayerStack::PushLayer(Layer* layer)
 {
-	m_Layers.emplace(m_Layers.begin() + m_LayerInsertIndex, layer);//ÔÚË÷ÒıÆ÷Ö®Ç°²åÈëÒ»¸öÔªËØ£¬²¢·µ»ØĞÂ²åÈëÔªËØµÄµü´úÆ÷
-	//±£Ö¤overlayerÓÀÔ¶±ÈlayerºóäÖÈ¾
+	m_Layers.emplace(m_Layers.begin() + m_LayerInsertIndex, layer);//åœ¨ç´¢å¼•å™¨ä¹‹å‰æ’å…¥ä¸€ä¸ªå…ƒç´ ï¼Œå¹¶è¿”å›æ–°æ’å…¥å…ƒç´ çš„è¿­ä»£å™¨
+	//ä¿è¯overlayeræ°¸è¿œæ¯”layeråæ¸²æŸ“
 	m_LayerInsertIndex++;
 }
 
 void Kans::LayerStack::PushOverlay(Layer* overlay)
 {
-	m_Layers.emplace_back(overlay);//ÔÚÕ»Î²Ñ¹ÈëÒ»²ãLayer,ÊµÏÖ½á¹ûÀàËÆpush_back,µ«ÊÇÔÚstlÔ´Âë²ãÃæ£¬emplaceĞ§ÂÊ¸ü¸ß
+	m_Layers.emplace_back(overlay);//åœ¨æ ˆå°¾å‹å…¥ä¸€å±‚Layer,å®ç°ç»“æœç±»ä¼¼push_back,ä½†æ˜¯åœ¨stlæºç å±‚é¢ï¼Œemplaceæ•ˆç‡æ›´é«˜
 }
 
 void Kans::LayerStack::PopLayer(Layer* layer)
 {
-	auto it = std::find(m_Layers.begin(), m_Layers.end(), layer);//²éÕÒ´«ÈëµÄlayer
-	//µ±findº¯ÊıÕÒµ½ÁË£¬Ôò»á·µ»Ø¶ÔÓ¦µü´úÆ÷£¬Ã»ÕÒµ½Ôò»á·µ»ØÒ»¸ö¿Õµü´úÆ÷£¿
-	if (it != m_Layers.end())//Èç¹û²éÕÒµ½ÁË
+	auto it = std::find(m_Layers.begin(), m_Layers.end(), layer);//æŸ¥æ‰¾ä¼ å…¥çš„layer
+	//å½“findå‡½æ•°æ‰¾åˆ°äº†ï¼Œåˆ™ä¼šè¿”å›å¯¹åº”è¿­ä»£å™¨ï¼Œæ²¡æ‰¾åˆ°åˆ™ä¼šè¿”å›ä¸€ä¸ªç©ºè¿­ä»£å™¨ï¼Ÿ
+	if (it != m_Layers.end())//å¦‚æœæŸ¥æ‰¾åˆ°äº†
 	{
 		layer->OnDetach();
 		m_Layers.erase(it);
@@ -37,7 +37,7 @@ void Kans::LayerStack::PopLayer(Layer* layer)
 
 void Kans::LayerStack::PopOverlay(Layer* overlay)
 {
-	auto it = std::find(m_Layers.begin(), m_Layers.end(), overlay);//²éÕÒ´«ÈëµÄlayer
+	auto it = std::find(m_Layers.begin(), m_Layers.end(), overlay);//æŸ¥æ‰¾ä¼ å…¥çš„layer
 	
 	if (it != m_Layers.end())
 	{

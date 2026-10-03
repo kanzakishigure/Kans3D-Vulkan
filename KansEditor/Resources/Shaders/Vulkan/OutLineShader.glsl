@@ -47,7 +47,7 @@ void main()
 	mat3 TBN = mat3(tangent, bitangent, Normal);
 	Normal = TBN*a_BaseColor.rgb;
     //Normal = mat3(U_ViewProjection)*mat3(transpose(inverse(U_Transform)))*a_Normal;
-    //处理背面�?挡问�?
+    //澶勭悊鑳岄潰閬?鎸￠棶棰?
     Normal.z = -0.5;
     Normal = normalize(Normal);
 

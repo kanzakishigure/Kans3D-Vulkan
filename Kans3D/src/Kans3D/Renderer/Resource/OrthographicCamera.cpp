@@ -25,9 +25,9 @@ namespace Kans {
 		PROFILE_FUCTION();
 
 		 glm::mat4 transform = glm::translate(glm::mat4(1.0), m_Position)
-			 *glm::rotate(glm::mat4(1.0),m_Rotation,glm::vec3(0,0,1));//ÒòÎª´Ë´¦Îª2dÆ½Ãæ£¬ÑØzÖáĞı×ª£¬¹ÌÎªÏòÁ¿vec3(0,0,1)
+			 *glm::rotate(glm::mat4(1.0),m_Rotation,glm::vec3(0,0,1));//å› ä¸ºæ­¤å¤„ä¸º2då¹³é¢ï¼Œæ²¿zè½´æ—‹è½¬ï¼Œå›ºä¸ºå‘é‡vec3(0,0,1)
 
-		 m_ViewMatrix = glm::inverse(transform);//¾ØÕóÇóÄæ
+		 m_ViewMatrix = glm::inverse(transform);//çŸ©é˜µæ±‚é€†
 		 m_ViewProjectionMatrtix = m_ProjectionMatrix * m_ViewMatrix;
 	}
 

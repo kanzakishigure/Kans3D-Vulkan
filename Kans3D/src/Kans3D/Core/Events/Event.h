@@ -4,7 +4,7 @@
 #include <functional>
 namespace Kans{
 
-	//ÊÂ¼şÀà£¬Ä¿Ç°Ã»ÓĞÉèÖÃ»º³å£¬ÒâÎ¶×ÅÈç¹ûÊÂ¼ş·¢Éú£¬ÔòÕû¸öÏµÍ³»á½øÈëÏß³ÌÈ¥´¦Àí¸ÃÊÂ¼ş
+	//äº‹ä»¶ç±»ï¼Œç›®å‰æ²¡æœ‰è®¾ç½®ç¼“å†²ï¼Œæ„å‘³ç€å¦‚æœäº‹ä»¶å‘ç”Ÿï¼Œåˆ™æ•´ä¸ªç³»ç»Ÿä¼šè¿›å…¥çº¿ç¨‹å»å¤„ç†è¯¥äº‹ä»¶
 	enum class EventType
 	{
 		None = 0,
@@ -13,7 +13,7 @@ namespace Kans{
 		KeyPressed,KeyReleased, KeyTyped,
 		MouseButtonPressed,MouseButtonReleased,MouseMoved,MouseScrolled
 	};
-	//ÊÂ¼şµÄÎ»±êÊ¶
+	//äº‹ä»¶çš„ä½æ ‡è¯†
 	enum EventCategory{
 		None = 0,
 		EventCategoryApplication	= BIT(0),
@@ -25,28 +25,28 @@ namespace Kans{
 #define EVENT_CLASS_TYPE(type) static EventType GetStaticType(){return  EventType::type;}\
 							   virtual EventType GetEventType() const override { return GetStaticType();}\
 							   virtual const char* GetName() const override {return #type;}
-//ºê¶¨ÒåÖĞ#ÊÇ×Ö·û´®»¯µÃÒâË¼£¬»á½«Ö®ºóµÄ²ÎÊı×ª»»Îª×Ö·û´®
-//##ºóÎª±äÁ¿
-//overrideÄÜÖØĞ´virtualÈ¨ÏŞ
+//å®å®šä¹‰ä¸­#æ˜¯å­—ç¬¦ä¸²åŒ–å¾—æ„æ€ï¼Œä¼šå°†ä¹‹åçš„å‚æ•°è½¬æ¢ä¸ºå­—ç¬¦ä¸²
+//##åä¸ºå˜é‡
+//overrideèƒ½é‡å†™virtualæƒé™
 #define EVENT_CLASS_CATEGORY(category) virtual int GetCategoryFlags() const override {return category;}
-	//ÊÂ¼şµÄ»ùÀà£¬Îö¹¹º¯Êı»áÔÚºóĞø×ÓÀàÖĞ½øĞĞÖØ¹¹
+	//äº‹ä»¶çš„åŸºç±»ï¼Œææ„å‡½æ•°ä¼šåœ¨åç»­å­ç±»ä¸­è¿›è¡Œé‡æ„
 	class  Event
 	{
 	public:
 		virtual ~Event() = default;
-		//const±íÊ¾²»ĞŞ¸Ä¶ÔÏó£¬=0±íÊ¾Îª´¿Ğéº¯Êı£¬ÎŞ·¨ÊµÀı»¯
-		//Í¬Ê±ÒâÎ¶×Å´¿Ğéº¯ÊıĞèÒªÎÒÃÇÈ¥ÊµÏÖËü²ÅÄÜµ÷ÓÃ
+		//constè¡¨ç¤ºä¸ä¿®æ”¹å¯¹è±¡ï¼Œ=0è¡¨ç¤ºä¸ºçº¯è™šå‡½æ•°ï¼Œæ— æ³•å®ä¾‹åŒ–
+		//åŒæ—¶æ„å‘³ç€çº¯è™šå‡½æ•°éœ€è¦æˆ‘ä»¬å»å®ç°å®ƒæ‰èƒ½è°ƒç”¨
 		virtual EventType GetEventType() const = 0;
 		virtual const char*GetName() const = 0;
 		virtual int GetCategoryFlags() const = 0;
-		//Ê¹ÓÃGetNameµÄ·µ»ØÖµ×÷ÎªÄ¬ÈÏ·µ»ØÖµ£¬µ«ÊÇÔÚ×ÓÀàÖĞ£¬Í¨¹ıºêÖØĞ´¸Ãº¯Êı
+		//ä½¿ç”¨GetNameçš„è¿”å›å€¼ä½œä¸ºé»˜è®¤è¿”å›å€¼ï¼Œä½†æ˜¯åœ¨å­ç±»ä¸­ï¼Œé€šè¿‡å®é‡å†™è¯¥å‡½æ•°
 		virtual std::string ToString() const { return GetName(); }
 		
 		inline bool IsInCategory(EventCategory category)
 		{
-			return GetCategoryFlags() & category;//Î»¼ì²â£¬ÊÇ·ñÓëÄ£°åÏà·û
+			return GetCategoryFlags() & category;//ä½æ£€æµ‹ï¼Œæ˜¯å¦ä¸æ¨¡æ¿ç›¸ç¬¦
 		}
-		bool Handled = false;//ÓÃÓÚ±êÊ¶ÊÂ¼şÊÇ·ñÒÑ¾­±»´¦Àí
+		bool Handled = false;//ç”¨äºæ ‡è¯†äº‹ä»¶æ˜¯å¦å·²ç»è¢«å¤„ç†
 		
 	};
 	class  EventDispatcher

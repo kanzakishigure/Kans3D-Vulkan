@@ -79,10 +79,10 @@ namespace Kans
 
 			Ref<Texture2D> hdrTexture = Texture2D::Create(textureSepc, m_RenderScene->m_EnvironmentPath);
 
-			// ÉèÖÃcubemap6¸öÃæµÄviewmatrix
+			// è®¾ç½®cubemap6ä¸ªé¢çš„viewmatrix
 			// ----------------------------------------------------------------------------------------------
 			glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-			//´Óµ¥Î»cubeµÄÖĞĞÄµã¿´ÏòÕı·½Ìå6¸öÃæµÄview¾ØÕó
+			//ä»å•ä½cubeçš„ä¸­å¿ƒç‚¹çœ‹å‘æ­£æ–¹ä½“6ä¸ªé¢çš„viewçŸ©é˜µ
 			glm::mat4 captureViews[] =
 			{
 				glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
@@ -195,7 +195,7 @@ namespace Kans
 			uint32_t  maxMipLevels = 5;
 			for (unsigned int mip = 0; mip < maxMipLevels; ++mip)
 			{
-				//µ÷Õû ViewPort´óĞ¡,±£Ö¤ºÍ mip-level Î¬³ÖÍ³Ò»
+				//è°ƒæ•´ ViewPortå¤§å°,ä¿è¯å’Œ mip-level ç»´æŒç»Ÿä¸€
 				unsigned int mipWidth = static_cast<unsigned int>(128 * std::pow(0.5, mip));
 				unsigned int mipHeight = static_cast<unsigned int>(128 * std::pow(0.5, mip));
 				framebuffer->Resize(mipWidth, mipHeight);
@@ -684,9 +684,9 @@ namespace Kans
 			auto subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
 			auto& VA = VAOs[mesh];
 			VA->Bind();
-			//TODO: DrawCommandÓ¦¸ÃºÍShader°ó¶¨£¬²»ºÍÄ¬ÈÏ²ÄÖÊ°ó¶¨
+			//TODO: DrawCommandåº”è¯¥å’ŒShaderç»‘å®šï¼Œä¸å’Œé»˜è®¤æè´¨ç»‘å®š
 			//subMtl->SetShader(shader);
-			//TODO:²ÄÖÊÏµÍ³ĞèÒªÖØĞ´£¬äÖÈ¾Ê¹ÓÃ¿ÉÌá¹©²ÄÖÊÓÃÀ´äÖÈ¾meshºÍÊ¹ÓÃÄ¬ÈÏ²ÄÖÊäÖÈ¾mesh,²ÄÖÊºÍÄ£ĞÍÍÑÀë°ó¶¨¹ØÏµ
+			//TODO:æè´¨ç³»ç»Ÿéœ€è¦é‡å†™ï¼Œæ¸²æŸ“ä½¿ç”¨å¯æä¾›æè´¨ç”¨æ¥æ¸²æŸ“meshå’Œä½¿ç”¨é»˜è®¤æè´¨æ¸²æŸ“mesh,æè´¨å’Œæ¨¡å‹è„±ç¦»ç»‘å®šå…³ç³»
 			shader->Bind();
 			subMtl->SetShader(Renderer::GetShaderLibrary()->Get("ToneCharactorShader"));
 			subMtl->Invalidate();

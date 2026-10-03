@@ -33,7 +33,7 @@ namespace Kans {
 		static const uint32_t MaxVerteices = MaxQuads * 4;
 		static const uint32_t MaxIndices = MaxQuads * 6;
 		static const uint32_t MaxTextureSlots = 32;
-		//´Ë´¦Îªµ÷ÓÃÒ»¸ödrawcallÊ±ÓÉÎÒÃÇ½øĞĞÉèÖÃµÄÊôĞÔ
+		//æ­¤å¤„ä¸ºè°ƒç”¨ä¸€ä¸ªdrawcallæ—¶ç”±æˆ‘ä»¬è¿›è¡Œè®¾ç½®çš„å±æ€§
 
 		Renderer2D::Statistics Stats;
 
@@ -54,7 +54,7 @@ namespace Kans {
 		std::array<Ref<Texture2D>, MaxTextureSlots> TextureSlots;
 		uint32_t TextureSlotIndex = 1;
 	};
-	//²¢Î´½øĞĞ¿ç³ÌĞò¼¯µÄº¯Êıµ÷ÓÃ£¬Ã»ÓĞ±ØÒªÊ¹ÓÃnewÉêÇë¶ÑÄÚ´æ
+	//å¹¶æœªè¿›è¡Œè·¨ç¨‹åºé›†çš„å‡½æ•°è°ƒç”¨ï¼Œæ²¡æœ‰å¿…è¦ä½¿ç”¨newç”³è¯·å †å†…å­˜
 	static Renderer2DData s_Data;
 
 
@@ -65,7 +65,7 @@ namespace Kans {
 
 		//vertex array
 		s_Data.QuadVertexArray = VertexArray::Create();
-		//¶¯Ì¬ÉêÇëÄÚ´æÓÃ»§´æ´¢Êı¾İ
+		//åŠ¨æ€ç”³è¯·å†…å­˜ç”¨æˆ·å­˜å‚¨æ•°æ®
 		s_Data.QuadVertexBufferBase = new QuadVertex[s_Data.MaxVerteices];
 		//vertex buffer
 		s_Data.QuadVertexBuffer = VertexBuffer::Create(s_Data.MaxVerteices * sizeof(QuadVertex));
@@ -101,7 +101,7 @@ namespace Kans {
 		s_Data.QuadVertexArray->SetIndexBuffer(indexBuffer);
 
 		delete[] quadIndex;
-		//´Ë´¦Ã»ÓĞ¿¼ÂÇµ½Ïß³Ì°²È«ĞÔ£¬Èç¹û±ğäÖÈ¾µÄÏß³ÌÉÏÈÔÈ»ÓĞ¶Ô¸Ã×ÊÔ´µÄÒıÓÃ£¬ÄÇÃ´´Ë´¦½øĞĞµÄdelete²Ù×÷¾Í»áµ¼ÖÂ¸ÃÒıÓÃÖ¸ÏòÒ»¸ö¿Õ×ÊÔ´
+		//æ­¤å¤„æ²¡æœ‰è€ƒè™‘åˆ°çº¿ç¨‹å®‰å…¨æ€§ï¼Œå¦‚æœåˆ«æ¸²æŸ“çš„çº¿ç¨‹ä¸Šä»ç„¶æœ‰å¯¹è¯¥èµ„æºçš„å¼•ç”¨ï¼Œé‚£ä¹ˆæ­¤å¤„è¿›è¡Œçš„deleteæ“ä½œå°±ä¼šå¯¼è‡´è¯¥å¼•ç”¨æŒ‡å‘ä¸€ä¸ªç©ºèµ„æº
 
 		//Shader Program
 		std::string shaderpath = KansFileSystem::GetShaderFolder().generic_string();
@@ -166,7 +166,7 @@ namespace Kans {
 	{
 		PROFILE_FUCTION();
 		
-		//²ÉÓÃÁËbatchrenderingÖ®ºó£¬²»ÔÚ´ÓÃ¿Ò»´ÎdrawquadÖĞµ÷ÓÃ»æÖÆÃüÁî£¬¶øÊÇÔÚÃ¿Ò»´ÎendseceneÖĞµ÷ÓÃdrawcall
+		//é‡‡ç”¨äº†batchrenderingä¹‹åï¼Œä¸åœ¨ä»æ¯ä¸€æ¬¡drawquadä¸­è°ƒç”¨ç»˜åˆ¶å‘½ä»¤ï¼Œè€Œæ˜¯åœ¨æ¯ä¸€æ¬¡endseceneä¸­è°ƒç”¨drawcall
 		s_Data.TextureShader->Bind();
 		s_Data.QuadVertexArray->Bind();
 		uint32_t  datasize = (uint8_t*)s_Data.QuadVertexBufferPtr - (uint8_t*)s_Data.QuadVertexBufferBase;
@@ -275,7 +275,7 @@ namespace Kans {
 			FlushAndReset();
 		}
 
-		//ÎªÁË±£Ö¤ÏàÍ¬µÄtexture²»»áÖØ¸´Õ¼ÓÃÌùÍ¼slot£¬½øĞĞ²éÑ¯ÓÅ»¯
+		//ä¸ºäº†ä¿è¯ç›¸åŒçš„textureä¸ä¼šé‡å¤å ç”¨è´´å›¾slotï¼Œè¿›è¡ŒæŸ¥è¯¢ä¼˜åŒ–
 		for (uint32_t i = 1; i < s_Data.TextureSlotIndex; i++)
 		{
 			if (*s_Data.TextureSlots[i].get() == *(Texture2D.get()))
@@ -292,7 +292,7 @@ namespace Kans {
 		}
 
 		
-		//Ä¬ÈÏÇé¿öÏÂÊ¹ÓÃTexIndexµÄË÷ÒıÎª1Ö¸ÏòWhiteTexture
+		//é»˜è®¤æƒ…å†µä¸‹ä½¿ç”¨TexIndexçš„ç´¢å¼•ä¸º1æŒ‡å‘WhiteTexture
 
 		for (size_t i = 0; i < quadsvertexcount; i++)
 		{
@@ -339,7 +339,7 @@ namespace Kans {
 			FlushAndReset();
 		}
 
-		//ÎªÁË±£Ö¤ÏàÍ¬µÄtexture²»»áÖØ¸´Õ¼ÓÃÌùÍ¼slot£¬½øĞĞ²éÑ¯ÓÅ»¯
+		//ä¸ºäº†ä¿è¯ç›¸åŒçš„textureä¸ä¼šé‡å¤å ç”¨è´´å›¾slotï¼Œè¿›è¡ŒæŸ¥è¯¢ä¼˜åŒ–
 		for (uint32_t i = 1; i < s_Data.TextureSlotIndex; i++)
 		{
 			if (*s_Data.TextureSlots[i].get() == *(subtexture2D->GetTexture().get()))
@@ -356,7 +356,7 @@ namespace Kans {
 		}
 
 		
-		//Ä¬ÈÏÇé¿öÏÂÊ¹ÓÃTexIndexµÄË÷ÒıÎª1Ö¸ÏòWhiteTexture
+		//é»˜è®¤æƒ…å†µä¸‹ä½¿ç”¨TexIndexçš„ç´¢å¼•ä¸º1æŒ‡å‘WhiteTexture
 
 		for (size_t i = 0; i < quadsvertexcount; i++)
 		{
@@ -444,7 +444,7 @@ namespace Kans {
 			s_Data.TextureSlots[s_Data.TextureSlotIndex] = Texture2D;
 			s_Data.TextureSlotIndex++;
 		}
-		//Ä¬ÈÏÇé¿öÏÂÊ¹ÓÃTexIndexµÄË÷ÒıÎª1Ö¸ÏòWhiteTexture
+		//é»˜è®¤æƒ…å†µä¸‹ä½¿ç”¨TexIndexçš„ç´¢å¼•ä¸º1æŒ‡å‘WhiteTexture
 		s_Data.QuadVertexBufferPtr->Color = tintcolor;
 		s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPosition[0];
 		s_Data.QuadVertexBufferPtr->TexCroods = { 0.0f,0.0f };

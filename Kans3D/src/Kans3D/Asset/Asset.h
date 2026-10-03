@@ -108,8 +108,8 @@ public:
 
   bool IsFlagSet(AssetFlag flag) const { return Flags & (uint16_t)flag; }
   void SetFlag(AssetFlag flag, bool Value = true) {
-    // ÈôÒª½«flagÄ³Ò»Î»ÖÃ1£¬ÔòÖ±½ÓÓÃflag½øĞĞ»òÔËËã
-    // ÈôÒª½«flagÄ³Ò»Î»ÖÃ0£¬Ôò½«flagÈ¡·´ºó½øĞĞÓëÔËËã
+    // è‹¥è¦å°†flagæŸä¸€ä½ç½®1ï¼Œåˆ™ç›´æ¥ç”¨flagè¿›è¡Œæˆ–è¿ç®—
+    // è‹¥è¦å°†flagæŸä¸€ä½ç½®0ï¼Œåˆ™å°†flagå–ååè¿›è¡Œä¸è¿ç®—
     if (Value)
       Flags |= (uint16_t)flag;
     else

@@ -5,7 +5,7 @@ namespace Kans {
 	class OpenGLRenderCommand
 	{
 	public:
-		//RenderCommandÄÚ²¿Ó¦¸ÃÂú×ãµ¥Ò»Ö°ÔðÔ­Ôò£¬²»Ó¦¸ÃÊµÏÖ¶àÓàµÄ¹¦ÄÜ£¬µ¼ÖÂ¹ýÅººÏ
+		//RenderCommandå†…éƒ¨åº”è¯¥æ»¡è¶³å•ä¸€èŒè´£åŽŸåˆ™ï¼Œä¸åº”è¯¥å®žçŽ°å¤šä½™çš„åŠŸèƒ½ï¼Œå¯¼è‡´è¿‡è—•åˆ
 		inline static void SetClearColor(const glm::vec4& color) 
 		{
 			s_RendererAPI->SetClearColor(color);

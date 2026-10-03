@@ -44,14 +44,14 @@ namespace Kans {
 		
 
 			PROFILE_FUCTION();
-			//����������Ⱦ��������ܼ�⣬��ʹ��HZ_PROFILE_FUNCTION�������ļ�⣬��Ϊÿ����Ⱦִ�е�ʱ�򶼻���д����ĸ��Ӳ�������ִ��ÿ�������ʱ�򣬻����Ĵ�����ʱ�䣬�Լ��ڴ濪��
+			//对于其他渲染级别的性能检测，不使用HZ_PROFILE_FUNCTION这个级别的检测，因为每次渲染执行的时候都会进行大量的复杂操作，在执行每次命令的时候，会消耗大量的时间，以及内存开销
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			//��Ȳ���
+			//深度测试
 			glEnable(GL_DEPTH_TEST);
-			//ģ�建��
+			//模板缓冲
 			glEnable(GL_STENCIL_TEST);
-			//�������޳�
+			//三角面剔除
 			glEnable(GL_CULL_FACE);
 			glCullFace(GL_BACK);
 			glFrontFace(GL_CCW);
@@ -65,9 +65,9 @@ namespace Kans {
 				glDepthFunc(GL_LEQUAL);
 				glStencilMask(0x00);
 			}
-			//����cubmap��ֵ����,��ֹcubemap������֮���������
+			//启用cubmap插值过滤,防止cubemap面与面之间产生走样
 			glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-			//����MSAA
+			//启用MSAA
 			glEnable(GL_MULTISAMPLE);
 
 		
@@ -138,7 +138,7 @@ namespace Kans {
 				 1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
 				 1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
 			};
-			//����vao
+			//生成vao
 			glGenVertexArrays(1, &quadVAO);
 			glGenBuffers(1, &quadVBO);
 			glBindVertexArray(quadVAO);

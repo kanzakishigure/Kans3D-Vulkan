@@ -64,7 +64,7 @@ namespace Kans{
 			EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	};
 	/*
-	���еĺ���Եȼ��滻Ϊ
+	类中的宏可以等价替换为
 	static EventType GetStaticType(){return  EventType::type;}
 	virtual EventType GetEventType() const override { return GetStaticType();}
 	virtual const char* GetName() const override {return #type;}

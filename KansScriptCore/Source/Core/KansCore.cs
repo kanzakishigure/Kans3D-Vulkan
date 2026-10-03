@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics.PerformanceData;
 using System.Runtime.CompilerServices;
 using static Kans.Input;

@@ -15,12 +15,12 @@
 #include <stb_image.h>
 
 namespace {
-constexpr uint32_t kImportFlag = aiProcess_CalcTangentSpace // ¼ÆËãÇĞÏß¿Õ¼ä
-                                 | aiProcess_Triangulate    // Èı½Ç»¯
+constexpr uint32_t kImportFlag = aiProcess_CalcTangentSpace // è®¡ç®—åˆ‡çº¿ç©ºé—´
+                                 | aiProcess_Triangulate    // ä¸‰è§’åŒ–
                                  |
-                                 aiProcess_JoinIdenticalVertices // ºÏ²¢ÖØ¸´¶¥µã
-                                 | aiProcess_SortByPType       // °´Í¼ÔªÀàĞÍÅÅĞò
-                                 | aiProcess_GenSmoothNormals; // Éú³ÉÆ½»¬·¨Ïß
+                                 aiProcess_JoinIdenticalVertices // åˆå¹¶é‡å¤é¡¶ç‚¹
+                                 | aiProcess_SortByPType       // æŒ‰å›¾å…ƒç±»å‹æ’åº
+                                 | aiProcess_GenSmoothNormals; // ç”Ÿæˆå¹³æ»‘æ³•çº¿
 }
 
 namespace Kans {
@@ -40,13 +40,13 @@ AssimpMeshImporter::AssimpMeshImporter(const std::filesystem::path &path)
     : m_Path(std::filesystem::current_path().string()+"/"+path.string()) {}
 
 // ================================================================
-// ImportToMeshSource ¡ª Ö÷Èë¿Ú
+// ImportToMeshSource â€” ä¸»å…¥å£
 // ================================================================
 Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource() {
   CORE_INFO_TAG("Mesh", "Try loading mesh: {0}", m_Path.string());
 
 
-  // ---- »ù´¡¼ì²é ----
+  // ---- åŸºç¡€æ£€æŸ¥ ----
   if (!std::filesystem::exists(m_Path)) {
     CORE_ERROR_TAG("Mesh", "File not found: {0}", m_Path.string());
     return nullptr;
@@ -57,7 +57,7 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource() {
     return nullptr;
   }
 
-  // ---- Ô¤Ğ£Ñé ----
+  // ---- é¢„æ ¡éªŒ ----
   Assimp::Importer quickImporter;
   const aiScene *testScene =
       quickImporter.ReadFile(m_Path.string(), kImportFlag);
@@ -72,16 +72,16 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource() {
     return nullptr;
   }
 
-  CORE_INFO_TAG("Mesh", "Validated ¡ª {0} meshes, {1} materials",
+  CORE_INFO_TAG("Mesh", "Validated â€” {0} meshes, {1} materials",
                 testScene->mNumMeshes, testScene->mNumMaterials);
 
-  // ---- ÍêÕûµ¼Èë ----
+  // ---- å®Œæ•´å¯¼å…¥ ----
   Assimp::Importer importer;
   const aiScene *scene = importer.ReadFile(m_Path.string(), kImportFlag);
 
   Ref<MeshSource> ms = CreateRef<MeshSource>();
 
-  // Â·¾¶
+  // è·¯å¾„
   ms->m_LoadPath = m_Path.string();
   size_t slash = ms->m_LoadPath.find_last_of("/\\");
   if (slash != std::string::npos)
@@ -90,17 +90,17 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource() {
   // Shader
   ms->m_MeshShader = Renderer::GetShaderLibrary()->Get("StaticMeshShader");
 
-  // ±éÀú½ÚµãÊ÷
+  // éå†èŠ‚ç‚¹æ ‘
   ms->m_SubMeshes.reserve(scene->mNumMeshes);
   ProcessNode(scene->mRootNode, scene, ms);
 
-  // ¹¹½¨²ÄÖÊ±í
+  // æ„å»ºæè´¨è¡¨
   ms->m_MaterialTable = CreateRef<MaterialTable>(ms->m_Materials.size());
   for (size_t i = 0; i < ms->m_Materials.size(); ++i)
     ms->m_MaterialTable->SetMaterial(i, ms->m_Materials[i]);
   ms->m_Materials.clear();
 
-  // GPU »º³å
+  // GPU ç¼“å†²
   GenVertexArrays(ms);
 
   CORE_INFO_TAG(
@@ -113,12 +113,12 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource() {
 }
 
 // ================================================================
-// ImportToMeshSourceCpu ¡ª CPU-only µ¼Èë£¨ÎŞ GL µ÷ÓÃ£©
+// ImportToMeshSourceCpu â€” CPU-only å¯¼å…¥ï¼ˆæ—  GL è°ƒç”¨ï¼‰
 // ================================================================
 Ref<MeshSource> AssimpMeshImporter::ImportToMeshSourceCpu() {
   CORE_INFO_TAG("Mesh", "Loading mesh (CPU-only): {0}", m_Path.string());
 
-  // ---- »ù´¡¼ì²é ----
+  // ---- åŸºç¡€æ£€æŸ¥ ----
   if (!std::filesystem::exists(m_Path)) {
     CORE_ERROR_TAG("Mesh", "File not found: {0}", m_Path.string());
     return nullptr;
@@ -129,7 +129,7 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSourceCpu() {
     return nullptr;
   }
 
-  // ---- Ô¤Ğ£Ñé ----
+  // ---- é¢„æ ¡éªŒ ----
   Assimp::Importer quickImporter;
   const aiScene *testScene =
       quickImporter.ReadFile(m_Path.string(), kImportFlag);
@@ -144,13 +144,13 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSourceCpu() {
     return nullptr;
   }
 
-  // ---- ÍêÕûµ¼Èë ----
+  // ---- å®Œæ•´å¯¼å…¥ ----
   Assimp::Importer importer;
   const aiScene *scene = importer.ReadFile(m_Path.string(), kImportFlag);
 
   Ref<MeshSource> ms = CreateRef<MeshSource>();
 
-  // Â·¾¶
+  // è·¯å¾„
   ms->m_LoadPath = m_Path.string();
   size_t slash = ms->m_LoadPath.find_last_of("/\\");
   if (slash != std::string::npos)
@@ -159,23 +159,23 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSourceCpu() {
   // Shader
   ms->m_MeshShader = Renderer::GetShaderLibrary()->Get("StaticMeshShader");
 
-  // ÉèÖÃÎª CPU-only Ä£Ê½
+  // è®¾ç½®ä¸º CPU-only æ¨¡å¼
   m_CpuOnly = true;
 
-  // ±éÀú½ÚµãÊ÷
+  // éå†èŠ‚ç‚¹æ ‘
   ms->m_SubMeshes.reserve(scene->mNumMeshes);
   ProcessNode(scene->mRootNode, scene, ms);
 
   m_CpuOnly = false;
 
-  // ¹¹½¨²ÄÖÊ±í
+  // æ„å»ºæè´¨è¡¨
   ms->m_MaterialTable = CreateRef<MaterialTable>(ms->m_Materials.size());
   for (size_t i = 0; i < ms->m_Materials.size(); ++i)
     ms->m_MaterialTable->SetMaterial(i, ms->m_Materials[i]);
   ms->m_Materials.clear();
 
-  // ×¢Òâ£º²»µ÷ GenVertexArrays£¡GPU ×ÊÔ´ÑÓ³Ùµ½Ö÷Ïß³Ì´´½¨
-  // ×¢Òâ£ºÎÆÀíÔÚ ImportMaterialCpu ÖĞ´æ´¢Îª PendingGpuTexture
+  // æ³¨æ„ï¼šä¸è°ƒ GenVertexArraysï¼GPU èµ„æºå»¶è¿Ÿåˆ°ä¸»çº¿ç¨‹åˆ›å»º
+  // æ³¨æ„ï¼šçº¹ç†åœ¨ ImportMaterialCpu ä¸­å­˜å‚¨ä¸º PendingGpuTexture
 
   CORE_INFO_TAG(
       "Mesh", "Imported (CPU-only): {0} ({1} submeshes, {2} verts, {3} indices, {4} pending textures)",
@@ -186,7 +186,7 @@ Ref<MeshSource> AssimpMeshImporter::ImportToMeshSourceCpu() {
 }
 
 // ================================================================
-// ProcessNode ¡ª µİ¹é´¦Àí½ÚµãÊ÷
+// ProcessNode â€” é€’å½’å¤„ç†èŠ‚ç‚¹æ ‘
 // ================================================================
 void AssimpMeshImporter::ProcessNode(const aiNode *node, const aiScene *scene,
                                      Ref<MeshSource> &ms) {
@@ -200,7 +200,7 @@ void AssimpMeshImporter::ProcessNode(const aiNode *node, const aiScene *scene,
 }
 
 // ================================================================
-// ProcessMesh ¡ª ´¦Àíµ¥¸öÍø¸ñ
+// ProcessMesh â€” å¤„ç†å•ä¸ªç½‘æ ¼
 // ================================================================
 SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh *mesh,
                                         const aiScene *scene,
@@ -212,7 +212,7 @@ SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh *mesh,
   submesh.IndexCount = 0;
   submesh.MaterialIndex = mesh->mMaterialIndex;
 
-  // ©¤©¤ ¶¥µã ©¤©¤
+  // â”€â”€ é¡¶ç‚¹ â”€â”€
   for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
     Vertex v;
 
@@ -220,7 +220,7 @@ SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh *mesh,
                   mesh->mVertices[i].z};
     v.Normal = {mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z};
 
-    // Tangent + bitangent ¡ú w ·ÖÁ¿
+    // Tangent + bitangent â†’ w åˆ†é‡
     if (mesh->HasTangentsAndBitangents()) {
       glm::vec3 t = {mesh->mTangents[i].x, mesh->mTangents[i].y,
                      mesh->mTangents[i].z};
@@ -239,7 +239,7 @@ SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh *mesh,
     else
       v.Texturecroods = {0.0f, 0.0f};
 
-    // ¶¥µãÉ«
+    // é¡¶ç‚¹è‰²
     if (mesh->HasVertexColors(0))
       v.BaseColor = {mesh->mColors[0][i].r, mesh->mColors[0][i].g,
                      mesh->mColors[0][i].b, mesh->mColors[0][i].a};
@@ -250,7 +250,7 @@ SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh *mesh,
     ++submesh.VertexCount;
   }
 
-  // ©¤©¤ Ë÷Òı ©¤©¤
+  // â”€â”€ ç´¢å¼• â”€â”€
   for (unsigned int i = 0; i < mesh->mNumFaces; ++i) {
     const aiFace &face = mesh->mFaces[i];
     for (unsigned int j = 0; j < face.mNumIndices; j += 3) {
@@ -260,7 +260,7 @@ SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh *mesh,
     }
   }
 
-  // ©¤©¤ ²ÄÖÊ ©¤©¤
+  // â”€â”€ æè´¨ â”€â”€
   if (scene->HasMaterials()) {
     aiMaterial *aiMat = scene->mMaterials[mesh->mMaterialIndex];
     if (m_CpuOnly)
@@ -273,7 +273,7 @@ SubMesh AssimpMeshImporter::ProcessMesh(const aiMesh *mesh,
 }
 
 // ================================================================
-// ImportMaterial ¡ª ²ÄÖÊµ¼Èë£¨Blinn-Phong + PBR£©
+// ImportMaterial â€” æè´¨å¯¼å…¥ï¼ˆBlinn-Phong + PBRï¼‰
 // ================================================================
 void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
                                         const aiScene * /*scene*/,
@@ -283,9 +283,9 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
   Ref<MaterialAsset> mtlAsset = CreateRef<MaterialAsset>(mtl);
   TextureSpecification spec;
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// Blinn-Phong ÌùÍ¼
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Blinn-Phong è´´å›¾
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   // Normal Map
   if (aiMat->GetTextureCount(aiTextureType_NORMALS) > 0) {
@@ -309,7 +309,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
     Ref<Texture2D> tex = Texture2D::Create(spec, texPath);
     mtlAsset->SetDiffuseMap(tex);
 
-    // ×Ô¶¯¼ì²â _Light ÌùÍ¼
+    // è‡ªåŠ¨æ£€æµ‹ _Light è´´å›¾
     {
       std::string lightPath = texPath.string();
       size_t dot = lightPath.find_last_of('.');
@@ -324,7 +324,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
                         Renderer::GetWhiteTexture());
       }
     }
-    // ×Ô¶¯¼ì²â _Ramp ÌùÍ¼
+    // è‡ªåŠ¨æ£€æµ‹ _Ramp è´´å›¾
     {
       std::string rampPath = texPath.string();
       size_t dot = rampPath.find_last_of('.');
@@ -354,9 +354,9 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
     mtlAsset->SetSpecularMap(Renderer::GetBlackTexture());
   }
 
-  // ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-  // PBR ÌùÍ¼
-  // ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // PBR è´´å›¾
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   // Albedo
   if (aiMat->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
@@ -422,7 +422,7 @@ void AssimpMeshImporter::ImportMaterial(const aiMaterial *aiMat,
 }
 
 // ================================================================
-// GenVertexArrays ¡ª GPU »º³åÉú³É
+// GenVertexArrays â€” GPU ç¼“å†²ç”Ÿæˆ
 // ================================================================
 void AssimpMeshImporter::GenVertexArrays(Ref<MeshSource> &ms) {
   const double offset = 1.0 / 8000.0;
@@ -463,13 +463,13 @@ void AssimpMeshImporter::GenVertexArrays(Ref<MeshSource> &ms) {
 }
 
 // ================================================================
-// ImportMaterialCpu ¡ª ²ÄÖÊµ¼Èë£¨CPU-only£¬ÎŞ GL µ÷ÓÃ£©
+// ImportMaterialCpu â€” æè´¨å¯¼å…¥ï¼ˆCPU-onlyï¼Œæ—  GL è°ƒç”¨ï¼‰
 //
-// Óë ImportMaterial µÄÇø±ğ£º
-//   1. ²»µ÷ÓÃ Texture2D::Create£¨»á´¥·¢ GL£©
-//   2. Ê¹ÓÃ stbi_load ½«Í¼Æ¬¼ÓÔØµ½ CPU ÄÚ´æ
-//   3. ´´½¨ PendingGpuTexture ´æ´¢Ô­Ê¼Êı¾İ
-//   4. MaterialAsset ÏÈÊ¹ÓÃÕ¼Î»ÎÆÀí£¨white/black texture£©
+// ä¸ ImportMaterial çš„åŒºåˆ«ï¼š
+//   1. ä¸è°ƒç”¨ Texture2D::Createï¼ˆä¼šè§¦å‘ GLï¼‰
+//   2. ä½¿ç”¨ stbi_load å°†å›¾ç‰‡åŠ è½½åˆ° CPU å†…å­˜
+//   3. åˆ›å»º PendingGpuTexture å­˜å‚¨åŸå§‹æ•°æ®
+//   4. MaterialAsset å…ˆä½¿ç”¨å ä½çº¹ç†ï¼ˆwhite/black textureï¼‰
 // ================================================================
 void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial *aiMat,
                                            const aiScene * /*scene*/,
@@ -478,10 +478,10 @@ void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial *aiMat,
   Ref<Material> mtl = Material::Create(ms->m_MeshShader, mtlName);
   Ref<MaterialAsset> mtlAsset = CreateRef<MaterialAsset>(mtl);
 
-  // µ±Ç°²ÄÖÊµÄË÷Òı = ÒÑ´æÔÚµÄ²ÄÖÊÊı
+  // å½“å‰æè´¨çš„ç´¢å¼• = å·²å­˜åœ¨çš„æè´¨æ•°
   uint32_t materialIndex = static_cast<uint32_t>(ms->m_Materials.size());
 
-  // ¸¨Öú lambda£º¼ÓÔØÎÆÀíµ½ CPU ÄÚ´æ£¬´´½¨ PendingGpuTexture
+  // è¾…åŠ© lambdaï¼šåŠ è½½çº¹ç†åˆ° CPU å†…å­˜ï¼Œåˆ›å»º PendingGpuTexture
   auto LoadTextureCpu = [&](aiTextureType aiType, const std::string& uniformName,
                              RHIFormat defaultFormat, const char* texLabel) -> bool {
     if (aiMat->GetTextureCount(aiType) > 0) {
@@ -531,9 +531,9 @@ void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial *aiMat,
     return false;
   };
 
-  // ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-  // Blinn-Phong ÌùÍ¼
-  // ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // Blinn-Phong è´´å›¾
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   bool hasNormal   = LoadTextureCpu(aiTextureType_NORMALS,  MaterialAsset::GetNormalMapLocation(),  RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB, "Normal");
   bool hasDiffuse  = LoadTextureCpu(aiTextureType_DIFFUSE,   MaterialAsset::GetDiffuseMapLocation(), RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB, "Diffuse");
@@ -543,9 +543,9 @@ void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial *aiMat,
   if (!hasDiffuse)  mtlAsset->SetDiffuseMap(Renderer::GetWhiteTexture());
   if (!hasSpecular) mtlAsset->SetSpecularMap(Renderer::GetBlackTexture());
 
-  // Diffuse Ïà¹Ø£º×Ô¶¯¼ì²â _Light / _Ramp ÌùÍ¼
+  // Diffuse ç›¸å…³ï¼šè‡ªåŠ¨æ£€æµ‹ _Light / _Ramp è´´å›¾
   if (hasDiffuse) {
-    // Õ¼Î» Light/Ramp£¨ÕâĞ©ÌùÍ¼¿ÉÑ¡£¬²»Ç¿ÖÆÑÓ³Ù¼ÓÔØ£©
+    // å ä½ Light/Rampï¼ˆè¿™äº›è´´å›¾å¯é€‰ï¼Œä¸å¼ºåˆ¶å»¶è¿ŸåŠ è½½ï¼‰
     mtl->SetTexture(MaterialAsset::GetToneLightMapLocation(), Renderer::GetWhiteTexture());
     mtl->SetTexture(MaterialAsset::GetToneRampMapLocation(), Renderer::GetWhiteTexture());
   } else {
@@ -553,9 +553,9 @@ void AssimpMeshImporter::ImportMaterialCpu(const aiMaterial *aiMat,
     mtl->SetTexture(MaterialAsset::GetToneRampMapLocation(), Renderer::GetWhiteTexture());
   }
 
-  // ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-  // PBR ÌùÍ¼
-  // ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // PBR è´´å›¾
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   bool hasAlbedo    = LoadTextureCpu(aiTextureType_BASE_COLOR,         MaterialAsset::GetAlbedoMapLocation(),  RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB, "Albedo");
   bool hasAO        = LoadTextureCpu(aiTextureType_AMBIENT_OCCLUSION,  MaterialAsset::GetAOMapLocation(),      RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB, "AO");

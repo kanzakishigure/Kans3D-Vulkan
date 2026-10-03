@@ -14,13 +14,13 @@ namespace Kans
 	//TODO use texture compress	
 	// value
 		static const std::string MaterialName = "material.";
-		//Âş·´ÉäÏî
+		//æ¼«åå°„é¡¹
 		static const std::string s_DiffuseUniform = MaterialName + "U_Diffuse";
-		//¸ß¹âÏî			
+		//é«˜å…‰é¡¹			
 		static const std::string s_SpecularUniform = MaterialName + "U_Specular";
-		//×Ô·¢¹âÏî		  
+		//è‡ªå‘å…‰é¡¹		  
 		static const std::string s_EmissionUniform = MaterialName + "U_Emission";
-		//¸ß¹â¶È			
+		//é«˜å…‰åº¦			
 		static const std::string s_ShininessUniform = MaterialName + "U_Shininess";
 		
 	//Texture	

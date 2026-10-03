@@ -1,4 +1,4 @@
-﻿using Kans;
+using Kans;
 using System;
 using System.Runtime.CompilerServices;
 

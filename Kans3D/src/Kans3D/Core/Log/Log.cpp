@@ -11,7 +11,7 @@ namespace Kans
 	void Log::Init()
 	{
 		spdlog::set_pattern("%^ [%T] %n: %v %$");
-		//ÑÕÉ«¿ªÊ¼±ê¼Ç Ê±¼ä´Á loggerÀàĞÍ Êµ¼ÊÎÄ±¾ ÑÕÉ«½áÊø±ê¼Ç
+		//é¢œè‰²å¼€å§‹æ ‡è®° æ—¶é—´æˆ³ loggerç±»å‹ å®é™…æ–‡æœ¬ é¢œè‰²ç»“æŸæ ‡è®°
 		
 		
 		s_CoreLogger = spdlog::stdout_color_mt("Kans3D");

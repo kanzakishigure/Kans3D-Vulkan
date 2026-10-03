@@ -43,7 +43,7 @@ namespace Kans
 		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL + (uint16_t)mode);
 	}
 
-	//c++17新特性std::pair 返回一对数值，使用{}
+	//c++17鏂扮壒鎬td::pair 杩斿洖涓�瀵规暟鍊硷紝浣跨敤{}
 	std::pair<float, float> Input::GetMousePosition()
 	{
 		auto window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());

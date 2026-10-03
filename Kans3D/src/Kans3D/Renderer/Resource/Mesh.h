@@ -17,17 +17,17 @@
 namespace Kans
 {
 	// ============================================================
-	// PendingGpuTexture ¡ª ÑÓ³Ù GPU ÎÆÀí´´½¨Êı¾İ
-	// ¹¤×÷Ïß³Ì¼ÓÔØÍ¼Æ¬µ½ÄÚ´æ£¬Ö÷Ïß³Ì¾İ´Ë´´½¨ OpenGL ÎÆÀí
+	// PendingGpuTexture â€” å»¶è¿Ÿ GPU çº¹ç†åˆ›å»ºæ•°æ®
+	// å·¥ä½œçº¿ç¨‹åŠ è½½å›¾ç‰‡åˆ°å†…å­˜ï¼Œä¸»çº¿ç¨‹æ®æ­¤åˆ›å»º OpenGL çº¹ç†
 	// ============================================================
 	struct PendingGpuTexture
 	{
-		Buffer PixelData;              // stbi_load ·µ»ØµÄÔ­Ê¼ÏñËØÊı¾İ
+		Buffer PixelData;              // stbi_load è¿”å›çš„åŸå§‹åƒç´ æ•°æ®
 		uint32_t Width = 0;
 		uint32_t Height = 0;
 		RHIFormat Format = RHI_FORMAT_MAX_ENUM;
-		uint32_t MaterialIndex = 0;    // ¶ÔÓ¦ MaterialTable ÖĞµÄ slot
-		std::string TextureUniformName; // ²ÄÖÊ uniform Ãû³Æ
+		uint32_t MaterialIndex = 0;    // å¯¹åº” MaterialTable ä¸­çš„ slot
+		std::string TextureUniformName; // æè´¨ uniform åç§°
 
 		~PendingGpuTexture()
 		{
@@ -38,7 +38,7 @@ namespace Kans
 			}
 		}
 
-		// ½ûÖ¹¿½±´£¨ÓĞ owning raw pointer£©
+		// ç¦æ­¢æ‹·è´ï¼ˆæœ‰ owning raw pointerï¼‰
 		PendingGpuTexture() = default;
 		PendingGpuTexture(PendingGpuTexture&& other) noexcept
 			: PixelData(other.PixelData), Width(other.Width), Height(other.Height),
@@ -124,16 +124,16 @@ namespace Kans
 		
 		const std::string& GetLoadPath() const { return m_LoadPath; }
 
-		// ---- ÑÓ³Ù GPU ×ÊÔ´´´½¨£¨·½°¸Ò»£ºCPU/GPU ·ÖÀë£©----
+		// ---- å»¶è¿Ÿ GPU èµ„æºåˆ›å»ºï¼ˆæ–¹æ¡ˆä¸€ï¼šCPU/GPU åˆ†ç¦»ï¼‰----
 		bool IsGpuReady() const { return m_GpuReady; }
 
-		// ´Ó¹¤×÷Ïß³Ìµ÷ÓÃ£º´æ´¢´ı´´½¨µÄ×ÊÔ´Êı¾İ£¨ÎŞ GL µ÷ÓÃ£©
+		// ä»å·¥ä½œçº¿ç¨‹è°ƒç”¨ï¼šå­˜å‚¨å¾…åˆ›å»ºçš„èµ„æºæ•°æ®ï¼ˆæ—  GL è°ƒç”¨ï¼‰
 		void AddPendingTexture(PendingGpuTexture&& tex)
 		{
 			m_PendingTextures.push_back(std::move(tex));
 		}
 
-		// ´ÓÖ÷Ïß³Ìµ÷ÓÃ£º´´½¨ËùÓĞÑÓ³ÙµÄ GPU ×ÊÔ´£¨ÎÆÀí + VA/VB/IB£©
+		// ä»ä¸»çº¿ç¨‹è°ƒç”¨ï¼šåˆ›å»ºæ‰€æœ‰å»¶è¿Ÿçš„ GPU èµ„æºï¼ˆçº¹ç† + VA/VB/IBï¼‰
 		void FinalizeGpuResources();
 
 	private:
@@ -160,7 +160,7 @@ namespace Kans
 		//?????????????????????????
 		BindBox m_BindingBox;
 
-		// ÑÓ³Ù GPU ×ÊÔ´
+		// å»¶è¿Ÿ GPU èµ„æº
 		bool m_GpuReady = false;
 		std::vector<PendingGpuTexture> m_PendingTextures;
 

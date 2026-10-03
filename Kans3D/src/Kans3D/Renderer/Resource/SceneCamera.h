@@ -9,18 +9,18 @@ namespace Kans {
 	public: 
 		enum class ProjectionType{ Perspective = 0,Orthographic };
 	public:
-		//ÉèÖÃÏà»úÊôĞÔ
+		//è®¾ç½®ç›¸æœºå±æ€§
 		void SetPerspectve(float PerspectiveFOV, float Near, float Far);
 		void SetOrthographic(float Size, float Near, float Far);
 		void SetViewportSize(uint32_t width, uint32_t height);
-		//ÉèÖÃÍ¸ÊÓÉãÏñ»ú²ÎÊı
+		//è®¾ç½®é€è§†æ‘„åƒæœºå‚æ•°
 		void SetPerspectiveVerticalFOV(float VerticalFOV) { m_PerspectiveFOV = glm::radians(VerticalFOV); ReCalcaluteProjection(); }
 		float GetPerspectiveVerticalFOV() const { return glm::degrees(m_PerspectiveFOV); }
 		void SetPerspectiveNearClip(float NearClip) { m_PerspectiveNear = NearClip;ReCalcaluteProjection(); }
 		float GetPerspectiveNearClip() const { return m_PerspectiveNear; }
 		void SetPerspectiveFarClip(float FarClip) { m_PerspectiveFar = FarClip;ReCalcaluteProjection(); }
 		float GetPerspectiveFarClip() const { return m_PerspectiveFar; }
-		//ÉèÖÃÕı½»ÉãÏñ»ú²ÎÊı
+		//è®¾ç½®æ­£äº¤æ‘„åƒæœºå‚æ•°
 		void SetOrthographicSize(float size) { m_OrthographicSize = size; ReCalcaluteProjection();}
 		float GetOrthographicSize() const { return m_OrthographicSize; }
 		void SetOrthographicNearClip(float nearClip) { m_OrthographicNear = nearClip;ReCalcaluteProjection(); }

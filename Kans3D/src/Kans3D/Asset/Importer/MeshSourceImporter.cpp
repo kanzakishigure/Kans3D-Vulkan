@@ -1,4 +1,4 @@
-﻿#include "kspch.h"
+#include "kspch.h"
 #include "MeshSourceImporter.h"
 
 #include "Kans3D/Renderer/Resource/Mesh.h"

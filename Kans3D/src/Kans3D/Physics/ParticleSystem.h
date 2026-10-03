@@ -8,12 +8,12 @@ namespace Kans
 	struct  ParticleProps
 	{
 		glm::vec2 Position;
-		glm::vec2 Velocity, VelocityVariation;//Á£×ÓËÙ¶ÈÓëÁ£×Ó¼ÓËÙ¶È
+		glm::vec2 Velocity, VelocityVariation;//ç²’å­é€Ÿåº¦ä¸ç²’å­åŠ é€Ÿåº¦
 		glm::vec4 ColorBegin,ColorEnd;
 		float SizeBegin, SizeEnd, SizeVariation;
 		float LifeTime = 1.0f;
 	};
-	//Ä¿Ç°Ö»Ö§³Ö2DÁ£×ÓĞ§¹û£¬Á£×ÓÊôĞÔÈÔÎª3DÊôĞÔ
+	//ç›®å‰åªæ”¯æŒ2Dç²’å­æ•ˆæœï¼Œç²’å­å±æ€§ä»ä¸º3Då±æ€§
 	class ParticleSystem
 	{
 	public: 
@@ -36,7 +36,7 @@ namespace Kans
 			bool Active = false;
 		};
 
-		//ºËĞÄË¼ÏëÔÚÓÚ¶ÔÓÚÁ£×Ó£¬ÎÒÃÇ²»»áÔÚÃ¿´ÎĞèÒª·¢ÉäÁ£×ÓµÄÊ±ºòÈ¥Éú³É£¬¶øÊÇÌáÇ°×¼±¸ºÃÁ£×Ó³Ø£¬ÔÚĞèÒª·¢ÉäÁ£×ÓÊ±£¬¶Ô³ØÄÚÁ£×Ó¸³Öµ
+		//æ ¸å¿ƒæ€æƒ³åœ¨äºå¯¹äºç²’å­ï¼Œæˆ‘ä»¬ä¸ä¼šåœ¨æ¯æ¬¡éœ€è¦å‘å°„ç²’å­çš„æ—¶å€™å»ç”Ÿæˆï¼Œè€Œæ˜¯æå‰å‡†å¤‡å¥½ç²’å­æ± ï¼Œåœ¨éœ€è¦å‘å°„ç²’å­æ—¶ï¼Œå¯¹æ± å†…ç²’å­èµ‹å€¼
 		std::vector<Particle> m_ParticlePool;
 		uint32_t m_PoolIndex;
 		

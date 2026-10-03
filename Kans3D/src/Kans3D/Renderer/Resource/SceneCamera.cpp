@@ -28,11 +28,11 @@ namespace Kans
 		m_AspectRatio = (float)width / (float)height;
 		switch (m_ProjectionType)
 		{
-			//使用glm::内置函数直接生成透视矩阵
+			//浣跨敤glm::鍐呯疆鍑芥暟鐩存帴鐢熸垚閫忚鐭╅樀
 		case ProjectionType::Perspective:
 			m_ProjectionMatrix = glm::perspectiveFov(m_PerspectiveFOV, (float)width, (float)height, m_PerspectiveNear, m_PerspectiveFar);
 			break;
-			//经过视口变化
+			//缁忚繃瑙嗗彛鍙樺寲
 		case ProjectionType::Orthographic:
 			float aspect = (float)width / (float)height;
 			float width = m_OrthographicSize * aspect;
@@ -47,11 +47,11 @@ namespace Kans
 	{
 		switch (m_ProjectionType)
 		{
-			//使用glm::内置函数直接生成透视矩阵
+			//浣跨敤glm::鍐呯疆鍑芥暟鐩存帴鐢熸垚閫忚鐭╅樀
 		case ProjectionType::Perspective:
 			m_ProjectionMatrix = glm::perspective(m_PerspectiveFOV, m_AspectRatio,m_PerspectiveNear, m_PerspectiveFar);
 			break;
-			//经过视口变化
+			//缁忚繃瑙嗗彛鍙樺寲
 		case ProjectionType::Orthographic:
 			float width = m_OrthographicSize * m_AspectRatio;
 			float height = m_OrthographicSize;

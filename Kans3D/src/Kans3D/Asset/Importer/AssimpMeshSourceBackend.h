@@ -6,12 +6,12 @@
 namespace Kans
 {
 	// ============================================================
-	// AssimpMeshSourceBackend ¡ª »ùÓÚ Assimp ¿âµÄÍø¸ñÔ´µ¼Èëºó¶Ë£¨V3 ÔöÇ¿°æ£©
+	// AssimpMeshSourceBackend â€” åŸºäº Assimp åº“çš„ç½‘æ ¼æºå¯¼å…¥åç«¯ï¼ˆV3 å¢å¼ºç‰ˆï¼‰
 	//
-	// V3 ĞÂÔö£º
-	//   - ÊµÏÖ Preview()£ºÊ¹ÓÃÇáÁ¿ Assimp ¶ÁÈ¡»ñÈ¡Í³¼ÆĞÅÏ¢
-	//   - Import() Ìí¼Ó progress »Øµ÷Ö§³Ö
-	//   - SupportsPreview() ·µ»Ø true
+	// V3 æ–°å¢ï¼š
+	//   - å®ç° Preview()ï¼šä½¿ç”¨è½»é‡ Assimp è¯»å–è·å–ç»Ÿè®¡ä¿¡æ¯
+	//   - Import() æ·»åŠ  progress å›è°ƒæ”¯æŒ
+	//   - SupportsPreview() è¿”å› true
 	// ============================================================
 
 	class AssimpMeshSourceBackend : public MeshSourceBackend

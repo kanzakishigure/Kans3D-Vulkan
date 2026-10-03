@@ -20,7 +20,7 @@ vec2 Hammersley(uint i, uint N)
     return vec2(float(i)/float(N), RadicalInverse_VdC(i));
 }
 
-//ggx·¨Ïß·Ö²¼º¯Êı
+//ggxæ³•çº¿åˆ†å¸ƒå‡½æ•°
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
     float a = roughness*roughness;
@@ -35,23 +35,23 @@ float DistributionGGX(vec3 N, vec3 H, float roughness)
     return nom / denom;
 }
 
-//ggxÖØÒªĞÔ²ÉÑù
+//ggxé‡è¦æ€§é‡‡æ ·
 vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness)
 {
     float a = roughness*roughness;
 	
-    //xiÎª»¡¶ÈÖÆ£¬ĞèÒª×ª»»Îª½Ç¶È
+    //xiä¸ºå¼§åº¦åˆ¶ï¼Œéœ€è¦è½¬æ¢ä¸ºè§’åº¦
 	float phi = 2.0 * PI * Xi.x;
 	float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
 	float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
 	
-	// ´ÓÇòÃæ×ø±êÏµ×ª»»µ½µÑ¿¨¶û×ø±êÏµ
+	// ä»çƒé¢åæ ‡ç³»è½¬æ¢åˆ°ç¬›å¡å°”åæ ‡ç³»
 	vec3 H;
 	H.x = cos(phi) * sinTheta;
 	H.y = sin(phi) * sinTheta;
 	H.z = cosTheta;
 	
-	// ½«°ë³ÌÏòÁ¿H´ÓÇĞÏß¿Õ¼ä×ª»»µ½ÊÀ½ç¿Õ¼ä
+	// å°†åŠç¨‹å‘é‡Hä»åˆ‡çº¿ç©ºé—´è½¬æ¢åˆ°ä¸–ç•Œç©ºé—´
 	vec3 up          = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
 	vec3 tangent   = normalize(cross(up, N));
 	vec3 bitangent = normalize(cross(N, tangent));

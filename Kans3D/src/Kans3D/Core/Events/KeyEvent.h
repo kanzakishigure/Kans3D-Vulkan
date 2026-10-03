@@ -5,7 +5,7 @@
 namespace Kans {
 
 
-	//KeyEventµÄ»ùÀà£¬ÓÃÓÚºóĞøKeyEventµÄÄ£°å
+	//KeyEventçš„åŸºç±»ï¼Œç”¨äºåç»­KeyEventçš„æ¨¡æ¿
 	class  KeyEvent:public Event
 	{
 	public:
@@ -21,7 +21,7 @@ namespace Kans {
 	class  KeyPressedEvent :public KeyEvent
 	{
 	public:
-		//×ÓÀàÍ¨¹ıµ÷ÓÃ¸¸Àà¹¹Ôìº¯Êı£¬¶Ô´Ó¸¸Àà¼Ì³ĞµÄÖµ½øĞĞ¸³Öµ
+		//å­ç±»é€šè¿‡è°ƒç”¨çˆ¶ç±»æ„é€ å‡½æ•°ï¼Œå¯¹ä»çˆ¶ç±»ç»§æ‰¿çš„å€¼è¿›è¡Œèµ‹å€¼
 		KeyPressedEvent(const KeyCode keycode, const uint16_t repeatCount)
 			: KeyEvent(keycode), m_RepeatCount(repeatCount){}
 

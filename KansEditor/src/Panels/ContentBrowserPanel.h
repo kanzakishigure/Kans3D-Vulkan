@@ -12,13 +12,13 @@ namespace Kans
 	class ContentBrowserPanel : public EditorPanel
 	{
 	public:
-		// ©¤©¤ View modes: progressively richer layout as icon tier grows ©¤©¤
+		// â”€â”€ View modes: progressively richer layout as icon tier grows â”€â”€
 		enum class ViewMode : uint8_t
 		{
-			CompactGrid,   // 48 / 64 px   ¡ú  icon + truncated name
-			StandardGrid,  // 80 / 96 px   ¡ú  icon + name + extension badge
-			DetailedGrid,  // 128 px       ¡ú  icon + name + ext + size + date
-			ExpandedGrid   // 160 / 192 px ¡ú  icon + name + ext + size + full date
+			CompactGrid,   // 48 / 64 px   â†’  icon + truncated name
+			StandardGrid,  // 80 / 96 px   â†’  icon + name + extension badge
+			DetailedGrid,  // 128 px       â†’  icon + name + ext + size + date
+			ExpandedGrid   // 160 / 192 px â†’  icon + name + ext + size + full date
 		};
 
 	public:
@@ -27,7 +27,7 @@ namespace Kans
 
 		static ContentBrowserPanel* Get() { return s_Instance; }
 
-		// ©¤©¤ Queries (called by ContentBrowserItem) ©¤©¤
+		// â”€â”€ Queries (called by ContentBrowserItem) â”€â”€
 		float    GetCurrentIconSize() const { return m_CurrentIconSize; }
 		ViewMode GetCurrentViewMode() const { return m_CurrentViewMode; }
 
@@ -56,7 +56,7 @@ namespace Kans
 		float FrameBorderSize = 1.5f;
 		float FrameRounding   = 8.0f;
 
-		// ©¤©¤ Auto-scaling state ©¤©¤
+		// â”€â”€ Auto-scaling state â”€â”€
 		float    m_CurrentIconSize   = 96.0f;
 		int      m_ComputedColumns   = 4;          // derived from layout calc
 		ViewMode m_CurrentViewMode   = ViewMode::StandardGrid;

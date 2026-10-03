@@ -29,7 +29,7 @@ namespace Kans {
 
 		virtual const WindowSpecification& GetWindowSpecification() const override { return m_Specification; }
 		virtual const void SetWindowSpecification(const WindowSpecification& spec) override { m_Specification = spec; }
-		//�ṹ
+		//结构
 		inline void SetEventCallback(const EventCallbackFn& callback) override     { m_EventCallback = callback; }
 		void SetVSync(bool enable) override;
 		bool IsVSync() const override ;

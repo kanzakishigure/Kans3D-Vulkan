@@ -28,7 +28,7 @@ namespace Kans{
 	public:
 		Application(const ApplicationSpecification& spec);
 
-		//±£Ö¤applicationÔÚÅÉÉúÀàµ÷ÓÃÊ±£¬ÄÜµ÷ÓÃµ½ÅÉÉúÀàµÄĞéÎö¹¹º¯Êı
+		//ä¿è¯applicationåœ¨æ´¾ç”Ÿç±»è°ƒç”¨æ—¶ï¼Œèƒ½è°ƒç”¨åˆ°æ´¾ç”Ÿç±»çš„è™šææ„å‡½æ•°
 		virtual ~Application();
 
 		void run();
@@ -37,7 +37,7 @@ namespace Kans{
 		void PushOverlay(Layer* overlay);
 		void Close() { m_Running = false; }
 
-		//·µ»ØµÄÊÇapplicationµÄµ¥Àı£¬ËùÒÔ²»Ó¦¸Ã½«Ö¸Õë·µ»Ø
+		//è¿”å›çš„æ˜¯applicationçš„å•ä¾‹ï¼Œæ‰€ä»¥ä¸åº”è¯¥å°†æŒ‡é’ˆè¿”å›
 		inline static Application& Get() { return *s_Instance; }
 		inline  Window& GetWindow() { return *m_Window; }
 
@@ -73,7 +73,7 @@ namespace Kans{
 		
 	};
 
-	Application* createApplication(int argc, char** argv);//¸Ãº¯ÊıÖ»Ó¦ÔÚÓ¦ÓÃ¶ËÊµÏÖ
+	Application* createApplication(int argc, char** argv);//è¯¥å‡½æ•°åªåº”åœ¨åº”ç”¨ç«¯å®ç°
 
 
 }

@@ -14,7 +14,7 @@ namespace Kans
 		Entity(const Entity& other) = default;
 
 
-		//ÎªÊµÏÖµ÷ÓÃ×é¼ş¹¹Ôìº¯Êı¶ø²»ÊÇÖ±½Ó´«Èë¹¹ÔìºÃµÄ×é¼ş£¬Ê¹ÓÃforward½«²ÎÊı×ª·¢
+		//ä¸ºå®ç°è°ƒç”¨ç»„ä»¶æ„é€ å‡½æ•°è€Œä¸æ˜¯ç›´æ¥ä¼ å…¥æ„é€ å¥½çš„ç»„ä»¶ï¼Œä½¿ç”¨forwardå°†å‚æ•°è½¬å‘
 		template<typename T, typename ... Args>
 		T& AddComponent(Args&&... args)
 		{
@@ -51,7 +51,7 @@ namespace Kans
 			void RemoveComponent()
 		{
 			CORE_ASSERT(HasComponent<T>(), "Entity don't Have component ");
-			//remove·½·¨Ö»ÓĞÔÚ×é¼ş´æÔÚÊÇ»á½øĞĞ²Á³ı£¬Èô×é¼ş²»´æÔÚ£¬Ôò²»»áÖ´ĞĞ
+			//removeæ–¹æ³•åªæœ‰åœ¨ç»„ä»¶å­˜åœ¨æ˜¯ä¼šè¿›è¡Œæ“¦é™¤ï¼Œè‹¥ç»„ä»¶ä¸å­˜åœ¨ï¼Œåˆ™ä¸ä¼šæ‰§è¡Œ
 			m_Scene->m_Registry.remove<T>(m_EntityHandle);
 		}
 		UUID GetUUID() const { return GetComponent<IDComponent>().ID; }

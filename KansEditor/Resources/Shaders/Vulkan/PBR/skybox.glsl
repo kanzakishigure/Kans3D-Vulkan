@@ -29,7 +29,7 @@ layout (location = 0) in vec3 localPos;
 
 layout (location = 0) out vec4 FragColor;
 
-//立方体贴�?
+//绔嬫柟浣撹创鍥?
 
 layout (set = 0,binding = 0) uniform samplerCube environmentMap;
 
@@ -37,7 +37,7 @@ void main()
 {
     vec3 envColor = texture(environmentMap, localPos).rgb;
 
-    //伽玛�?�?
+    //浼界帥鐭?姝?
     envColor = envColor / (envColor + vec3(1.0));
     envColor = pow(envColor, vec3(1.0/2.2)); 
 

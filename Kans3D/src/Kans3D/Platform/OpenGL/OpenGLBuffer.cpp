@@ -23,7 +23,7 @@ namespace Kans{
 
 		glCreateBuffers(1, &m_RendererID);
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
-		//生成缓冲buffer，用于处理batchrendering
+		//鐢熸垚缂撳啿buffer锛岀敤浜庡鐞哹atchrendering
 		glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
 	}
 

@@ -11,7 +11,7 @@ namespace Kans {
 	public:
 		OpenGLTexture2D(const TextureSpecification& specification, const std::filesystem::path& filepath);
 		OpenGLTexture2D(const TextureSpecification& specification, Buffer data = Buffer());
-		//重写Texture的虚析构函数，保证从虚函数表能查找到对应析构函数
+		//閲嶅啓Texture鐨勮櫄鏋愭瀯鍑芥暟锛屼繚璇佷粠铏氬嚱鏁拌〃鑳芥煡鎵惧埌瀵瑰簲鏋愭瀯鍑芥暟
 		virtual ~OpenGLTexture2D() override;
 
 		virtual void Bind(uint32_t slot = 0) const override;

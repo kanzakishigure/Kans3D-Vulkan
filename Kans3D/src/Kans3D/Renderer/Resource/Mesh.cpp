@@ -69,13 +69,13 @@ namespace Kans
 
 	MeshSource::~MeshSource()
 	{
-		// PendingGpuTexture µÄÎö¹¹º¯Êı»á×Ô¶¯ÊÍ·Å stbi Êı¾İ
+		// PendingGpuTexture çš„ææ„å‡½æ•°ä¼šè‡ªåŠ¨é‡Šæ”¾ stbi æ•°æ®
 		m_PendingTextures.clear();
 	}
 
 	// ============================================================
-	// FinalizeGpuResources ¡ª Ö÷Ïß³Ìµ÷ÓÃ£¬´´½¨ËùÓĞÑÓ³ÙµÄ GPU ×ÊÔ´
-	// ±ØĞëÔÚ OpenGL context °ó¶¨µÄÏß³ÌÉÏµ÷ÓÃ£¨¼´Ö÷Ïß³Ì£©
+	// FinalizeGpuResources â€” ä¸»çº¿ç¨‹è°ƒç”¨ï¼Œåˆ›å»ºæ‰€æœ‰å»¶è¿Ÿçš„ GPU èµ„æº
+	// å¿…é¡»åœ¨ OpenGL context ç»‘å®šçš„çº¿ç¨‹ä¸Šè°ƒç”¨ï¼ˆå³ä¸»çº¿ç¨‹ï¼‰
 	// ============================================================
 	void MeshSource::FinalizeGpuResources()
 	{
@@ -84,10 +84,10 @@ namespace Kans
 		if (m_GpuReady)
 			return;
 
-		CORE_INFO_TAG("Mesh", "FinalizeGpuResources ¡ª creating GPU buffers for {} submeshes, {} pending textures",
+		CORE_INFO_TAG("Mesh", "FinalizeGpuResources â€” creating GPU buffers for {} submeshes, {} pending textures",
 		              m_SubMeshes.size(), m_PendingTextures.size());
 
-		// ¨T¨T¨T ²½Öè 1: ´´½¨ VA/VB/IB ¨T¨T¨T
+		// â•â•â• æ­¥éª¤ 1: åˆ›å»º VA/VB/IB â•â•â•
 		{
 			const double offset = 1.0 / 8000.0;
 			std::vector<glm::vec3> smoothNormals;
@@ -123,10 +123,10 @@ namespace Kans
 
 				m_VertexArray.push_back(VA);
 			}
-			CORE_INFO_TAG("Mesh", "  VA/VB/IB ¡ª {} vertex arrays created", m_VertexArray.size());
+			CORE_INFO_TAG("Mesh", "  VA/VB/IB â€” {} vertex arrays created", m_VertexArray.size());
 		}
 
-		// ¨T¨T¨T ²½Öè 2: ´´½¨ÎÆÀí²¢×¢Èë MaterialAsset ¨T¨T¨T
+		// â•â•â• æ­¥éª¤ 2: åˆ›å»ºçº¹ç†å¹¶æ³¨å…¥ MaterialAsset â•â•â•
 		{
 			TextureSpecification spec;
 
@@ -138,7 +138,7 @@ namespace Kans
 
 				Ref<Texture2D> tex = Texture2D::Create(spec, pendingTex.PixelData);
 
-				// ×¢Èëµ½¶ÔÓ¦ MaterialAsset
+				// æ³¨å…¥åˆ°å¯¹åº” MaterialAsset
 				if (m_MaterialTable && m_MaterialTable->HasMaterial(pendingTex.MaterialIndex))
 				{
 					const auto& materialAsset = m_MaterialTable->GetMaterialAsset(pendingTex.MaterialIndex);
@@ -149,15 +149,15 @@ namespace Kans
 					}
 				}
 
-				// pendingTex Îö¹¹Ê±×Ô¶¯ free stbi Êı¾İ
+				// pendingTex ææ„æ—¶è‡ªåŠ¨ free stbi æ•°æ®
 			}
 
-			CORE_INFO_TAG("Mesh", "  Textures ¡ª {} textures created and assigned", m_PendingTextures.size());
+			CORE_INFO_TAG("Mesh", "  Textures â€” {} textures created and assigned", m_PendingTextures.size());
 			m_PendingTextures.clear();
 		}
 
 		m_GpuReady = true;
-		CORE_INFO_TAG("Mesh", "FinalizeGpuResources ¡ª complete");
+		CORE_INFO_TAG("Mesh", "FinalizeGpuResources â€” complete");
 	}
 
 	StaticMesh::StaticMesh(Ref<MeshSource> source)

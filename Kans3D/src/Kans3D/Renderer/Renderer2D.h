@@ -23,7 +23,7 @@ namespace Kans {
 		static void Shutdown();
 		static void Flush();
 
-		//¼òµ¥Í¼ÔªµÄ»æÖÆ£¬Ò»¸öÓĞzÖáÒ»¸öÎŞzÖá
+		//ç®€å•å›¾å…ƒçš„ç»˜åˆ¶ï¼Œä¸€ä¸ªæœ‰zè½´ä¸€ä¸ªæ— zè½´
 		static void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& tintcolor);
 		static void DrawQuad(const glm::vec3& position, const glm::vec2& size, const glm::vec4& tintcolor);
 		static void DrawQuad(const glm::mat4& transform, const glm::vec4& tintcolor);

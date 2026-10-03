@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "Kans3D/Renderer/Resource/Mesh.h"
 

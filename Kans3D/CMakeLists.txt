@@ -1,5 +1,5 @@
 # ============================================================
-# Kans3D â€? StaticLib (C++17, PCH: kspch.h)
+# Kans3D éˆ¥? StaticLib (C++17, PCH: kspch.h)
 # premake: project "Kans3D", location "Kans3D"
 # ============================================================
 set(KANS3D_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -25,7 +25,7 @@ target_compile_definitions(Kans3D PUBLIC
 )
 if(WIN32)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        target_compile_options(Kans3D PUBLIC /Zc:preprocessor)
+        target_compile_options(Kans3D PUBLIC /Zc:preprocessor /utf-8)
     endif()
     target_compile_definitions(Kans3D PUBLIC
         PLATFORM_WINDOWS

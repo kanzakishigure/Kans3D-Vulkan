@@ -32,7 +32,7 @@ namespace Kans {
 			case ShaderDataType::Bool:		return 1;
 		}
 		
-		CORE_ASSERT(false, "unknown shaderdatatype£¡");
+		CORE_ASSERT(false, "unknown shaderdatatypeï¼");
 		return 0;
 	}
 	struct BufferElement
@@ -63,7 +63,7 @@ namespace Kans {
 				case ShaderDataType::Int4:		return 4;
 				case ShaderDataType::Bool:		return 1;
 			}
-			CORE_ASSERT(false, "unknown shaderdatatype£¡");
+			CORE_ASSERT(false, "unknown shaderdatatypeï¼");
 			return 0;
 		}
 	};
@@ -117,7 +117,7 @@ namespace Kans {
 		virtual const BufferLayout& GetLayout() const = 0;
 
 	};
-	//Ä¿Ç°Ö»Ö§³Ö32Î»µÄindexË÷Òı
+	//ç›®å‰åªæ”¯æŒ32ä½çš„indexç´¢å¼•
 	class IndexBuffer : public RefCounter
 	{
 	public:

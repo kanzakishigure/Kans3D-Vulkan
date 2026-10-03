@@ -6,7 +6,7 @@ namespace Kans
 {
 
 	//mt19937 
-	//Ã·É­Ğı×ªËã·¨£¨Mersenne Twister Algorithm,¼ò³Æ MT,1997ÄêÌá³ö£© Îª½â¾öÎ±Ëæ»úÊı²úÉúËæ»úÊıÖÊÁ¿²»¸ßÌá³öµÄĞÂËæ»úÊıÉú³ÉËã·¨
+	//æ¢…æ£®æ—‹è½¬ç®—æ³•ï¼ˆMersenne Twister Algorithm,ç®€ç§° MT,1997å¹´æå‡ºï¼‰ ä¸ºè§£å†³ä¼ªéšæœºæ•°äº§ç”Ÿéšæœºæ•°è´¨é‡ä¸é«˜æå‡ºçš„æ–°éšæœºæ•°ç”Ÿæˆç®—æ³•
 	static std::random_device s_RandomDevice;
 	static std::mt19937_64 re(s_RandomDevice());
 	static std::uniform_int_distribution<int64_t> s_UniformDistribution;
@@ -15,7 +15,7 @@ namespace Kans
 	static std::uniform_int_distribution<int64_t> s_UniformDistribution32;
 
 	
-	//Ä¬ÈÏ¹¹Ôìº¯ÊıÌá¹©Ò»¸öuuid
+	//é»˜è®¤æ„é€ å‡½æ•°æä¾›ä¸€ä¸ªuuid
 	UUID::UUID()
 		:m_UUID(s_UniformDistribution(re))
 	{

@@ -1,4 +1,4 @@
-﻿#include "kspch.h"
+#include "kspch.h"
 #include "AssimpMeshSourceBackend.h"
 
 #include <assimp/Importer.hpp>

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "MeshSourceBackend.h"
 // Legacy direct-preview parser, not a Product importer.

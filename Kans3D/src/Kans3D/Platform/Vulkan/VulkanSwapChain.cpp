@@ -243,7 +243,7 @@ namespace Kans
 		CORE_ASSERT(formatCount > 0);
 		std::vector<VkSurfaceFormatKHR> formats(formatCount);
 		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, m_Surface, &formatCount, formats.data());
-		//we use the B8G8R8A8_UNORM£¬so we need add gamma correction in fragment shader 
+		//we use the B8G8R8A8_UNORMï¼Œso we need add gamma correction in fragment shader 
 		for (auto& format : formats)
 		{
 			if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)

@@ -4,7 +4,7 @@
 #include "Kans3D/Renderer/Resource/Texture.h"
 #include "Kans3D/Core/ByteBuffer.h"
 namespace Kans {
-	//参照cherno的vulkan版材质类进行进行改写
+	//鍙傜収cherno鐨剉ulkan鐗堟潗璐ㄧ被杩涜杩涜鏀瑰啓
 
 	
 	class OpenGLMaterial :public Material

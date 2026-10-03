@@ -14,9 +14,9 @@ namespace Kans
 	static  bool s_Validation = false;
 #endif// will use for all namespace
 	static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallBack(
-		VkDebugUtilsMessageSeverityFlagBitsEXT  messageSeverity,//ĞÅÏ¢ÑÏÖØĞÔ
-		VkDebugUtilsMessageTypeFlagsEXT messageType,//ĞÅÏ¢ÀàĞÍ
-		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,//ĞĞÎªµÄÏà¹ØĞÅÏ¢
+		VkDebugUtilsMessageSeverityFlagBitsEXT  messageSeverity,//ä¿¡æ¯ä¸¥é‡æ€§
+		VkDebugUtilsMessageTypeFlagsEXT messageType,//ä¿¡æ¯ç±»å‹
+		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,//è¡Œä¸ºçš„ç›¸å…³ä¿¡æ¯
 		void* pUserData);
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Vulkan Utils
@@ -78,19 +78,19 @@ namespace Kans
 		}
 	}
 	static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallBack(
-		VkDebugUtilsMessageSeverityFlagBitsEXT  messageSeverity,//ĞÅÏ¢ÑÏÖØĞÔ
-		VkDebugUtilsMessageTypeFlagsEXT messageType,//ĞÅÏ¢ÀàĞÍ
-		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,//ĞĞÎªµÄÏà¹ØĞÅÏ¢
+		VkDebugUtilsMessageSeverityFlagBitsEXT  messageSeverity,//ä¿¡æ¯ä¸¥é‡æ€§
+		VkDebugUtilsMessageTypeFlagsEXT messageType,//ä¿¡æ¯ç±»å‹
+		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,//è¡Œä¸ºçš„ç›¸å…³ä¿¡æ¯
 		void* pUserData)
 	{
 
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Vulkan Debug Callback
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//pCallbackDataËùÖ¸ÏòµÄĞÅÏ¢Îª
-		//pMessage µ÷ÊÔĞÅÏ¢
-		//pObjects Ïà¹Ø¶ÔÏóÊı×é
-		//objectCount Êı×éµÄ´óĞ¡
+		//pCallbackDataæ‰€æŒ‡å‘çš„ä¿¡æ¯ä¸º
+		//pMessage è°ƒè¯•ä¿¡æ¯
+		//pObjects ç›¸å…³å¯¹è±¡æ•°ç»„
+		//objectCount æ•°ç»„çš„å¤§å°
 
 		if (messageSeverity >= VkDebugUtilsMessageSeverityFlagBitsEXT::VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 		{
@@ -99,7 +99,7 @@ namespace Kans
 		}
 
 
-		//·µ»ØÖµ¾ö¶¨¸Ã»Øµ÷º¯ÊıÊÇ·ñÓ¦¸ÃÖÕÖ¹³ÌĞò£¬ÎÒÃÇ²»Ï£ÍûÖÕÖ¹³ÌĞò£¬·µ»ØVK_FALSE
+		//è¿”å›å€¼å†³å®šè¯¥å›è°ƒå‡½æ•°æ˜¯å¦åº”è¯¥ç»ˆæ­¢ç¨‹åºï¼Œæˆ‘ä»¬ä¸å¸Œæœ›ç»ˆæ­¢ç¨‹åºï¼Œè¿”å›VK_FALSE
 		return VK_FALSE;
 	}
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -217,7 +217,7 @@ namespace Kans
 			instanceInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 			instanceInfo.ppEnabledLayerNames = validationLayers.data();
 
-			//Ìî³ädebugmessengerµÄcreateInfo
+			//å¡«å……debugmessengerçš„createInfo
 			Utils::PopulateDebugMessengerCreateInfo(debugCreateInfo);
 			instanceInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 		}
@@ -239,18 +239,18 @@ namespace Kans
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			VkDebugUtilsMessengerCreateInfoEXT createInfo{};
 			createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-			//Ï£Íûµ÷ÓÃ»Øµ÷º¯ÊıµÄĞÅÏ¢ÑÏÖØĞÔµÈ¼¶
+			//å¸Œæœ›è°ƒç”¨å›è°ƒå‡½æ•°çš„ä¿¡æ¯ä¸¥é‡æ€§ç­‰çº§
 			createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-			//Ï£Íûµ÷ÓÃ»Øµ÷º¯ÊıµÄĞÅÏ¢ÀàĞÍ
+			//å¸Œæœ›è°ƒç”¨å›è°ƒå‡½æ•°çš„ä¿¡æ¯ç±»å‹
 			createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-			//µ÷ÓÃµÄ»Øµ÷º¯Êı
+			//è°ƒç”¨çš„å›è°ƒå‡½æ•°
 			createInfo.pfnUserCallback = DebugCallBack;
 			createInfo.pUserData = nullptr; // Optional
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// vkCreateDebugUtilsMessengerEXT 
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			//ÒòÎªvkCreateDebugUtilsMessengerEXT ÊÇÒ»¸öÀ©Õ¹º¯Êı£¬ËùÒÔÎÒÃÇĞèÒª×ÔĞĞ²éÕÒ¸Ãº¯ÊıµÄº¯ÊıÖ¸ÕëµØÖ·
-			//Ê¹ÓÃÎÒÃÇ×Ô¼ºµÄ´úÀíº¯Êı£¬ÔÙÔÚ´úÀíº¯ÊıÖĞµ÷ÓÃÊµ¼ÊµÄ´´½¨º¯Êı
+			//å› ä¸ºvkCreateDebugUtilsMessengerEXT æ˜¯ä¸€ä¸ªæ‰©å±•å‡½æ•°ï¼Œæ‰€ä»¥æˆ‘ä»¬éœ€è¦è‡ªè¡ŒæŸ¥æ‰¾è¯¥å‡½æ•°çš„å‡½æ•°æŒ‡é’ˆåœ°å€
+			//ä½¿ç”¨æˆ‘ä»¬è‡ªå·±çš„ä»£ç†å‡½æ•°ï¼Œå†åœ¨ä»£ç†å‡½æ•°ä¸­è°ƒç”¨å®é™…çš„åˆ›å»ºå‡½æ•°
 			VK_CHECK_RESULT(Utils::CreateDebugUtilsMessengerEXT(s_VulkanInstance, &createInfo, nullptr, &m_DebugUtilsMessenger))
 		}
 

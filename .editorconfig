@@ -1,0 +1,13 @@
+root = true
+
+[*.{c,cc,cpp,cxx,h,hpp,hxx,inl,ipp,cs,glsl,vert,frag,geom,comp,cmake,lua,py,md,txt,json,yaml,yml,ini,bat,ps1}]
+charset = utf-8
+
+[.{clang-format,gitignore,gitattributes,gitmodules,editorconfig}]
+charset = utf-8
+
+[**/vendor/**]
+charset = unset
+
+[**/mono/**]
+charset = unset

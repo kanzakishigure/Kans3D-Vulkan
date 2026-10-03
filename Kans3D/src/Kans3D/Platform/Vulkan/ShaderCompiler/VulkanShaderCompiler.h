@@ -61,7 +61,7 @@ namespace Kans
 		bool CompileAndGetVulkanBinary(const VkShaderStageFlagBits ,std::vector<uint32_t>& data,const VkShaderStageFlagBits changedStages, bool debug, const bool forceCompile);
 		void TryGetVulkanCachedBinary(const std::filesystem::path& ,const char* extention,std::vector<uint32_t>& outData);
 
-		// I not sure should cache the metadata or just load meta data from file £¿
+		// I not sure should cache the metadata or just load meta data from file ï¼Ÿ
 
 		bool TryReadReflectionMetadataFromCahce();
 		void SerializeReflectionMetadata();

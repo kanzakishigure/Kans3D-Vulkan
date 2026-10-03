@@ -82,6 +82,8 @@ project "Kans3D"
 
     filter "files:Kans3D/vendor/ImGuizmo/**.cpp"
 	flags { "NoPCH" }
+    filter { "system:windows", "toolset:msc*" }
+        buildoptions { "/utf-8" }
     filter "system:windows" 
         systemversion "latest" 
 
@@ -192,6 +194,8 @@ project "KansEditor"
         }
 
        
+        filter { "system:windows", "toolset:msc*" }
+            buildoptions { "/utf-8" }
         filter "system:windows"
             systemversion "latest" 
     

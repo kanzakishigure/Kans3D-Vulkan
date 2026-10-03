@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Kans;
 
 namespace Sandbox

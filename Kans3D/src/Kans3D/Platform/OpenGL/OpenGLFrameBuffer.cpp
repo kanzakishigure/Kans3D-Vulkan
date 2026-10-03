@@ -127,7 +127,7 @@ namespace Kans {
 			glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 			glBindRenderbuffer(GL_RENDERBUFFER, renderbufer);
 
-			//ÏòframebufferÌí¼Óattachment
+			//å‘framebufferæ·»åŠ attachment
 			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, spec.Width, spec.Height);
 			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbufer);
 			m_Renderbuffers.push_back(renderbufer);
@@ -165,7 +165,7 @@ namespace Kans {
 		
 		
 		
-		//Éú³É°ó¶¨FrameBuffer
+		//ç”Ÿæˆç»‘å®šFrameBuffer
 		glCreateFramebuffers(1, &m_RendererID);
 		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
@@ -219,7 +219,7 @@ namespace Kans {
 				glDrawBuffer(GL_NONE);
 			}
 
-			//¼ì²é×´Ì¬ÊÇ·ñÍê³ÉFrameBufferµÄÉú³É
+			//æ£€æŸ¥çŠ¶æ€æ˜¯å¦å®ŒæˆFrameBufferçš„ç”Ÿæˆ
 			CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "FrameBuffer Incomplete!");
 
 		}
@@ -234,7 +234,7 @@ namespace Kans {
 			}
 #endif
 		}
-		//½â³ıbind
+		//è§£é™¤bind
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
