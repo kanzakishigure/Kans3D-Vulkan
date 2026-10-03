@@ -27,7 +27,7 @@ namespace Kans
     };
     static void NativeLog(glm::vec3* parameter)
     {
-        // HZ_CORE_WARN("vlaue :{0}", *parameter);
+        // CORE_WARN("value: {0}", *parameter);
         std::cout << parameter->x << parameter->y << parameter->z << std::endl;
     }
 

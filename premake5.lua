@@ -21,7 +21,7 @@ include "Kans3D/vendor/Glad"
 include "Kans3D/vendor/imgui"
 include "Kans3D/vendor/yaml-cpp"
 group""
---相当于将Hazel/vendor/GLFW下的remake5文件直接复制粘贴到此处
+-- 以上 include 加载依赖的 Premake 项目配置。
 group"Core"
 project "Kans3D"    
     location"Kans3D"

@@ -40,4 +40,4 @@
 #else
 #define CLIENT_ASSERT(x, ...)
 #define CORE_ASSERT(x, ...)
-#endif // HZ_ENABLE_ASSERTS
+#endif // ENABLE_ASSERTS

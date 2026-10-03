@@ -689,7 +689,7 @@ namespace Kans
 
             if (m_ViewportSize != *(glm::vec2*)&viewportsize)
             {
-                // HZ_INFO("ViewportSize:  {0}   {1}", viewportsize.x, viewportsize.y);
+                // CLIENT_INFO("ViewportSize: {0} {1}", viewportsize.x, viewportsize.y);
                 m_ViewportSize = {viewportsize.x, viewportsize.y};
                 // m_Framebuffer->Resize(viewportsize.x, viewportsize.y);
             }

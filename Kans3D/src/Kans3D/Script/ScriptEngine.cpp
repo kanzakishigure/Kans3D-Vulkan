@@ -232,7 +232,7 @@ namespace Kans
 
             std::string logstr = fmt::format("Assembly class: {:<32}  cacheed: {:>8}", fullname, isEntityClass);
             CORE_TRACE("{}", logstr);
-            // HZ_CORE_TRACE("Assembly class: {0}  cacheed {1}", fullname, isEntityClass);
+            // CORE_TRACE("Assembly class: {0}  cached: {1}", fullname, isEntityClass);
             // spdlog::info(spdlog::fmt_lib::format(std::locale("en_US.UTF-8"), "Multi threaded: {:L} threads, {:L}
             // messages", threads, iters))
         }

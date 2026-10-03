@@ -54,7 +54,6 @@ namespace Kans
     {
 
         PROFILE_FUCTION();
-        // 对于其他渲染级别的性能检测，不使用HZ_PROFILE_FUNCTION这个级别的检测，因为每次渲染执行的时候都会进行大量的复杂操作，在执行每次命令的时候，会消耗大量的时间，以及内存开销
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         // 深度测试
