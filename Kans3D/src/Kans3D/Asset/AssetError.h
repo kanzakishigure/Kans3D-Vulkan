@@ -2,26 +2,30 @@
 
 #include <string>
 
-namespace Kans {
+namespace Kans
+{
 
-enum class AssetErrorCode {
-  InvalidArgument,
-  NotFound,
-  InvalidData,
-  UnsupportedVersion,
-  IoError,
-  DuplicateID,
-  DuplicatePath,
-  NotImplemented,
-};
+    enum class AssetErrorCode
+    {
+        InvalidArgument,
+        NotFound,
+        InvalidData,
+        UnsupportedVersion,
+        IoError,
+        DuplicateID,
+        DuplicatePath,
+        NotImplemented,
+    };
 
-struct AssetError {
-  AssetErrorCode Code;
-  std::string Message;
-  AssetError(AssetErrorCode code, const std::string &message) {
-    this->Code = code;
-    this->Message = message;
-  }
-};
+    struct AssetError
+    {
+        AssetErrorCode Code;
+        std::string    Message;
+        AssetError(AssetErrorCode code, const std::string& message)
+        {
+            this->Code    = code;
+            this->Message = message;
+        }
+    };
 
 } // namespace Kans

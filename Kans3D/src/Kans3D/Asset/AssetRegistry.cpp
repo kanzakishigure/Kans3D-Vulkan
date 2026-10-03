@@ -4,23 +4,17 @@
 namespace Kans
 {
 
-	AssetRegistry::AssetRegistry()
-	{
+    AssetRegistry::AssetRegistry() {}
 
-	}
+    void AssetRegistry::LoadAllAssetMetadata() {}
 
-	void AssetRegistry::LoadAllAssetMetadata()
-	{
+    const Ref<AssetMetadata> AssetRegistry::GetAssetMetadata(AssetID handle) const
+    {
+        if (m_AssetMetadatas.find(handle) != m_AssetMetadatas.end())
+        {
+            return m_AssetMetadatas.at(handle);
+        }
+        return nullptr;
+    }
 
-	}
-
-	const Ref<AssetMetadata> AssetRegistry::GetAssetMetadata(AssetID handle) const
-	{
-		if (m_AssetMetadatas.find(handle) != m_AssetMetadatas.end())
-		{
-			return m_AssetMetadatas.at(handle);
-		}
-		return nullptr;
-	}
-
-}
+} // namespace Kans

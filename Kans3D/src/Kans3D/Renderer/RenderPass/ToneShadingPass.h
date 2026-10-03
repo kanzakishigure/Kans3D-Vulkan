@@ -2,12 +2,12 @@
 #include "Kans3D/Renderer/RenderPass.h"
 namespace Kans
 {
-	class ToneShadingPass :public RenderPass
-	{
-		
-	public:
-		void Draw() override;
+    class ToneShadingPass : public RenderPass
+    {
 
-	private:
-	};
-}
+    public:
+        void Draw() override;
+
+    private:
+    };
+} // namespace Kans

@@ -4,19 +4,10 @@
 namespace Kans
 {
 
-	void DirectionalLightShadowPass::Init(const RenderPassSpecification* spec)
-	{
+    void DirectionalLightShadowPass::Init(const RenderPassSpecification* spec) {}
 
-	}
+    void DirectionalLightShadowPass::PostInit() {}
 
-	void DirectionalLightShadowPass::PostInit()
-	{
+    void DirectionalLightShadowPass::PreparePassData(Ref<RenderResourceBase> render_resource) {}
 
-	}
-
-	void DirectionalLightShadowPass::PreparePassData(Ref<RenderResourceBase> render_resource)
-	{
-
-	}
-
-}
+} // namespace Kans

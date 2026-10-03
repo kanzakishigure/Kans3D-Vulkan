@@ -1,20 +1,23 @@
 #include "kspch.h"
 #include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
-#include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Platform/OpenGL/OpenGLVertexArray.h"
-namespace Kans {
+#include "Kans3D/Renderer/Renderer.h"
+namespace Kans
+{
 
+    Ref<VertexArray> VertexArray::Create()
+    {
 
-	Ref<VertexArray> VertexArray::Create()
-	{
-		
-		switch (RendererAPI::Current())
-		{
-		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return  CreateRef<OpenGLVertexArray>();
-		}
-		CORE_ASSERT(false, "unknow RendererAPI");
-		return nullptr;
-	}
+        switch (RendererAPI::Current())
+        {
+            case RendererAPIType::NONE:
+                CORE_ASSERT(false, "RendererAPI::NONE is not support");
+                return nullptr;
+            case RendererAPIType::OPENGL:
+                return CreateRef<OpenGLVertexArray>();
+        }
+        CORE_ASSERT(false, "unknow RendererAPI");
+        return nullptr;
+    }
 
-}
+} // namespace Kans

@@ -4,152 +4,113 @@
 namespace Kans
 {
 
-	MaterialTable::MaterialTable(uint32_t materialCount /*= 1*/)
-		:m_MaterialCount(materialCount)
-	{
-		
-	}
+    MaterialTable::MaterialTable(uint32_t materialCount /*= 1*/) : m_MaterialCount(materialCount) {}
 
-	void MaterialTable::SetMaterial(uint32_t index, const Ref<MaterialAsset> material)
-	{
-		CORE_TRACE("{} texture update ",index);
-		if (index >= m_MaterialCount)
-			m_MaterialCount = index + 1;
-		m_MaterialTable[index] = material;
-	}
+    void MaterialTable::SetMaterial(uint32_t index, const Ref<MaterialAsset> material)
+    {
+        CORE_TRACE("{} texture update ", index);
+        if (index >= m_MaterialCount)
+            m_MaterialCount = index + 1;
+        m_MaterialTable[index] = material;
+    }
 
-	bool MaterialTable::HasMaterial(uint32_t index)
-	{
+    bool MaterialTable::HasMaterial(uint32_t index) { return m_MaterialTable.find(index) != m_MaterialTable.end(); }
 
-		return m_MaterialTable.find(index) != m_MaterialTable.end();
-	}
+    const Kans::Ref<Kans::MaterialAsset>& MaterialTable::GetMaterialAsset(uint32_t index)
+    {
 
-	const Kans::Ref<Kans::MaterialAsset>& MaterialTable::GetMaterialAsset(uint32_t index)
-	{
+        CORE_ASSERT(HasMaterial(index), "don't have material")
+        return m_MaterialTable[index];
+    }
 
-		CORE_ASSERT(HasMaterial(index), "don't have material")
-			return m_MaterialTable[index];
+    void MaterialTable::CleanMaterial(uint32_t index)
+    {
+        CORE_ASSERT(HasMaterial(index), "Can't clean Material,Material didn't exist ")
+        m_MaterialTable.erase(index);
+        if (index >= m_MaterialCount)
+            m_MaterialCount = index + 1;
+    }
 
-	}
+    void MaterialTable::Clean()
+    {
+        // this is not a thread safe method
+        m_MaterialTable.clear();
+    }
 
-	void MaterialTable::CleanMaterial(uint32_t index)
-	{
-		CORE_ASSERT(HasMaterial(index),"Can't clean Material,Material didn't exist ")
-		m_MaterialTable.erase(index);
-		if (index >= m_MaterialCount)
-			m_MaterialCount = index + 1;
-	}
+    MaterialAsset::MaterialAsset()
+    {
+        Ref<Shader> shader = Shader::Create("Resources/Shaders/StaticMeshShader.glsl");
+        m_Material         = Material::Create(shader);
+        // set value
+        SetShininess(0.0f);
+        // map
+        SetDiffuseMap(Renderer::GetWhiteTexture());
+        SetSpecularMap(Renderer::GetWhiteTexture());
+        SetEmissionMap(Renderer::GetWhiteTexture());
+        SetNormalMap(Renderer::GetWhiteTexture());
 
-	void MaterialTable::Clean()
-	{
-		//this is not a thread safe method
-		m_MaterialTable.clear();
-	}
+        SetAlbedoMap(Renderer::GetWhiteTexture());
+        SetAOMap(Renderer::GetWhiteTexture());
+        SetRoughMap(Renderer::GetWhiteTexture());
+        SetMetalMap(Renderer::GetBlackTexture());
+    }
 
-	MaterialAsset::MaterialAsset()
-	{
-		Ref<Shader> shader = Shader::Create("Resources/Shaders/StaticMeshShader.glsl");
-		m_Material = Material::Create(shader);
-		//set value
-		SetShininess(0.0f);
-		//map
-		SetDiffuseMap(Renderer::GetWhiteTexture());
-		SetSpecularMap(Renderer::GetWhiteTexture());
-		SetEmissionMap(Renderer::GetWhiteTexture());
-		SetNormalMap(Renderer::GetWhiteTexture());
-		
-		SetAlbedoMap(Renderer::GetWhiteTexture());
-		SetAOMap(Renderer::GetWhiteTexture());
-		SetRoughMap(Renderer::GetWhiteTexture());
-		SetMetalMap(Renderer::GetBlackTexture());
+    MaterialAsset::MaterialAsset(const Ref<Material> material) { m_Material = material; }
 
-		
-	}
+    MaterialAsset::~MaterialAsset() {}
 
-	MaterialAsset::MaterialAsset(const Ref<Material> material)
-	{
-		m_Material = material;
-	}
+    void MaterialAsset::SetDiffuse(const glm::vec3& value) { m_Material->Set(s_DiffuseUniform, value); }
 
-	MaterialAsset::~MaterialAsset()
-	{
+    void MaterialAsset::SetSpecular(const glm::vec3& value) { m_Material->Set(s_SpecularUniform, value); }
 
-	}
+    void MaterialAsset::SetEmission(const glm::vec3& value) { m_Material->Set(s_EmissionUniform, value); }
 
-	void MaterialAsset::SetDiffuse(const glm::vec3& value)
-	{
-		m_Material->Set(s_DiffuseUniform, value);
-	}
+    void MaterialAsset::SetShininess(float value) { m_Material->Set(s_ShininessUniform, value); }
 
-	void MaterialAsset::SetSpecular(const glm::vec3& value)
-	{
-		m_Material->Set(s_SpecularUniform, value);
-	}
+    void MaterialAsset::SetDiffuseMap(Ref<Texture2D> diffusemap)
+    {
+        m_Material->SetTexture(s_DiffuseMapUniform, diffusemap);
+    }
 
-	void MaterialAsset::SetEmission(const glm::vec3& value)
-	{
-		m_Material->Set(s_EmissionUniform, value);
-	}
+    void MaterialAsset::SetSpecularMap(Ref<Texture2D> specularmap)
+    {
+        m_Material->SetTexture(s_SpecularMapUniform, specularmap);
+    }
 
-	void MaterialAsset::SetShininess(float value)
-	{
-		m_Material->Set(s_ShininessUniform, value);
-	}
+    void MaterialAsset::SetEmissionMap(Ref<Texture2D> emissionmap)
+    {
+        m_Material->SetTexture(s_EmissionUniform, emissionmap);
+    }
 
-	void MaterialAsset::SetDiffuseMap(Ref<Texture2D> diffusemap)
-	{
-		m_Material->SetTexture(s_DiffuseMapUniform, diffusemap);
-	}
+    void MaterialAsset::SetNormalMap(Ref<Texture2D> normalmap)
+    {
+        m_Material->SetTexture(s_NormalMapUnifrom, normalmap);
+    }
 
-	void MaterialAsset::SetSpecularMap(Ref<Texture2D> specularmap)
-	{
-		m_Material->SetTexture(s_SpecularMapUniform, specularmap);
-	}
+    void MaterialAsset::SetAlbedoMap(Ref<Texture2D> albedoMap)
+    {
+        m_Material->SetTexture(s_AlbedoMapUnifrom, albedoMap);
+    }
 
-	void MaterialAsset::SetEmissionMap(Ref<Texture2D> emissionmap)
-	{
-		m_Material->SetTexture(s_EmissionUniform, emissionmap);
-	}
+    void MaterialAsset::SetAOMap(Ref<Texture2D> aoMap) { m_Material->SetTexture(s_AOMapUnifrom, aoMap); }
 
+    void MaterialAsset::SetRoughMap(Ref<Texture2D> roughMap) { m_Material->SetTexture(s_RoughMapUnifrom, roughMap); }
 
-	void MaterialAsset::SetNormalMap(Ref<Texture2D> normalmap)
-	{
-		m_Material->SetTexture(s_NormalMapUnifrom, normalmap);
-	}
+    void MaterialAsset::SetMetalMap(Ref<Texture2D> metalMap) { m_Material->SetTexture(s_MetalMapUnifrom, metalMap); }
 
-	void MaterialAsset::SetAlbedoMap(Ref<Texture2D> albedoMap)
-	{
-		m_Material->SetTexture(s_AlbedoMapUnifrom, albedoMap);
-	}
+    void MaterialAsset::SetIrradianceMap(Ref<TextureCube> irradianceMap)
+    {
+        m_Material->SetTexture(s_IrradianceMapUnifrom, irradianceMap);
+    }
 
-	void MaterialAsset::SetAOMap(Ref<Texture2D> aoMap)
-	{
-		m_Material->SetTexture(s_AOMapUnifrom, aoMap);
-	}
+    void MaterialAsset::SetPrefilterMap(Ref<TextureCube> prefilterMap)
+    {
+        m_Material->SetTexture(s_PrefilterMapUnifrom, prefilterMap);
+    }
 
-	void MaterialAsset::SetRoughMap(Ref<Texture2D> roughMap)
-	{
-		m_Material->SetTexture(s_RoughMapUnifrom, roughMap);
-	}
+    void MaterialAsset::SetBrdfLUTMap(Ref<Texture2D> brdfLUTMap)
+    {
+        m_Material->SetTexture(s_BrdfLUTMapUnifrom, brdfLUTMap);
+    }
 
-	void MaterialAsset::SetMetalMap(Ref<Texture2D> metalMap)
-	{
-		m_Material->SetTexture(s_MetalMapUnifrom, metalMap);
-	}
-
-	void MaterialAsset::SetIrradianceMap(Ref<TextureCube> irradianceMap)
-	{
-		m_Material->SetTexture(s_IrradianceMapUnifrom, irradianceMap);
-	}
-
-	void MaterialAsset::SetPrefilterMap(Ref<TextureCube> prefilterMap)
-	{
-		m_Material->SetTexture(s_PrefilterMapUnifrom, prefilterMap);
-	}
-
-	void MaterialAsset::SetBrdfLUTMap(Ref<Texture2D> brdfLUTMap)
-	{
-		m_Material->SetTexture(s_BrdfLUTMapUnifrom, brdfLUTMap);
-	}
-
-}
+} // namespace Kans

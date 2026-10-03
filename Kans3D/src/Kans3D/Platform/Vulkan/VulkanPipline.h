@@ -3,17 +3,15 @@
 #include "VulkanImage.h"
 namespace Kans
 {
-	class VulkanPipline
-	{
-	public: 
-		VulkanPipline();
-		~VulkanPipline() = default;
+    class VulkanPipline
+    {
+    public:
+        VulkanPipline();
+        ~VulkanPipline() = default;
 
-		void Create();
-		void Reset();
-		
+        void Create();
+        void Reset();
 
-	private:
-		
-	};
-}
+    private:
+    };
+} // namespace Kans

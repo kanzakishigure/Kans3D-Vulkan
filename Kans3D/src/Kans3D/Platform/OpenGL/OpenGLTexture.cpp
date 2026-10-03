@@ -4,330 +4,323 @@
 #include <algorithm>
 
 #include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h"
-namespace Kans {
+namespace Kans
+{
 
-	namespace Utils
-	{
-		GLenum RHIWrapTypeToGLType(RHISamplerAddressMode Wrap)
-		{
-			switch (Wrap)
-			{
-			case RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE: return  GL_CLAMP_TO_EDGE;
-			case RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER:  return GL_CLAMP_TO_BORDER; 
-			case RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_REPEAT: return GL_REPEAT; 
-			default:
-				CORE_ASSERT(false, "Unknow Wrap Type");
-				return GL_NONE;
-			}
-		}
+    namespace Utils
+    {
+        GLenum RHIWrapTypeToGLType(RHISamplerAddressMode Wrap)
+        {
+            switch (Wrap)
+            {
+                case RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE:
+                    return GL_CLAMP_TO_EDGE;
+                case RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER:
+                    return GL_CLAMP_TO_BORDER;
+                case RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_REPEAT:
+                    return GL_REPEAT;
+                default:
+                    CORE_ASSERT(false, "Unknow Wrap Type");
+                    return GL_NONE;
+            }
+        }
 
-		GLenum RHIFilterTypeToGLType(RHIFilter filter)
-		{
-			switch (filter)
-			{
-			case RHIFilter::RHI_FILTER_LINEAR :return  GL_LINEAR;
-			case RHIFilter::RHI_FILTER_NEAREST:  return GL_NEAREST;
-			case RHIFilter::RHI_FILTER_CUBIC_EXT :  return GL_LINEAR_MIPMAP_LINEAR;
-			default:
-				CORE_ASSERT(false, "Unknow Filter Type");
-				return GL_NONE;
-			}
+        GLenum RHIFilterTypeToGLType(RHIFilter filter)
+        {
+            switch (filter)
+            {
+                case RHIFilter::RHI_FILTER_LINEAR:
+                    return GL_LINEAR;
+                case RHIFilter::RHI_FILTER_NEAREST:
+                    return GL_NEAREST;
+                case RHIFilter::RHI_FILTER_CUBIC_EXT:
+                    return GL_LINEAR_MIPMAP_LINEAR;
+                default:
+                    CORE_ASSERT(false, "Unknow Filter Type");
+                    return GL_NONE;
+            }
+        }
+    } // namespace Utils
+    OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification, const std::filesystem::path& filepath) :
+        m_Path(filepath)
+    {
+        PROFILE_FUCTION();
 
-		}
-	}
-	OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification, const std::filesystem::path& filepath)
-		:m_Path(filepath)
-	{
-		PROFILE_FUCTION();
+        int         width, height, channel;
+        std::string path = m_Path.generic_string();
+        // ��֤��opengl�е�uv����ϵ�Ǻϣ���תy��
+        stbi_set_flip_vertically_on_load(1);
 
-		int width, height, channel;
-		std::string path = m_Path.generic_string();
-		//��֤��opengl�е�uv����ϵ�Ǻϣ���תy��
-		stbi_set_flip_vertically_on_load(1);
+        Buffer imageBuffer;
+        if (stbi_is_hdr(path.c_str()))
+        {
+            imageBuffer.Data = stbi_loadf(path.c_str(), &width, &height, &channel, 0);
+            imageBuffer.Size = width * height * 4 * sizeof(float);
 
-		Buffer imageBuffer;
-		if (stbi_is_hdr(path.c_str()))
-		{
-			imageBuffer.Data = stbi_loadf(path.c_str(), &width, &height, &channel, 0);
-			imageBuffer.Size = width * height * 4 * sizeof(float);
+            switch (channel)
+            {
+                case 3:
+                    m_InternalFormat = GL_RGB16F;
+                    m_DataFormat     = GL_RGB;
+                    break;
+                case 4:
+                    m_InternalFormat = GL_RGBA16F;
+                    m_DataFormat     = GL_RGBA;
+                    break;
+            }
+        }
+        else
+        {
 
-			switch (channel)
-			{
-			case 3: m_InternalFormat = GL_RGB16F;  m_DataFormat = GL_RGB; break;
-			case 4: m_InternalFormat = GL_RGBA16F; m_DataFormat = GL_RGBA; break;
-			}
-		}
-		else
-		{
-			
-			imageBuffer.Data = stbi_load(path.c_str(), &width, &height, &channel, 0);
-			imageBuffer.Size = width * height * 4;
-			switch (channel)
-			{
-			case 3: m_InternalFormat = GL_RGB8;  m_DataFormat = GL_RGB; break;
-			case 4: m_InternalFormat = GL_RGBA8; m_DataFormat = GL_RGBA; break;
-			}
-		}
-		
+            imageBuffer.Data = stbi_load(path.c_str(), &width, &height, &channel, 0);
+            imageBuffer.Size = width * height * 4;
+            switch (channel)
+            {
+                case 3:
+                    m_InternalFormat = GL_RGB8;
+                    m_DataFormat     = GL_RGB;
+                    break;
+                case 4:
+                    m_InternalFormat = GL_RGBA8;
+                    m_DataFormat     = GL_RGBA;
+                    break;
+            }
+        }
 
+        m_Height = height;
+        m_Width  = width;
 
-		m_Height = height;
-		m_Width = width;
+        CORE_ASSERT(m_InternalFormat & m_DataFormat, "Texture format error !");
 
-		
-		CORE_ASSERT(m_InternalFormat & m_DataFormat, "Texture format error !");
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+        // Allocate the full chain before generating mipmaps for minified UI textures.
+        GLsizei mipLevels = 1;
+        if (specification.GenerateMips)
+            for (uint32_t size = std::max(m_Width, m_Height); size > 1; size >>= 1)
+                ++mipLevels;
+        glTextureStorage2D(m_RendererID, mipLevels, m_InternalFormat, m_Width, m_Height);
 
-		glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
-		// Allocate the full chain before generating mipmaps for minified UI textures.
-		GLsizei mipLevels = 1;
-		if (specification.GenerateMips)
-			for (uint32_t size = std::max(m_Width, m_Height); size > 1; size >>= 1)
-				++mipLevels;
-		glTextureStorage2D(m_RendererID, mipLevels, m_InternalFormat, m_Width, m_Height);
+        GLenum minFilter = Utils::RHIFilterTypeToGLType(specification.Minf);
+        if (specification.GenerateMips)
+            minFilter = specification.Minf == RHIFilter::RHI_FILTER_NEAREST ? GL_NEAREST_MIPMAP_NEAREST :
+                                                                              GL_LINEAR_MIPMAP_LINEAR;
+        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, minFilter);
+        glTextureParameteri(m_RendererID,
+                            GL_TEXTURE_MAG_FILTER,
+                            specification.Maxf == RHIFilter::RHI_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
 
-		GLenum minFilter = Utils::RHIFilterTypeToGLType(specification.Minf);
-		if (specification.GenerateMips)
-			minFilter = specification.Minf == RHIFilter::RHI_FILTER_NEAREST
-				? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_LINEAR;
-		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, minFilter);
-		glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER,
-			specification.Maxf == RHIFilter::RHI_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
+        // ID,��ͼλ�ã�xƫ������yƫ�����������ߣ�ͨ�����������ͣ�����
+        if (stbi_is_hdr(path.c_str()))
+        {
+            glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_FLOAT, imageBuffer.Data);
+        }
+        else
+        {
+            glTextureSubImage2D(
+                m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, imageBuffer.Data);
+        }
+        if (specification.GenerateMips)
+            glGenerateTextureMipmap(m_RendererID);
+        stbi_image_free(imageBuffer.Data);
+    }
 
-		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
-		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
-		//ID,��ͼλ�ã�xƫ������yƫ�����������ߣ�ͨ�����������ͣ�����
-		if (stbi_is_hdr(path.c_str()))
-		{
-			glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_FLOAT, imageBuffer.Data);
-			
-		}
-		else
-		{
-			glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, imageBuffer.Data);
-			
-		}
-		if (specification.GenerateMips)
-			glGenerateTextureMipmap(m_RendererID);
-		stbi_image_free(imageBuffer.Data);
-		
-	}
+    OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification, Buffer data /*= Buffer()*/) :
+        m_Width(specification.Width), m_Height(specification.Height)
+    {
+        PROFILE_FUCTION();
 
-	OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification, Buffer data /*= Buffer()*/)
-		:m_Width(specification.Width), m_Height(specification.Height)
-	{
-		PROFILE_FUCTION();
+        switch (specification.Format)
+        {
+            case RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB: {
+                m_InternalFormat = GL_RGBA8;
+                m_DataFormat     = GL_RGBA;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R8G8B8_SRGB: {
+                m_InternalFormat = GL_RGB8;
+                m_DataFormat     = GL_RGB;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R16G16B16A16_SFLOAT: {
+                m_InternalFormat = GL_RGBA16F;
+                m_DataFormat     = GL_RGBA;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT: {
+                m_InternalFormat = GL_RGB16F;
+                m_DataFormat     = GL_RGB;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R16G16_SFLOAT: {
+                m_InternalFormat = GL_RG16F;
+                m_DataFormat     = GL_RG;
+            }
+            break;
+            default:
+                break;
+        }
+        CORE_ASSERT(m_InternalFormat & m_DataFormat, "Texture format error !");
 
-		switch (specification.Format)
-		{
-		case RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB:
-			{
-				m_InternalFormat = GL_RGBA8;
-				m_DataFormat = GL_RGBA;
-			}
-			break;
-		case RHIFormat::RHI_FORMAT_R8G8B8_SRGB:
-			{
-				m_InternalFormat = GL_RGB8;
-				m_DataFormat = GL_RGB;
-			}
-			break;
-		case RHIFormat::RHI_FORMAT_R16G16B16A16_SFLOAT:
-		{
-			m_InternalFormat = GL_RGBA16F;
-			m_DataFormat = GL_RGBA;
-		}break;
-		case RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT:
-		{
-			m_InternalFormat = GL_RGB16F;
-			m_DataFormat = GL_RGB;
-		}break;
-		case RHIFormat::RHI_FORMAT_R16G16_SFLOAT:
-		{
-			m_InternalFormat = GL_RG16F;
-			m_DataFormat = GL_RG;
-		}
-		break;
-		default:
-			break;
-		}
-		CORE_ASSERT(m_InternalFormat & m_DataFormat, "Texture format error !");
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+        glTextureStorage2D(m_RendererID, 1, m_InternalFormat, m_Width, m_Height);
 
-		glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
-		glTextureStorage2D(m_RendererID, 1, m_InternalFormat, m_Width, m_Height);
+        glTextureParameteri(
+            m_RendererID, GL_TEXTURE_MIN_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Minf));
+        glTextureParameteri(
+            m_RendererID, GL_TEXTURE_MAG_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Maxf));
 
-		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Minf));
-		glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Maxf));
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
+        glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
 
-		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
-		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
+        GLenum ByteType = GL_UNSIGNED_BYTE;
+        switch (m_InternalFormat)
+        {
+            case GL_RGBA32F:;
+            case GL_RGB32F:;
+            case GL_RG32F:;
 
-		
-		GLenum ByteType = GL_UNSIGNED_BYTE;
-		switch (m_InternalFormat)
-		{
-		case GL_RGBA32F:;
-		case GL_RGB32F:;
-		case GL_RG32F:;
+            case GL_RGBA16F:;
+            case GL_RGB16F:;
+            case GL_RG16F:;
+                ByteType = GL_FLOAT;
+                break;
+            default:
+                ByteType = GL_UNSIGNED_BYTE;
+                break;
+        }
+        uint32_t bpc = 0;
+        switch (m_DataFormat)
+        {
+            case GL_RGBA:
+                bpc = 4;
+                break;
+            case GL_RGB:
+                bpc = 3;
+                break;
+            case GL_RG:
+                bpc = 2;
+                break;
+        }
 
-		case GL_RGBA16F:;
-		case GL_RGB16F:;
-		case GL_RG16F:;
-			ByteType = GL_FLOAT;
-			break;
-		default:
-			ByteType = GL_UNSIGNED_BYTE;
-			break;
-		}
-		uint32_t bpc = 0;
-		switch (m_DataFormat)
-		{
-		case GL_RGBA: bpc = 4; break;
-		case GL_RGB: bpc = 3; break;
-		case GL_RG: bpc = 2; break;
-		}
+        if (data.Data != nullptr)
+        {
+            CORE_ASSERT(data.Size == m_Width * m_Height * bpc, "Data must enetire texture !");
+            glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, ByteType, data.Data);
+        }
+        else
+        {
+            CORE_WARN("Texture ID:[{}] create with nullptr ", m_RendererID);
+        }
+    }
 
-		if (data.Data != nullptr)
-		{
-			CORE_ASSERT(data.Size == m_Width * m_Height * bpc, "Data must enetire texture !");
-			glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, ByteType, data.Data);
-		}
-		else
-		{
-			CORE_WARN("Texture ID:[{}] create with nullptr ",m_RendererID);
-		}
-		
-	}
+    OpenGLTexture2D::~OpenGLTexture2D() { glDeleteTextures(1, &m_RendererID); }
 
-	OpenGLTexture2D::~OpenGLTexture2D()
-	{
-		
-		glDeleteTextures(1,&m_RendererID);
-	}
+    void OpenGLTexture2D::Bind(uint32_t slot) const { glBindTextureUnit(slot, m_RendererID); }
 
-	void OpenGLTexture2D::Bind(uint32_t slot) const
-	{
-		
-		glBindTextureUnit(slot, m_RendererID);
-	}
+    const std::filesystem::path& OpenGLTexture2D::GetPath() const { return m_Path; }
 
+    OpenGLTextureCube::OpenGLTextureCube(const TextureSpecification& specification, Buffer data /*= Buffer()*/)
+    {
+        m_Width  = specification.Width;
+        m_Height = specification.Height;
+        switch (specification.Format)
+        {
+            case RHIFormat::RHI_FORMAT_R32G32B32A32_SFLOAT: {
+                m_InternalFormat = GL_RGBA32F;
+                m_DataFormat     = GL_RGBA;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R32G32B32_SFLOAT: {
+                m_InternalFormat = GL_RGB32F;
+                m_DataFormat     = GL_RGB;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R16G16B16A16_SFLOAT: {
+                m_InternalFormat = GL_RGBA16F;
+                m_DataFormat     = GL_RGBA;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R8G8B8A8_SNORM: {
+                m_InternalFormat = GL_RGBA8;
+                m_DataFormat     = GL_RGBA;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT: {
+                m_InternalFormat = GL_RGB16F;
+                m_DataFormat     = GL_RGB;
+            }
+            break;
+            case RHIFormat::RHI_FORMAT_R8G8B8_SNORM: {
+                m_InternalFormat = GL_RGB8;
+                m_DataFormat     = GL_RGB;
+            }
+            break;
+            default: {
+                CORE_ERROR("unknow Image format in TextureCube Create");
+            }
+            break;
+        }
 
+        glGenTextures(1, &m_RendererID);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, m_RendererID);
 
-	
-	const std::filesystem::path& OpenGLTexture2D::GetPath() const
-	{
-		return m_Path;
-	}
+        GLenum ByteType = GL_UNSIGNED_BYTE;
+        switch (m_InternalFormat)
+        {
+            case GL_RGBA32F:;
+            case GL_RGB32F:;
+            case GL_RGBA16F:;
+            case GL_RGB16F:;
+            case GL_RG16F:;
+                ByteType = GL_FLOAT;
+                break;
+            default:
+                ByteType = GL_UNSIGNED_BYTE;
+                break;
+        }
+        for (unsigned int i = 0; i < 6; ++i)
+        {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                         0,
+                         m_InternalFormat,
+                         m_Width,
+                         m_Height,
+                         0,
+                         m_DataFormat,
+                         ByteType,
+                         nullptr);
+        }
 
-	
+        // ��ͼ��Ե��������
 
-	OpenGLTextureCube::OpenGLTextureCube(const TextureSpecification& specification, Buffer data /*= Buffer()*/)
-	{
-		m_Width = specification.Width;
-		m_Height = specification.Height;
-		switch (specification.Format)
-		{
-		case RHIFormat::RHI_FORMAT_R32G32B32A32_SFLOAT:
-		{
-			m_InternalFormat = GL_RGBA32F;
-			m_DataFormat = GL_RGBA;
-		}break;
-		case RHIFormat::RHI_FORMAT_R32G32B32_SFLOAT:
-		{
-			m_InternalFormat = GL_RGB32F;
-			m_DataFormat = GL_RGB;
-		}break;
-		case RHIFormat::RHI_FORMAT_R16G16B16A16_SFLOAT:
-		{
-			m_InternalFormat = GL_RGBA16F;
-			m_DataFormat = GL_RGBA;
-		}break;
-		case RHIFormat::RHI_FORMAT_R8G8B8A8_SNORM:
-		{
-			m_InternalFormat = GL_RGBA8;
-			m_DataFormat = GL_RGBA;
-		}break;
-		case RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT:
-		{
-			m_InternalFormat = GL_RGB16F;
-			m_DataFormat = GL_RGB;
-		}break;
-		case RHIFormat::RHI_FORMAT_R8G8B8_SNORM:
-		{
-			m_InternalFormat = GL_RGB8;
-			m_DataFormat = GL_RGB;
-		}break;
-		default:
-		{
-			CORE_ERROR("unknow Image format in TextureCube Create");
-		}
-		break;
-		}
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, Utils::RHIWrapTypeToGLType(specification.Wrap));
 
-		glGenTextures(1, &m_RendererID);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, m_RendererID);
+        // ��ͼ��ֵ����
+        glTexParameteri(
+            GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Minf));
+        glTexParameteri(
+            GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Maxf));
 
-		GLenum ByteType = GL_UNSIGNED_BYTE;
-		switch (m_InternalFormat)
-		{
-		case GL_RGBA32F:;
-		case GL_RGB32F:;
-		case GL_RGBA16F:;
-		case GL_RGB16F:;
-		case GL_RG16F:;
-			ByteType = GL_FLOAT;
-			break;
-		default:
-			ByteType = GL_UNSIGNED_BYTE;
-			break;
-		}
-		for (unsigned int i = 0; i < 6; ++i)
-		{
-			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, m_InternalFormat, m_Width, m_Height, 0, m_DataFormat, ByteType, nullptr);
-		}
+        if (specification.GenerateMips)
+        {
+            glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+        }
+    }
 
+    OpenGLTextureCube::~OpenGLTextureCube() { glDeleteTextures(1, &m_RendererID); }
 
+    void OpenGLTextureCube::Bind(uint32_t slot /*= 0*/) const { glBindTextureUnit(slot, m_RendererID); }
 
-		//��ͼ��Ե��������
+    const std::filesystem::path& OpenGLTextureCube::GetPath() const { return m_Path; }
 
-		
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, Utils::RHIWrapTypeToGLType(specification.Wrap));
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, Utils::RHIWrapTypeToGLType(specification.Wrap));
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, Utils::RHIWrapTypeToGLType(specification.Wrap));
-		
-		
-		
-		//��ͼ��ֵ����
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Minf));
-		glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, (GLuint)Utils::RHIFilterTypeToGLType(specification.Maxf));
-		
-		if (specification.GenerateMips)
-		{
-			glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-		}
-	}
+    void OpenGLTextureCube::GenerateMipmap() const
+    {
+        glBindTexture(GL_TEXTURE_CUBE_MAP, m_RendererID);
+        glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    }
 
-	OpenGLTextureCube::~OpenGLTextureCube()
-	{
-		glDeleteTextures(1, &m_RendererID);
-	}
-
-	void OpenGLTextureCube::Bind(uint32_t slot /*= 0*/) const
-	{
-		
-		glBindTextureUnit(slot, m_RendererID);
-	}
-
-	const std::filesystem::path& OpenGLTextureCube::GetPath() const
-	{
-		return m_Path;
-	}
-
-	
-
-	void OpenGLTextureCube::GenerateMipmap() const
-	{
-		glBindTexture(GL_TEXTURE_CUBE_MAP, m_RendererID);
-		glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
-	}
-
-}
+} // namespace Kans

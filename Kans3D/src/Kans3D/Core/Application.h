@@ -1,80 +1,77 @@
 #pragma once
 #include "Kans3D/Core/Base/Base.h"
-#include "Kans3D/Core/Window.h"
+#include "Kans3D/Core/Events/ApplicationEvent.h"
+#include "Kans3D/Core/Events/Event.h"
 #include "Kans3D/Core/LayerStack.h"
 #include "Kans3D/Core/TimeStep.h"
-#include "Kans3D/Core/Events/Event.h"
-#include "Kans3D/Core/Events/ApplicationEvent.h"
+#include "Kans3D/Core/Window.h"
 
 #include "Kans3D/ImGui/ImGuiLayer.h"
-namespace Kans{
+namespace Kans
+{
 
+    struct ApplicationSpecification
+    {
+        std::string Name = "Kans3D";
+        std::string ConfigPath;
 
-	struct ApplicationSpecification
-	{
-		std::string Name = "Kans3D";
-		std::string ConfigPath;
+        // the Windows Specification
+        uint32_t Width        = 1920;
+        uint32_t Height       = 1080;
+        bool     Fullscreen   = false;
+        bool     HideTitlebar = true;
+    };
 
+    class Application
+    {
+    public:
+        Application(const ApplicationSpecification& spec);
 
-		//the Windows Specification
-		uint32_t  Width = 1920;
-		uint32_t Height = 1080;
-		bool Fullscreen = false;
-		bool HideTitlebar = true;
-	};
+        // 保证application在派生类调用时，能调用到派生类的虚析构函数
+        virtual ~Application();
 
-	class  Application
-	{
-	public:
-		Application(const ApplicationSpecification& spec);
+        void run();
+        void OnEvent(Event& e);
+        void PushLayer(Layer* layer);
+        void PushOverlay(Layer* overlay);
+        void Close() { m_Running = false; }
 
-		//保证application在派生类调用时，能调用到派生类的虚析构函数
-		virtual ~Application();
+        // 返回的是application的单例，所以不应该将指针返回
+        inline static Application& Get() { return *s_Instance; }
+        inline Window&             GetWindow() { return *m_Window; }
 
-		void run();
-		void OnEvent(Event& e);
-		void PushLayer(Layer* layer);
-		void PushOverlay(Layer* overlay);
-		void Close() { m_Running = false; }
+        const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
-		//返回的是application的单例，所以不应该将指针返回
-		inline static Application& Get() { return *s_Instance; }
-		inline  Window& GetWindow() { return *m_Window; }
+        float    GetTime() const;
+        TimeStep GetTimestep() const { return m_TimeStep; }
+        TimeStep GetFrametime() const { return m_Frametime; }
 
-		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+    public:
+        ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 
-		float GetTime() const;
-		TimeStep GetTimestep() const { return m_TimeStep; }
-		TimeStep GetFrametime() const { return m_Frametime; }
-			
-			
-	public:
-		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
-	private:
-		void ProcessEvents();
-		bool OnWindowClose(WindowCloseEvent& e);
-		bool OnWindowResize(WindowResizeEvent& e);
-	private:
-		static Application* s_Instance;
-		
-		ApplicationSpecification m_Specification;
+    private:
+        void ProcessEvents();
+        bool OnWindowClose(WindowCloseEvent& e);
+        bool OnWindowResize(WindowResizeEvent& e);
 
-		Scope<Window> m_Window;
-		ImGuiLayer* m_ImGuiLayer;
-		bool m_Running =true;
-		bool m_Minimized = false;
+    private:
+        static Application* s_Instance;
 
-		LayerStack m_LayerStack;
+        ApplicationSpecification m_Specification;
 
-		TimeStep m_TimeStep;
-		TimeStep m_Frametime;
+        Scope<Window> m_Window;
+        ImGuiLayer*   m_ImGuiLayer;
+        bool          m_Running   = true;
+        bool          m_Minimized = false;
 
-		float m_LastFrameTime=0.0f;
-		
-	};
+        LayerStack m_LayerStack;
 
-	Application* createApplication(int argc, char** argv);//该函数只应在应用端实现
+        TimeStep m_TimeStep;
+        TimeStep m_Frametime;
 
+        float m_LastFrameTime = 0.0f;
+    };
 
-}
+    Application* createApplication(int argc, char** argv); // 该函数只应在应用端实现
 
+} // namespace Kans

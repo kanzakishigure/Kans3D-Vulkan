@@ -1,93 +1,92 @@
 #include "kspch.h"
 #include "OpenGLBuffer.h"
-#include<glad/glad.h>
+#include <glad/glad.h>
 
-namespace Kans{
+namespace Kans
+{
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// VERTEXBUFFER///////////////////////////////////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    OpenGLVertexBuffer::OpenGLVertexBuffer(float* vertices, uint32_t size)
+    {
+        PROFILE_FUCTION();
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///VERTEXBUFFER///////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	OpenGLVertexBuffer::OpenGLVertexBuffer(float* vertices, uint32_t size)
-	{
-		PROFILE_FUCTION();
+        glCreateBuffers(1, &m_RendererID);
+        glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+        glBufferData(GL_ARRAY_BUFFER, size, vertices, GL_STATIC_DRAW);
+    }
 
-		glCreateBuffers(1, &m_RendererID);
-		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
-		glBufferData(GL_ARRAY_BUFFER, size, vertices, GL_STATIC_DRAW);
-	}
+    OpenGLVertexBuffer::OpenGLVertexBuffer(uint32_t size)
+    {
+        PROFILE_FUCTION();
 
-	OpenGLVertexBuffer::OpenGLVertexBuffer(uint32_t size)
-	{
-		PROFILE_FUCTION();
+        glCreateBuffers(1, &m_RendererID);
+        glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+        // 生成缓冲buffer，用于处理batchrendering
+        glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
+    }
 
-		glCreateBuffers(1, &m_RendererID);
-		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
-		//生成缓冲buffer，用于处理batchrendering
-		glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
-	}
+    OpenGLVertexBuffer::~OpenGLVertexBuffer()
+    {
+        PROFILE_FUCTION();
 
-	OpenGLVertexBuffer::~OpenGLVertexBuffer()
-	{
-		PROFILE_FUCTION();
+        glDeleteBuffers(1, &m_RendererID);
+    }
+    void OpenGLVertexBuffer::Bind() const
+    {
+        PROFILE_FUCTION();
 
-		glDeleteBuffers(1, &m_RendererID);
-	}
-	void OpenGLVertexBuffer::Bind() const
-	{
-		PROFILE_FUCTION();
+        glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+    }
 
-		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
-	}
+    void OpenGLVertexBuffer::Unbind() const
+    {
+        PROFILE_FUCTION();
 
-	void OpenGLVertexBuffer::Unbind() const
-	{
-		PROFILE_FUCTION();
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
 
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
-	}
+    void OpenGLVertexBuffer::SetData(const void* data, uint32_t size)
+    {
+        PROFILE_FUCTION();
+        glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, size, data);
+    }
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /// INDEXBUFFER////////////////////////////////////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	void OpenGLVertexBuffer::SetData(const void* data, uint32_t size)
-	{
-		PROFILE_FUCTION();
-		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
-		glBufferSubData(GL_ARRAY_BUFFER,0,size,data);
-	}
+    OpenGLIndexBuffer::OpenGLIndexBuffer(uint32_t* indices, uint32_t count)
+    {
+        PROFILE_FUCTION();
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///INDEXBUFFER////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        glGenBuffers(1, &m_RendererID);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, count * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+        m_Count = count;
+    }
 
-	OpenGLIndexBuffer::OpenGLIndexBuffer(uint32_t* indices, uint32_t count)
-	{
-		PROFILE_FUCTION();
+    OpenGLIndexBuffer::~OpenGLIndexBuffer()
+    {
+        PROFILE_FUCTION();
 
-		glGenBuffers(1, &m_RendererID);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, count*sizeof(uint32_t), indices, GL_STATIC_DRAW);
-		m_Count = count;
-	}
+        glDeleteBuffers(1, &m_RendererID);
+    }
 
-	OpenGLIndexBuffer::~OpenGLIndexBuffer()
-	{
-		PROFILE_FUCTION();
+    void OpenGLIndexBuffer::Bind() const
+    {
+        PROFILE_FUCTION();
 
-		glDeleteBuffers(1, &m_RendererID);
-	}
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID);
+    }
 
-	void OpenGLIndexBuffer::Bind() const
-	{
-		PROFILE_FUCTION();
+    void OpenGLIndexBuffer::Unbind() const
+    {
+        PROFILE_FUCTION();
 
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID);
-	}
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
 
-	void OpenGLIndexBuffer::Unbind() const
-	{
-		PROFILE_FUCTION();
-
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-	}
-
-}
+} // namespace Kans

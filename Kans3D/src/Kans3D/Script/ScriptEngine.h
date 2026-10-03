@@ -2,77 +2,77 @@
 #include <filesystem>
 #include "Kans3D/Scene/Scene.h"
 
-extern "C" {
+extern "C"
+{
 
-	typedef struct _MonoObject MonoObject;
-	typedef struct _MonoClass MonoClass;
-	typedef struct _MonoMethod MonoMethod;
-	typedef struct _MonoAssembly MonoAssembly;
-	typedef struct _MonoImage MonoImage;
+    typedef struct _MonoObject   MonoObject;
+    typedef struct _MonoClass    MonoClass;
+    typedef struct _MonoMethod   MonoMethod;
+    typedef struct _MonoAssembly MonoAssembly;
+    typedef struct _MonoImage    MonoImage;
 }
 
 namespace Kans
 {
-	
-	class Scene;
-	class ScriptEngine
-	{
-	public:
-		static void Init();
-		static void ShutDown();
 
-		static void LoadAssembly(const std::filesystem::path& filepath);
-		static bool EntityClassExists(const std::string& className);
-		static void OnRuntimeStart(Scene* scene);
-		static void OnRuntimeEnd();
+    class Scene;
+    class ScriptEngine
+    {
+    public:
+        static void Init();
+        static void ShutDown();
 
-		static void  OnCreateEntity(Entity entity);
-		static void  OnUpdateEntity(Entity entity, TimeStep ts);
+        static void LoadAssembly(const std::filesystem::path& filepath);
+        static bool EntityClassExists(const std::string& className);
+        static void OnRuntimeStart(Scene* scene);
+        static void OnRuntimeEnd();
 
-		static Scene* GetSceneContext();
-		static MonoImage* GetCoreAssemblyImage();
-	
-	private:
-		static void InitMono();
-		static void ShutDownMono();
-		static void LoadAssemblyClasses(MonoAssembly* assembly);
+        static void OnCreateEntity(Entity entity);
+        static void OnUpdateEntity(Entity entity, TimeStep ts);
 
-		static MonoObject* InstantiateClass(MonoClass* monoclass);
-		
+        static Scene*     GetSceneContext();
+        static MonoImage* GetCoreAssemblyImage();
 
-		friend class ScriptClass;
-	};
+    private:
+        static void InitMono();
+        static void ShutDownMono();
+        static void LoadAssemblyClasses(MonoAssembly* assembly);
 
-	class ScriptClass
-	{
-	public:
-		ScriptClass() = default;
-		ScriptClass(const std::string& classNamespace, const std::string& className);
+        static MonoObject* InstantiateClass(MonoClass* monoclass);
 
-		MonoObject* Instantiate();
-		MonoMethod* GetMethod(const std::string& name, uint32_t paramCount);
-		MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** parameter  = nullptr);
+        friend class ScriptClass;
+    };
 
+    class ScriptClass
+    {
+    public:
+        ScriptClass() = default;
+        ScriptClass(const std::string& classNamespace, const std::string& className);
 
-	private:
-		std::string m_ClassNamespace;
-		std::string m_ClassName;
+        MonoObject* Instantiate();
+        MonoMethod* GetMethod(const std::string& name, uint32_t paramCount);
+        MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** parameter = nullptr);
 
-		MonoClass* m_MonoClass = nullptr;;
+    private:
+        std::string m_ClassNamespace;
+        std::string m_ClassName;
 
-	};
-	class ScriptInstance
-	{
-	public:
-		ScriptInstance(Ref<ScriptClass> scriptClass,Entity entity);
-		void InvokeOnUpdate(float ts);
-		void InvekeOnCreate();
-	private:
-		Ref<ScriptClass> m_ScriptClass;
+        MonoClass* m_MonoClass = nullptr;
+        ;
+    };
+    class ScriptInstance
+    {
+    public:
+        ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity);
+        void InvokeOnUpdate(float ts);
+        void InvekeOnCreate();
 
-		MonoObject* m_Instance =nullptr;
-		MonoMethod* m_OnCreateMehod = nullptr;
-		MonoMethod* m_OnUpdateMehod = nullptr;
-		MonoMethod* m_Constructor = nullptr;
-	};
-}
+    private:
+        Ref<ScriptClass> m_ScriptClass;
+
+        MonoObject* m_Instance      = nullptr;
+        MonoMethod* m_OnCreateMehod = nullptr;
+        MonoMethod* m_OnUpdateMehod = nullptr;
+        MonoMethod* m_Constructor   = nullptr;
+    };
+} // namespace Kans

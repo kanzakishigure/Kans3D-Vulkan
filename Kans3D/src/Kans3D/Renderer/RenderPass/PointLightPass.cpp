@@ -4,19 +4,10 @@
 namespace Kans
 {
 
-	void PointLightShadowPass::Init(const RenderPassSpecification* spec)
-	{
+    void PointLightShadowPass::Init(const RenderPassSpecification* spec) {}
 
-	}
+    void PointLightShadowPass::PostInit() {}
 
-	void PointLightShadowPass::PostInit()
-	{
+    void PointLightShadowPass::PreparePassData(Ref<RenderResourceBase> render_resource) {}
 
-	}
-
-	void PointLightShadowPass::PreparePassData(Ref<RenderResourceBase> render_resource)
-	{
-
-	}
-
-}
+} // namespace Kans

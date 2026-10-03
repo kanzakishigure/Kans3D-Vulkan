@@ -4,64 +4,54 @@
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
 
-
-namespace  Kans
+namespace Kans
 {
-	class RenderScene;
-	class SceneRenderer;
-	class Entity;
-	
-	using EntityMap = std::unordered_map<UUID, Entity>;
+    class RenderScene;
+    class SceneRenderer;
+    class Entity;
 
-	
+    using EntityMap = std::unordered_map<UUID, Entity>;
 
-	//the scene to the GamePlayer system
-	class Scene : public Asset
-	{
+    // the scene to the GamePlayer system
+    class Scene : public Asset
+    {
 
-	public:
-		Scene(const std::string& name = "UntitledScene");
-		~Scene();
+    public:
+        Scene(const std::string& name = "UntitledScene");
+        ~Scene();
 
-		void OnUpdate(TimeStep ts);
-		
-		void OnViewportResize(uint32_t width, uint32_t height);
+        void OnUpdate(TimeStep ts);
 
-		Entity CreateEntity(const std::string name = std::string());
-		Entity CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap);
-		void DestroyEntity(Entity entity);
-		Entity GetEntityByUUID(UUID uuid) const;
+        void OnViewportResize(uint32_t width, uint32_t height);
 
-		void OnRuntimeStart();
-		void OnRuntimeStop();
-		
+        Entity CreateEntity(const std::string name = std::string());
+        Entity CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap);
+        void   DestroyEntity(Entity entity);
+        Entity GetEntityByUUID(UUID uuid) const;
 
-		Entity GetCameraEntity();
+        void OnRuntimeStart();
+        void OnRuntimeStop();
 
-		const std::string GetName() const { return m_Name; }
-		void SetName(const std::string& name ) { m_Name = name; }
+        Entity GetCameraEntity();
 
-		
+        const std::string GetName() const { return m_Name; }
+        void              SetName(const std::string& name) { m_Name = name; }
 
-	private:
-		template<typename T> 
-		void OnComponentAdd(Entity entity, T& component );
-	private:
-		entt::registry m_Registry;
-		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
-		std::string m_Name;
-		EntityMap m_EntityMap;
-	private:
+    private:
+        template<typename T>
+        void OnComponentAdd(Entity entity, T& component);
 
-		
-		friend class Entity;
-		friend class SceneHierachyPanel;
-		friend class RenderScene;
-		friend class SceneSerializer;
-	};
-	
+    private:
+        entt::registry m_Registry;
+        uint32_t       m_ViewportWidth = 0, m_ViewportHeight = 0;
+        std::string    m_Name;
+        EntityMap      m_EntityMap;
 
-	
+    private:
+        friend class Entity;
+        friend class SceneHierachyPanel;
+        friend class RenderScene;
+        friend class SceneSerializer;
+    };
 
-
-}
+} // namespace Kans

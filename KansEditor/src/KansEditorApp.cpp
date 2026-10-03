@@ -2,41 +2,34 @@
 #include <Kans3D/Core/EntryPoint.h>
 
 #include <imgui.h>
-#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include "Debug/DebugLayer.h"
 #include "EditorLayer.h"
-
 
 class KansEditor : public Kans::Application
 {
 public:
-	KansEditor(Kans::ApplicationSpecification spec)
-		: Application(spec)
-	{
-		
-		PushLayer(new Kans::EditorLayer());
-		PushLayer(new Kans::DebugLayer());
-	}
-	~KansEditor()
-	{
+    KansEditor(Kans::ApplicationSpecification spec) : Application(spec)
+    {
 
-	}
-	
+        PushLayer(new Kans::EditorLayer());
+        PushLayer(new Kans::DebugLayer());
+    }
+    ~KansEditor() {}
 };
-	Kans::Application* Kans::createApplication(int argc, char** argv)
-	{
-		std::filesystem::path executable_path(argv[0]);
-		std::filesystem::path config_file_path = std::filesystem::current_path() / "KansEditor.ini";
+Kans::Application* Kans::createApplication(int argc, char** argv)
+{
+    std::filesystem::path executable_path(argv[0]);
+    std::filesystem::path config_file_path = std::filesystem::current_path() / "KansEditor.ini";
 
-		ApplicationSpecification spec;
-		spec.Name = "Kans3D-Editor";
-		spec.ConfigPath = config_file_path.string();
-		spec.Height = 1080;
-		spec.Width = 1920;
-		spec.Fullscreen = false;
-		spec.HideTitlebar = false;
-		
-		return new KansEditor(spec);
-	}
+    ApplicationSpecification spec;
+    spec.Name         = "Kans3D-Editor";
+    spec.ConfigPath   = config_file_path.string();
+    spec.Height       = 1080;
+    spec.Width        = 1920;
+    spec.Fullscreen   = false;
+    spec.HideTitlebar = false;
 
+    return new KansEditor(spec);
+}

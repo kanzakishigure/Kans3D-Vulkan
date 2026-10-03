@@ -3,10 +3,10 @@
 #include "Kans3D/Renderer/Resource/MaterialAsset.h"
 namespace Kans::Utils
 {
-	class MaterialUtils
-	{
-	public:
-		//TEMP
-		static void InitMaterial(const Ref<MaterialTable> materialTable);
-	};
-}
+    class MaterialUtils
+    {
+    public:
+        // TEMP
+        static void InitMaterial(const Ref<MaterialTable> materialTable);
+    };
+} // namespace Kans::Utils

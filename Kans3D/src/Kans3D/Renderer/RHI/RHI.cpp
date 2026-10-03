@@ -8,29 +8,37 @@
 namespace Kans
 {
 
-	Ref<RHI> RHI::Create(const Scope<Window>& window)
-	{
-		//return CreateRef<VulkanContext>();
-		switch (RendererAPI::Current())
-		{
-		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return CreateRef<OpenGLRHI>(window);
-		case RendererAPIType::Vulkan:  return CreateRef<VulkanRHI>(window);
-		}
-		CORE_ASSERT(false, "unknow RendererAPI");
-		return nullptr;
-	}
+    Ref<RHI> RHI::Create(const Scope<Window>& window)
+    {
+        // return CreateRef<VulkanContext>();
+        switch (RendererAPI::Current())
+        {
+            case RendererAPIType::NONE:
+                CORE_ASSERT(false, "RendererAPI::NONE is not support");
+                return nullptr;
+            case RendererAPIType::OPENGL:
+                return CreateRef<OpenGLRHI>(window);
+            case RendererAPIType::Vulkan:
+                return CreateRef<VulkanRHI>(window);
+        }
+        CORE_ASSERT(false, "unknow RendererAPI");
+        return nullptr;
+    }
 
-	Kans::Ref<RHI> RHI::Create()
-	{
-		switch (RendererAPI::Current())
-		{
-		case RendererAPIType::NONE:    CORE_ASSERT(false, "RendererAPI::NONE is not support"); return nullptr;
-		case RendererAPIType::OPENGL:  return CreateRef<OpenGLRHI>();
-		case RendererAPIType::Vulkan:  return CreateRef<VulkanRHI>();
-		}
-		CORE_ASSERT(false, "unknow RendererAPI");
-		return nullptr;
-	}
+    Kans::Ref<RHI> RHI::Create()
+    {
+        switch (RendererAPI::Current())
+        {
+            case RendererAPIType::NONE:
+                CORE_ASSERT(false, "RendererAPI::NONE is not support");
+                return nullptr;
+            case RendererAPIType::OPENGL:
+                return CreateRef<OpenGLRHI>();
+            case RendererAPIType::Vulkan:
+                return CreateRef<VulkanRHI>();
+        }
+        CORE_ASSERT(false, "unknow RendererAPI");
+        return nullptr;
+    }
 
-}
+} // namespace Kans

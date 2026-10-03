@@ -2,14 +2,12 @@
 #include "Kans3D/Renderer/RenderPass.h"
 namespace Kans
 {
-	class BloomPass :public RenderPass
-	{
+    class BloomPass : public RenderPass
+    {
 
-	public:
+    public:
+        void Draw() override;
 
-		void Draw() override;
-
-	private:
-	
-	};
-}
+    private:
+    };
+} // namespace Kans

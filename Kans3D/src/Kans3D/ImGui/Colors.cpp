@@ -3,6 +3,4 @@
 #include "Colors.h"
 
 namespace Colors
-{
-
-}
+{}

@@ -3,8 +3,4 @@
 #include "RenderPipeline.h"
 
 namespace Kans
-{
-
-	
-
-}
+{}

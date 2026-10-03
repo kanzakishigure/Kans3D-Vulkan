@@ -1,18 +1,18 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstring>
+#include <filesystem>
 #include <assimp/Importer.hpp>
 #include <assimp/config.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-#include <filesystem>
-#include <cmath>
-#include <cstring>
 
 TEST(ModelLoading, GeneratesSmoothNormalsAcrossSharedEdge)
 {
     // Two triangles meet at 90 degrees. Their shared vertices should have
     // the normalized average of +Y and +Z when the smoothing angle is 175.
-    const char* obj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nf 1 2 3\nf 1 4 2\n";
+    const char*      obj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nf 1 2 3\nf 1 4 2\n";
     Assimp::Importer importer;
     importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 175.0f);
     const aiScene* scene = importer.ReadFileFromMemory(obj, std::strlen(obj), 0, "obj");
@@ -49,57 +49,55 @@ TEST(ModelLoading, GeneratesSmoothNormalsAcrossSharedEdge)
 
 namespace
 {
-	std::filesystem::path AssetPath(const char* relativePath)
-	{
-		return std::filesystem::path(KANS_TEST_ASSET_DIR) / relativePath;
-	}
-}
+    std::filesystem::path AssetPath(const char* relativePath)
+    {
+        return std::filesystem::path(KANS_TEST_ASSET_DIR) / relativePath;
+    }
+} // namespace
 
 TEST(ModelLoading, ImportsObjWithoutCreatingGpuResources)
 {
-	const auto path = AssetPath("nanosuit/nanosuit.obj");
-	ASSERT_TRUE(std::filesystem::exists(path)) << path;
+    const auto path = AssetPath("nanosuit/nanosuit.obj");
+    ASSERT_TRUE(std::filesystem::exists(path)) << path;
 
-	Assimp::Importer importer;
-	const aiScene* scene = importer.ReadFile(
-		path.string(), aiProcess_Triangulate | aiProcess_JoinIdenticalVertices);
+    Assimp::Importer importer;
+    const aiScene*   scene = importer.ReadFile(path.string(), aiProcess_Triangulate | aiProcess_JoinIdenticalVertices);
 
-	ASSERT_NE(scene, nullptr) << importer.GetErrorString();
-	ASSERT_NE(scene->mRootNode, nullptr);
-	EXPECT_GT(scene->mNumMeshes, 0u);
-	EXPECT_GT(scene->mNumMaterials, 0u);
+    ASSERT_NE(scene, nullptr) << importer.GetErrorString();
+    ASSERT_NE(scene->mRootNode, nullptr);
+    EXPECT_GT(scene->mNumMeshes, 0u);
+    EXPECT_GT(scene->mNumMaterials, 0u);
 
-	uint64_t vertexCount = 0;
-	uint64_t indexCount = 0;
-	for (unsigned int i = 0; i < scene->mNumMeshes; ++i)
-	{
-		ASSERT_NE(scene->mMeshes[i], nullptr);
-		vertexCount += scene->mMeshes[i]->mNumVertices;
-		indexCount += scene->mMeshes[i]->mNumFaces * 3u;
-	}
-	EXPECT_GT(vertexCount, 0u);
-	EXPECT_GT(indexCount, 0u);
+    uint64_t vertexCount = 0;
+    uint64_t indexCount  = 0;
+    for (unsigned int i = 0; i < scene->mNumMeshes; ++i)
+    {
+        ASSERT_NE(scene->mMeshes[i], nullptr);
+        vertexCount += scene->mMeshes[i]->mNumVertices;
+        indexCount += scene->mMeshes[i]->mNumFaces * 3u;
+    }
+    EXPECT_GT(vertexCount, 0u);
+    EXPECT_GT(indexCount, 0u);
 }
 
 TEST(ModelLoading, ImportsGltfWithoutCreatingGpuResources)
 {
-	const auto path = AssetPath("modern_coffee_table/modern_coffee_table_01_4k.gltf");
-	ASSERT_TRUE(std::filesystem::exists(path)) << path;
+    const auto path = AssetPath("modern_coffee_table/modern_coffee_table_01_4k.gltf");
+    ASSERT_TRUE(std::filesystem::exists(path)) << path;
 
-	Assimp::Importer importer;
-	const aiScene* scene = importer.ReadFile(
-		path.string(), aiProcess_Triangulate | aiProcess_JoinIdenticalVertices);
+    Assimp::Importer importer;
+    const aiScene*   scene = importer.ReadFile(path.string(), aiProcess_Triangulate | aiProcess_JoinIdenticalVertices);
 
-	ASSERT_NE(scene, nullptr) << importer.GetErrorString();
-	ASSERT_NE(scene->mRootNode, nullptr);
-	EXPECT_GT(scene->mNumMeshes, 0u);
-	EXPECT_GT(scene->mNumMaterials, 0u);
+    ASSERT_NE(scene, nullptr) << importer.GetErrorString();
+    ASSERT_NE(scene->mRootNode, nullptr);
+    EXPECT_GT(scene->mNumMeshes, 0u);
+    EXPECT_GT(scene->mNumMaterials, 0u);
 }
 
 TEST(ModelLoading, MissingFileReturnsNull)
 {
-	const auto path = AssetPath("does-not-exist/model.obj");
+    const auto path = AssetPath("does-not-exist/model.obj");
 
-	Assimp::Importer importer;
-	EXPECT_EQ(importer.ReadFile(path.string(), aiProcess_Triangulate), nullptr);
+    Assimp::Importer importer;
+    EXPECT_EQ(importer.ReadFile(path.string(), aiProcess_Triangulate), nullptr);
 }

@@ -1,51 +1,33 @@
 #pragma once
 namespace Kans
 {
-	namespace VulkanResource::ShaderResource
-	{
-		struct UniformBuffer
-		{
+    namespace VulkanResource::ShaderResource
+    {
+        struct UniformBuffer
+        {};
 
-		};
+        struct StorageBuffer
+        {};
 
-		struct StorageBuffer
-		{
+        struct StageInput
+        {};
 
-		};
+        struct StageOutput
+        {};
 
-		struct StageInput
-		{
+        struct SubpassInput
+        {};
 
-		};
+        struct StorageImages
+        {};
 
-		struct StageOutput
-		{
+        struct SampledImages
+        {};
 
-		};
+        struct AtomicCounters
+        {};
 
-		struct SubpassInput
-		{
-
-		};
-
-		struct StorageImages
-		{
-
-		};
-		
-		struct SampledImages
-		{
-
-		};
-
-		struct AtomicCounters
-		{
-
-		};
-		
-		struct AccelerationStructures
-		{
-
-		};
-	}
-}
+        struct AccelerationStructures
+        {};
+    } // namespace VulkanResource::ShaderResource
+} // namespace Kans

@@ -2,309 +2,331 @@
 #include "OpenGLFrameBuffer.h"
 
 #include "glad/glad.h"
-#define  EnableOffLineRender false
-namespace Kans {
+#define EnableOffLineRender false
+namespace Kans
+{
 
-	static const uint32_t MaxFramebufferSize = 15360;
-	namespace Utils 
-	{
-		static GLenum TextureTarget(bool multisampled)
-		{
-			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
-		}
-		static void CreateTextures(bool multisampled,uint32_t count ,uint32_t* outID)
-		{	
-			glCreateTextures(TextureTarget(multisampled), count, outID);
-			//glBindTextures(TextureTarget(multisampled), outID,count);
-		}
-		static void BindTexture(bool multisampled,uint32_t id)
-		{
-			glBindTexture(TextureTarget(multisampled), id);
+    static const uint32_t MaxFramebufferSize = 15360;
+    namespace Utils
+    {
+        static GLenum TextureTarget(bool multisampled)
+        {
+            return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+        }
+        static void CreateTextures(bool multisampled, uint32_t count, uint32_t* outID)
+        {
+            glCreateTextures(TextureTarget(multisampled), count, outID);
+            // glBindTextures(TextureTarget(multisampled), outID,count);
+        }
+        static void BindTexture(bool multisampled, uint32_t id) { glBindTexture(TextureTarget(multisampled), id); }
+        static void
+        AttachColorTexture(uint32_t id, int samples, GLenum format, uint32_t width, uint32_t height, int index)
+        {
+            bool multisampled = samples > 1;
+            if (multisampled)
+            {
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, samples, format, width, height, GL_FALSE);
+            }
+            else
+            {
+                switch (format)
+                {
+                    case GL_RGBA8:
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                        break;
+                    case GL_RGB8:
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+                        break;
+                    case GL_RGBA16F:
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+                        break;
+                    case GL_RGB16F:
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
+                        break;
+                    case GL_RGBA32F:
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+                        break;
+                    case GL_RGB32F:
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
+                        break;
+                }
+                // create a Render object for depth and stencil attachment (we don't be sampling these)
 
-		}
-		static void AttachColorTexture(uint32_t id, int samples, GLenum format, uint32_t width, uint32_t height, int index)
-		{
-			bool multisampled = samples > 1;
-			if (multisampled)
-			{
-				glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, samples , format, width, height,GL_FALSE);
-				
-			}
-			else
-			{
-				switch (format)
-				{
-				case GL_RGBA8:
-					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-					break;
-				case GL_RGB8:
-					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
-					break;
-				case GL_RGBA16F:
-					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
-					break;
-				case GL_RGB16F:
-					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
-					break;
-				case GL_RGBA32F:
-					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
-					break;
-				case GL_RGB32F:
-					glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, nullptr);
-					break;
-				}
-				// create a Render object for depth and stencil attachment (we don't be sampling these)
-				
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+            }
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, TextureTarget(multisampled), id, 0);
+        }
+        static void AttachDepthTexture(uint32_t id,
+                                       int      samples,
+                                       GLenum   format,
+                                       GLenum   attachmentType,
+                                       uint32_t width,
+                                       uint32_t height)
+        {
+            bool multisampled = samples > 1;
+            if (multisampled)
+            {
+                glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, samples, format, width, height, GL_FALSE);
+            }
+            else
+            {
+                // create a Render object for depth and stencil attachment (we don't be sampling these)
+                glTexStorage2D(GL_TEXTURE_2D, 1, format, width, height);
 
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-				
-			}
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, TextureTarget(multisampled), id, 0);	
-			
-		}
-		static void AttachDepthTexture(uint32_t id, int samples, GLenum format, GLenum attachmentType, uint32_t width, uint32_t height)
-		{
-			bool multisampled = samples > 1;
-			if (multisampled)
-			{
-				glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, samples, format, width, height, GL_FALSE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+            }
+            glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, TextureTarget(multisampled), id, 0);
+        }
 
-			}
-			else
-			{
-				// create a Render object for depth and stencil attachment (we don't be sampling these)
-				glTexStorage2D(GL_TEXTURE_2D, 1, format, width, height);
-
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-
-			}
-			glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, TextureTarget(multisampled), id, 0);
-		}
-		
-		static bool IsDepthAttachment(FrameBufferTextureFormat format)
-		{
-			switch (format)
-			{
-				case FrameBufferTextureFormat::DEPTH24STENCIL8 :  return true;
-			}
-			return false;
-		}
-	}
-	OpenGLFrameBuffer::OpenGLFrameBuffer(FrameBufferSpecification spec)
-		:m_Specification(spec)
-	{
-		if (spec.SwapChainTarget)
-		{
-			for (auto& format : spec.AttachmentSpecification.Attachments)
-			{
-				if (!Utils::IsDepthAttachment(format.TextureFormat))
-				{
-					m_ColorAttachmentSpecifications.emplace_back(format);
-				}
-				else
-				{
-					m_DepthAttachmentpecification = format;
-				}
-			}
-			
-		}
-		else
-		{
+        static bool IsDepthAttachment(FrameBufferTextureFormat format)
+        {
+            switch (format)
+            {
+                case FrameBufferTextureFormat::DEPTH24STENCIL8:
+                    return true;
+            }
+            return false;
+        }
+    } // namespace Utils
+    OpenGLFrameBuffer::OpenGLFrameBuffer(FrameBufferSpecification spec) : m_Specification(spec)
+    {
+        if (spec.SwapChainTarget)
+        {
+            for (auto& format : spec.AttachmentSpecification.Attachments)
+            {
+                if (!Utils::IsDepthAttachment(format.TextureFormat))
+                {
+                    m_ColorAttachmentSpecifications.emplace_back(format);
+                }
+                else
+                {
+                    m_DepthAttachmentpecification = format;
+                }
+            }
+        }
+        else
+        {
 #if EnableOffLineRender
-			uint32_t renderbufer = 0;
-			glGenFramebuffers(1, &m_RendererID);
-			glGenRenderbuffers(1, &renderbufer);
+            uint32_t renderbufer = 0;
+            glGenFramebuffers(1, &m_RendererID);
+            glGenRenderbuffers(1, &renderbufer);
 
+            glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+            glBindRenderbuffer(GL_RENDERBUFFER, renderbufer);
 
-			glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
-			glBindRenderbuffer(GL_RENDERBUFFER, renderbufer);
-
-			//向framebuffer添加attachment
-			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, spec.Width, spec.Height);
-			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbufer);
-			m_Renderbuffers.push_back(renderbufer);
+            // 向framebuffer添加attachment
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, spec.Width, spec.Height);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbufer);
+            m_Renderbuffers.push_back(renderbufer);
 #endif
-		}
-		Invalidata();
-	}
+        }
+        Invalidata();
+    }
 
+    OpenGLFrameBuffer::~OpenGLFrameBuffer()
+    {
+        glDeleteFramebuffers(1, &m_RendererID);
+        glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
+        glDeleteTextures(1, &m_DepthAttachment);
+        glDeleteRenderbuffers(m_Renderbuffers.size(), m_Renderbuffers.data());
+        m_Renderbuffers.clear();
+        m_ColorAttachments.clear();
+        m_DepthAttachment = 0;
+    }
 
-	OpenGLFrameBuffer::~OpenGLFrameBuffer()
-	{
-		glDeleteFramebuffers(1, &m_RendererID);
-		glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
-		glDeleteTextures(1, &m_DepthAttachment);
-		glDeleteRenderbuffers(m_Renderbuffers.size(), m_Renderbuffers.data());
-		m_Renderbuffers.clear();
-		m_ColorAttachments.clear();
-		m_DepthAttachment = 0;
-	}
+    void OpenGLFrameBuffer::Invalidata()
+    {
 
-	void OpenGLFrameBuffer::Invalidata()
-	{
+        CORE_TRACE("FrameBuffer invalidata");
+        if (m_RendererID != 0)
+        {
+            glDeleteFramebuffers(1, &m_RendererID);
+            glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
+            glDeleteTextures(1, &m_DepthAttachment);
 
-		CORE_TRACE("FrameBuffer invalidata");
-		if (m_RendererID != 0)
-		{
-			glDeleteFramebuffers(1, &m_RendererID);
-			glDeleteTextures(m_ColorAttachments.size(), m_ColorAttachments.data());
-			glDeleteTextures(1, &m_DepthAttachment);
-			
-			m_ColorAttachments.clear();
-			m_DepthAttachment = 0;
-			
-		}
-		
-		
-		
-		//生成绑定FrameBuffer
-		glCreateFramebuffers(1, &m_RendererID);
-		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+            m_ColorAttachments.clear();
+            m_DepthAttachment = 0;
+        }
 
-		if(m_Specification.SwapChainTarget)
-		{
-			bool multisampled = m_Specification.Samples > 1;
-			//Attachments
-			if (m_ColorAttachmentSpecifications.size())
-			{
-				m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
-				Utils::CreateTextures(multisampled, m_ColorAttachments.size(), m_ColorAttachments.data());
-				for (uint32_t i = 0; i < m_ColorAttachmentSpecifications.size(); i++)
-				{
-					Utils::BindTexture(multisampled, m_ColorAttachments[i]);
-					switch (m_ColorAttachmentSpecifications[i].TextureFormat)
-					{
-					case FrameBufferTextureFormat::RGBA8: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA8, m_Specification.Width, m_Specification.Height, i);
-						break;
-					case FrameBufferTextureFormat::RGB16F: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGB16F, m_Specification.Width, m_Specification.Height, i);
-						break;
-					case FrameBufferTextureFormat::RGBA16F: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA16F, m_Specification.Width, m_Specification.Height, i);
-						break;
-					case FrameBufferTextureFormat::RGBA32F: Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA32F, m_Specification.Width, m_Specification.Height, i);
-						break;
-					}
-				}
-			}
-			if (m_DepthAttachmentpecification.TextureFormat != FrameBufferTextureFormat::None)
-			{
-				Utils::CreateTextures(multisampled, 1, &m_DepthAttachment);
-				Utils::BindTexture(multisampled, m_DepthAttachment);
+        // 生成绑定FrameBuffer
+        glCreateFramebuffers(1, &m_RendererID);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
-				switch (m_DepthAttachmentpecification.TextureFormat)
-				{
-				case FrameBufferTextureFormat::Depth: Utils::AttachDepthTexture(m_DepthAttachment, m_Specification.Samples, GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL_ATTACHMENT, m_Specification.Width, m_Specification.Height);
-					break;
-				}
-			}
-		
+        if (m_Specification.SwapChainTarget)
+        {
+            bool multisampled = m_Specification.Samples > 1;
+            // Attachments
+            if (m_ColorAttachmentSpecifications.size())
+            {
+                m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
+                Utils::CreateTextures(multisampled, m_ColorAttachments.size(), m_ColorAttachments.data());
+                for (uint32_t i = 0; i < m_ColorAttachmentSpecifications.size(); i++)
+                {
+                    Utils::BindTexture(multisampled, m_ColorAttachments[i]);
+                    switch (m_ColorAttachmentSpecifications[i].TextureFormat)
+                    {
+                        case FrameBufferTextureFormat::RGBA8:
+                            Utils::AttachColorTexture(m_ColorAttachments[i],
+                                                      m_Specification.Samples,
+                                                      GL_RGBA8,
+                                                      m_Specification.Width,
+                                                      m_Specification.Height,
+                                                      i);
+                            break;
+                        case FrameBufferTextureFormat::RGB16F:
+                            Utils::AttachColorTexture(m_ColorAttachments[i],
+                                                      m_Specification.Samples,
+                                                      GL_RGB16F,
+                                                      m_Specification.Width,
+                                                      m_Specification.Height,
+                                                      i);
+                            break;
+                        case FrameBufferTextureFormat::RGBA16F:
+                            Utils::AttachColorTexture(m_ColorAttachments[i],
+                                                      m_Specification.Samples,
+                                                      GL_RGBA16F,
+                                                      m_Specification.Width,
+                                                      m_Specification.Height,
+                                                      i);
+                            break;
+                        case FrameBufferTextureFormat::RGBA32F:
+                            Utils::AttachColorTexture(m_ColorAttachments[i],
+                                                      m_Specification.Samples,
+                                                      GL_RGBA32F,
+                                                      m_Specification.Width,
+                                                      m_Specification.Height,
+                                                      i);
+                            break;
+                    }
+                }
+            }
+            if (m_DepthAttachmentpecification.TextureFormat != FrameBufferTextureFormat::None)
+            {
+                Utils::CreateTextures(multisampled, 1, &m_DepthAttachment);
+                Utils::BindTexture(multisampled, m_DepthAttachment);
 
-			if (m_ColorAttachments.size() > 1)
-			{
-				CORE_ASSERT(m_ColorAttachments.size() <= 4, "We only supprot 4 renderer target");
-				//opengl only surport 4 renderer target
-				GLenum buffer[4]{ GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-				glDrawBuffers(m_ColorAttachments.size(), buffer);
+                switch (m_DepthAttachmentpecification.TextureFormat)
+                {
+                    case FrameBufferTextureFormat::Depth:
+                        Utils::AttachDepthTexture(m_DepthAttachment,
+                                                  m_Specification.Samples,
+                                                  GL_DEPTH24_STENCIL8,
+                                                  GL_DEPTH_STENCIL_ATTACHMENT,
+                                                  m_Specification.Width,
+                                                  m_Specification.Height);
+                        break;
+                }
+            }
 
-			}
-			else if (m_ColorAttachments.size() == 0)
-			{
-				glDrawBuffer(GL_NONE);
-			}
+            if (m_ColorAttachments.size() > 1)
+            {
+                CORE_ASSERT(m_ColorAttachments.size() <= 4, "We only supprot 4 renderer target");
+                // opengl only surport 4 renderer target
+                GLenum buffer[4] {
+                    GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3};
+                glDrawBuffers(m_ColorAttachments.size(), buffer);
+            }
+            else if (m_ColorAttachments.size() == 0)
+            {
+                glDrawBuffer(GL_NONE);
+            }
 
-			//检查状态是否完成FrameBuffer的生成
-			CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "FrameBuffer Incomplete!");
-
-		}
-		else
-		{
+            // 检查状态是否完成FrameBuffer的生成
+            CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "FrameBuffer Incomplete!");
+        }
+        else
+        {
 #if EnableOffLineRender
-			glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
-			for (uint32_t rbo : m_Renderbuffers)
-			{
-				glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-				glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_Specification.Width, m_Specification.Height);
-			}
+            glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+            for (uint32_t rbo : m_Renderbuffers)
+            {
+                glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+                glRenderbufferStorage(
+                    GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_Specification.Width, m_Specification.Height);
+            }
 #endif
-		}
-		//解除bind
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	}
+        }
+        // 解除bind
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
 
-	void OpenGLFrameBuffer::Bind()
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
-		glViewport(0, 0, m_Specification.Width, m_Specification.Height);
-	}
+    void OpenGLFrameBuffer::Bind()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
+        glViewport(0, 0, m_Specification.Width, m_Specification.Height);
+    }
 
-	void OpenGLFrameBuffer::Unbind()
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	}
+    void OpenGLFrameBuffer::Unbind() { glBindFramebuffer(GL_FRAMEBUFFER, 0); }
 
-	uint32_t OpenGLFrameBuffer::GetColorAttachmentCount() const
-	{
-		return m_ColorAttachments.size();
-	}
+    uint32_t OpenGLFrameBuffer::GetColorAttachmentCount() const { return m_ColorAttachments.size(); }
 
-	uint32_t OpenGLFrameBuffer::GetColorAttachmentRendererID(uint32_t index /*= 0*/) const
-	{
-		 CORE_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
-		return m_ColorAttachments[index]; 
-	}
+    uint32_t OpenGLFrameBuffer::GetColorAttachmentRendererID(uint32_t index /*= 0*/) const
+    {
+        CORE_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
+        return m_ColorAttachments[index];
+    }
 
-	void OpenGLFrameBuffer::BindTextureToColorAttachMent(Ref<TextureCube> texture, uint32_t face,uint32_t mip /*= 0*/,uint32_t index /*= 0*/)
-	{
-		if (index < m_ColorAttachments.size() && m_ColorAttachments[index] != 0)
-		{
-			glDeleteTextures(1, &m_ColorAttachments[index]);
-			m_ColorAttachments[index] = 0;
-		}
-		
+    void OpenGLFrameBuffer::BindTextureToColorAttachMent(Ref<TextureCube> texture,
+                                                         uint32_t         face,
+                                                         uint32_t         mip /*= 0*/,
+                                                         uint32_t         index /*= 0*/)
+    {
+        if (index < m_ColorAttachments.size() && m_ColorAttachments[index] != 0)
+        {
+            glDeleteTextures(1, &m_ColorAttachments[index]);
+            m_ColorAttachments[index] = 0;
+        }
 
-		
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0+ index, GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, texture->GetRenererID(), mip);
-	}
+        glFramebufferTexture2D(GL_FRAMEBUFFER,
+                               GL_COLOR_ATTACHMENT0 + index,
+                               GL_TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                               texture->GetRenererID(),
+                               mip);
+    }
 
-	//can't Bind MultiSample Texture To FrameBuffer
-	void OpenGLFrameBuffer::BindTextureToColorAttachMent(Ref<Texture2D> texture, uint32_t mip /*= 0*/, uint32_t index /*= 0*/)
-	{
-		if (index<m_ColorAttachments.size()&& m_ColorAttachments[index] != 0)
-		{
-			glDeleteTextures(1, &m_ColorAttachments[index]);
-			m_ColorAttachments[index] = 0;
-		}
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, GL_TEXTURE_2D , texture->GetRenererID(), mip);
-	}
+    // can't Bind MultiSample Texture To FrameBuffer
+    void OpenGLFrameBuffer::BindTextureToColorAttachMent(Ref<Texture2D> texture,
+                                                         uint32_t       mip /*= 0*/,
+                                                         uint32_t       index /*= 0*/)
+    {
+        if (index < m_ColorAttachments.size() && m_ColorAttachments[index] != 0)
+        {
+            glDeleteTextures(1, &m_ColorAttachments[index]);
+            m_ColorAttachments[index] = 0;
+        }
+        glFramebufferTexture2D(
+            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, GL_TEXTURE_2D, texture->GetRenererID(), mip);
+    }
 
-	void OpenGLFrameBuffer::Resize(uint32_t width, uint32_t height)
-	{
-		if (width == 0 || height == 0||width>MaxFramebufferSize||height>MaxFramebufferSize)
-		{
-			CORE_WARN("try to resize framebuffer size To {0}x{1} is not allowed !", width, height);
-			return;
-		}
-		m_Specification.Width = width;
-		m_Specification.Height =height;
-		Invalidata();
-	}
+    void OpenGLFrameBuffer::Resize(uint32_t width, uint32_t height)
+    {
+        if (width == 0 || height == 0 || width > MaxFramebufferSize || height > MaxFramebufferSize)
+        {
+            CORE_WARN("try to resize framebuffer size To {0}x{1} is not allowed !", width, height);
+            return;
+        }
+        m_Specification.Width  = width;
+        m_Specification.Height = height;
+        Invalidata();
+    }
 
-	void OpenGLFrameBuffer::SwapColorAttachment(uint32_t index, uint32_t attachment) const
-	{
-		
-		CORE_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
-		
-		//We can't swapAttachment now
-		
-		//glDeleteTextures(1, &m_ColorAttachments[index]);
-		//m_ColorAttachments.insert(m_ColorAttachments.begin()+index,attachment);
-	}
+    void OpenGLFrameBuffer::SwapColorAttachment(uint32_t index, uint32_t attachment) const
+    {
 
-}
+        CORE_ASSERT(index < m_ColorAttachments.size(), "index out of the range");
+
+        // We can't swapAttachment now
+
+        // glDeleteTextures(1, &m_ColorAttachments[index]);
+        // m_ColorAttachments.insert(m_ColorAttachments.begin()+index,attachment);
+    }
+
+} // namespace Kans

@@ -3,15 +3,12 @@
 
 namespace Kans
 {
-	class MainCameraPass :public RenderPass
-	{
+    class MainCameraPass : public RenderPass
+    {
 
-	public:
-	
-		void Draw() override;
+    public:
+        void Draw() override;
 
-	private:
-		
-
-	};
-}
+    private:
+    };
+} // namespace Kans

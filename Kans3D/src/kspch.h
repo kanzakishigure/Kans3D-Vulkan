@@ -1,31 +1,29 @@
 #pragma once
+#include <algorithm>
+#include <cstdint>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <utility>
-#include <algorithm>
-#include <functional>
-#include <cstdint>
 
 #include <fstream>
 
-
-#include <string>
-#include <sstream>
-#include <vector>
 #include <array>
 #include <map>
+#include <sstream>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include <optional>
 
-#include <Kans3D/Core/Base/Base.h>
 #include <Kans3D/Core/Base/Assert.h>
+#include <Kans3D/Core/Base/Base.h>
 #include <Kans3D/Core/Log/Log.h>
 #include <Kans3D/Core/Memory.h>
 
 #include <Kans3D/Debug/Instrumentor.h>
 #ifdef PLATFORM_WINDOWS
-	#include<Windows.h>
+#include <Windows.h>
 #endif // PLATFORM_WINDOWS
-

@@ -3,8 +3,5 @@
 
 namespace Kans
 {
-	VulkanPipline::VulkanPipline()
-	{
-
-	}
-}
+    VulkanPipline::VulkanPipline() {}
+} // namespace Kans

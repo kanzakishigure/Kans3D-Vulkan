@@ -1,5 +1,5 @@
-#include"kspch.h"
-#include"ImGuiLayer.h"
+#include "kspch.h"
+#include "ImGuiLayer.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -7,236 +7,208 @@
 
 #include "Kans3D/Core/Application.h"
 
-#include "Kans3D/ImGui/Colors.h"
 #include "Kans3D/FileSystem/FileSystem.h"
+#include "Kans3D/ImGui/Colors.h"
 #include "ImGuizmo.h"
-//Temp
-#include<GLFW/glfw3.h>
+// Temp
 #include <glad/glad.h>
-
+#include <GLFW/glfw3.h>
 
 namespace Kans
 {
-	ImGuiLayer::ImGuiLayer()
-		:Layer("ImGuiLayer")
-	{
-	}
+    ImGuiLayer::ImGuiLayer() : Layer("ImGuiLayer") {}
 
+    ImGuiLayer::~ImGuiLayer() {}
 
-	ImGuiLayer::~ImGuiLayer()
-	{
+    void ImGuiLayer::OnAttach()
+    {
+        PROFILE_FUCTION();
 
-	}
+        // Setup Dear ImGui context
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        (void)io;
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+        // io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;   // Enable Docking
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable Multi-Viewport / Platform Windows
+        // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoTaskBarIcons;
+        // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoMerge;
 
+        // Kans:
+        // Set the default font
+        {
 
+            std::filesystem::path Dfontpath = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Regular.ttf";
+            io.FontDefault                  = io.Fonts->AddFontFromFileTTF(Dfontpath.generic_string().c_str(), 16.0f);
+            std::filesystem::path fontpath  = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Bold.ttf";
+            io.Fonts->AddFontFromFileTTF(fontpath.generic_string().c_str(), 16.0f);
+        }
 
-	void ImGuiLayer::OnAttach()
-	{
-		PROFILE_FUCTION();
+        // Setup Dear ImGui style
+        ImGui::StyleColorsDark();
+        // ImGui::StyleColorsClassic();
+        //  When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to
+        //  regular ones.
+        ImGuiStyle& style = ImGui::GetStyle();
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+        {
+            style.WindowRounding              = 0.0f;
+            style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+        }
 
-		// Setup Dear ImGui context
-		IMGUI_CHECKVERSION();
-		ImGui::CreateContext();
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
-		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
-		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
-		io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
-		//io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoTaskBarIcons;
-		//io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoMerge;
+        // kans
+        // use custom theme
 
-		//Kans:
-		//Set the default font
-		{
-			
-			std::filesystem::path Dfontpath= KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Regular.ttf";
-			io.FontDefault = io.Fonts->AddFontFromFileTTF(Dfontpath.generic_string().c_str(),16.0f);
-			std::filesystem::path fontpath = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Bold.ttf";
-			io.Fonts->AddFontFromFileTTF(fontpath.generic_string().c_str(), 16.0f);
-		}
+        SetDarkThemeColors();
 
-		// Setup Dear ImGui style
-		ImGui::StyleColorsDark();
-		//ImGui::StyleColorsClassic();
-		// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
-		ImGuiStyle& style = ImGui::GetStyle();
-		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-		{
-			style.WindowRounding = 0.0f;
-			style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-		}
+        Application& app    = Application::Get();
+        GLFWwindow*  window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
 
-		//kans
-		//use custom theme
-			
-		SetDarkThemeColors();
-	
+        // Setup Platform/Renderer bindings
+        ImGui_ImplGlfw_InitForOpenGL(window, true);
+        // ImGui_ImplGlfw_InitForVulkan(window, true);
+        ImGui_ImplOpenGL3_Init("#version 410");
+    }
 
-		Application& app = Application::Get();
-		GLFWwindow* window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
+    void ImGuiLayer::OnDetach()
+    {
+        PROFILE_FUCTION();
 
-		// Setup Platform/Renderer bindings
-		ImGui_ImplGlfw_InitForOpenGL(window, true);
-		//ImGui_ImplGlfw_InitForVulkan(window, true);
-		ImGui_ImplOpenGL3_Init("#version 410");
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+    }
 
+    void ImGuiLayer::Begin()
+    {
+        PROFILE_FUCTION();
 
-	}
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        ImGuizmo::BeginFrame();
+    }
 
-	void ImGuiLayer::OnDetach()
-	{
-		PROFILE_FUCTION();
+    void ImGuiLayer::End()
+    {
+        PROFILE_FUCTION();
 
-		ImGui_ImplOpenGL3_Shutdown();
-		ImGui_ImplGlfw_Shutdown();
-		ImGui::DestroyContext();
-		
-	}
+        ImGuiIO&     io  = ImGui::GetIO();
+        Application& app = Application::Get();
+        io.DisplaySize   = ImVec2((float)app.GetWindow().GetWidth(), (float)app.GetWindow().GetHeight());
 
-	void ImGuiLayer::Begin()
-	{
-		PROFILE_FUCTION();
+        // Rendering
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-		ImGui_ImplOpenGL3_NewFrame();
-		ImGui_ImplGlfw_NewFrame();
-		ImGui::NewFrame();
-		ImGuizmo::BeginFrame();
-		
-	}
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+        {
+            GLFWwindow* backup_current_context = glfwGetCurrentContext();
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+            glfwMakeContextCurrent(backup_current_context);
+        }
+    }
 
-	void ImGuiLayer::End()
-	{
-		PROFILE_FUCTION();
+    void ImGuiLayer::OnImGuiRender() {}
 
-		ImGuiIO& io = ImGui::GetIO();
-		Application& app = Application::Get();
-		io.DisplaySize = ImVec2((float)app.GetWindow().GetWidth(), (float)app.GetWindow().GetHeight());
+    void ImGuiLayer::OnEvent(Event& e)
+    {
 
-		// Rendering
-		ImGui::Render();
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (m_BlokEvents)
+        {
 
-		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-		{
-			GLFWwindow* backup_current_context = glfwGetCurrentContext();
-			ImGui::UpdatePlatformWindows();
-			ImGui::RenderPlatformWindowsDefault();
-			glfwMakeContextCurrent(backup_current_context);
-		}
-	}
+            ImGuiIO& io = ImGui::GetIO();
+            e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
+            e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
+        }
+    }
 
-	void ImGuiLayer::OnImGuiRender()
-	{
+    void ImGuiLayer::SetDarkThemeColors()
+    {
 
-	}
+        auto& colors = ImGui::GetStyle().Colors;
+        auto& style  = ImGui::GetStyle();
+        //========================================================
+        /// Colors
 
-	void ImGuiLayer::OnEvent(Event& e)
-	{
+        // Window Background
+        colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+        colors[ImGuiCol_ChildBg]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::background);
+        colors[ImGuiCol_PopupBg]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundPopup);
+        colors[ImGuiCol_Border]   = ImColor(73, 80, 87, 220);
 
-		if (m_BlokEvents)
-		{
+        // Headers
+        colors[ImGuiCol_Header]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
+        colors[ImGuiCol_HeaderHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
+        colors[ImGuiCol_HeaderActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
 
-			ImGuiIO& io = ImGui::GetIO();
-			e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
-			e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
+        // Text
+        colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
 
-		}
+        // Frame BG
+        colors[ImGuiCol_FrameBg]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
+        colors[ImGuiCol_FrameBgHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
+        colors[ImGuiCol_FrameBgActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
 
-	}
+        // Buttons
+        colors[ImGuiCol_Button]        = ImColor(56, 56, 56, 200);
+        colors[ImGuiCol_ButtonHovered] = ImColor(70, 70, 70, 255);
+        colors[ImGuiCol_ButtonActive]  = ImColor(56, 56, 56, 200);
 
-	void ImGuiLayer::SetDarkThemeColors()
-	{
-		
-		auto& colors = ImGui::GetStyle().Colors;
-		auto& style = ImGui::GetStyle();
-		//========================================================
-		/// Colors
+        // Title
+        colors[ImGuiCol_TitleBg]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+        colors[ImGuiCol_TitleBgActive]    = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+        colors[ImGuiCol_TitleBgCollapsed] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_9);
 
-			// Window Background
-			colors[ImGuiCol_WindowBg]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-			colors[ImGuiCol_ChildBg]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::background);
-			colors[ImGuiCol_PopupBg]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundPopup);
-			colors[ImGuiCol_Border]				= ImColor(73, 80, 87, 220);
-					
-			
-			// Headers						    
-			colors[ImGuiCol_Header]			    = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-			colors[ImGuiCol_HeaderHovered]      = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-			colors[ImGuiCol_HeaderActive]       = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-											    
-			//Text							    
-			colors[ImGuiCol_Text]               = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
-											    
-			// Frame BG						    
-			colors[ImGuiCol_FrameBg]		    = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
-			colors[ImGuiCol_FrameBgHovered]     = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
-			colors[ImGuiCol_FrameBgActive]	    = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
-											    
-			// Buttons						    
-			colors[ImGuiCol_Button]             = ImColor(56, 56, 56, 200);
-			colors[ImGuiCol_ButtonHovered]      = ImColor(70, 70, 70, 255);
-			colors[ImGuiCol_ButtonActive]       = ImColor(56, 56, 56, 200);
-											    
-			// Title						    
-			colors[ImGuiCol_TitleBg]            = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-			colors[ImGuiCol_TitleBgActive]      = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-			colors[ImGuiCol_TitleBgCollapsed]   = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_9);
+        // Tab
+        colors[ImGuiCol_Tab]                = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+        colors[ImGuiCol_TabHovered]         = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_4);
+        colors[ImGuiCol_TabActive]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
+        colors[ImGuiCol_TabUnfocused]       = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+        colors[ImGuiCol_TabUnfocusedActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
 
+        // Resize Grip
+        colors[ImGuiCol_ResizeGrip]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
+        colors[ImGuiCol_ResizeGripHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_6);
+        colors[ImGuiCol_ResizeGripActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_7);
 
-			//Tab
-			colors[ImGuiCol_Tab]				= ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-			colors[ImGuiCol_TabHovered]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_4);
-			colors[ImGuiCol_TabActive]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
-			colors[ImGuiCol_TabUnfocused]		= ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-			colors[ImGuiCol_TabUnfocusedActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
+        // CheckBox
+        colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_5);
+        colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
 
+        // Tabs
+        colors[ImGuiCol_TableHeaderBg]    = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
+        colors[ImGuiCol_TableBorderLight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
 
+        // Slider
+        colors[ImGuiCol_SliderGrab]       = ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
+        colors[ImGuiCol_SliderGrabActive] = ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
 
-			// Resize Grip
-			colors[ImGuiCol_ResizeGrip]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
-			colors[ImGuiCol_ResizeGripHovered]	= ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_6);
-			colors[ImGuiCol_ResizeGripActive]	= ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_7);
+        colors[ImGuiCol_MenuBarBg] = ImColor(0, 0, 0, 0);
 
-			//CheckBox
-			colors[ImGuiCol_CheckMark]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_5);
-			colors[ImGuiCol_CheckMark]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
+        // Separator
+        colors[ImGuiCol_Separator]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
+        colors[ImGuiCol_SeparatorActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::highlight);
+        colors[ImGuiCol_SeparatorHovered] = ImColor(39, 185, 242, 150);
 
-			//Tabs
-			colors[ImGuiCol_TableHeaderBg]		= ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-			colors[ImGuiCol_TableBorderLight]	= ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
+        // Scrollbar
+        colors[ImGuiCol_ScrollbarBg]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
+        colors[ImGuiCol_ScrollbarGrab]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
+        colors[ImGuiCol_ScrollbarGrabHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_5);
+        colors[ImGuiCol_ScrollbarGrabActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
+        //========================================================
+        /// Style
 
-			//Slider
-			colors[ImGuiCol_SliderGrab]			= ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
-			colors[ImGuiCol_SliderGrabActive]	= ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
+        style.FrameRounding     = 4.8f;
+        style.FrameBorderSize   = 1.2f;
+        style.IndentSpacing     = 11.0f;
+        style.WindowPadding     = ImVec2(1.1, 1.4);
+        style.GrabRounding      = 3.0;
+        style.ScrollbarRounding = 12.0;
+        style.ScrollbarSize     = 10.0f;
+    }
 
-			colors[ImGuiCol_MenuBarBg]			= ImColor(0, 0, 0, 0);
-
-			// Separator
-			colors[ImGuiCol_Separator]			= ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
-			colors[ImGuiCol_SeparatorActive]	= ImGui::ColorConvertU32ToFloat4(Colors::Theme::highlight);
-			colors[ImGuiCol_SeparatorHovered]	= ImColor(39, 185, 242, 150);
-
-			// Scrollbar
-			colors[ImGuiCol_ScrollbarBg]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
-			colors[ImGuiCol_ScrollbarGrab]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
-			colors[ImGuiCol_ScrollbarGrabHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_5);
-			colors[ImGuiCol_ScrollbarGrabActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
-		//========================================================
-		/// Style
-
-			style.FrameRounding = 4.8f;
-			style.FrameBorderSize = 1.2f;
-			style.IndentSpacing = 11.0f;
-			style.WindowPadding = ImVec2(1.1, 1.4);
-			style.GrabRounding = 3.0;
-			style.ScrollbarRounding = 12.0;
-			style.ScrollbarSize    = 10.0f;
-
-			
-	}
-
-
-}
-
-
-
+} // namespace Kans

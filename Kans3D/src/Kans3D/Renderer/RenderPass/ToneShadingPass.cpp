@@ -4,13 +4,6 @@
 namespace Kans
 {
 
-	
+    void ToneShadingPass::Draw() { throw std::logic_error("The method or operation is not implemented."); }
 
-	void ToneShadingPass::Draw()
-	{
-		throw std::logic_error("The method or operation is not implemented.");
-	}
-
-	
-
-}
+} // namespace Kans

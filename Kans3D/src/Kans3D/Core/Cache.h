@@ -4,14 +4,11 @@
 namespace Kans
 {
 
-	// the interface
-	class Cache
-	{
-	public:
-	private:
-	};
+    // the interface
+    class Cache
+    {
+    public:
+    private:
+    };
 
-
-
-	
-}
+} // namespace Kans

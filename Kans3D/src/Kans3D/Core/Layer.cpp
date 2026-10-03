@@ -1,11 +1,6 @@
 #include "kspch.h"
 #include "Layer.h"
 
-Kans::Layer::Layer(const std::string& name)
-	:m_DebugName(name)
-{
-}
+Kans::Layer::Layer(const std::string& name) : m_DebugName(name) {}
 
-Kans::Layer::~Layer()
-{
-}
+Kans::Layer::~Layer() {}
