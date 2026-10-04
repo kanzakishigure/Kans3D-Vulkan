@@ -95,6 +95,36 @@ namespace
         }
     }
 
+    TEST_F(SourceAssetDatabaseSerializerTest, MutatedDatabaseRoundTripPreservesMissingAndReleasedPaths)
+    {
+        SourceAssetDatabase db;
+        auto                updated = Record();
+        const auto          removed = Record("fedcba9876543210", "Removed.png");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(db.RegisterSource(updated)));
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(db.RegisterSource(removed)));
+        updated.Exists   = false;
+        updated.Missing  = true;
+        updated.FileSize = 987;
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(db.UpdateSource(updated)));
+        ASSERT_TRUE(
+            std::holds_alternative<std::monostate>(db.ChangeSourcePath(updated.sourceAssetID, AssetPath("Moved.png"))));
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(db.UnregisterSource(removed.sourceAssetID)));
+        Store(db);
+        auto loaded = SourceAssetDatabaseSerializer::Load(cache, root);
+        ASSERT_TRUE(std::holds_alternative<SourceAssetDatabase>(loaded));
+        const auto& restored = std::get<SourceAssetDatabase>(loaded);
+        EXPECT_EQ(restored.GetAllSources().size(), 1u);
+        EXPECT_FALSE(restored.Contains(updated.Path));
+        EXPECT_FALSE(restored.Contains(removed.sourceAssetID));
+        EXPECT_FALSE(restored.Contains(removed.Path));
+        EXPECT_EQ(restored.FindIDByPath(AssetPath("Moved.png")), updated.sourceAssetID);
+        const auto record = restored.FindByID(updated.sourceAssetID);
+        EXPECT_TRUE(record.Missing);
+        EXPECT_FALSE(record.Exists);
+        EXPECT_EQ(record.FileSize, updated.FileSize);
+        EXPECT_EQ(record.last_edit_time, updated.last_edit_time);
+    }
+
     TEST_F(SourceAssetDatabaseSerializerTest, EmptyDatabaseAndDeterministicReplacement)
     {
         Store(SourceAssetDatabase {});

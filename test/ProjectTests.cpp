@@ -97,13 +97,97 @@ namespace
     {
         auto opened = Project::Open(config);
         ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
-        auto& project = std::get<std::unique_ptr<Project>>(opened);
+        auto&      project  = std::get<std::unique_ptr<Project>>(opened);
+        const auto id       = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        const auto original = project->GetSourceAssetDatabase().FindByID(id);
         fs::remove(directory / "assets/a.png");
         Write(directory / "assets/b.png", "new");
         ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
-        EXPECT_FALSE(project->GetSourceAssetDatabase().Contains(AssetPath("a.png")));
+        EXPECT_EQ(project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png")), id);
+        const auto missing = project->GetSourceAssetDatabase().FindByID(id);
+        EXPECT_FALSE(missing.Exists);
+        EXPECT_TRUE(missing.Missing);
+        EXPECT_EQ(missing.FileSize, original.FileSize);
+        EXPECT_EQ(missing.last_edit_time, original.last_edit_time);
         EXPECT_TRUE(project->GetSourceAssetDatabase().Contains(AssetPath("b.png")));
         EXPECT_TRUE(std::holds_alternative<std::monostate>(project->SaveAssetCache()));
+    }
+
+    TEST_F(ProjectTest, MissingIdentitySurvivesReopenAndMatchingSidecarRestoresIt)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&      project = std::get<std::unique_ptr<Project>>(opened);
+        const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        fs::remove(directory / "assets/a.png");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        auto reopened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(reopened));
+        auto& restored = std::get<std::unique_ptr<Project>>(reopened);
+        EXPECT_TRUE(restored->GetSourceAssetDatabase().FindByID(id).Missing);
+        Write(directory / "assets/a.png", "restored content");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(restored->RefreshAssets()));
+        const auto record = restored->GetSourceAssetDatabase().FindByID(id);
+        EXPECT_TRUE(record.Exists);
+        EXPECT_FALSE(record.Missing);
+        EXPECT_EQ(record.FileSize, 16u);
+        EXPECT_EQ(restored->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png")), id);
+    }
+
+    TEST_F(ProjectTest, OpenDetectsOfflineDeletionAndRestoresMovedMissingIdentity)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&      project = std::get<std::unique_ptr<Project>>(opened);
+        const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        project.reset();
+        fs::remove(directory / "assets/a.png");
+        auto reopened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(reopened));
+        auto& restored = std::get<std::unique_ptr<Project>>(reopened);
+        EXPECT_TRUE(restored->GetSourceAssetDatabase().FindByID(id).Missing);
+        fs::rename(directory / "assets/a.png.kmeta", directory / "assets/moved.png.kmeta");
+        Write(directory / "assets/moved.png", "returned");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(restored->RefreshAssets()));
+        EXPECT_EQ(restored->GetSourceAssetDatabase().FindIDByPath(AssetPath("moved.png")), id);
+        EXPECT_FALSE(restored->GetSourceAssetDatabase().Contains(AssetPath("a.png")));
+        EXPECT_FALSE(restored->GetSourceAssetDatabase().FindByID(id).Missing);
+    }
+
+    TEST_F(ProjectTest, MoveWithSidecarPreservesIdentityAndReleasesOldPath)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&      project = std::get<std::unique_ptr<Project>>(opened);
+        const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        fs::rename(directory / "assets/a.png", directory / "assets/moved.png");
+        fs::rename(directory / "assets/a.png.kmeta", directory / "assets/moved.png.kmeta");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        EXPECT_FALSE(project->GetSourceAssetDatabase().Contains(AssetPath("a.png")));
+        EXPECT_EQ(project->GetSourceAssetDatabase().FindIDByPath(AssetPath("moved.png")), id);
+        EXPECT_FALSE(project->GetSourceAssetDatabase().FindByID(id).Missing);
+        EXPECT_EQ(project->GetSourceAssetDatabase().GetAllSources().size(), 1u);
+    }
+
+    TEST_F(ProjectTest, DifferentIdentityAtMissingPathPreservesDatabaseAndCache)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&      project = std::get<std::unique_ptr<Project>>(opened);
+        const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        fs::remove(directory / "assets/a.png");
+        fs::remove(directory / "assets/a.png.kmeta");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        const auto cache = Read(project->GetSourceAssetCachePath());
+        Write(directory / "assets/a.png", "different source");
+        const auto result = project->RefreshAssets();
+        ASSERT_TRUE(std::holds_alternative<AssetError>(result));
+        EXPECT_EQ(std::get<AssetError>(result).Code, AssetErrorCode::DuplicatePath);
+        EXPECT_EQ(project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png")), id);
+        EXPECT_TRUE(project->GetSourceAssetDatabase().FindByID(id).Missing);
+        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), cache);
+        EXPECT_TRUE(std::holds_alternative<AssetError>(Project::Open(config)));
+        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), cache);
     }
 
     TEST_F(ProjectTest, CacheWriteFailureDoesNotPreventOpening)

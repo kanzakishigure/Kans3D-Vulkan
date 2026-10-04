@@ -41,7 +41,8 @@ namespace Kans
         [[nodiscard]] static std::variant<std::unique_ptr<Project>, AssetError>
         Open(const ProjectConfig& config, const ProjectOpenOptions& options = {});
 
-        // 重新扫描源资产；扫描失败时保留现有数据库。
+        // 重新扫描并按 ID 合并；消失的源保留为 Missing，相同 ID 恢复。
+        // 扫描错误或路径身份冲突时保留现有数据库及缓存。
         [[nodiscard]] std::variant<std::monostate, AssetError> RefreshAssets();
 
         [[nodiscard]] std::variant<std::monostate, AssetError> SaveAssetCache() const;

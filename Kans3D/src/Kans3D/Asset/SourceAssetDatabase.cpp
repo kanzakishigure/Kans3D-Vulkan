@@ -48,6 +48,57 @@ namespace Kans
         }
         return std::monostate {};
     }
+
+    std::variant<std::monostate, AssetError> SourceAssetDatabase::UnregisterSource(SourceAssetID id)
+    {
+        if (!id.IsValid())
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid source asset ID"};
+        auto it = m_DataBase.find(id);
+        if (it == m_DataBase.end())
+            return AssetError {AssetErrorCode::NotFound, "Source asset ID is not registered"};
+        m_AssetPaths.erase(it->second.Path);
+        m_DataBase.erase(it);
+        return std::monostate {};
+    }
+
+    std::variant<std::monostate, AssetError> SourceAssetDatabase::UpdateSource(const SourceAssetMetadata& data)
+    {
+        if (!data.IsValid() || (data.Exists && data.Missing))
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid source metadata update"};
+        auto it = m_DataBase.find(data.sourceAssetID);
+        if (it == m_DataBase.end())
+            return AssetError {AssetErrorCode::NotFound, "Source asset ID is not registered"};
+        if (data.Path != it->second.Path)
+            return AssetError {AssetErrorCode::InvalidArgument, "Use ChangeSourcePath to change a source path"};
+
+        // Identity and path stay untouched; the remaining fields do not allocate.
+        it->second.MetaVersion    = data.MetaVersion;
+        it->second.Exists         = data.Exists;
+        it->second.Missing        = data.Missing;
+        it->second.FileSize       = data.FileSize;
+        it->second.last_edit_time = data.last_edit_time;
+        return std::monostate {};
+    }
+
+    std::variant<std::monostate, AssetError> SourceAssetDatabase::ChangeSourcePath(SourceAssetID    id,
+                                                                                   const AssetPath& path)
+    {
+        if (!id.IsValid() || !path.IsValid())
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid source path change"};
+        auto it = m_DataBase.find(id);
+        if (it == m_DataBase.end())
+            return AssetError {AssetErrorCode::NotFound, "Source asset ID is not registered"};
+        if (path == it->second.Path)
+            return std::monostate {};
+        auto replacement = path;
+        if (!m_AssetPaths.emplace(replacement, id).second)
+            return AssetError {AssetErrorCode::DuplicatePath, "Source asset path already registered"};
+        // After insertion, commit without allocation; replacement becomes the old path.
+        it->second.Path.Swap(replacement);
+        m_AssetPaths.erase(replacement);
+        return std::monostate {};
+    }
+
     SourceAssetMetadata SourceAssetDatabase::FindByID(const SourceAssetID id) const
     {
         if (!id.IsValid())

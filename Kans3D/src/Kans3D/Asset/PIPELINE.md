@@ -25,3 +25,23 @@ Runtime pipeline:
 
 Neither the legacy .ksmesh raw source-reference header nor an in-memory
 SourceAssetID object is the new Product file format.
+
+## Source mutations and missing records
+
+- SourceAssetDatabase mutations are record-only: UpdateSource keeps ID/path,
+  ChangeSourcePath keeps ID/metadata, and UnregisterSource releases both indexes.
+  They never move/delete source files, .kmeta sidecars or Products.
+- Project scans reconcile by SourceAssetID. Absent sources keep their last path,
+  size and timestamp with Exists=false/Missing=true, including across cache reopen.
+  A matching sidecar restores the record or moves it to its current scanned path.
+- Missing records reserve their last path. A different source ID at that path is
+  a conflict; refresh/open preserves the previous database/cache rather than
+  silently transferring references or discarding the old identity.
+- Scan and reconciliation errors leave the live database/cache unchanged. Sidecars
+  created during the scan can persist even when reconciliation fails.
+- Missing history depends on the rebuildable cache/current database. Deleting all
+  identity/history files cannot recover old records. Live source identity remains
+  authoritative in .kmeta.
+- Explicit editor asset deletion is a future project-level operation coordinating
+  files, sidecars, Products and record unregistration. Product removal/retention
+  is not decided by marking a source Missing.

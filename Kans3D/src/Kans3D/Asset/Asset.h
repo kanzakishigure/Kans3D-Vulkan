@@ -24,6 +24,15 @@ namespace Kans
         uint64_t                     GetHash() const noexcept { return m_Hash; }
         std::string                  ToString() const { return m_Path.generic_string(); }
 
+        // Commit an already prepared path without allocating.
+        void Swap(AssetPath& other) noexcept
+        {
+            m_Path.swap(other.m_Path);
+            const auto hash = m_Hash;
+            m_Hash = other.m_Hash;
+            other.m_Hash = hash;
+        }
+
         bool operator==(const AssetPath& other) const noexcept { return other.m_Path == m_Path; }
         bool operator!=(const AssetPath& other) const noexcept { return !(*this == other); }
 

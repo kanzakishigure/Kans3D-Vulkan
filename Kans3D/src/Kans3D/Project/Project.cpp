@@ -6,8 +6,7 @@ namespace Kans
 {
     namespace
     {
-        namespace fs = std::filesystem;
-        bool IsWithin(const fs::path& path, const fs::path& root)
+        bool IsWithin(const std::filesystem::path& path, const std::filesystem::path& root)
         {
             auto p = path.begin();
             for (auto r = root.begin(); r != root.end(); ++r, ++p)
@@ -29,13 +28,14 @@ namespace Kans
             auto  project           = std::unique_ptr<Project>(new Project());
             auto& resolved          = project->m_Config;
             resolved                = config;
-            resolved.RootDirectory  = fs::canonical(config.RootDirectory);
-            resolved.AssetDirectory = fs::canonical(resolved.RootDirectory / config.AssetDirectory);
-            if (!fs::is_directory(resolved.RootDirectory) || !fs::is_directory(resolved.AssetDirectory) ||
+            resolved.RootDirectory  = std::filesystem::canonical(config.RootDirectory);
+            resolved.AssetDirectory = std::filesystem::canonical(resolved.RootDirectory / config.AssetDirectory);
+            if (!std::filesystem::is_directory(resolved.RootDirectory) ||
+                !std::filesystem::is_directory(resolved.AssetDirectory) ||
                 !IsWithin(resolved.AssetDirectory, resolved.RootDirectory))
                 return AssetError {AssetErrorCode::InvalidArgument, "Asset directory must be within the project root"};
-            resolved.CacheDirectory         = fs::weakly_canonical(resolved.RootDirectory / config.CacheDirectory);
-            project->m_SourceAssetCachePath = fs::weakly_canonical(
+            resolved.CacheDirectory = std::filesystem::weakly_canonical(resolved.RootDirectory / config.CacheDirectory);
+            project->m_SourceAssetCachePath = std::filesystem::weakly_canonical(
                 options.SourceAssetCachePath.empty() ? resolved.CacheDirectory / "SourceAssetDatabase.cache.yaml" :
                                                        options.SourceAssetCachePath);
             if (IsWithin(project->m_SourceAssetCachePath, resolved.AssetDirectory))
@@ -56,7 +56,7 @@ namespace Kans
                 return *error;
             return project;
         }
-        catch (const fs::filesystem_error& error)
+        catch (const std::filesystem::filesystem_error& error)
         {
             return AssetError {AssetErrorCode::IoError, error.what()};
         }
@@ -81,7 +81,26 @@ namespace Kans
                 error.Message += "\n" + scan.Errors[i].Message;
             return error;
         }
-        m_SourceAssetDatabase = std::move(scan.Database);
+        // Reconcile by identity, not path. A matching sidecar restores a Missing
+        // record even after a move; a different ID cannot inherit its references.
+        // Build the entire candidate before publishing so conflicts preserve the
+        // live database and its cache, just like scan failures.
+        auto candidate = std::move(scan.Database);
+        for (auto previous : m_SourceAssetDatabase.GetAllSources())
+        {
+            if (candidate.Contains(previous.sourceAssetID))
+                continue;
+            if (candidate.Contains(previous.Path))
+                return AssetError {AssetErrorCode::DuplicatePath,
+                                   previous.Path.ToString() +
+                                       ": source identity changed; resolve the old record explicitly"};
+            previous.Exists  = false;
+            previous.Missing = true;
+            auto registered  = candidate.RegisterSource(previous);
+            if (const auto* error = std::get_if<AssetError>(&registered))
+                return *error;
+        }
+        m_SourceAssetDatabase = std::move(candidate);
         auto saved            = SaveAssetCache();
         if (const auto* error = std::get_if<AssetError>(&saved))
             m_AssetWarnings.push_back(*error);
@@ -91,7 +110,7 @@ namespace Kans
     std::variant<std::monostate, AssetError> Project::SaveAssetCache() const
     {
         std::error_code error;
-        fs::create_directories(m_SourceAssetCachePath.parent_path(), error);
+        std::filesystem::create_directories(m_SourceAssetCachePath.parent_path(), error);
         if (error)
             return AssetError {AssetErrorCode::IoError, "Cannot create project cache directory: " + error.message()};
         return SourceAssetDatabaseSerializer::Save(
