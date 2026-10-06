@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "Kans3D/Core/UUID.h"
+#include "ProductModelComponent.h"
 
 #include "Kans3D/Renderer/Resource/Mesh.h"
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
@@ -169,6 +170,7 @@ namespace Kans
                                          SpriteRendererComponent,
                                          NativeScriptComponent,
                                          StaticMeshComponent,
+                                         ProductModelComponent,
                                          DirLightComponent,
                                          PointLightComponent,
                                          MaterialComponent,

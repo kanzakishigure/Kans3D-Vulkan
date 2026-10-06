@@ -77,8 +77,10 @@ namespace Kans
             NeedRefresh   = true;
             return;
         }
-        // File editors are registered here when they become available.
-        m_PreviewMessage = "No editor is registered for this file type.";
+        if (m_OpenFile)
+            m_OpenFile(path);
+        else
+            m_PreviewMessage = "No editor is registered for this file type.";
     }
 
     void ContentBrowserPanel::SelectItem(const std::filesystem::path& path, bool isDirectory)

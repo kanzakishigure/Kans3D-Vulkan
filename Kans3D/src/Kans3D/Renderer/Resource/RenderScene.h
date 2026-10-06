@@ -53,9 +53,13 @@ namespace Kans
         void OnRenderRuntime(Ref<SceneRenderer> renderer, TimeStep ts);
 
         void OnViewportResize(uint32_t width, uint32_t height);
+        void SetLogicScene(const Ref<Scene>& scene);
 
         const RenderResource& GetRenderResource() { return m_RenderResource; }
         void                  SetRenderResource(const RenderResource& resource) { m_RenderResource = resource; }
+
+    private:
+        void SubmitModels(SceneRenderer& renderer);
 
     private:
         Ref<Scene> m_LogicScene;

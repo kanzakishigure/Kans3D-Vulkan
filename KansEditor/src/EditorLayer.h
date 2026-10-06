@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Project/Project.h"
 #include <Kans3D.h>
 
@@ -6,6 +8,7 @@
 #include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/ImporterPanel.h"
+#include "Panels/ProductImportPanel.h"
 namespace Kans
 {
     class EditorLayer : public Kans::Layer
@@ -25,8 +28,19 @@ namespace Kans
         bool OnKeyPressedEvent(KeyPressedEvent& e);
 
     private:
-        void                     OpenProject();
-        std::unique_ptr<Project> m_Project;
+        void                                     OpenProject();
+        std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
+        std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
+        std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
+        std::variant<std::monostate, AssetError> NewScene();
+        std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);
+        std::variant<std::monostate, AssetError> SaveScene(const std::filesystem::path& path);
+        void                                     DrawSceneFileMenu();
+        std::filesystem::path                    m_ScenePath;
+        std::array<char, 1024>                   m_ScenePathInput {};
+        std::string                              m_SceneFileError;
+        Scope<EditorAssetImportService>          m_AssetImports;
+        Scope<AssetManager>                      m_Assets;
 
         glm::vec2 m_ViewportSize = glm::vec2(0.0f, 0.0f);
 
@@ -53,7 +67,8 @@ namespace Kans
         // ContentBrowserPanel
         ContentBrowserPanel m_ContentBrowserPanel;
         // ImporterPanel
-        ImporterPanel m_ImporterPanel;
+        ImporterPanel      m_ImporterPanel;
+        ProductImportPanel m_ProductImportPanel;
     };
 
 } // namespace Kans

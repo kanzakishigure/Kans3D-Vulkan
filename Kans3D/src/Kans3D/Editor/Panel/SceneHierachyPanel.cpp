@@ -185,6 +185,11 @@ namespace Kans
                         auto  meshSrouce   = nullptr;
                         meshCMP.StaticMesh = nullptr;
                     }
+                    if (!m_SelectionContext.HasComponent<ProductModelComponent>() && ImGui::MenuItem("Model Component"))
+                    {
+                        m_SelectionContext.AddComponent<ProductModelComponent>();
+                        ImGui::CloseCurrentPopup();
+                    }
                     if (ImGui::MenuItem("Camera Component"))
                     {
                         m_SelectionContext.AddComponent<CameraComponent>();
@@ -397,6 +402,7 @@ namespace Kans
             ImGui::ColorEdit3("Specular_Intensity", glm::value_ptr(component.Specular_Intensity));
             ImGui::ColorEdit3("Ambient_Intensity", glm::value_ptr(component.Ambient_Intensity));
         });
+        drawModelComponent(entity);
         UI::DrawComponent<StaticMeshComponent>("Mesh", entity, [](StaticMeshComponent& component) {
             if (component.StaticMesh)
             {
@@ -552,4 +558,73 @@ namespace Kans
         });
     }
 
+    bool SceneHierachyPanel::drawAssetPicker(const char* label, AssetType type, AssetID& id)
+    {
+        bool        changed = false;
+        std::string preview = "(none)";
+        for (const auto& choice : m_AssetChoices)
+            if (choice.ID == id)
+                preview = choice.Name;
+        if (id.IsValid() && preview == "(none)")
+            preview = "(missing) " + id.ToString();
+        if (ImGui::BeginCombo(label, preview.c_str()))
+        {
+            for (const auto& choice : m_AssetChoices)
+            {
+                if (choice.Type != type)
+                    continue;
+                const bool selected = choice.ID == id;
+                if (ImGui::Selectable(choice.Name.c_str(), selected) && !selected)
+                {
+                    id      = choice.ID;
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        // Accept a source file dragged from the content browser.
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const auto* payload = ImGui::AcceptDragDropPayload("asset_payload"))
+            {
+                std::error_code error;
+                const auto      dropped = std::filesystem::weakly_canonical(
+                    std::filesystem::path(std::string((const char*)payload->Data, payload->DataSize)), error);
+                for (const auto& choice : m_AssetChoices)
+                    if (choice.Type == type && !error && choice.SourcePath == dropped)
+                    {
+                        changed = choice.ID != id;
+                        id      = choice.ID;
+                        break;
+                    }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        return changed;
+    }
+
+    void SceneHierachyPanel::drawModelComponent(Entity entity)
+    {
+        UI::DrawComponent<ProductModelComponent>("Model", entity, [this](ProductModelComponent& component) {
+            drawAssetPicker("Model", AssetType::Model, component.Model);
+            if (!component.Model.IsValid())
+                ImGui::TextDisabled("Import a model, then pick it or drop its source file here.");
+            int remove = -1;
+            for (size_t i = 0; i < component.Overrides.size(); ++i)
+            {
+                ImGui::PushID(static_cast<int>(i));
+                auto& item = component.Overrides[i];
+                drawAssetPicker("Material", AssetType::Material, item.Authored);
+                drawAssetPicker("Replace with", AssetType::Material, item.Replacement);
+                if (ImGui::SmallButton("Remove override"))
+                    remove = static_cast<int>(i);
+                ImGui::Separator();
+                ImGui::PopID();
+            }
+            if (remove >= 0)
+                component.Overrides.erase(component.Overrides.begin() + remove);
+            if (ImGui::SmallButton("Add material override"))
+                component.Overrides.push_back({});
+        });
+    }
 } // namespace Kans

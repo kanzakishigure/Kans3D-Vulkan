@@ -68,6 +68,52 @@ namespace
         }
     };
 
+    TEST_F(SourceAssetDatabaseSerializerTest, ConfigurationCacheRoundTripAndLegacyCompatibility)
+    {
+        SourceAssetDatabase database;
+        auto                record = Record();
+        record.Exists              = false;
+        record.Missing             = true;
+        record.Path                = AssetPath(fs::u8path(u8"纹理/颜色.png"));
+        record.Import.Importer     = "TextureImporter";
+        record.Import.Settings     = {{"usage", "normal"}, {"empty", ""}, {"text", u8"设置"}};
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(database.RegisterSource(record)));
+        Store(database);
+        auto loaded = SourceAssetDatabaseSerializer::Load(cache, root);
+        ASSERT_TRUE(std::holds_alternative<SourceAssetDatabase>(loaded));
+        const auto actual = std::get<SourceAssetDatabase>(loaded).FindByID(record.sourceAssetID);
+        EXPECT_EQ(actual.Import.Settings, record.Import.Settings);
+        EXPECT_EQ(actual.Import.Importer, record.Import.Importer);
+        EXPECT_EQ(actual.Path.ToString(), u8"纹理/颜色.png");
+        EXPECT_TRUE(actual.Missing);
+        auto document                          = YAML::Load(Read(cache));
+        document["version"]                    = 1;
+        document["sources"][0]["meta_version"] = 1;
+        document["sources"][0].remove("import");
+        YAML::Emitter emitter;
+        emitter << document;
+        Write(cache, emitter.c_str());
+        loaded = SourceAssetDatabaseSerializer::Load(cache, root);
+        ASSERT_TRUE(std::holds_alternative<SourceAssetDatabase>(loaded));
+        EXPECT_TRUE(std::get<SourceAssetDatabase>(loaded).FindByID(record.sourceAssetID).Import.Settings.empty());
+        EXPECT_TRUE(std::get<SourceAssetDatabase>(loaded).FindByID(record.sourceAssetID).Missing);
+    }
+
+    TEST_F(SourceAssetDatabaseSerializerTest, RejectsMissingConfigurationAndOversizedCache)
+    {
+        SourceAssetDatabase database;
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(database.RegisterSource(Record())));
+        Store(database);
+        auto document = YAML::Load(Read(cache));
+        document["sources"][0].remove("import");
+        YAML::Emitter emitter;
+        emitter << document;
+        Write(cache, emitter.c_str());
+        ExpectLoadError(AssetErrorCode::InvalidData);
+        fs::resize_file(cache, 128 * 1024 * 1024 + 1);
+        ExpectLoadError(AssetErrorCode::InvalidData);
+    }
+
     TEST_F(SourceAssetDatabaseSerializerTest, RoundTripRebuildsIndexesAndPreservesAllFields)
     {
         SourceAssetDatabase db;
@@ -225,7 +271,7 @@ namespace
         Write(blocked / "keep", "original");
         const auto failed = SourceAssetDatabaseSerializer::Save(blocked, root, SourceAssetDatabase {});
         ASSERT_TRUE(std::holds_alternative<AssetError>(failed));
-        EXPECT_EQ(std::get<AssetError>(failed).Code, AssetErrorCode::IoError);
+        EXPECT_EQ(std::get<AssetError>(failed).Code, AssetErrorCode::InvalidData);
         EXPECT_EQ(Read(blocked / "keep"), "original");
         for (const auto& entry : fs::directory_iterator(directory))
             EXPECT_EQ(entry.path().filename().string().find(".tmp-"), std::string::npos);

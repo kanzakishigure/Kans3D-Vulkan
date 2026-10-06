@@ -337,18 +337,34 @@ namespace Kans
             m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
             m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
             m_ViewportRenderer->PrepareEnvironment();
+            auto configured = RefreshProductAssets();
+            if (const auto* error = std::get_if<AssetError>(&configured))
+            {
+                m_SceneFileError = error->Message;
+                CORE_ERROR("Scene Product configuration: {}", error->Message);
+            }
         }
     }
 
     void EditorLayer::OnDetach()
     {
-        // temp function to test script system
+        m_ContentBrowserPanel.SetOpenFileCallback({});
+        m_ProductImportPanel.Bind(nullptr);
+        if (m_AssetImports)
         {
-            m_ActiveScene->OnRuntimeStop();
-
-            SceneSerializer s(m_ActiveScene);
-            s.Serialize("assets/scenes/" + m_ActiveScene->GetName() + ".kans");
+            auto stopped = m_AssetImports->Shutdown();
+            if (const auto* error = std::get_if<AssetError>(&stopped))
+                CORE_ERROR("Project import shutdown: {}", error->Message);
         }
+        if (m_ActiveScene)
+            m_ActiveScene->OnRuntimeStop();
+        if (m_ViewportRenderer)
+        {
+            m_ViewportRenderer->SetAssetManager(nullptr);
+            m_ViewportRenderer.reset();
+        }
+        m_Assets.reset();
+        m_SceneHierachyPanel.setSceneContext({});
 
         PROFILE_FUCTION();
         CLIENT_INFO_TAG("Editor", "editor layer call detach");
@@ -358,11 +374,36 @@ namespace Kans
 
         m_ActiveRenderScene.reset();
         m_ActiveScene.reset();
+        m_AssetImports.reset();
     }
 
     void EditorLayer::OnUpdate(TimeStep ts)
     {
         PROFILE_FUCTION();
+        if (m_AssetImports)
+        {
+            // Consume source operations before Poll: a just-completed build may
+            // publish a newer catalog than this retained immutable notification.
+            auto changed = m_AssetImports->ConsumeRuntimeRegistryChange();
+            if (const auto* error = std::get_if<AssetError>(&changed))
+                m_SceneFileError = error->Message;
+            else if (const auto& snapshot = std::get<std::optional<Ref<const AssetRegistry>>>(changed); snapshot)
+            {
+                auto refreshed = RefreshProductAssets(*snapshot);
+                if (const auto* error = std::get_if<AssetError>(&refreshed))
+                    m_SceneFileError = error->Message;
+            }
+            auto completed = m_AssetImports->Poll();
+            if (const auto* error = std::get_if<AssetError>(&completed))
+                m_SceneFileError = error->Message;
+            else if (std::get<bool>(completed))
+            {
+                // Failed roots can still have successfully published producers.
+                auto refreshed = RefreshProductAssets();
+                if (const auto* error = std::get_if<AssetError>(&refreshed))
+                    m_SceneFileError = error->Message;
+            }
+        }
 
         // resize
         {
@@ -465,6 +506,7 @@ namespace Kans
 
         if (ImGui::BeginMenuBar())
         {
+            DrawSceneFileMenu();
             if (ImGui::BeginMenu("Options"))
             {
                 // Disabling fullscreen would allow the window to be moved to the front of
@@ -543,6 +585,7 @@ namespace Kans
         m_SceneHierachyPanel.onImGuiRender(true);
         m_ContentBrowserPanel.onImGuiRender(true);
         m_ImporterPanel.onImGuiRender(true);
+        m_ProductImportPanel.Draw();
         // Viewport
         // Color FrameBuffer
         if (ShowColorBuffer)
@@ -582,18 +625,14 @@ namespace Kans
                     if (filePath.has_extension())
                     {
                         // ���� StaticMesh / Mesh �ʲ����� ImporterPanel ���е��� ����
-                        static const std::unordered_set<std::string> s_MeshExtensions = {
-                            ".fbx", ".obj", ".3ds", ".blend", ".gltf"};
-
-                        if (s_MeshExtensions.count(filePath.extension().string()) > 0)
+                        if (filePath.extension() == ".kans")
                         {
-                            m_ImporterPanel.OpenWithFile(filePath);
+                            auto opened = OpenScene(filePath);
+                            if (const auto* error = std::get_if<AssetError>(&opened))
+                                m_SceneFileError = error->Message;
                         }
-
-                        if (filePath.extension() == ".hdr")
-                        {
-                            m_ViewportRenderer->UpdateEnvironment(path);
-                        }
+                        else
+                            m_ProductImportPanel.OpenWithFile(filePath);
                     }
                 }
                 ImGui::EndDragDropTarget();

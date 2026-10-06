@@ -1,0 +1,107 @@
+#include "kspch.h"
+#include "TextureProduct.h"
+
+namespace Kans
+{
+    namespace
+    {
+        constexpr size_t kHeader = 48, kMaximumBytes = 512 * 1024 * 1024;
+        template<typename T>
+        void Write(std::vector<std::byte>& out, T value)
+        {
+            for (size_t i = 0; i < sizeof(T); ++i)
+                out.push_back(static_cast<std::byte>((value >> (i * 8)) & 255));
+        }
+        template<typename T>
+        T Read(const std::byte*& cursor)
+        {
+            T value = 0;
+            for (size_t i = 0; i < sizeof(T); ++i)
+                value |= T(std::to_integer<uint8_t>(*cursor++)) << (i * 8);
+            return value;
+        }
+    } // namespace
+
+    std::variant<std::vector<std::byte>, AssetError> EncodeTextureProduct(const TextureData& texture)
+    {
+        auto valid = ValidateTextureData(texture);
+        if (const auto* error = std::get_if<AssetError>(&valid))
+            return *error;
+        uint64_t payload = 0;
+        for (const auto& mip : texture.Mips)
+            payload += mip.Pixels.size();
+        std::vector<std::byte> bytes;
+        bytes.reserve(static_cast<size_t>(kHeader + payload));
+        Write(bytes, uint32_t(0x5845544b)); // KTEX
+        Write(bytes, uint16_t(1));
+        Write(bytes, uint16_t(AssetType::Texture));
+        Write(bytes, uint16_t(texture.Kind));
+        Write(bytes, uint16_t(texture.Format));
+        Write(bytes, uint16_t(texture.ColorSpace));
+        Write(bytes, uint16_t(texture.Usage));
+        Write(bytes, texture.Width);
+        Write(bytes, texture.Height);
+        Write(bytes, texture.Depth);
+        Write(bytes, texture.Layers);
+        Write(bytes, uint32_t(texture.Mips.size()));
+        Write(bytes, uint16_t(texture.AlphaMode));
+        Write(bytes, uint16_t(texture.Origin));
+        Write(bytes, payload);
+        for (const auto& mip : texture.Mips)
+            bytes.insert(bytes.end(), mip.Pixels.begin(), mip.Pixels.end());
+        return bytes;
+    }
+
+    std::variant<TextureData, AssetError> DecodeTextureProduct(const std::byte* bytes, size_t size)
+    {
+        if (!bytes || size < kHeader || size > kMaximumBytes)
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product byte length"};
+        auto cursor = bytes;
+        if (Read<uint32_t>(cursor) != 0x5845544b)
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product magic"};
+        if (Read<uint16_t>(cursor) != 1)
+            return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Texture Product version"};
+        if (Read<uint16_t>(cursor) != uint16_t(AssetType::Texture))
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product type"};
+        TextureData out;
+        out.Kind           = TextureKind(Read<uint16_t>(cursor));
+        out.Format         = TexturePixelFormat(Read<uint16_t>(cursor));
+        out.ColorSpace     = TextureColorSpace(Read<uint16_t>(cursor));
+        out.Usage          = TextureUsage(Read<uint16_t>(cursor));
+        out.Width          = Read<uint32_t>(cursor);
+        out.Height         = Read<uint32_t>(cursor);
+        out.Depth          = Read<uint32_t>(cursor);
+        out.Layers         = Read<uint32_t>(cursor);
+        const auto levels  = Read<uint32_t>(cursor);
+        out.AlphaMode      = TextureAlphaMode(Read<uint16_t>(cursor));
+        out.Origin         = TextureOrigin(Read<uint16_t>(cursor));
+        const auto payload = Read<uint64_t>(cursor);
+        if (!levels || levels > 15 || payload != size - kHeader)
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product payload/mip count"};
+        uint64_t            expected = 0;
+        std::vector<size_t> sizes;
+        for (uint32_t level = 0; level < levels; ++level)
+        {
+            auto count = TextureMipByteSize(out, level);
+            if (const auto* error = std::get_if<AssetError>(&count))
+                return *error;
+            const auto value = std::get<uint64_t>(count);
+            if (value > payload - expected)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Texture Product mip payload"};
+            expected += value;
+            sizes.push_back(static_cast<size_t>(value));
+        }
+        if (expected != payload)
+            return AssetError {AssetErrorCode::InvalidData, "Texture Product has trailing payload bytes"};
+        // All layout/length checks precede pixel allocation.
+        for (auto count : sizes)
+        {
+            out.Mips.push_back({std::vector<std::byte>(cursor, cursor + count)});
+            cursor += count;
+        }
+        auto valid = ValidateTextureData(out);
+        if (const auto* error = std::get_if<AssetError>(&valid))
+            return *error;
+        return out;
+    }
+} // namespace Kans

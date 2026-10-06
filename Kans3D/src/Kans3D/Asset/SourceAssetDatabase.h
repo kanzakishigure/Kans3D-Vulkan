@@ -28,6 +28,9 @@ namespace Kans
         // Snapshot for persistence and tooling; callers cannot mutate internal
         // records.
         std::vector<SourceAssetMetadata> GetAllSources() const;
+        size_t                           GetSourceCount() const noexcept { return m_DataBase.size(); }
+        // ID-only enumeration avoids copying every configuration during persistence.
+        std::vector<SourceAssetID> GetSourceIDs() const;
         // Registration never replaces an existing ID or path, even for the same
         // record.
         std::variant<std::monostate, AssetError> RegisterSource(const SourceAssetMetadata& data);

@@ -3,17 +3,14 @@
 
 namespace Kans
 {
-    // One source model -> complete Mesh/Material/Skeleton/Animation Product set.
-    // CPU parser extraction and Product encoders are the next implementation step.
-    // Do not adapt the legacy MeshSource object (it also owns render resources).
+    // Imports a 3D model as Mesh, Material and Model Products. Textures referenced
+    // by the model are separate sources; their Products are referenced by ID.
     class ModelImporter final : public AssetImporterBase
     {
     public:
-        uint32_t                               GetVersion() const override { return 1; }
-        std::variant<ImportResult, AssetError> Import(const ImportContext&) const override
-        {
-            return AssetError {AssetErrorCode::NotImplemented,
-                               "Model CPU import and Product generation are not implemented"};
-        }
+        uint32_t GetVersion() const override { return 4; }
+        [[nodiscard]] std::variant<ImportInputs, AssetError>
+        DiscoverInputs(const ImportContext& context) const override;
+        [[nodiscard]] std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;
     };
 } // namespace Kans

@@ -59,6 +59,7 @@ add_library(ImGui STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imstb_textedit.h
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imstb_truetype.h
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imgui_demo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/misc/cpp/imgui_stdlib.cpp
 )
 target_include_directories(ImGui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
 kans_set_output_dirs(ImGui)
@@ -218,6 +219,7 @@ if(VULKAN_SDK_DIR)
         find_library(GLSLANG_LIBRARY glslang REQUIRED)
 
         # spirv-cross (install: sudo apt install libspirv-cross-dev or equivalent)
+        find_library(SPIRV_CROSS_GLSL_LIB spirv-cross-glsl)
         find_library(SPIRV_CROSS_CORE_LIB spirv-cross-core)
         find_path(SPIRV_CROSS_INCLUDE_DIR spirv_cross/spirv_cross.hpp)
         if(NOT SPIRV_CROSS_CORE_LIB OR NOT SPIRV_CROSS_INCLUDE_DIR)
@@ -237,6 +239,7 @@ if(VULKAN_SDK_DIR)
             Vulkan::Vulkan
             ${SHADERC_LIBRARY}
             ${GLSLANG_LIBRARY}
+            ${SPIRV_CROSS_GLSL_LIB}
             ${SPIRV_CROSS_CORE_LIB}
             ${SPIRV_TOOLS_OPT_LIB}
             ${SPIRV_TOOLS_LINK_LIB}

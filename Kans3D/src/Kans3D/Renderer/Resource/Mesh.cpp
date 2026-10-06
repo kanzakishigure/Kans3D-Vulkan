@@ -158,6 +158,12 @@ namespace Kans
 
     StaticMesh::~StaticMesh() {}
 
+    StaticMesh::StaticMesh(MeshData data) : m_CpuData(CreateScope<MeshData>(std::move(data)))
+    {
+        m_SubMesh       = {0};
+        m_MaterialTable = CreateRef<MaterialTable>(1);
+    }
+
     void StaticMesh::SetMaterial(Ref<Material> material, uint32_t submeshIndex)
     {
         m_MaterialTable->SetMaterial(submeshIndex, CreateRef<MaterialAsset>(material));
@@ -172,6 +178,11 @@ namespace Kans
         }
         else
         {
+            if (!m_MeshSource)
+            {
+                m_SubMesh = m_CpuData ? std::vector<uint32_t> {0} : std::vector<uint32_t> {};
+                return;
+            }
             const std::vector<SubMesh>& SourceSubmesh = m_MeshSource->GetSubMesh();
             m_SubMesh.clear();
             m_SubMesh.resize(SourceSubmesh.size());

@@ -15,11 +15,15 @@ namespace Kans
         SourceAssetDatabase Database;
         // Recoverable per-file errors. Messages must identify the affected path.
         std::vector<AssetError> Errors;
+        // Files that exist but could not be read; they are absent from Database.
+        std::vector<AssetPath> Skipped;
     };
 
     class AssetScanner
     {
     public:
+        // Same logical visibility rules as Scan; no filesystem access.
+        static bool IsDiscoverablePath(const AssetPath& path);
         // Synchronous full scan; calls affecting the same root must be serialized.
         // Each result owns a fresh database. Errors contains per-file failures;
         // an outer AssetError means directory traversal could not finish.

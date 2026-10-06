@@ -48,7 +48,10 @@ namespace Kans
         inline static void DrawQuad() { s_RendererAPI->DrawQuad(); }
 
     private:
-        inline static RendererAPI* s_RendererAPI;
+        // Native dispatch is stateless and owns no GPU resources. Product-only
+        // renderers need a loaded current GL context, not legacy Renderer assets.
+        inline static OpenGLRendererAPI s_NativeCommands;
+        inline static RendererAPI*      s_RendererAPI = &s_NativeCommands;
 
         friend class Renderer;
     };

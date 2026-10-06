@@ -7,6 +7,14 @@
 
 namespace Kans
 {
+    std::vector<SourceAssetID> SourceAssetDatabase::GetSourceIDs() const
+    {
+        std::vector<SourceAssetID> ids;
+        ids.reserve(m_DataBase.size());
+        for (const auto& entry : m_DataBase)
+            ids.push_back(entry.first);
+        return ids;
+    }
     std::vector<SourceAssetMetadata> SourceAssetDatabase::GetAllSources() const
     {
         std::vector<SourceAssetMetadata> records;
@@ -71,6 +79,11 @@ namespace Kans
         if (data.Path != it->second.Path)
             return AssetError {AssetErrorCode::InvalidArgument, "Use ChangeSourcePath to change a source path"};
 
+        // Prepare allocating changes before touching the record.
+        auto configuration = data.Import;
+        auto localIDs      = data.LocalIDs;
+        it->second.Import.Swap(configuration);
+        it->second.LocalIDs.swap(localIDs);
         // Identity and path stay untouched; the remaining fields do not allocate.
         it->second.MetaVersion    = data.MetaVersion;
         it->second.Exists         = data.Exists;

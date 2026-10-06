@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "Hash.h"
+#include <cmath>
 #include <cstddef>
 #include "Kans3D/Core/Base/Base.h"
 
@@ -24,7 +25,20 @@ namespace Kans
         14, 20, 5,  9,  14, 20, 5,  9,  14, 20, 4,  11, 16, 23, 4,  11, 16, 23, 4,  11, 16, 23,
         4,  11, 16, 23, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21, 6,  10, 15, 21};
 
-    inline static std::vector<uint32_t> sineTable;
+    namespace
+    {
+        const std::array<uint32_t, 64>& SineTable()
+        {
+            static const auto table = [] {
+                std::array<uint32_t, 64> values {};
+                for (size_t i = 0; i < values.size(); ++i)
+                    // std::fabs: an unqualified abs() can resolve to the integer overload.
+                    values[i] = static_cast<uint32_t>(std::fabs(std::sin(double(i + 1))) * 4294967296.0);
+                return values;
+            }();
+            return table;
+        }
+    } // namespace
 
     // code reference [https://zh.wikipedia.org/wiki/MD5]
     // Algorithm | Output | Internal | Block   | Length | Word   | Rounds
@@ -35,14 +49,7 @@ namespace Kans
     {
         std::string str = source;
 
-        if (sineTable.empty())
-        {
-            sineTable.resize(64);
-            for (size_t i = 0; i < 64; i++)
-            {
-                sineTable[i] = static_cast<uint32_t>(abs(sin(i + 1)) * pow(2, 32));
-            }
-        }
+        const auto& sineTable = SineTable();
 
         // Initialize variables:
         std::vector<uint32_t> state = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476};
@@ -152,14 +159,7 @@ namespace Kans
     {
         std::string str = source;
 
-        if (sineTable.empty())
-        {
-            sineTable.resize(64);
-            for (size_t i = 0; i < 64; i++)
-            {
-                sineTable[i] = static_cast<uint32_t>(abs(sin(i + 1)) * pow(2, 32));
-            }
-        }
+        const auto& sineTable = SineTable();
 
         // Initialize variables:
         std::vector<uint32_t> state = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476};

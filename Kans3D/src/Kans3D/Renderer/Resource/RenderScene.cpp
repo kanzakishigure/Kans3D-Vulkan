@@ -19,7 +19,15 @@ namespace Kans
         m_ViewportHeight = m_LogicScene->m_ViewportHeight;
     }
 
-    RenderScene::~RenderScene() { CORE_ASSERT(m_LogicScene.use_count() == 1); }
+    RenderScene::~RenderScene() = default;
+
+    void RenderScene::SetLogicScene(const Ref<Scene>& scene)
+    {
+        CORE_ASSERT(scene, "RenderScene requires a logical scene");
+        m_2DRenderable.clear();
+        m_3DRenderable.clear();
+        m_LogicScene = scene;
+    }
 
     void RenderScene::OnViewportResize(uint32_t width, uint32_t height)
     {
@@ -68,20 +76,25 @@ namespace Kans
 
         renderer->SetScene(this);
         renderer->BeginScene(sceneinfo);
+        SubmitModels(*renderer);
         // Renderer2D
 #if EnableRender2D
         {
 
-            Renderer2D::ResetStats();
-
-            Renderer2D::BeginScene(sceneinfo.sceneCamera.camera.GetProjectionMatrix(), camera.getViewMatrix());
-            auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-            for (auto entity : group)
+            if (!m_LogicScene->m_Registry.view<SpriteRendererComponent>().empty())
             {
-                auto [transformCMP, spriteRendererCMP] = group.get(entity);
-                Renderer2D::DrawQuad(transformCMP.GetTransform(), spriteRendererCMP.Texture, spriteRendererCMP.Color);
+                Renderer2D::ResetStats();
+
+                Renderer2D::BeginScene(sceneinfo.sceneCamera.camera.GetProjectionMatrix(), camera.getViewMatrix());
+                auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+                for (auto entity : group)
+                {
+                    auto [transformCMP, spriteRendererCMP] = group.get(entity);
+                    Renderer2D::DrawQuad(
+                        transformCMP.GetTransform(), spriteRendererCMP.Texture, spriteRendererCMP.Color);
+                }
+                Renderer2D::EndScene();
             }
-            Renderer2D::EndScene();
         }
 #endif
 #if EnableSceneRender
@@ -181,7 +194,8 @@ namespace Kans
                 // renderer->SubmitMeshPost()
             }
 
-            if (m_RenderResource.Piplinestate.EnableGridShader)
+            if (m_RenderResource.Piplinestate.EnableGridShader && Renderer::GetShaderLibrary() &&
+                Renderer::GetShaderLibrary()->Exists("GridShader"))
             {
                 OpenGLRenderCommand::EnableCullFace(false);
 
@@ -193,7 +207,8 @@ namespace Kans
             }
 
             OpenGLRenderCommand::EnableCullFace(false);
-            renderer->SubmitSkybox(renderer->GetEnvironment().IrradianceMap);
+            if (renderer->GetEnvironment().IrradianceMap)
+                renderer->SubmitSkybox(renderer->GetEnvironment().IrradianceMap);
             OpenGLRenderCommand::EnableCullFace(true);
         }
         renderer->EndScene();
@@ -250,20 +265,26 @@ namespace Kans
 
         renderer->SetScene(this);
         renderer->BeginScene(sceneinfo);
+        SubmitModels(*renderer);
         // Renderer2D
 #if EnableRender2D
         {
 
-            Renderer2D::ResetStats();
-
-            Renderer2D::BeginScene(sceneinfo.sceneCamera.camera.GetProjectionMatrix(), glm::inverse(Cameratransform));
-            auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-            for (auto entity : group)
+            if (!m_LogicScene->m_Registry.view<SpriteRendererComponent>().empty())
             {
-                auto [transformCMP, spriteRendererCMP] = group.get(entity);
-                Renderer2D::DrawQuad(transformCMP.GetTransform(), spriteRendererCMP.Texture, spriteRendererCMP.Color);
+                Renderer2D::ResetStats();
+
+                Renderer2D::BeginScene(sceneinfo.sceneCamera.camera.GetProjectionMatrix(),
+                                       glm::inverse(Cameratransform));
+                auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+                for (auto entity : group)
+                {
+                    auto [transformCMP, spriteRendererCMP] = group.get(entity);
+                    Renderer2D::DrawQuad(
+                        transformCMP.GetTransform(), spriteRendererCMP.Texture, spriteRendererCMP.Color);
+                }
+                Renderer2D::EndScene();
             }
-            Renderer2D::EndScene();
         }
 #endif
 #if EnableSceneRender
@@ -363,7 +384,8 @@ namespace Kans
                 // renderer->SubmitMeshPost()
             }
 
-            if (m_RenderResource.Piplinestate.EnableGridShader)
+            if (m_RenderResource.Piplinestate.EnableGridShader && Renderer::GetShaderLibrary() &&
+                Renderer::GetShaderLibrary()->Exists("GridShader"))
             {
                 OpenGLRenderCommand::EnableCullFace(false);
 
@@ -375,7 +397,8 @@ namespace Kans
             }
 
             OpenGLRenderCommand::EnableCullFace(false);
-            renderer->SubmitSkybox(renderer->GetEnvironment().IrradianceMap);
+            if (renderer->GetEnvironment().IrradianceMap)
+                renderer->SubmitSkybox(renderer->GetEnvironment().IrradianceMap);
             OpenGLRenderCommand::EnableCullFace(true);
         }
         renderer->EndScene();
@@ -384,6 +407,29 @@ namespace Kans
 
         // Post effect
         {
+        }
+    }
+
+    void RenderScene::SubmitModels(SceneRenderer& renderer)
+    {
+        const auto& state = m_RenderResource.Piplinestate;
+        auto        view  = m_LogicScene->m_Registry.view<TransformComponent, ProductModelComponent>();
+        for (auto entity : view)
+        {
+            auto [transformCMP, model] = view.get(entity);
+            const glm::mat4 transform  = transformCMP.GetTransform();
+            OpenGLRenderCommand::EnableCullFace(false);
+            renderer.SubmitModel(model, transform);
+            if (state.EnableOutline)
+            {
+                OpenGLRenderCommand::EnableCullFace(true);
+                OpenGLRenderCommand::CullFace(CullFaceOption::FRONT);
+                renderer.SubmitModelGeometry(model, transform, "OutLineShader");
+                OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
+                OpenGLRenderCommand::EnableCullFace(false);
+            }
+            if (state.EnableDebugNormal)
+                renderer.SubmitModelGeometry(model, transform, "DebugNormalShader");
         }
     }
 

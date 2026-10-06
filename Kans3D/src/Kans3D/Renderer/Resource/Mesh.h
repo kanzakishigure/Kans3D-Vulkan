@@ -8,6 +8,7 @@
 #include "glm/glm.hpp"
 
 #include "Kans3D/Asset/Asset.h"
+#include "Kans3D/Asset/Runtime/MeshData.h"
 
 #include <assimp/Importer.hpp>  // C++ importer interface
 #include <assimp/postprocess.h> // Post processing flags
@@ -175,9 +176,13 @@ namespace Kans
     {
     public:
         StaticMesh(Ref<MeshSource> source);
+        explicit StaticMesh(MeshData data);
         ~StaticMesh();
-        Ref<MeshSource> GetMeshSource() { return m_MeshSource; }
-        Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
+        static AssetType GetStaticType() { return AssetType::StaticMesh; }
+        AssetType        GetAssetType() const override { return GetStaticType(); }
+        const MeshData*  GetCpuData() const { return m_CpuData.get(); }
+        Ref<MeshSource>  GetMeshSource() { return m_MeshSource; }
+        Ref<MeshSource>  GetMeshSource() const { return m_MeshSource; }
 
         void SetMaterial(Ref<Material> material, uint32_t submeshIndex);
         void SetMeshAsset(Ref<MeshSource> meshAsset) { m_MeshSource = meshAsset; }
@@ -188,6 +193,7 @@ namespace Kans
         const std::vector<uint32_t>& GetSubMesh() { return m_SubMesh; }
 
     private:
+        Scope<MeshData>       m_CpuData;
         std::vector<uint32_t> m_SubMesh;
         Ref<MaterialTable>    m_MaterialTable;
         Ref<MeshSource>       m_MeshSource;

@@ -1,32 +1,127 @@
 #pragma once
 
-#include <functional>
-#include <sys/stat.h>
-#include "Kans3D/Asset/AssetMetadata.h"
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <optional>
+#include <thread>
+#include <type_traits>
+#include <unordered_map>
+#include "Kans3D/Asset/AssetRegistry.h"
+#include "Kans3D/Asset/Loader/AssetLoaderRegistry.h"
+#include "Kans3D/Asset/Storage/AssetProvider.h"
 
 namespace Kans
 {
-    // AssetManager is a static class provide utility function for manager asset
+    enum class AssetLoadState
+    {
+        Loading,
+        Ready,
+        Failed
+    };
+
+    template<typename T>
+    struct AssetLoadStatus
+    {
+        AssetLoadState            State = AssetLoadState::Loading;
+        Ref<const T>              Asset;
+        std::optional<AssetError> Error;
+
+        bool IsReady() const { return State == AssetLoadState::Ready; }
+    };
+
+    struct AssetManagerSpecification
+    {
+        std::string         Target      = "default";
+        uint32_t            WorkerCount = 2;
+        AssetLoaderRegistry Loaders     = AssetLoaderRegistry::CreateDefault();
+    };
+
+    // Runtime CPU asset cache. Resolves AssetIDs through a Registry snapshot, reads
+    // Product bytes from a provider and decodes them; never touches source files.
+    //
+    // Loaded assets are immutable and shared: a returned Ref stays valid after the
+    // asset is unloaded or replaced. Each AssetID is loaded at most once at a time.
     class AssetManager
     {
-
     public:
-        using AssetChangeEventFn = std::function<void>;
+        AssetManager(Ref<IAssetProvider>       provider,
+                     Ref<const AssetRegistry>  registry,
+                     AssetManagerSpecification spec = {});
+        ~AssetManager();
+        AssetManager(const AssetManager&)            = delete;
+        AssetManager& operator=(const AssetManager&) = delete;
 
-    public:
-        static void SetAssetChangeCallBack(const AssetChangeEventFn& callback);
+        // Blocking load. A previously failed load is retried.
+        template<typename T>
+        std::variant<Ref<const T>, AssetError> Load(AssetID id)
+        {
+            auto result = LoadBlocking(id, T::GetStaticType());
+            if (auto* error = std::get_if<AssetError>(&result))
+                return std::move(*error);
+            return std::static_pointer_cast<const T>(std::get<Ref<const Asset>>(std::move(result)));
+        }
 
-        static const AssetMetadata& GetMetadata(AssetID assetID);
-        static const AssetMetadata& GetMetadata(const std::filesystem::path& path);
-        static const AssetMetadata& GetMetadata(const Ref<Asset>& asset) { return GetMetadata(asset->assetID); };
+        // Non-blocking load for per-frame polling. Queues the asset on first use;
+        // a failure is reported until the Registry changes or the asset is unloaded.
+        template<typename T>
+        AssetLoadStatus<T> Request(AssetID id)
+        {
+            auto               status = RequestUntyped(id, T::GetStaticType());
+            AssetLoadStatus<T> result;
+            result.State = status.State;
+            result.Asset = std::static_pointer_cast<const T>(status.Asset);
+            result.Error = std::move(status.Error);
+            return result;
+        }
 
-        static const Ref<Asset>& LoadRAMAsset(AssetID assetID) { return s_RAMAssets.at(assetID); }
-        static const Ref<Asset>& LoadDiskAsset(AssetID assetID) { return s_LoadedAssets.at(assetID); }
+        // Returns the loaded asset without starting a load.
+        template<typename T>
+        Ref<const T> GetLoaded(AssetID id) const
+        {
+            return std::static_pointer_cast<const T>(GetLoadedUntyped(id, T::GetStaticType()));
+        }
+
+        // Replace the Registry. Cached assets whose Product content changed or was
+        // removed are evicted, so the next request loads the new version.
+        [[nodiscard]] std::variant<ProductChangeSet, AssetError> SetRegistry(Ref<const AssetRegistry> registry);
+        Ref<const AssetRegistry>                                 GetRegistry() const;
+        const std::string&                                       GetTarget() const { return m_Target; }
+
+        void   Unload(AssetID id);
+        size_t CollectUnused();
+        size_t GetResidentCount() const;
 
     private:
-        // The mapping of the disk asset we loaded to our project
-        static std::unordered_map<AssetID, Ref<Asset>> s_LoadedAssets;
-        // we don't need to load all asset in our RAM we Just Load
-        static std::unordered_map<AssetID, Ref<Asset>> s_RAMAssets;
+        struct Entry
+        {
+            AssetLoadState            State = AssetLoadState::Loading;
+            AssetType                 Type  = AssetType::None;
+            Ref<const Asset>          Value;
+            std::optional<AssetError> Error;
+            uint64_t                  Ticket = 0;
+        };
+
+        std::variant<Ref<const Asset>, AssetError> LoadBlocking(AssetID id, AssetType type);
+        AssetLoadStatus<Asset>                     RequestUntyped(AssetID id, AssetType type);
+        Ref<const Asset>                           GetLoadedUntyped(AssetID id, AssetType type) const;
+        // Starts a load under m_Mutex; returns the ticket identifying this attempt.
+        uint64_t                                   BeginLoad(AssetID id, AssetType type);
+        void                                       RunLoad(AssetID id, uint64_t ticket);
+        std::variant<Ref<const Asset>, AssetError> ReadAndDecode(AssetID id, AssetType type) const;
+        void                                       WorkerLoop();
+
+        Ref<IAssetProvider>       m_Provider;
+        const std::string         m_Target;
+        const AssetLoaderRegistry m_Loaders;
+
+        mutable std::mutex                       m_Mutex;
+        std::condition_variable                  m_Changed;
+        Ref<const AssetRegistry>                 m_Registry;
+        std::unordered_map<AssetID, Entry>       m_Entries;
+        std::deque<std::pair<AssetID, uint64_t>> m_Queue;
+        std::vector<std::thread>                 m_Workers;
+        uint64_t                                 m_NextTicket = 0;
+        bool                                     m_Stopping   = false;
     };
 } // namespace Kans

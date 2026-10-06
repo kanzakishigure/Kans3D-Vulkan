@@ -1,6 +1,7 @@
 #include <fstream>
 #include <iterator>
 #include <gtest/gtest.h>
+#include "Kans3D/Asset/SourceAssetMetaSerializer.h"
 #include "Kans3D/Project/Project.h"
 
 namespace
@@ -45,6 +46,101 @@ namespace
         }
     };
 
+    TEST_F(ProjectTest, ConfigurationPersistsAcrossRefreshReopenAndMissingHistory)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&                     project = std::get<std::unique_ptr<Project>>(opened);
+        const auto                id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        SourceImportConfiguration settings;
+        settings.Importer = "TextureImporter";
+        settings.Settings = {{"usage", "normal"}, {"generate_mips", "false"}};
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->SetSourceImportConfiguration(id, settings)));
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        EXPECT_EQ(project->GetSourceAssetDatabase().FindByID(id).Import.Settings, settings.Settings);
+        fs::remove(directory / "assets/a.png");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        project.reset(); // A project is locked while open.
+        auto reopened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(reopened));
+        auto& restored = std::get<std::unique_ptr<Project>>(reopened);
+        EXPECT_TRUE(restored->GetSourceAssetDatabase().FindByID(id).Missing);
+        EXPECT_EQ(restored->GetSourceAssetDatabase().FindByID(id).Import.Settings, settings.Settings);
+        EXPECT_TRUE(std::holds_alternative<AssetError>(restored->SetSourceImportConfiguration(id, {})));
+        fs::rename(directory / "assets/a.png.kmeta", directory / "assets/moved.png.kmeta");
+        Write(directory / "assets/moved.png", "restored");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(restored->RefreshAssets()));
+        EXPECT_EQ(restored->GetSourceAssetDatabase().FindIDByPath(AssetPath("moved.png")), id);
+        EXPECT_EQ(restored->GetSourceAssetDatabase().FindByID(id).Import.Settings, settings.Settings);
+    }
+
+    TEST_F(ProjectTest, ConfigurationFailurePreservesDatabaseCacheAndSidecar)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&                     project = std::get<std::unique_ptr<Project>>(opened);
+        const auto                id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        const auto                sidecar = directory / "assets/a.png.kmeta";
+        const auto                before  = Read(sidecar);
+        const auto                cache   = Read(project->GetSourceAssetCachePath());
+        SourceImportConfiguration invalid;
+        invalid.Settings[""] = "value";
+        EXPECT_TRUE(std::holds_alternative<AssetError>(project->SetSourceImportConfiguration(id, invalid)));
+        EXPECT_EQ(Read(sidecar), before);
+        Write(sidecar, "version: 1\nsource_id: fedcba9876543210\n");
+        const auto changed = Read(sidecar);
+        EXPECT_TRUE(std::holds_alternative<AssetError>(project->SetSourceImportConfiguration(id, {})));
+        EXPECT_EQ(Read(sidecar), changed);
+        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), cache);
+        EXPECT_TRUE(project->GetSourceAssetDatabase().FindByID(id).Import.Settings.empty());
+    }
+
+#if defined(_WIN32)
+    TEST_F(ProjectTest, LockedSidecarCommitFailurePreservesLiveConfiguration)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&      project = std::get<std::unique_ptr<Project>>(opened);
+        const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        const auto sidecar = directory / "assets/a.png.kmeta";
+        const auto before  = Read(sidecar);
+        const auto cache   = Read(project->GetSourceAssetCachePath());
+        // MSVC file streams share reading/writing but deny deleting/replacing.
+        std::ifstream locked(sidecar, std::ios::binary);
+        ASSERT_TRUE(locked.good());
+        SourceImportConfiguration settings;
+        settings.Settings["usage"] = "normal";
+        const auto result          = project->SetSourceImportConfiguration(id, settings);
+        ASSERT_TRUE(std::holds_alternative<AssetError>(result));
+        EXPECT_EQ(std::get<AssetError>(result).Code, AssetErrorCode::IoError);
+        EXPECT_EQ(Read(sidecar), before);
+        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), cache);
+        EXPECT_TRUE(project->GetSourceAssetDatabase().FindByID(id).Import.Settings.empty());
+        locked.close();
+        for (const auto& entry : fs::directory_iterator(directory / "assets"))
+            EXPECT_EQ(entry.path().filename().u8string().find(".tmp-"), std::string::npos);
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->SetSourceImportConfiguration(id, settings)));
+    }
+#endif
+
+    TEST_F(ProjectTest, ConfigurationCommitSucceedsWhenCacheCannotBeReplaced)
+    {
+        auto opened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
+        auto&      project = std::get<std::unique_ptr<Project>>(opened);
+        const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        fs::remove(project->GetSourceAssetCachePath());
+        fs::create_directory(project->GetSourceAssetCachePath());
+        SourceImportConfiguration settings;
+        settings.Settings["usage"] = "normal";
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->SetSourceImportConfiguration(id, settings)));
+        EXPECT_EQ(project->GetSourceAssetDatabase().FindByID(id).Import.Settings, settings.Settings);
+        EXPECT_EQ(project->GetAssetWarnings().size(), 1u);
+        auto loaded = SourceAssetMetaSerializer::Load(directory / "assets/a.png.kmeta", AssetPath("a.png"));
+        ASSERT_TRUE(std::holds_alternative<SourceAssetMetadata>(loaded));
+        EXPECT_EQ(std::get<SourceAssetMetadata>(loaded).Import.Settings, settings.Settings);
+    }
+
     TEST_F(ProjectTest, OpenResolvesPathsAndPersistsWithoutChangingWorkingDirectory)
     {
         const auto cwd    = fs::current_path();
@@ -57,6 +153,7 @@ namespace
         EXPECT_TRUE(fs::exists(project->GetSourceAssetCachePath()));
         const auto id = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
         ASSERT_TRUE(id.IsValid());
+        std::get<std::unique_ptr<Project>>(opened).reset();
         auto reopened = Project::Open(config);
         ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(reopened));
         EXPECT_EQ(
@@ -78,19 +175,25 @@ namespace
         EXPECT_NE(Read(options.SourceAssetCachePath), "[broken");
     }
 
-    TEST_F(ProjectTest, ScanFailurePreservesDatabaseAndCache)
+    TEST_F(ProjectTest, UnreadableSidecarIsAWarningAndKeepsTheRecord)
     {
         auto opened = Project::Open(config);
         ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
         auto&      project = std::get<std::unique_ptr<Project>>(opened);
-        const auto before  = Read(project->GetSourceAssetCachePath());
         const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
         Write(directory / "assets/a.png.kmeta", "[broken");
-        EXPECT_TRUE(std::holds_alternative<AssetError>(project->RefreshAssets()));
-        EXPECT_EQ(project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png")), id);
-        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), before);
-        EXPECT_TRUE(std::holds_alternative<AssetError>(Project::Open(config)));
-        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), before);
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        EXPECT_FALSE(project->GetAssetWarnings().empty());
+        const auto kept = project->GetSourceAssetDatabase().FindByID(id);
+        EXPECT_EQ(kept.Path, AssetPath("a.png"));
+        EXPECT_FALSE(kept.Missing);
+        project.reset();
+        auto reopened = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(reopened));
+        EXPECT_EQ(
+            std::get<std::unique_ptr<Project>>(reopened)->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png")),
+            id);
+        EXPECT_EQ(Read(directory / "assets/a.png.kmeta"), "[broken");
     }
 
     TEST_F(ProjectTest, RefreshReconcilesAddedAndRemovedSources)
@@ -121,6 +224,7 @@ namespace
         const auto id      = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
         fs::remove(directory / "assets/a.png");
         ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        project.reset();
         auto reopened = Project::Open(config);
         ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(reopened));
         auto& restored = std::get<std::unique_ptr<Project>>(reopened);
@@ -169,7 +273,7 @@ namespace
         EXPECT_EQ(project->GetSourceAssetDatabase().GetAllSources().size(), 1u);
     }
 
-    TEST_F(ProjectTest, DifferentIdentityAtMissingPathPreservesDatabaseAndCache)
+    TEST_F(ProjectTest, NewFileAtAMissingSourcePathTakesANewIdentity)
     {
         auto opened = Project::Open(config);
         ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(opened));
@@ -180,14 +284,15 @@ namespace
         ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
         const auto cache = Read(project->GetSourceAssetCachePath());
         Write(directory / "assets/a.png", "different source");
-        const auto result = project->RefreshAssets();
-        ASSERT_TRUE(std::holds_alternative<AssetError>(result));
-        EXPECT_EQ(std::get<AssetError>(result).Code, AssetErrorCode::DuplicatePath);
-        EXPECT_EQ(project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png")), id);
-        EXPECT_TRUE(project->GetSourceAssetDatabase().FindByID(id).Missing);
-        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), cache);
-        EXPECT_TRUE(std::holds_alternative<AssetError>(Project::Open(config)));
-        EXPECT_EQ(Read(project->GetSourceAssetCachePath()), cache);
+        // The new file gets a new identity; the old record is dropped with a warning.
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(project->RefreshAssets()));
+        const auto replacement = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("a.png"));
+        EXPECT_TRUE(replacement.IsValid());
+        EXPECT_NE(replacement, id);
+        EXPECT_FALSE(project->GetSourceAssetDatabase().Contains(id));
+        ASSERT_EQ(project->GetAssetWarnings().size(), 1u);
+        EXPECT_EQ(project->GetAssetWarnings()[0].Code, AssetErrorCode::DuplicatePath);
+        EXPECT_NE(Read(project->GetSourceAssetCachePath()), cache);
     }
 
     TEST_F(ProjectTest, CacheWriteFailureDoesNotPreventOpening)

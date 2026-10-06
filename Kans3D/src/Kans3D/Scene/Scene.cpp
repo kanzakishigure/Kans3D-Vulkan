@@ -35,6 +35,8 @@ namespace Kans
             });
         }
         // update Script
+        if (!ScriptEngine::IsInitialized())
+            return;
         auto view = m_Registry.view<ScriptComponent>();
         for (auto entity : view)
         {
@@ -97,6 +99,12 @@ namespace Kans
     {
 
         // Init
+        if (!ScriptEngine::IsInitialized())
+        {
+            if (!m_Registry.view<ScriptComponent>().empty())
+                CORE_ERROR("Scene scripts require an initialized ScriptEngine");
+            return;
+        }
         ScriptEngine::OnRuntimeStart(this);
         auto view = m_Registry.view<ScriptComponent>();
         for (auto entity : view)
@@ -106,11 +114,7 @@ namespace Kans
         }
     }
 
-    void Scene::OnRuntimeStop()
-    {
-        ScriptEngine::OnRuntimeEnd();
-        m_EntityMap.clear();
-    }
+    void Scene::OnRuntimeStop() { ScriptEngine::OnRuntimeEnd(); }
 
     Kans::Entity Scene::GetCameraEntity()
     {
@@ -145,6 +149,9 @@ namespace Kans
     {}
     template<>
     void Scene::OnComponentAdd<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
+    {}
+    template<>
+    void Scene::OnComponentAdd<ProductModelComponent>(Entity entity, ProductModelComponent& component)
     {}
     template<>
     void Scene::OnComponentAdd<TagComponent>(Entity entity, TagComponent& component)

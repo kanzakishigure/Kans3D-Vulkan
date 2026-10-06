@@ -5,6 +5,16 @@
 #include "Kans3D/Renderer/Renderer.h"
 namespace Kans
 {
+    std::variant<Ref<Texture2D>, AssetError> Texture2D::CreateFromProduct(const TextureData& data)
+    {
+        if (RendererAPI::Current() != RendererAPIType::OPENGL)
+            return AssetError {AssetErrorCode::NotImplemented,
+                               "Texture Product upload is not implemented for this backend"};
+        auto uploaded = OpenGLTexture2D::UploadProduct(data);
+        if (auto* error = std::get_if<AssetError>(&uploaded))
+            return std::move(*error);
+        return Ref<Texture2D>(std::get<Ref<OpenGLTexture2D>>(std::move(uploaded)));
+    }
 
     Ref<Kans::Texture2D> Texture2D::Create(const TextureSpecification& specification, Buffer buffer)
     {

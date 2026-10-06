@@ -13,6 +13,23 @@ namespace
         return data;
     }
 
+    TEST(SourceAssetDatabase, ConfigurationUpdatePreservesIndexesAndRejectsInvalidSettings)
+    {
+        SourceAssetDatabase database;
+        auto                record = Record("0123456789abcdef", "Textures/Wood.png");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(database.RegisterSource(record)));
+        record.Import.Importer          = "TextureImporter";
+        record.Import.Settings["usage"] = "normal";
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(database.UpdateSource(record)));
+        EXPECT_EQ(database.FindIDByPath(record.Path), record.sourceAssetID);
+        EXPECT_EQ(database.FindByID(record.sourceAssetID).Import.Settings, record.Import.Settings);
+        record.Import.Settings["usage"] = std::string(SourceImportConfiguration::MaximumString + 1, 'x');
+        EXPECT_TRUE(std::holds_alternative<AssetError>(database.UpdateSource(record)));
+        EXPECT_EQ(database.FindByID(record.sourceAssetID).Import.Settings.at("usage"), "normal");
+        EXPECT_EQ(database.GetSourceCount(), 1u);
+        EXPECT_EQ(database.GetSourceIDs().at(0), record.sourceAssetID);
+    }
+
     TEST(SourceAssetDatabase, RegistrationSupportsBothReadOnlyQueries)
     {
         SourceAssetDatabase database;

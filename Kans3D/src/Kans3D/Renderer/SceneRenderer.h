@@ -3,8 +3,10 @@
 #include "Kans3D/Renderer/RHI/FrameBuffer.h"
 
 #include "Kans3D/Renderer/Resource/Mesh.h"
+#include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
+#include "Kans3D/Scene/ProductModelComponent.h"
 
 namespace Kans
 {
@@ -30,7 +32,20 @@ namespace Kans
     {
     public:
         SceneRenderer(RenderScene* renderScene, SceneRendererSpecification spec = SceneRendererSpecification());
-        ~SceneRenderer() {};
+        ~SceneRenderer();
+
+        // The manager must outlive its use here; pass nullptr before destroying it.
+        void              SetAssetManager(AssetManager* assets);
+        RenderAssetCache* GetAssetCache() { return m_AssetCache.get(); }
+
+        // Draws a Model asset with the engine PBR shader. Parts that are still
+        // loading are skipped; missing textures fall back to material factors.
+        void SubmitModel(const ProductModelComponent& model, const glm::mat4& transform);
+        // Draws model geometry with a shader from the library that takes
+        // U_ViewProjection, U_Transform and U_ViewPos (outline, stencil, debug).
+        void SubmitModelGeometry(const ProductModelComponent& model,
+                                 const glm::mat4&             transform,
+                                 const std::string&           shaderName);
 
         void                  Init();
         void                  PrepareEnvironment();
@@ -73,9 +88,10 @@ namespace Kans
         uint32_t         m_ViewportWidth = 0, m_ViewportHeight = 0;
         Ref<FrameBuffer> m_FrameBuffer;
 
-        Environment      m_Environment;
-        Ref<TextureCube> m_SkyBox;
-        Ref<Texture2D>   m_BrdfLUT;
-        bool             m_Active = false;
+        Environment                     m_Environment;
+        Ref<TextureCube>                m_SkyBox;
+        Ref<Texture2D>                  m_BrdfLUT;
+        bool                            m_Active = false;
+        Scope<RenderAssetCache>         m_AssetCache;
     };
 } // namespace Kans

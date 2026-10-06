@@ -22,6 +22,6 @@ namespace Kans
     private:
         std::vector<Ref<VertexBuffer>> m_VertexBuffers;
         Ref<IndexBuffer>               m_IndexBuffers;
-        uint32_t                       m_RendererID;
+        uint32_t                       m_RendererID = 0;
     };
 } // namespace Kans

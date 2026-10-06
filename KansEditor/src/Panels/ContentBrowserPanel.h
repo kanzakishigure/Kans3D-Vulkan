@@ -5,6 +5,7 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "ContentBrowserItem.h"
 
+#include <functional>
 #include <vector>
 
 namespace Kans
@@ -26,12 +27,17 @@ namespace Kans
         virtual void onImGuiRender(bool isOpen) override;
 
         static ContentBrowserPanel* Get() { return s_Instance; }
+        void                        SetOpenFileCallback(std::function<void(const std::filesystem::path&)> callback)
+        {
+            m_OpenFile = std::move(callback);
+        }
 
         // ── Queries (called by ContentBrowserItem) ──
         float    GetCurrentIconSize() const { return m_CurrentIconSize; }
         ViewMode GetCurrentViewMode() const { return m_CurrentViewMode; }
 
     private:
+        std::function<void(const std::filesystem::path&)> m_OpenFile;
         // Chooses an icon tier using the viewport and the grid dimensions.
         void CalculateLayout(float gridWidth, float gridHeight, float viewportWidth, float viewportHeight);
         void OnItemClicked(const std::filesystem::path& path, bool isDirectory, bool doubleClick);

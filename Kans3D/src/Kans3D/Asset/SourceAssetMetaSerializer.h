@@ -16,8 +16,9 @@ namespace Kans
         // file alone. Filesystem observations remain the metadata defaults.
         static std::variant<SourceAssetMetadata, AssetError> Load(const std::filesystem::path& metaPath,
                                                                   const AssetPath&             sourcePath);
-        static std::variant<std::monostate, AssetError>      Save(const std::filesystem::path& metaPath,
-                                                                  const SourceAssetMetadata&   metadata);
+        // Always writes v2; saving legacy v1 metadata preserves its source ID.
+        static std::variant<std::monostate, AssetError> Save(const std::filesystem::path& metaPath,
+                                                             const SourceAssetMetadata&   metadata);
     };
 
 } // namespace Kans

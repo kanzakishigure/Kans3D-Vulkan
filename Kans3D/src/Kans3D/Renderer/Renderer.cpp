@@ -243,6 +243,11 @@ namespace Kans
                 PBRStaticMesh->SetShaderBuffer({});
                 s_GlobalRendererResource->m_ShaderLibrary->Add(PBRStaticMesh);
             }
+            {
+                auto productPBR = Shader::Create(shaderpath + "PBR/ProductPBR.glsl");
+                productPBR->SetShaderBuffer({});
+                s_GlobalRendererResource->m_ShaderLibrary->Add(productPBR);
+            }
         }
     }
 
@@ -262,8 +267,11 @@ namespace Kans
     void Renderer::Shutdown()
     {
         delete s_GlobalRendererResource;
+        s_GlobalRendererResource = nullptr;
         CORE_INFO("delete rendererdata");
+        OpenGLRenderCommand::s_RendererAPI = &OpenGLRenderCommand::s_NativeCommands;
         delete s_RendererAPI;
+        s_RendererAPI = nullptr;
         CORE_INFO("delete renderer-rhi");
 
         s_RHI->Shutdown();
@@ -287,7 +295,10 @@ namespace Kans
 
     Kans::Ref<Kans::VertexArray> Renderer::GetQuad() { return s_GlobalRendererResource->Quad; }
 
-    Ref<ShaderLibrary> Renderer::GetShaderLibrary() { return s_GlobalRendererResource->m_ShaderLibrary; }
+    Ref<ShaderLibrary> Renderer::GetShaderLibrary()
+    {
+        return s_GlobalRendererResource ? s_GlobalRendererResource->m_ShaderLibrary : nullptr;
+    }
 
     const std::unordered_map<std::string, std::string>& Renderer::GetGlobalShaderMacros()
     {

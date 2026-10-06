@@ -1,32 +1,99 @@
+#include "kspch.h"
 #include "ImporterRegistry.h"
 #include <algorithm>
-#include <cctype>
+#include "MaterialImporter.h"
+#include "ModelImporter.h"
+#include "ShaderImporter.h"
+#include "TextureImporter.h"
 
 namespace Kans
 {
     namespace
     {
-        std::string Normalize(std::string extension)
+        std::string Lowercase(std::string text)
         {
-            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
-                return static_cast<char>(std::tolower(c));
+            std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+                return static_cast<char>(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
             });
-            return extension;
+            return text;
+        }
+        bool IsName(const std::string& text, const char* allowed)
+        {
+            return !text.empty() && text.size() <= 256 && text.find_first_not_of(allowed) == std::string::npos;
         }
     } // namespace
-    std::variant<std::monostate, AssetError> ImporterRegistry::Register(const std::string&                 extension,
-                                                                        std::shared_ptr<AssetImporterBase> importer)
+
+    std::variant<std::monostate, AssetError> ImporterRegistry::Register(const std::string&                 name,
+                                                                        const std::vector<std::string>&    extensions,
+                                                                        std::shared_ptr<AssetImporterBase> importer,
+                                                                        bool                               makeDefault)
     {
-        if (!importer || extension.size() < 2 || extension.front() != '.' ||
-            extension.find_first_of("/\\") != std::string::npos)
-            return AssetError {AssetErrorCode::InvalidArgument, "Invalid importer registration"};
-        if (!m_Importers.emplace(Normalize(extension), std::move(importer)).second)
-            return AssetError {AssetErrorCode::InvalidArgument, "Importer already registered for extension"};
+        constexpr const char* NameCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-";
+        if (!IsName(name, NameCharacters) || !importer || importer->GetVersion() == 0 || extensions.empty() ||
+            m_Named.count(name))
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid or duplicate importer registration"};
+        RegisteredImporter entry {name, importer, {}};
+        for (const auto& extension : extensions)
+        {
+            auto normalized = Lowercase(extension);
+            if (normalized.size() < 2 || normalized.front() != '.' ||
+                !IsName(normalized.substr(1), "abcdefghijklmnopqrstuvwxyz0123456789_") ||
+                std::count(entry.Extensions.begin(), entry.Extensions.end(), normalized) ||
+                (makeDefault && m_Defaults.count(normalized)))
+                return AssetError {AssetErrorCode::InvalidArgument, "Invalid or already claimed importer extension"};
+            entry.Extensions.push_back(std::move(normalized));
+        }
+        if (makeDefault)
+            for (const auto& extension : entry.Extensions)
+                m_Defaults.emplace(extension, name);
+        m_Named.emplace(name, std::move(entry));
         return std::monostate {};
     }
-    std::shared_ptr<const AssetImporterBase> ImporterRegistry::Find(const std::filesystem::path& sourceFile) const
+
+    std::variant<RegisteredImporter, AssetError> ImporterRegistry::Resolve(const std::filesystem::path& sourceFile,
+                                                                           const std::string&           name) const
     {
-        const auto it = m_Importers.find(Normalize(sourceFile.extension().string()));
-        return it == m_Importers.end() ? nullptr : it->second;
+        const auto  extension = Lowercase(sourceFile.extension().u8string());
+        std::string selected  = name;
+        if (selected.empty())
+        {
+            const auto found = m_Defaults.find(extension);
+            if (found == m_Defaults.end())
+                return AssetError {AssetErrorCode::NotFound, "No importer for source format " + extension};
+            selected = found->second;
+        }
+        const auto found = m_Named.find(selected);
+        if (found == m_Named.end())
+            return AssetError {AssetErrorCode::NotFound, "Unknown importer: " + selected};
+        const auto& supported = found->second.Extensions;
+        if (std::find(supported.begin(), supported.end(), extension) == supported.end())
+            return AssetError {AssetErrorCode::InvalidArgument, selected + " does not import " + extension + " files"};
+        return found->second;
+    }
+
+    bool ImporterRegistry::Supports(const std::filesystem::path& sourceFile) const
+    {
+        return m_Defaults.count(Lowercase(sourceFile.extension().u8string())) != 0;
+    }
+
+    std::variant<ImporterRegistry, AssetError> CreateDefaultImporterRegistry()
+    {
+        ImporterRegistry registry;
+        const std::pair<const char*, std::pair<std::vector<std::string>, std::shared_ptr<AssetImporterBase>>>
+            importers[] = {
+                {"ModelImporter",
+                 {{".obj", ".fbx", ".gltf", ".glb", ".dae", ".3ds"}, std::make_shared<ModelImporter>()}},
+                {"TextureImporter",
+                 {{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"}, std::make_shared<TextureImporter>()}},
+                {"ShaderImporter", {{".vert", ".frag", ".comp", ".shaderprog"}, std::make_shared<ShaderImporter>()}},
+                {"MaterialImporter", {{".material"}, std::make_shared<MaterialImporter>()}},
+            };
+        for (const auto& [name, entry] : importers)
+        {
+            auto registered = registry.Register(name, entry.first, entry.second);
+            if (auto* error = std::get_if<AssetError>(&registered))
+                return std::move(*error);
+        }
+        return registry;
     }
 } // namespace Kans

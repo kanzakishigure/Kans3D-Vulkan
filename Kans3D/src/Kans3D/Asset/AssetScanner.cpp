@@ -15,12 +15,12 @@ namespace Kans
 
         AssetError Error(AssetErrorCode code, const fs::path& path, const std::string& message)
         {
-            return {code, path.generic_string() + ": " + message};
+            return {code, path.generic_u8string() + ": " + message};
         }
 
         bool Ignore(const fs::path& path, bool directory)
         {
-            std::string name = path.filename().string();
+            std::string name = path.filename().u8string();
             if (!name.empty() && name.front() == '.')
                 return true;
             std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
@@ -81,6 +81,21 @@ namespace Kans
         }
     } // namespace
 
+    bool AssetScanner::IsDiscoverablePath(const AssetPath& path)
+    {
+        if (!path.IsValid() || path.GetPath().filename().empty() || path.ToString().find('\0') != std::string::npos)
+            return false;
+        const auto end = path.GetPath().end();
+        for (auto it = path.GetPath().begin(); it != end; ++it)
+        {
+            auto next = it;
+            ++next;
+            if (Ignore(*it, next != end))
+                return false;
+        }
+        return true;
+    }
+
     std::variant<AssetScanResult, AssetError> AssetScanner::Scan(const std::filesystem::path& assetRoot)
     {
         if (assetRoot.empty())
@@ -139,6 +154,7 @@ namespace Kans
             if (const auto* error = std::get_if<AssetError>(&loaded))
             {
                 result.Errors.push_back(*error);
+                result.Skipped.emplace_back(file.lexically_relative(assetRoot));
                 continue;
             }
             auto metadata = std::get<SourceAssetMetadata>(loaded);
@@ -152,6 +168,7 @@ namespace Kans
             {
                 result.Errors.push_back(Error(
                     AssetErrorCode::DuplicateID, path, "Conflicting source ID " + metadata.sourceAssetID.ToString()));
+                result.Skipped.push_back(metadata.Path);
                 continue;
             }
             auto registered = result.Database.RegisterSource(metadata);

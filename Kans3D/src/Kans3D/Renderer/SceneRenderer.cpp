@@ -23,6 +23,104 @@ namespace Kans
         Init();
     }
 
+    SceneRenderer::~SceneRenderer() = default;
+
+    void SceneRenderer::SetAssetManager(AssetManager* assets)
+    {
+        m_AssetCache = assets ? CreateScope<RenderAssetCache>(*assets) : nullptr;
+    }
+
+    void SceneRenderer::SubmitModel(const ProductModelComponent& model, const glm::mat4& transform)
+    {
+        if (!m_AssetCache)
+            return;
+        const ModelInstances* instances = m_AssetCache->GetModel(model.Model);
+        if (!instances)
+            return;
+        auto  shaderRef = Renderer::GetShaderLibrary()->Get("ProductPBR");
+        auto* shader    = static_cast<OpenGLShader*>(shaderRef.get());
+        shader->Bind();
+        shader->UploadUniformMat4("U_ViewProjection",
+                                  m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() *
+                                      m_SceneInfo.sceneCamera.viewMatrix);
+        shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
+        for (int i = 0; i < 4; ++i)
+        {
+            shader->UploadUniform3Float("lightPositions[" + std::to_string(i) + "]", m_SceneInfo.pointLight.Position);
+            shader->UploadUniform3Float("lightColors[" + std::to_string(i) + "]",
+                                        m_SceneInfo.pointLight.Ambient_Intensity);
+        }
+        // Texture units: 0-4 material, 5-7 environment.
+        shader->UploadUniformInt("U_AlbedoTexture", 0);
+        shader->UploadUniformInt("U_NormalTexture", 1);
+        shader->UploadUniformInt("U_MetallicRoughnessTexture", 2);
+        shader->UploadUniformInt("U_OcclusionTexture", 3);
+        shader->UploadUniformInt("U_EmissiveTexture", 4);
+        shader->UploadUniformInt("U_IrradianceMap", 5);
+        shader->UploadUniformInt("U_PrefilterMap", 6);
+        shader->UploadUniformInt("U_BrdfLUTMap", 7);
+        if (m_Environment.IrradianceMap)
+            m_Environment.IrradianceMap->Bind(5);
+        if (m_Environment.RadianceMap)
+            m_Environment.RadianceMap->Bind(6);
+        if (m_BrdfLUT)
+            m_BrdfLUT->Bind(7);
+
+        const auto white       = Renderer::GetWhiteTexture();
+        const auto bindOrWhite = [&](AssetID id, uint32_t slot) {
+            auto texture = m_AssetCache->GetTexture(id);
+            (texture ? texture : white)->Bind(slot);
+            return static_cast<bool>(texture);
+        };
+        const GpuMaterial defaultMaterial;
+        for (const auto& instance : instances->Instances)
+        {
+            const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh);
+            if (!mesh)
+                continue;
+            const AssetID      materialID = model.ResolveMaterial(mesh->Material);
+            const GpuMaterial* material   = materialID.IsValid() ? m_AssetCache->GetMaterial(materialID) : nullptr;
+            if (!material)
+                material = &defaultMaterial;
+            shader->UploadUniformMat4("U_Transform", transform * instance.Transform);
+            shader->UploadUniform4Float("U_BaseColor", material->BaseColor);
+            shader->UploadUniformFloat("U_Metallic", material->Metallic);
+            shader->UploadUniformFloat("U_Roughness", material->Roughness);
+            bindOrWhite(material->AlbedoTexture, 0);
+            shader->UploadUniformInt("U_HasNormalTexture", bindOrWhite(material->NormalTexture, 1));
+            bindOrWhite(material->MetallicRoughnessTexture, 2);
+            bindOrWhite(material->OcclusionTexture, 3);
+            shader->UploadUniformInt("U_HasEmissiveTexture", bindOrWhite(material->EmissiveTexture, 4));
+            mesh->VertexArray->Bind();
+            OpenGLRenderCommand::DrawIndexed(mesh->VertexArray);
+        }
+    }
+
+    void SceneRenderer::SubmitModelGeometry(const ProductModelComponent& model,
+                                            const glm::mat4&             transform,
+                                            const std::string&           shaderName)
+    {
+        if (!m_AssetCache)
+            return;
+        const ModelInstances* instances = m_AssetCache->GetModel(model.Model);
+        if (!instances)
+            return;
+        auto  shaderRef = Renderer::GetShaderLibrary()->Get(shaderName);
+        auto* shader    = static_cast<OpenGLShader*>(shaderRef.get());
+        shader->Bind();
+        shader->UploadUniformMat4("U_ViewProjection",
+                                  m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() *
+                                      m_SceneInfo.sceneCamera.viewMatrix);
+        shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
+        for (const auto& instance : instances->Instances)
+            if (const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh))
+            {
+                shader->UploadUniformMat4("U_Transform", transform * instance.Transform);
+                mesh->VertexArray->Bind();
+                OpenGLRenderCommand::DrawIndexed(mesh->VertexArray);
+            }
+    }
+
     void SceneRenderer::Init()
     {
         m_ViewportWidth  = m_RenderScene->m_ViewportWidth;
@@ -245,6 +343,8 @@ namespace Kans
         CORE_ASSERT(m_RenderScene, "Render a invalid Scene with nullptr handle");
         m_Active    = true;
         m_SceneInfo = info;
+        if (m_AssetCache)
+            m_AssetCache->BeginFrame();
         m_FrameBuffer->Bind();
         // renderer
         OpenGLRenderCommand::SetClearColor({0.02f, 0.02f, 0.02f, 1.0f});
