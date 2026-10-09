@@ -21,6 +21,7 @@ layout(set = 1, binding = 0, std140) uniform ToneParameters
     float SpecularIntensity1; // silk
     float SpecularIntensity2; // black stockings
     float SpecularIntensity3; // ropes
+    bool  DiffuseFlipV;       // sample the diffuse map at (u, 1 - v)
     bool  LightMapFlipV;      // sample the light map at (u, 1 - v), as the legacy shader did
     bool  LightMapIsData;     // set when the light map is imported with usage: data
 } u_Tone;
@@ -63,7 +64,8 @@ void main()
     vec3 viewDir  = normalize(u_Frame.CameraPosition.xyz - v_WorldPos);
     vec3 lightDir = normalize(u_Frame.LightPositions[0].xyz - v_WorldPos);
 
-    vec4 baseColor = vec4(Stored(LegacySample(u_Diffuse, v_UV).rgb), 1.0);
+    vec2 diffuseUV = u_Tone.DiffuseFlipV ? vec2(v_UV.x, 1.0 - v_UV.y) : v_UV;
+    vec4 baseColor = vec4(Stored(LegacySample(u_Diffuse, diffuseUV).rgb), 1.0);
     vec2 lightUV   = u_Tone.LightMapFlipV ? vec2(v_UV.x, 1.0 - v_UV.y) : v_UV;
     vec4 lightMap  = LegacySample(u_LightMap, lightUV);
     if (!u_Tone.LightMapIsData)

@@ -27,7 +27,7 @@ namespace Kans
         std::set<ShaderProductStage>   stages;
         while (next())
         {
-            if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0)
+            if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0 || line.rfind("hint ", 0) == 0)
                 continue;
             const auto split = line.find('=');
             if (split == std::string::npos)
@@ -88,6 +88,43 @@ namespace Kans
             }
             if (values.empty() || values.size() > 4096 || key.size() > 256 || !result.emplace(key, values).second)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate Shader default '" + key + "'"};
+        }
+        return result;
+    }
+
+    std::variant<ShaderParameterHints, AssetError> ParseShaderProgramHints(const std::string& text)
+    {
+        if (text.size() > 65536 || text.find('\0') != std::string::npos)
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Shader program text budget"};
+        ShaderParameterHints result;
+        std::istringstream   lines(text);
+        std::string          line;
+        while (std::getline(lines, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.rfind("hint ", 0) != 0)
+                continue;
+            const auto         split = line.find('=');
+            std::istringstream name(line.substr(5, split == std::string::npos ? std::string::npos : split - 5));
+            std::string        key, extra, kind;
+            if (split == std::string::npos || !(name >> key) || (name >> extra))
+                return AssetError {AssetErrorCode::InvalidData, "Shader hint must be 'hint <name> = <widget>'"};
+            std::istringstream  input(line.substr(split + 1));
+            ShaderParameterHint hint;
+            input >> kind;
+            if (kind == "toggle")
+                hint.Type = ShaderParameterHint::Kind::Toggle;
+            else if (kind == "color")
+                hint.Type = ShaderParameterHint::Kind::Color;
+            else if (kind == "range" && (input >> hint.Min >> hint.Max) && std::isfinite(hint.Min) &&
+                     std::isfinite(hint.Max) && hint.Min < hint.Max)
+                hint.Type = ShaderParameterHint::Kind::Range;
+            else
+                return AssetError {AssetErrorCode::InvalidData,
+                                   "Shader hint '" + key + "' must be toggle, color or range <min> <max>"};
+            if ((input >> extra) || key.size() > 256 || !result.emplace(key, hint).second)
+                return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate Shader hint '" + key + "'"};
         }
         return result;
     }

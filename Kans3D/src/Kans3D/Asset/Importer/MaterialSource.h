@@ -33,6 +33,8 @@ namespace Kans
         std::string       Name;
         ShaderUniformType Type       = ShaderUniformType::Float;
         uint32_t          Components = 1, Columns = 1, ArrayCount = 1;
+        // Editor widget declared by the Shader (`hint` lines in its .shaderprog).
+        std::optional<ShaderParameterHint> Hint;
 
         size_t ValueCount() const { return size_t(Components) * Columns * ArrayCount; }
     };

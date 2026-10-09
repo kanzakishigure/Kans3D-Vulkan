@@ -78,9 +78,11 @@ namespace Kans
         MaterialSchema PbrSchema()
         {
             MaterialSchema schema;
-            schema.Parameters = {{"base_color", ShaderUniformType::Float, 4, 1, 1},
-                                 {"metallic", ShaderUniformType::Float, 1, 1, 1},
-                                 {"roughness", ShaderUniformType::Float, 1, 1, 1}};
+            const ShaderParameterHint color {ShaderParameterHint::Kind::Color};
+            const ShaderParameterHint unit {ShaderParameterHint::Kind::Range, 0, 1};
+            schema.Parameters = {{"base_color", ShaderUniformType::Float, 4, 1, 1, color},
+                                 {"metallic", ShaderUniformType::Float, 1, 1, 1, unit},
+                                 {"roughness", ShaderUniformType::Float, 1, 1, 1, unit}};
             for (const auto& texture : PbrTextures)
                 schema.Textures.push_back(texture.first);
             schema.Defaults = {{"base_color", {1, 1, 1, 1}}, {"metallic", {0}}, {"roughness", {1}}};
@@ -243,6 +245,21 @@ namespace Kans
                     return Invalid("Shader default '" + name + "' does not match a material parameter of " +
                                    std::to_string(values.size()) + " values");
                 schema.Defaults.emplace(name, values);
+            }
+            for (const auto& [name, hint] : shader->ParameterHints)
+            {
+                const auto found = std::find_if(schema.Parameters.begin(),
+                                                schema.Parameters.end(),
+                                                [&](const auto& parameter) { return parameter.Name == name; });
+                if (found == schema.Parameters.end())
+                    return Invalid("Shader hint '" + name + "' does not name a material parameter");
+                if (hint.Type == ShaderParameterHint::Kind::Color &&
+                    (found->Type != ShaderUniformType::Float || found->Columns != 1 || found->ArrayCount != 1 ||
+                     found->Components < 3))
+                    return Invalid("Shader hint '" + name + "': color needs a vec3 or vec4");
+                if (hint.Type == ShaderParameterHint::Kind::Range && found->Type == ShaderUniformType::Boolean)
+                    return Invalid("Shader hint '" + name + "': range does not apply to a bool");
+                found->Hint = hint;
             }
             return schema;
         }

@@ -298,6 +298,15 @@ namespace
         ASSERT_TRUE(std::holds_alternative<ShaderParameterDefaults>(defaults));
         EXPECT_EQ(std::get<ShaderParameterDefaults>(defaults),
                   (ShaderParameterDefaults {{"Tint", {1, 0.5, 0.25, 1}}, {"Flag", {1}}}));
+        auto hints = ParseShaderProgramHints(text + "hint Flag = toggle\nhint Tint = color\nhint Gloss = range 0 2\n");
+        ASSERT_TRUE(std::holds_alternative<ShaderParameterHints>(hints));
+        EXPECT_EQ(std::get<ShaderParameterHints>(hints).at("Gloss"),
+                  (ShaderParameterHint {ShaderParameterHint::Kind::Range, 0, 2}));
+        EXPECT_TRUE(std::holds_alternative<std::vector<ShaderStageSource>>(
+            ParseShaderProgramSource(text + "hint Flag = toggle\n")));
+        for (const char* bad : {"hint A = slider\n", "hint A = range 1 0\n", "hint A = range 0\n",
+                                "hint A = toggle extra\n", "hint A = toggle\nhint A = color\n"})
+            EXPECT_TRUE(std::holds_alternative<AssetError>(ParseShaderProgramHints(bad))) << bad;
         for (const char* bad : {"default Tint 1\n",
                                 "default = 1\n",
                                 "default A B = 1\n",

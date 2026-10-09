@@ -69,7 +69,9 @@ assets/x.obj + x.obj.kmeta                    AssetID
   uniform block 的成员，纹理是其 set 1 的 sampler2D。导入时根据 Shader 反射解析
   成按索引的绑定配方并写入 KMAT。未填写的参数取 Shader 声明的默认值（`.shaderprog`
   中的 `default <名字> = <数值...>` 行，存入 Shader Product），没有默认值则为 0；
-  未指定的 sampler 读白色。
+  未指定的 sampler 读白色。`.shaderprog` 还可用 `hint <名字> = toggle | color |
+  range <min> <max>` 声明材质编辑器中的控件（uniform block 里的 bool 编译后是 uint，
+  需要 `toggle` 才显示为勾选框）。
 - 材质 Shader 是 `.shaderprog`（顶点 + 片元，Vulkan GLSL 450）：set 0 是引擎数据，
   用 `#include <Kans3D/Engine.glsl>` 声明（`u_Frame`：ViewProjection、相机位置、
   4 个点光源的位置、PBR 辐射度 `LightColors` 与漫反射强度 `LightDiffuse`、Time；`u_Object`：Transform、NormalMatrix；IBL 的

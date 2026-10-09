@@ -15,7 +15,23 @@ default RampIntensity = 1.0
 default SpecularIntensity1 = 1.0
 default SpecularIntensity2 = 1.0
 default SpecularIntensity3 = 1.0
-# The light map shares the diffuse map's orientation when both use the same file
-# format; set LightMapFlipV when mixing the flipped .png and .tga copies.
+# Texture orientation. The light map shares the diffuse map's orientation when
+# both use the same file format; flip one when mixing the .png and .tga copies.
+default DiffuseFlipV = false
 default LightMapFlipV = false
 default LightMapIsData = false
+
+# Material editor widgets.
+hint DiffuseFlipV = toggle
+hint LightMapFlipV = toggle
+hint LightMapIsData = toggle
+hint RampShadowRange = range 0.05 1
+hint RampAOShadowRange = range 0 1
+hint ShadowIntensity = range 0 2
+hint BrightIntensity = range 0 2
+hint AOIntensity = range 0 1
+hint CharacterIntensity = range 0 2
+hint RampIntensity = range 0 1
+hint SpecularIntensity1 = range 0 4
+hint SpecularIntensity2 = range 0 4
+hint SpecularIntensity3 = range 0 4

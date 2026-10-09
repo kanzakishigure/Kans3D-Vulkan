@@ -6,8 +6,8 @@ namespace Kans
 {
     namespace
     {
-        // Version 2 appends parameter defaults; version 1 has none.
-        constexpr uint32_t Magic = 0x4448534b, Version = 2, TargetVulkan12 = 1;
+        // Version 2 appends parameter defaults, version 3 also parameter hints.
+        constexpr uint32_t Magic = 0x4448534b, Version = 3, TargetVulkan12 = 1;
         constexpr size_t   MaximumDefaults = 4096, MaximumDefaultValues = 4096;
         constexpr size_t   MaximumBytes = 16 * 1024 * 1024;
         void               Write(std::vector<std::byte>& bytes, uint32_t word)
@@ -43,10 +43,22 @@ namespace Kans
                    std::all_of(name.begin(), name.end(), [](unsigned char c) { return c > 32 && c != 127; }) &&
                    std::all_of(values.begin(), values.end(), [](double v) { return std::isfinite(v); });
         }
+        bool ValidHint(const std::string& name, const ShaderParameterHint& hint)
+        {
+            return ValidDefault(name, {hint.Min, hint.Max}) &&
+                   (hint.Type == ShaderParameterHint::Kind::Toggle || hint.Type == ShaderParameterHint::Kind::Color ||
+                    (hint.Type == ShaderParameterHint::Kind::Range && hint.Min < hint.Max));
+        }
     } // namespace
     std::variant<std::vector<std::byte>, AssetError> EncodeShaderProduct(const ShaderProgramCode&       code,
-                                                                         const ShaderParameterDefaults& defaults)
+                                                                         const ShaderParameterDefaults& defaults,
+                                                                         const ShaderParameterHints&    hints)
     {
+        if (hints.size() > MaximumDefaults)
+            return AssetError {AssetErrorCode::InvalidArgument, "Too many Shader parameter hints"};
+        for (const auto& [name, hint] : hints)
+            if (!ValidHint(name, hint))
+                return AssetError {AssetErrorCode::InvalidArgument, "Invalid Shader parameter hint '" + name + "'"};
         auto inspected = InspectShaderProgram(code);
         if (auto* error = std::get_if<AssetError>(&inspected))
             return *error;
@@ -82,6 +94,16 @@ namespace Kans
                 bytes.push_back(static_cast<std::byte>(c));
             for (double value : values)
                 WriteDouble(bytes, value);
+        }
+        Write(bytes, uint32_t(hints.size()));
+        for (const auto& [name, hint] : hints)
+        {
+            Write(bytes, uint32_t(name.size()));
+            Write(bytes, uint32_t(hint.Type));
+            for (auto c : name)
+                bytes.push_back(static_cast<std::byte>(c));
+            WriteDouble(bytes, hint.Min);
+            WriteDouble(bytes, hint.Max);
         }
         return bytes;
     }
@@ -142,6 +164,31 @@ namespace Kans
                     values.push_back(ReadDouble(cursor));
                 if (!ValidDefault(name, values) || !result.ParameterDefaults.emplace(name, std::move(values)).second)
                     return AssetError {AssetErrorCode::InvalidData, "Invalid Shader parameter default"};
+            }
+        }
+        if (version >= 3)
+        {
+            const auto remaining = [&] { return size - size_t(cursor - bytes); };
+            if (remaining() < 4)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Shader parameter hints"};
+            const auto hints = Read(cursor);
+            if (hints > MaximumDefaults)
+                return AssetError {AssetErrorCode::InvalidData, "Too many Shader parameter hints"};
+            for (uint32_t i = 0; i < hints; ++i)
+            {
+                if (remaining() < 8)
+                    return AssetError {AssetErrorCode::InvalidData, "Truncated Shader parameter hint"};
+                const auto nameBytes = Read(cursor), kind = Read(cursor);
+                if (nameBytes > 256 || uint64_t(nameBytes) + 16 > remaining())
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader parameter hint"};
+                std::string name(reinterpret_cast<const char*>(cursor), nameBytes);
+                cursor += nameBytes;
+                ShaderParameterHint hint;
+                hint.Type = static_cast<ShaderParameterHint::Kind>(kind);
+                hint.Min  = ReadDouble(cursor);
+                hint.Max  = ReadDouble(cursor);
+                if (!ValidHint(name, hint) || !result.ParameterHints.emplace(name, hint).second)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader parameter hint"};
             }
         }
         if (size_t(cursor - bytes) != size)

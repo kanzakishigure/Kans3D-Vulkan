@@ -84,10 +84,31 @@ namespace Kans
     // the Shader source; scalars in declaration order, as in MaterialSource.
     using ShaderParameterDefaults = std::map<std::string, std::vector<double>>;
 
+    // How editors present a material parameter, declared by the Shader source.
+    // Needed for booleans in particular: uniform-block bools compile to uint.
+    struct ShaderParameterHint
+    {
+        enum class Kind : uint32_t
+        {
+            Toggle = 1,
+            Color  = 2,
+            Range  = 3,
+        };
+        Kind   Type = Kind::Toggle;
+        double Min = 0, Max = 1; // Range only.
+
+        bool operator==(const ShaderParameterHint& other) const
+        {
+            return Type == other.Type && Min == other.Min && Max == other.Max;
+        }
+    };
+    using ShaderParameterHints = std::map<std::string, ShaderParameterHint>;
+
     struct ShaderData
     {
         ShaderProgramCode       Code;
         ShaderParameterDefaults ParameterDefaults;
+        ShaderParameterHints    ParameterHints;
         // Derived from validated bytecode, never trusted caller-supplied metadata.
         std::vector<ShaderStageReflection> Reflection;
     };

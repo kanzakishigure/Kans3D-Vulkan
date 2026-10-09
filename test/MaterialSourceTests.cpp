@@ -212,6 +212,26 @@ namespace
         EXPECT_TRUE(std::holds_alternative<AssetError>(ResolveMaterialSource(source, &Shader)));
     }
 
+    TEST_F(MaterialSourceTest, ShaderHintsAttachToParametersAndAreChecked)
+    {
+        using Kind          = ShaderParameterHint::Kind;
+        Shader.ParameterHints = {{"Tint", {Kind::Color}}, {"Steps", {Kind::Toggle}}, {"Strength", {Kind::Range, 0, 4}}};
+        auto described        = DescribeMaterial(&Shader);
+        ASSERT_TRUE(std::holds_alternative<MaterialSchema>(described)) << std::get<AssetError>(described).Message;
+        const auto& parameters = std::get<MaterialSchema>(described).Parameters;
+        EXPECT_EQ(parameters[0].Hint->Type, Kind::Color);
+        EXPECT_EQ(parameters[1].Hint->Max, 4.0);
+        EXPECT_EQ(parameters[2].Hint->Type, Kind::Toggle);
+        EXPECT_FALSE(parameters[3].Hint);
+        Shader.ParameterHints = {{"Missing", {Kind::Toggle}}};
+        EXPECT_TRUE(std::holds_alternative<AssetError>(DescribeMaterial(&Shader)));
+        Shader.ParameterHints = {{"Strength", {Kind::Color}}};
+        EXPECT_TRUE(std::holds_alternative<AssetError>(DescribeMaterial(&Shader)));
+        // The engine PBR parameters carry hints too.
+        const auto pbr = std::get<MaterialSchema>(DescribeMaterial(nullptr));
+        EXPECT_EQ(pbr.Parameters[0].Hint->Type, Kind::Color);
+    }
+
     // The sample shaders shipped with the editor follow the material contract and
     // their declared defaults resolve.
     TEST_F(MaterialSourceTest, EditorSampleShadersAreValidMaterialShaders)
@@ -229,7 +249,7 @@ namespace
             std::vector<std::string> Textures;
         };
         for (const auto& sample : {Sample {"Toon/Toon", 7, {"u_Albedo", "u_Ramp"}},
-                                   Sample {"ToneCharacter/ToneCharacter", 12, {"u_Diffuse", "u_LightMap", "u_RampMap"}}})
+                                   Sample {"ToneCharacter/ToneCharacter", 13, {"u_Diffuse", "u_LightMap", "u_RampMap"}}})
         {
             SCOPED_TRACE(sample.Name);
             ShaderData shader;
@@ -237,6 +257,9 @@ namespace
             auto defaults = ParseShaderProgramDefaults(read(sample.Name + ".shaderprog"));
             ASSERT_TRUE(std::holds_alternative<ShaderParameterDefaults>(defaults));
             shader.ParameterDefaults = std::get<ShaderParameterDefaults>(defaults);
+            auto hints               = ParseShaderProgramHints(read(sample.Name + ".shaderprog"));
+            ASSERT_TRUE(std::holds_alternative<ShaderParameterHints>(hints));
+            shader.ParameterHints = std::get<ShaderParameterHints>(hints);
             auto described           = DescribeMaterial(&shader);
             ASSERT_TRUE(std::holds_alternative<MaterialSchema>(described)) << std::get<AssetError>(described).Message;
             const auto& schema = std::get<MaterialSchema>(described);

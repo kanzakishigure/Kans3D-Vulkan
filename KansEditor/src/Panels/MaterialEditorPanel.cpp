@@ -144,9 +144,17 @@ namespace Kans
             values = fallback->second;
         values.resize(parameter.ValueCount(), 0.0);
 
-        bool       changed = false;
-        const auto chunks  = parameter.ArrayCount * parameter.Columns;
-        const int  width   = static_cast<int>(parameter.Components);
+        using Hint            = ShaderParameterHint::Kind;
+        const auto hint       = parameter.Hint ? std::optional<Hint>(parameter.Hint->Type) : std::nullopt;
+        const bool toggle     = hint == Hint::Toggle || (!hint && parameter.Type == ShaderUniformType::Boolean);
+        const bool floating   = parameter.Type == ShaderUniformType::Float;
+        const auto chunks     = parameter.ArrayCount * parameter.Columns;
+        const int  width      = static_cast<int>(parameter.Components);
+        // Without a hint, color-named vec3/vec4 floats get a color picker.
+        const bool color = chunks == 1 && floating && width >= 3 &&
+                           (hint == Hint::Color || (!hint && LooksLikeColor(parameter.Name)));
+
+        bool changed = false;
         ImGui::PushID(parameter.Name.c_str());
         for (uint32_t chunk = 0; chunk < chunks; ++chunk)
         {
@@ -157,66 +165,74 @@ namespace Kans
                 label += " col " + std::to_string(chunk % parameter.Columns);
             double* slice = values.data() + size_t(chunk) * width;
             ImGui::PushID(static_cast<int>(chunk));
-            switch (parameter.Type)
+            if (toggle)
             {
-                case ShaderUniformType::Float:
+                for (int i = 0; i < width; ++i)
                 {
-                    float f[4] = {};
-                    for (int i = 0; i < width; ++i)
-                        f[i] = static_cast<float>(slice[i]);
-                    bool edited = false;
-                    if (chunks == 1 && width == 4 && LooksLikeColor(parameter.Name))
-                        edited = ImGui::ColorEdit4(label.c_str(), f, ImGuiColorEditFlags_Float);
-                    else if (chunks == 1 && width == 3 && LooksLikeColor(parameter.Name))
-                        edited = ImGui::ColorEdit3(label.c_str(), f, ImGuiColorEditFlags_Float);
-                    else
-                        edited = ImGui::DragScalarN(label.c_str(), ImGuiDataType_Float, f, width, 0.01f);
-                    if (edited)
-                        for (int i = 0; i < width; ++i)
-                            slice[i] = f[i];
-                    changed |= edited;
-                    break;
+                    bool flag = slice[i] != 0.0;
+                    ImGui::PushID(i);
+                    if (ImGui::Checkbox(i + 1 == width ? label.c_str() : "##flag", &flag))
+                    {
+                        slice[i] = flag ? 1.0 : 0.0;
+                        changed  = true;
+                    }
+                    ImGui::PopID();
+                    if (i + 1 != width)
+                        ImGui::SameLine();
                 }
-                case ShaderUniformType::Signed:
-                case ShaderUniformType::Unsigned:
+            }
+            else if (floating)
+            {
+                float f[4] = {};
+                for (int i = 0; i < width; ++i)
+                    f[i] = static_cast<float>(slice[i]);
+                bool edited = false;
+                if (color)
+                    edited = width == 4 ? ImGui::ColorEdit4(label.c_str(), f, ImGuiColorEditFlags_Float) :
+                                          ImGui::ColorEdit3(label.c_str(), f, ImGuiColorEditFlags_Float);
+                else if (hint == Hint::Range)
                 {
-                    const bool signedValue = parameter.Type == ShaderUniformType::Signed;
-                    int64_t    v[4]        = {};
-                    for (int i = 0; i < width; ++i)
-                        v[i] = static_cast<int64_t>(slice[i]);
-                    int32_t  s[4] = {};
-                    uint32_t u[4] = {};
-                    for (int i = 0; i < width; ++i)
-                    {
-                        s[i] = static_cast<int32_t>(v[i]);
-                        u[i] = static_cast<uint32_t>(v[i]);
-                    }
-                    const bool edited = signedValue ?
-                                            ImGui::DragScalarN(label.c_str(), ImGuiDataType_S32, s, width, 0.1f) :
-                                            ImGui::DragScalarN(label.c_str(), ImGuiDataType_U32, u, width, 0.1f);
-                    if (edited)
-                        for (int i = 0; i < width; ++i)
-                            slice[i] = signedValue ? double(s[i]) : double(u[i]);
-                    changed |= edited;
-                    break;
+                    const float min = float(parameter.Hint->Min), max = float(parameter.Hint->Max);
+                    edited = ImGui::SliderScalarN(label.c_str(), ImGuiDataType_Float, f, width, &min, &max);
                 }
-                case ShaderUniformType::Boolean:
+                else
+                    edited = ImGui::DragScalarN(label.c_str(), ImGuiDataType_Float, f, width, 0.01f);
+                if (edited)
                     for (int i = 0; i < width; ++i)
-                    {
-                        bool flag = slice[i] != 0.0;
-                        ImGui::PushID(i);
-                        if (ImGui::Checkbox(i + 1 == width ? label.c_str() : "##flag", &flag))
-                        {
-                            slice[i] = flag ? 1.0 : 0.0;
-                            changed  = true;
-                        }
-                        ImGui::PopID();
-                        if (i + 1 != width)
-                            ImGui::SameLine();
-                    }
-                    break;
-                default:
-                    break;
+                        slice[i] = f[i];
+                changed |= edited;
+            }
+            else
+            {
+                const bool signedValue = parameter.Type == ShaderUniformType::Signed;
+                int32_t    s[4]        = {};
+                uint32_t   u[4]        = {};
+                for (int i = 0; i < width; ++i)
+                {
+                    s[i] = static_cast<int32_t>(slice[i]);
+                    u[i] = static_cast<uint32_t>(std::max(0.0, slice[i]));
+                }
+                void*            data = signedValue ? static_cast<void*>(s) : static_cast<void*>(u);
+                const ImGuiDataType type = signedValue ? ImGuiDataType_S32 : ImGuiDataType_U32;
+                bool                edited;
+                if (hint == Hint::Range)
+                {
+                    const int32_t  smin = int32_t(parameter.Hint->Min), smax = int32_t(parameter.Hint->Max);
+                    const uint32_t umin = uint32_t(std::max(0.0, parameter.Hint->Min)),
+                                   umax = uint32_t(std::max(0.0, parameter.Hint->Max));
+                    edited = ImGui::SliderScalarN(label.c_str(),
+                                                  type,
+                                                  data,
+                                                  width,
+                                                  signedValue ? static_cast<const void*>(&smin) : &umin,
+                                                  signedValue ? static_cast<const void*>(&smax) : &umax);
+                }
+                else
+                    edited = ImGui::DragScalarN(label.c_str(), type, data, width, 0.1f);
+                if (edited)
+                    for (int i = 0; i < width; ++i)
+                        slice[i] = signedValue ? double(s[i]) : double(u[i]);
+                changed |= edited;
             }
             ImGui::PopID();
         }

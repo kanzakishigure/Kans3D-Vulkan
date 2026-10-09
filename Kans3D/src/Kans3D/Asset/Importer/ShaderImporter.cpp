@@ -162,6 +162,10 @@ namespace Kans
                 if (auto* error = std::get_if<AssetError>(&defaults))
                     return std::move(*error);
                 shader.ParameterDefaults = std::get<ShaderParameterDefaults>(std::move(defaults));
+                auto hints               = ParseShaderProgramHints(*primary);
+                if (auto* error = std::get_if<AssetError>(&hints))
+                    return std::move(*error);
+                shader.ParameterHints = std::get<ShaderParameterHints>(std::move(hints));
                 for (const auto& stage : std::get<std::vector<ShaderStageSource>>(parsed))
                     modules.emplace_back(
                         stage.Stage, (fs::u8path(primaryName).parent_path() / stage.Path.GetPath()).generic_u8string());
@@ -233,7 +237,7 @@ namespace Kans
             if (auto* error = std::get_if<AssetError>(&compiled))
                 return std::move(*error);
             const auto& shader  = std::get<ShaderData>(compiled);
-            auto        encoded = EncodeShaderProduct(shader.Code, shader.ParameterDefaults);
+            auto        encoded = EncodeShaderProduct(shader.Code, shader.ParameterDefaults, shader.ParameterHints);
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return std::move(*error);
             auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, {"shader:root"});
