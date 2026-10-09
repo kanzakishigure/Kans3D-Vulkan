@@ -3,6 +3,7 @@
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 #include "Kans3D/Platform/OpenGL/OpenGLBuffer.h"
+#include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Platform/OpenGL/OpenGLVertexArray.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 
@@ -91,6 +92,8 @@ namespace Kans
         material.BaseColor = glm::make_vec4(data.BaseColor.data());
         material.Metallic  = data.Metallic;
         material.Roughness = data.Roughness;
+        if (data.Bindings)
+            material.Shader = data.Shader;
         // The first texture for each slot wins; preferred semantics are listed first.
         using S   = MaterialTextureSemantic;
         auto pick = [&](AssetID& slot, std::initializer_list<S> semantics) {
@@ -111,6 +114,22 @@ namespace Kans
         pick(material.OcclusionTexture, {S::AmbientOcclusion, S::Lightmap});
         pick(material.EmissiveTexture, {S::EmissionColor, S::Emissive});
         return material;
+    }
+
+    std::variant<GpuMaterialBindings, AssetError> MakeGpuMaterialBindings(const MaterialData& material,
+                                                                          const ShaderData&   shader)
+    {
+        if (!material.Bindings)
+            return AssetError {AssetErrorCode::InvalidArgument, "Material has no Shader bindings"};
+        auto packed = PackMaterialUniforms(material, shader.Code, *material.Bindings);
+        if (auto* error = std::get_if<AssetError>(&packed))
+            return std::move(*error);
+        GpuMaterialBindings bindings;
+        for (const auto& block : std::get<std::vector<MaterialUniformBlock>>(packed))
+            bindings.Blocks.emplace_back(block.Binding, GpuUniformBuffer(block.Bytes.size(), block.Bytes.data()));
+        for (const auto& texture : material.Bindings->Textures)
+            bindings.Textures.emplace_back(texture.Binding, material.Textures[texture.TextureIndex].Texture);
+        return bindings;
     }
 
     template<typename T, typename Resource, typename Build>
@@ -170,6 +189,34 @@ namespace Kans
         return texture ? *texture : nullptr;
     }
 
+    const GpuShader* RenderAssetCache::GetShader(AssetID id)
+    {
+        return Resolve(m_Shaders, id, [](const ShaderDataAsset& asset) { return GpuShader::Create(asset.GetData()); });
+    }
+
+    const GpuMaterialBindings* RenderAssetCache::GetMaterialBindings(AssetID materialID)
+    {
+        const GpuMaterial* material = GetMaterial(materialID);
+        if (!material || !material->Shader.IsValid() || !GetShader(material->Shader))
+            return nullptr;
+        const auto& materialSource = m_Materials.at(materialID).Source;
+        const auto& shaderSource   = m_Shaders.at(material->Shader).Source;
+        auto&       entry          = m_Bindings[materialID];
+        entry.LastUsedFrame        = m_Frame;
+        if (entry.Material != materialSource || entry.Shader != shaderSource)
+        {
+            entry.Material = materialSource;
+            entry.Shader   = shaderSource;
+            entry.Value.reset();
+            auto built = MakeGpuMaterialBindings(materialSource->GetData(), shaderSource->GetData());
+            if (auto* error = std::get_if<AssetError>(&built))
+                CORE_ERROR("Material {}: {}", materialID.ToString(), error->Message);
+            else
+                entry.Value = CreateScope<GpuMaterialBindings>(std::get<GpuMaterialBindings>(std::move(built)));
+        }
+        return entry.Value.get();
+    }
+
     void RenderAssetCache::BeginFrame(uint64_t unusedFrames)
     {
         ++m_Frame;
@@ -181,6 +228,8 @@ namespace Kans
         evict(m_Meshes);
         evict(m_Materials);
         evict(m_Textures);
+        evict(m_Shaders);
+        evict(m_Bindings);
     }
 
     void RenderAssetCache::Clear()
@@ -189,5 +238,7 @@ namespace Kans
         m_Meshes.clear();
         m_Materials.clear();
         m_Textures.clear();
+        m_Shaders.clear();
+        m_Bindings.clear();
     }
 } // namespace Kans

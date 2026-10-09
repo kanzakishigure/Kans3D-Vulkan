@@ -9,8 +9,10 @@ namespace Kans
         uint32_t               Set = 0, Binding = 0, Element = 0;
         std::vector<std::byte> Bytes;
     };
-    // Validates that a binding recipe covers every Shader descriptor instance and
-    // packs its uniform blocks. Pure CPU; used when importing Materials.
+    // Validates the Shader against the material contract (MaterialShaderInterface.h)
+    // and packs the recipe's uniform blocks. The recipe may only bind descriptor
+    // set 1 and must cover every material uniform block; samplers without a
+    // texture are left to the renderer's default. Pure CPU.
     [[nodiscard]] std::variant<std::vector<MaterialUniformBlock>, AssetError>
     PackMaterialUniforms(const MaterialData&          data,
                          const ShaderProgramCode&     code,

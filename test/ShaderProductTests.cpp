@@ -349,9 +349,7 @@ layout(set=0,binding=0) uniform A {vec4 color;} a;void main(){gl_Position=a.colo
         ASSERT_TRUE(kept.Bindings.has_value());
         EXPECT_EQ(kept.Bindings->Textures.size(), 2u);
         auto loadedShader = runtime.Load<ShaderDataAsset>(kept.Shader);
-        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(loadedShader));
-        EXPECT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(PackMaterialUniforms(
-            kept, std::get<Ref<const ShaderDataAsset>>(loadedShader)->GetData().Code, *kept.Bindings)));
+        EXPECT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(loadedShader));
     }
     class Provider final : public IAssetProvider
     {

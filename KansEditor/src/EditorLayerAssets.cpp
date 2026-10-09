@@ -46,6 +46,7 @@ namespace Kans
         }
         m_AssetImports = std::get<Scope<EditorAssetImportService>>(std::move(controller));
         m_ProductImportPanel.Bind(m_AssetImports.get());
+        m_MaterialEditorPanel.Bind(m_AssetImports.get());
         m_ContentBrowserPanel.SetOpenFileCallback([this](const std::filesystem::path& path) {
             if (path.extension() == ".kans")
             {
@@ -53,9 +54,13 @@ namespace Kans
                 if (const auto* error = std::get_if<AssetError>(&opened))
                     m_SceneFileError = error->Message;
             }
+            else if (path.extension() == ".material")
+                m_MaterialEditorPanel.Open(path);
             else
                 m_ProductImportPanel.OpenWithFile(path);
         });
+        m_ContentBrowserPanel.SetCreateMaterialCallback(
+            [this](const std::filesystem::path& directory) { m_MaterialEditorPanel.Create(directory); });
         CORE_INFO("Opened project '{}'", m_AssetImports->GetConfig().Name);
     }
 
@@ -65,7 +70,9 @@ namespace Kans
             return AssetError {AssetErrorCode::NotFound, "Project/scene renderer is unavailable"};
         if (!snapshot)
             snapshot = m_AssetImports->GetRuntimeAssetRegistry();
-        m_SceneHierachyPanel.setAssetChoices(CollectAssetChoices(*snapshot));
+        auto choices = CollectAssetChoices(*snapshot);
+        m_MaterialEditorPanel.SetAssetChoices(choices);
+        m_SceneHierachyPanel.setAssetChoices(std::move(choices));
         if (m_Assets)
         {
             auto changed = m_Assets->SetRegistry(std::move(snapshot));
@@ -82,6 +89,7 @@ namespace Kans
             std::get<Ref<LooseFileAssetProvider>>(std::move(provider)), std::move(snapshot), std::move(spec));
         m_ViewportRenderer->SetAssetManager(m_Assets.get());
         m_SceneHierachyPanel.setAssetManager(m_Assets.get());
+        m_MaterialEditorPanel.SetAssetManager(m_Assets.get());
         return std::monostate {};
     }
 

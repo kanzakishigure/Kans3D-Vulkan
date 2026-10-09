@@ -4,6 +4,7 @@
 #include <functional>
 #include <shaderc/shaderc.hpp>
 #include "Kans3D/Asset/Product/ShaderProduct.h"
+#include "Kans3D/Asset/Runtime/MaterialShaderInterface.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
 #include "ShaderProgramSource.h"
 
@@ -78,9 +79,17 @@ namespace Kans
             {
                 try
                 {
-                    if (!requested || !requesting || type != shaderc_include_type_relative || depth > 16)
-                        return Failure("Only relative includes are supported");
+                    if (!requested || !requesting || depth > 16)
+                        return Failure("Invalid include");
                     const std::string name(requested);
+                    if (type == shaderc_include_type_standard)
+                    {
+                        // Engine headers are part of the importer version, not inputs.
+                        const auto* text = FindEngineShaderInclude(name);
+                        if (!text)
+                            return Failure("Unknown engine include");
+                        return Result(name, *text);
+                    }
                     if (name.empty() || name.find('\\') != std::string::npos || name.find(':') != std::string::npos)
                         return Failure("Invalid include path");
                     const auto relative = (fs::u8path(requesting).parent_path() / fs::u8path(name)).lexically_normal();
@@ -88,13 +97,7 @@ namespace Kans
                     const auto*     text = logical.IsValid() ? m_Inputs.Find(logical.ToString()) : nullptr;
                     if (!text)
                         return Failure("Include not found or not declared");
-                    auto* value                      = new Owned {logical.ToString(), {}};
-                    value->Result.source_name        = value->Name.c_str();
-                    value->Result.source_name_length = value->Name.size();
-                    value->Result.content            = text->data();
-                    value->Result.content_length     = text->size();
-                    value->Result.user_data          = value;
-                    return &value->Result;
+                    return Result(logical.ToString(), *text);
                 }
                 catch (...)
                 {
@@ -113,6 +116,17 @@ namespace Kans
                 std::string            Name;
                 shaderc_include_result Result;
             };
+            // `text` must outlive the compilation.
+            shaderc_include_result* Result(std::string name, const std::string& text)
+            {
+                auto* value                      = new Owned {std::move(name), {}};
+                value->Result.source_name        = value->Name.c_str();
+                value->Result.source_name_length = value->Name.size();
+                value->Result.content            = text.data();
+                value->Result.content_length     = text.size();
+                value->Result.user_data          = value;
+                return &value->Result;
+            }
             shaderc_include_result* Failure(const char* message) noexcept
             {
                 m_Failure = {"", 0, message, std::strlen(message), nullptr};

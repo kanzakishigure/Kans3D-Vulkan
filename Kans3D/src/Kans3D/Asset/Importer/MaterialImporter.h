@@ -1,14 +1,13 @@
 #pragma once
-#include "Kans3D/Asset/Runtime/ModelData.h"
 #include "AssetImporterBase.h"
+#include "MaterialSource.h"
 namespace Kans
 {
-    // Tool-only human-authored source format; runtime reads KMAT instead.
-    std::variant<MaterialData, AssetError> ParseMaterialSource(const std::byte* bytes, size_t size);
-    class MaterialImporter                 final : public AssetImporterBase
+    // Imports a `.material` source (MaterialSource.h) to a KMAT Product.
+    class MaterialImporter final : public AssetImporterBase
     {
     public:
-        uint32_t                               GetVersion() const override { return 3; }
+        uint32_t                               GetVersion() const override { return 4; }
         bool                                   RequiresProductBytes() const override { return true; }
         std::variant<ImportInputs, AssetError> DiscoverInputs(const ImportContext& context) const override;
         std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;

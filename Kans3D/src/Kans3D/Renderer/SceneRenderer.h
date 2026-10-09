@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <glm/glm.hpp>
 #include "Kans3D/Renderer/RHI/FrameBuffer.h"
 
@@ -37,8 +38,9 @@ namespace Kans
         void              SetAssetManager(AssetManager* assets);
         RenderAssetCache* GetAssetCache() { return m_AssetCache.get(); }
 
-        // Draws a Model asset with the engine PBR shader. Parts that are still
-        // loading are skipped; missing textures fall back to material factors.
+        // Draws a Model asset. Parts use the engine PBR shader unless their material
+        // has its own Shader. Parts that are still loading are skipped; missing
+        // textures fall back to material factors (or white for Shader materials).
         void SubmitModel(const ProductModelComponent& model, const glm::mat4& transform);
         // Draws model geometry with a shader from the library that takes
         // U_ViewProjection, U_Transform and U_ViewPos (outline, stencil, debug).
@@ -64,6 +66,13 @@ namespace Kans
 
     private:
         void DrawGeometry(const Ref<VertexArray>& geometry);
+        struct ShaderDraw
+        {
+            const GpuMesh* Mesh;
+            glm::mat4      Transform;
+            AssetID        Material;
+        };
+        void DrawShaderMaterials(const std::vector<ShaderDraw>& draws);
 
         // SceneRenderer did't handle the life of Scnene;
         RenderScene*               m_RenderScene;
@@ -78,5 +87,9 @@ namespace Kans
         Ref<Texture2D>                  m_BrdfLUT;
         bool                            m_Active = false;
         Scope<RenderAssetCache>         m_AssetCache;
+        // Engine data (set 0) of Shader materials, created on first use.
+        Scope<GpuUniformBuffer>               m_FrameUniforms;
+        Scope<GpuUniformBuffer>               m_ObjectUniforms;
+        std::chrono::steady_clock::time_point m_StartTime = std::chrono::steady_clock::now();
     };
 } // namespace Kans

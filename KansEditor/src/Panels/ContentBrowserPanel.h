@@ -32,12 +32,19 @@ namespace Kans
             m_OpenFile = std::move(callback);
         }
 
+        // Called with the current directory from the grid's context menu.
+        void SetCreateMaterialCallback(std::function<void(const std::filesystem::path&)> callback)
+        {
+            m_CreateMaterial = std::move(callback);
+        }
+
         // ── Queries (called by ContentBrowserItem) ──
         float    GetCurrentIconSize() const { return m_CurrentIconSize; }
         ViewMode GetCurrentViewMode() const { return m_CurrentViewMode; }
 
     private:
         std::function<void(const std::filesystem::path&)> m_OpenFile;
+        std::function<void(const std::filesystem::path&)> m_CreateMaterial;
         // Chooses an icon tier using the viewport and the grid dimensions.
         void CalculateLayout(float gridWidth, float gridHeight, float viewportWidth, float viewportHeight);
         void OnItemClicked(const std::filesystem::path& path, bool isDirectory, bool doubleClick);

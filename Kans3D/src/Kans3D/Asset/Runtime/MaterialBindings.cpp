@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "MaterialBindings.h"
+#include "MaterialShaderInterface.h"
 #include <map>
 #include <set>
 #include <tuple>
@@ -24,16 +25,20 @@ namespace Kans
             auto                              inspected = InspectShaderProgram(code);
             if (const auto* error = std::get_if<AssetError>(&inspected))
                 return *error;
+            const auto& reflection = std::get<std::vector<ShaderStageReflection>>(inspected);
+            auto        contract   = ValidateMaterialShaderInterface(reflection);
+            if (const auto* error = std::get_if<AssetError>(&contract))
+                return *error;
             std::map<std::pair<uint32_t, uint32_t>, ShaderResourceBinding> resources;
-            for (const auto& stage : std::get<std::vector<ShaderStageReflection>>(inspected))
-                for (const auto& binding : stage.Bindings)
-                    resources.emplace(std::make_pair(binding.Set, binding.Binding), binding);
+            for (auto& binding : MaterialShaderResources(reflection))
+                resources.emplace(std::make_pair(binding.Set, binding.Binding), std::move(binding));
             size_t required = 0;
             for (const auto& entry : resources)
             {
                 if (entry.second.Count > 4096 - required)
                     return AssetError {AssetErrorCode::InvalidData, "Material descriptor count exceeds limits"};
-                required += entry.second.Count;
+                if (entry.second.Kind == ShaderBindingKind::UniformBuffer)
+                    required += entry.second.Count;
             }
             std::set<std::tuple<uint32_t, uint32_t, uint32_t>> assigned;
             const auto assign = [&](uint32_t set, uint32_t binding, uint32_t element, ShaderBindingKind kind) {
@@ -102,9 +107,9 @@ namespace Kans
                     return AssetError {AssetErrorCode::InvalidArgument,
                                        "Invalid/duplicate Material sampler assignment"};
             }
-            if (assigned.size() != required)
+            if (result.size() != required)
                 return AssetError {AssetErrorCode::InvalidArgument,
-                                   "Material recipe does not cover every Shader descriptor instance"};
+                                   "Material recipe does not cover every material uniform block"};
             return result;
         }
         catch (const std::exception&)

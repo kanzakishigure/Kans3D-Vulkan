@@ -7,6 +7,7 @@
 #include "Kans3D/Editor/EditorCamera.h"
 #include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
 namespace Kans
 {
@@ -70,7 +71,8 @@ namespace Kans
         SceneHierachyPanel m_SceneHierachyPanel;
         // ContentBrowserPanel
         ContentBrowserPanel m_ContentBrowserPanel;
-        ProductImportPanel m_ProductImportPanel;
+        ProductImportPanel  m_ProductImportPanel;
+        MaterialEditorPanel m_MaterialEditorPanel;
     };
 
 } // namespace Kans

@@ -1,6 +1,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <yaml-cpp/yaml.h>
+#include "MaterialShaderTestUtilities.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Storage/AssetProvider.h"
@@ -190,22 +191,20 @@ namespace
     TEST_F(ProjectBuildTest, MaterialReferencesBuildTheirProducersFirst)
     {
         Write("image.tga", Tga(9, 9, 9));
-        Write("material.vert",
-              "#version 450\nlayout(set=0,binding=0) uniform Parameters {vec4 color;} p;\n"
-              "void main(){gl_Position=p.color;}\n");
+        Write("material.vert", TestMaterialVertex);
+        Write("material.frag", TestMaterialFragment);
+        Write("material.shaderprog", "KansShaderProgram 1\nvertex=material.vert\nfragment=material.frag\n");
         Open();
         AssetBuildOptions options;
         options.Target       = "vulkan12";
         const auto texture   = Build("image.tga", options);
-        const auto shader    = Build("material.vert", options);
+        const auto shader    = Build("material.shaderprog", options);
         const auto textureID = Products("image.tga")[0].Metadata.assetID;
-        const auto shaderID  = Products("material.vert")[0].Metadata.assetID;
+        const auto shaderID  = Products("material.shaderprog")[0].Metadata.assetID;
         Write("surface.material",
-              "magic: KansMaterial\nversion: 1\nname: Surface\nbase_color: [0.25,0.5,0.75,1]\nmetallic: 0.4\n"
-              "roughness: 0.6\nshader: " +
-                  shaderID.ToString() + "\ntextures: [{semantic: 1, uv: 0, asset: '" + textureID.ToString() +
-                  "'}]\nuniforms: [{set: 0, binding: 0, element: 0, parameters: [{parameter: base_color, path: "
-                  "[[0,0]]}], values: []}]\nsamplers: []\n");
+              "magic: KansMaterial\nversion: 2\nname: Surface\nshader: " + shaderID.ToString() +
+                  "\nparameters: {Tint: [0.25, 0.5, 0.75, 1], Strength: 2}\ntextures: {u_Albedo: " +
+                  textureID.ToString() + "}\n");
         ASSERT_TRUE(std::holds_alternative<std::monostate>(Owner->RefreshAssets()));
         const auto material = Build("surface.material", options);
         EXPECT_EQ(material.Dependencies.size(), 2u);
@@ -221,9 +220,8 @@ namespace
         EXPECT_EQ(Build("surface.material", options).Root.Disposition, AssetBuildDisposition::Published);
         // A reference to a Product nobody produces fails.
         Write("broken.material",
-              "magic: KansMaterial\nversion: 1\nname: B\nbase_color: [1,1,1,1]\nmetallic: 0\n"
-              "roughness: 1\nshader: " +
-                  AssetID(SourceAssetID::Generate(), 1).ToString() + "\ntextures: []\nuniforms: []\nsamplers: []\n");
+              "magic: KansMaterial\nversion: 2\nname: B\nshader: " +
+                  AssetID(SourceAssetID::Generate(), 1).ToString() + "\n");
         ASSERT_TRUE(std::holds_alternative<std::monostate>(Owner->RefreshAssets()));
         EXPECT_TRUE(std::holds_alternative<AssetError>(Owner->BuildAsset(ID("broken.material"), options)));
     }

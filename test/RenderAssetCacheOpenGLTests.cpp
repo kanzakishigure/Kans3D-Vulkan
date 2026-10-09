@@ -12,12 +12,15 @@
 #include "Kans3D/Asset/Product/ContentDigest.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
+#include "Kans3D/Asset/Product/ShaderProduct.h"
 #include "Kans3D/Asset/Product/TextureProduct.h"
+#include "Kans3D/Asset/Importer/MaterialSource.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
+#include "MaterialShaderTestUtilities.h"
 
 namespace
 {
@@ -387,5 +390,130 @@ namespace
         glDeleteRenderbuffers(1, &depth);
         glDeleteTextures(1, &color);
         glDeleteFramebuffers(1, &framebuffer);
+    }
+
+    // Draws a quad with a Shader material the way SceneRenderer does: engine data in
+    // set 0, the material's packed blocks and textures in set 1.
+    TEST_F(RenderAssetCacheGL, ShaderMaterialDrawsWithItsPackedParametersAndTextures)
+    {
+        const AssetID shaderID {Source, 1}, tintedID {Source, 2}, texturedID {Source, 3}, textureID {Source, 4};
+        ShaderData    shader;
+        shader.Code = CompileTestMaterialShader();
+        MaterialSource tinted;
+        tinted.Shader                 = shaderID;
+        tinted.Parameters["Tint"]     = {0, 1, 0, 1};
+        tinted.Parameters["Strength"] = {1};
+        auto textured                 = tinted;
+        textured.Parameters["Tint"]   = {1, 1, 1, 1};
+        textured.Textures["u_Albedo"] = textureID;
+        const auto material           = [&](AssetID id, const MaterialSource& source) {
+            auto resolved = ResolveMaterialSource(source, &shader);
+            EXPECT_TRUE(std::holds_alternative<MaterialData>(resolved)) << std::get<AssetError>(resolved).Message;
+            return Store(id,
+                         AssetType::Material,
+                         std::get<std::vector<std::byte>>(EncodeMaterialProduct(std::get<MaterialData>(resolved))));
+        };
+        AssetManager assets(
+            Provider,
+            Registry({Store(shaderID,
+                            AssetType::Shader,
+                            std::get<std::vector<std::byte>>(EncodeShaderProduct(shader.Code))),
+                      material(tintedID, tinted),
+                      material(texturedID, textured),
+                      Texture(textureID, std::byte {200})}));
+        RenderAssetCache cache(assets);
+        ASSERT_TRUE(Frames(cache, [&] {
+            return cache.GetMaterialBindings(tintedID) && cache.GetMaterialBindings(texturedID) &&
+                   cache.GetTexture(textureID);
+        }));
+        EXPECT_EQ(cache.GetMaterial(tintedID)->Shader, shaderID);
+        const GpuShader* program = cache.GetShader(shaderID);
+        ASSERT_NE(program, nullptr);
+
+        constexpr int Size        = 16;
+        GLuint        framebuffer = 0, color = 0;
+        glGenFramebuffers(1, &framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glGenTextures(1, &color);
+        glBindTexture(GL_TEXTURE_2D, color);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Size, Size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
+        ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GLenum(GL_FRAMEBUFFER_COMPLETE));
+        glViewport(0, 0, Size, Size);
+
+        MeshData quad;
+        for (auto [x, y] : {std::pair {-1.0f, -1.0f}, {0.0f, -1.0f}, {0.0f, 1.0f}, {-1.0f, 1.0f}})
+        {
+            MeshVertexData vertex;
+            vertex.Position = {x, y, 0};
+            quad.Vertices.push_back(vertex);
+        }
+        quad.Indices  = {0, 1, 2, 2, 3, 0};
+        auto uploaded = UploadMesh(quad);
+        ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
+        const auto& mesh = std::get<GpuMesh>(uploaded);
+
+        EngineFrameUniforms  frame;
+        EngineObjectUniforms object;
+        // Moves the quad to the right half of the target.
+        object.Transform[3] = glm::vec4(1, 0, 0, 1);
+        GpuUniformBuffer frameBuffer(sizeof(frame), &frame), objectBuffer(sizeof(object), &object);
+        frameBuffer.Bind(GpuShader::FrameBlockPoint);
+        objectBuffer.Bind(GpuShader::ObjectBlockPoint);
+        TextureData whiteImage;
+        whiteImage.Width = whiteImage.Height = 1;
+        whiteImage.Mips = {{{std::byte {255}, std::byte {255}, std::byte {255}, std::byte {255}}}};
+        auto white      = std::get<Ref<Texture2D>>(Texture2D::CreateFromProduct(whiteImage));
+
+        const auto draw = [&](AssetID materialID) -> std::array<uint8_t, 4> {
+            const auto* bindings = cache.GetMaterialBindings(materialID);
+            program->Bind();
+            for (const auto& [binding, buffer] : bindings->Blocks)
+                buffer.Bind(program->MaterialBlockPoints().at(binding));
+            for (const auto& [binding, unit] : program->MaterialSamplerUnits())
+            {
+                Ref<Texture2D> texture = white;
+                for (const auto& [textureBinding, id] : bindings->Textures)
+                    if (textureBinding == binding)
+                        texture = cache.GetTexture(id);
+                texture->Bind(unit);
+            }
+            glClearColor(0, 0, 0, 1);
+            glClear(GL_COLOR_BUFFER_BIT);
+            mesh.VertexArray->Bind();
+            glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+            std::array<uint8_t, Size * Size * 4> pixels {};
+            glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            // The left half stays clear: the object transform was applied.
+            EXPECT_EQ(pixels[(Size / 2 * Size + Size / 4) * 4 + 1], 0);
+            const uint8_t* p = &pixels[(Size / 2 * Size + 3 * Size / 4) * 4];
+            return {p[0], p[1], p[2], p[3]};
+        };
+        // A sampler without a texture reads white, so the color is the tint.
+        const auto green = draw(tintedID);
+        EXPECT_EQ(green[0], 0);
+        EXPECT_EQ(green[1], 255);
+        const auto red = draw(texturedID);
+        EXPECT_GT(red[0], 100);
+        EXPECT_EQ(red[1], 0);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteTextures(1, &color);
+        glDeleteFramebuffers(1, &framebuffer);
+    }
+
+    TEST_F(RenderAssetCacheGL, ShaderOutsideTheMaterialContractIsNotCompiled)
+    {
+        ShaderData shader;
+        shader.Code = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(set = 3, binding = 0) uniform sampler2D other;
+layout(location = 0) out vec4 color;
+void main() { color = texture(other, vec2(0)); }
+)");
+        auto created = GpuShader::Create(shader);
+        ASSERT_TRUE(std::holds_alternative<AssetError>(created));
+        EXPECT_NE(std::get<AssetError>(created).Message.find("set 3"), std::string::npos);
+        EXPECT_TRUE(std::holds_alternative<GpuShader>(GpuShader::Create({CompileTestMaterialShader(), {}})));
     }
 } // namespace

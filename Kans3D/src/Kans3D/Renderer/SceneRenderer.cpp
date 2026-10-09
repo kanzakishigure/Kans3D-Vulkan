@@ -79,7 +79,8 @@ namespace Kans
             (texture ? texture : white)->Bind(slot);
             return static_cast<bool>(texture);
         };
-        const GpuMaterial defaultMaterial;
+        const GpuMaterial       defaultMaterial;
+        std::vector<ShaderDraw> shaderDraws;
         for (const auto& instance : instances->Instances)
         {
             const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh);
@@ -87,6 +88,17 @@ namespace Kans
                 continue;
             const AssetID      materialID = model.ResolveMaterial(instance.Mesh, mesh->Material);
             const GpuMaterial* material   = materialID.IsValid() ? m_AssetCache->GetMaterial(materialID) : nullptr;
+            // Shader materials draw with their own program; until it is ready (or if
+            // it fails) the part is shaded with the default material.
+            if (material && material->Shader.IsValid())
+            {
+                if (m_AssetCache->GetMaterialBindings(materialID))
+                {
+                    shaderDraws.push_back({mesh, transform * instance.Transform, materialID});
+                    continue;
+                }
+                material = nullptr;
+            }
             if (!material)
                 material = &defaultMaterial;
             shader->UploadUniformMat4("U_Transform", transform * instance.Transform);
@@ -100,6 +112,61 @@ namespace Kans
             shader->UploadUniformInt("U_HasEmissiveTexture", bindOrWhite(material->EmissiveTexture, 4));
             mesh->VertexArray->Bind();
             OpenGLRenderCommand::DrawIndexed(mesh->VertexArray);
+        }
+        if (!shaderDraws.empty())
+            DrawShaderMaterials(shaderDraws);
+    }
+
+    void SceneRenderer::DrawShaderMaterials(const std::vector<ShaderDraw>& draws)
+    {
+        EngineFrameUniforms frame;
+        frame.ViewProjection =
+            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
+        frame.CameraPosition = glm::vec4(m_SceneInfo.sceneCamera.Position, 1.0f);
+        for (uint32_t i = 0; i < EngineLightCount; ++i)
+        {
+            frame.LightPositions[i] = glm::vec4(m_SceneInfo.pointLight.Position, 1.0f);
+            frame.LightColors[i]    = glm::vec4(m_SceneInfo.pointLight.Ambient_Intensity, 1.0f);
+        }
+        frame.Time = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
+        if (!m_FrameUniforms)
+        {
+            m_FrameUniforms  = CreateScope<GpuUniformBuffer>(sizeof(EngineFrameUniforms));
+            m_ObjectUniforms = CreateScope<GpuUniformBuffer>(sizeof(EngineObjectUniforms));
+        }
+        m_FrameUniforms->Update(&frame, sizeof(frame));
+        m_FrameUniforms->Bind(GpuShader::FrameBlockPoint);
+        m_ObjectUniforms->Bind(GpuShader::ObjectBlockPoint);
+        if (m_Environment.IrradianceMap)
+            m_Environment.IrradianceMap->Bind(GpuShader::IrradianceUnit);
+        if (m_Environment.RadianceMap)
+            m_Environment.RadianceMap->Bind(GpuShader::PrefilterUnit);
+        if (m_BrdfLUT)
+            m_BrdfLUT->Bind(GpuShader::BrdfLUTUnit);
+
+        const auto white = Renderer::GetWhiteTexture();
+        for (const auto& draw : draws)
+        {
+            const GpuMaterial*         material = m_AssetCache->GetMaterial(draw.Material);
+            const GpuShader*           shader   = m_AssetCache->GetShader(material->Shader);
+            const GpuMaterialBindings* bindings = m_AssetCache->GetMaterialBindings(draw.Material);
+            shader->Bind();
+            EngineObjectUniforms object;
+            object.Transform    = draw.Transform;
+            object.NormalMatrix = glm::transpose(glm::inverse(draw.Transform));
+            m_ObjectUniforms->Update(&object, sizeof(object));
+            for (const auto& [binding, buffer] : bindings->Blocks)
+                buffer.Bind(shader->MaterialBlockPoints().at(binding));
+            for (const auto& [binding, unit] : shader->MaterialSamplerUnits())
+            {
+                Ref<Texture2D> texture;
+                for (const auto& [textureBinding, id] : bindings->Textures)
+                    if (textureBinding == binding)
+                        texture = m_AssetCache->GetTexture(id);
+                (texture ? texture : white)->Bind(unit);
+            }
+            draw.Mesh->VertexArray->Bind();
+            OpenGLRenderCommand::DrawIndexed(draw.Mesh->VertexArray);
         }
     }
 

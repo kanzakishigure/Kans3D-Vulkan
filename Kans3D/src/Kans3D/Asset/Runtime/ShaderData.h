@@ -28,6 +28,11 @@ namespace Kans
         UniformBuffer,
         CombinedImageSampler
     };
+    enum class ShaderImageDimension
+    {
+        Texture2D,
+        Cube
+    };
     enum class ShaderUniformType
     {
         Float,
@@ -52,6 +57,7 @@ namespace Kans
         ShaderBindingKind                Kind;
         uint32_t                         Set = 0, Binding = 0, Count = 1;
         uint64_t                         BlockBytes = 0;
+        ShaderImageDimension             Dimension  = ShaderImageDimension::Texture2D; // Samplers only.
         std::string                      Name;
         std::vector<ShaderUniformMember> Members;
     };

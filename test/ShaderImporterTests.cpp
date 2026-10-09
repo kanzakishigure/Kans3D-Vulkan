@@ -112,6 +112,21 @@ namespace
         EXPECT_TRUE(std::holds_alternative<AssetError>(ShaderImporter {}.Import(Context)));
         EXPECT_TRUE(fs::is_empty(Context.StagingDirectory));
     }
+    TEST_F(ShaderImporterTest, EngineIncludesAreBuiltInAndNotInputs)
+    {
+        Context.SourceInputs.clear();
+        Text(Context.SourceFile,
+             "#version 450\n#include <Kans3D/Engine.glsl>\n#include <Kans3D/VertexInput.glsl>\n"
+             "void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Position,1);}\n");
+        auto discovered = ShaderImporter {}.DiscoverInputs(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportInputs>(discovered)) << std::get<AssetError>(discovered).Message;
+        EXPECT_TRUE(std::get<ImportInputs>(discovered).SourceFiles.empty());
+        EXPECT_EQ(Import().Products.size(), 1u);
+        for (const auto& entry : fs::directory_iterator(Context.StagingDirectory))
+            fs::remove(entry.path());
+        Text(Context.SourceFile, "#version 450\n#include <Kans3D/Missing.glsl>\nvoid main(){}\n");
+        EXPECT_TRUE(std::holds_alternative<AssetError>(ShaderImporter {}.Import(Context)));
+    }
     TEST_F(ShaderImporterTest, SettingsTargetMalformedTextAndStageAreRejected)
     {
         Context.Target   = "default";

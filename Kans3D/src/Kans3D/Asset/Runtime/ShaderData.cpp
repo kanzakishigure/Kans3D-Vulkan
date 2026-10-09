@@ -209,9 +209,13 @@ namespace Kans
                             return *error;
                         binding.Members = std::get<std::vector<ShaderUniformMember>>(std::move(members));
                     }
-                    else if (type.image.dim != spv::Dim2D || type.image.arrayed || type.image.ms || type.image.depth ||
+                    else if ((type.image.dim != spv::Dim2D && type.image.dim != spv::DimCube) || type.image.arrayed ||
+                             type.image.ms || type.image.depth ||
                              compiler.get_type(type.image.type).basetype != spirv_cross::SPIRType::Float)
                         return AssetError {AssetErrorCode::NotImplemented, "Shader sampled image shape is unsupported"};
+                    else
+                        binding.Dimension = type.image.dim == spv::DimCube ? ShaderImageDimension::Cube :
+                                                                             ShaderImageDimension::Texture2D;
                     reflection.Bindings.push_back(std::move(binding));
                     return {};
                 };
@@ -286,6 +290,7 @@ namespace Kans
                     const auto& previous = inserted.first->second;
                     if (!inserted.second &&
                         (previous.Kind != binding.Kind || previous.Count != binding.Count ||
+                         previous.Dimension != binding.Dimension ||
                          previous.BlockBytes != binding.BlockBytes || !SameLayout(previous.Members, binding.Members)))
                         return AssetError {AssetErrorCode::InvalidData, "Shader descriptors disagree between stages"};
                 }

@@ -143,7 +143,9 @@ namespace Kans
     void EditorLayer::OnDetach()
     {
         m_ContentBrowserPanel.SetOpenFileCallback({});
+        m_ContentBrowserPanel.SetCreateMaterialCallback({});
         m_ProductImportPanel.Bind(nullptr);
+        m_MaterialEditorPanel.Bind(nullptr);
         if (m_AssetImports)
         {
             auto stopped = m_AssetImports->Shutdown();
@@ -156,6 +158,7 @@ namespace Kans
         {
             m_ViewportRenderer->SetAssetManager(nullptr);
             m_SceneHierachyPanel.setAssetManager(nullptr);
+            m_MaterialEditorPanel.SetAssetManager(nullptr);
             m_ViewportRenderer.reset();
         }
         m_Assets.reset();
@@ -381,6 +384,7 @@ namespace Kans
         m_SceneHierachyPanel.onImGuiRender(true);
         m_ContentBrowserPanel.onImGuiRender(true);
         m_ProductImportPanel.Draw();
+        m_MaterialEditorPanel.Draw();
         // Viewport
         // Color FrameBuffer
         if (ShowColorBuffer)

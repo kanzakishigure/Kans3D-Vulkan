@@ -57,8 +57,27 @@ assets/x.obj + x.obj.kmeta                    AssetID
 
 - `RenderAssetCache` 在渲染线程把 CPU 资源转换为 GPU 网格、材质和纹理；新版本
   加载完成前继续使用旧资源；长时间未使用的资源会被释放。
-- `ProductModelComponent` 只保存 Model 的 AssetID 和材质替换。模型使用
-  `ProductPBR.glsl` 绘制（场景光源 + IBL），可叠加描边、模板和法线调试。
+- `ProductModelComponent` 只保存 Model 的 AssetID 和材质替换。没有 Shader 的材质
+  使用 `ProductPBR.glsl` 绘制（场景光源 + IBL），有 Shader 的材质用其自身程序绘制；
+  均可叠加描边、模板和法线调试。
+
+## 材质与材质 Shader（`Importer/MaterialSource`、`Runtime/MaterialShaderInterface`）
+
+- `.material` 源文件（YAML v2）按名字填写参数和纹理：`shader` 为空时是引擎 PBR
+  材质（`base_color`、`metallic`、`roughness`，纹理槽 `base_color`、`normal`、
+  `metallic_roughness`、`occlusion`、`emissive`）；指定 Shader 时，参数是其 set 1
+  uniform block 的成员，纹理是其 set 1 的 sampler2D。导入时根据 Shader 反射解析
+  成按索引的绑定配方并写入 KMAT。未填写的参数为 0，未指定的 sampler 读白色。
+- 材质 Shader 是 `.shaderprog`（顶点 + 片元，Vulkan GLSL 450）：set 0 是引擎数据，
+  用 `#include <Kans3D/Engine.glsl>` 声明（`u_Frame`：ViewProjection、相机位置、
+  4 个点光源、Time；`u_Object`：Transform、NormalMatrix；IBL 的
+  `u_IrradianceMap`、`u_PrefilterMap`、`u_BrdfLUT`）；顶点输入用
+  `<Kans3D/VertexInput.glsl>`；`<Kans3D/Lighting.glsl>` 提供引擎 PBR 光照
+  `KansShadePbr` 与 `KansToneMap`。片元在 location 0 输出 vec4。不符合约定的
+  Shader 在导入材质时报错。
+- OpenGL 下由 spirv-cross 把 SPIR-V 转成 GLSL 4.30（`GpuShader`），set/binding
+  展平为 GL 绑定点；材质参数打包进 uniform buffer。
+- 示例：`KansEditor/assets/shaders/Toon/Toon.shaderprog`（卡通着色 + Ramp + 边缘光）。
 
 ## 编辑器
 
@@ -66,8 +85,10 @@ assets/x.obj + x.obj.kmeta                    AssetID
   Registry。
 - 把模型文件拖到视口会创建带 Model 组件的实体（必要时先导入）；属性面板可选择
   Model 或拖入源文件，并设置材质替换。
+- 内容浏览器右键「Create Material」新建材质，双击 `.material` 打开材质编辑器：
+  选择 Shader（或引擎 PBR）、编辑参数与纹理，保存后自动导入并在场景中生效。
 
 ## 尚未实现
 
-骨骼/动画 Product、内嵌纹理导入、自定义 Shader 材质的渲染、平台目标的 Product
+骨骼/动画 Product、内嵌纹理导入、透明材质、材质节点编辑器、平台目标的 Product
 变体、Pak/发布、文件监视自动重导入、Vulkan 渲染后端。

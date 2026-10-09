@@ -120,6 +120,8 @@ namespace Kans
                     }
                 }
             }
+            else if (ext == ".material")
+                m_PreviewMessage = "Double-click to edit the material.";
             else
                 m_PreviewMessage = "Material format has no preview loader yet; showing a neutral sphere.";
             return;
@@ -739,6 +741,18 @@ namespace Kans
                                     item.OnRenderEnd();
                                 }
 
+                                if (m_CreateMaterial &&
+                                    ImGui::BeginPopupContextWindow("AssetGridContext",
+                                                                   ImGuiPopupFlags_MouseButtonRight |
+                                                                       ImGuiPopupFlags_NoOpenOverItems))
+                                {
+                                    if (ImGui::MenuItem("Create Material"))
+                                    {
+                                        m_CreateMaterial(m_CurrentPath);
+                                        NeedRefresh = true;
+                                    }
+                                    ImGui::EndPopup();
+                                }
                                 ImGui::EndTable();
                             }
 
