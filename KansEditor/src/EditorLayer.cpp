@@ -155,6 +155,7 @@ namespace Kans
         if (m_ViewportRenderer)
         {
             m_ViewportRenderer->SetAssetManager(nullptr);
+            m_SceneHierachyPanel.setAssetManager(nullptr);
             m_ViewportRenderer.reset();
         }
         m_Assets.reset();

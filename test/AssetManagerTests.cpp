@@ -327,14 +327,20 @@ namespace
         std::vector<ProductRecord> records;
         for (uint64_t i = 1; i <= 32; ++i)
             records.push_back(Mesh(AssetID {Source, i}, float(i)));
-        auto manager = std::make_unique<AssetManager>(Provider, Registry(records));
+        // One worker: while it is blocked, every other request stays queued.
+        AssetManagerSpecification spec;
+        spec.WorkerCount = 1;
+        auto manager     = std::make_unique<AssetManager>(Provider, Registry(records), std::move(spec));
         Provider->Gate();
         for (uint64_t i = 1; i <= 32; ++i)
             manager->Request<MeshAsset>(AssetID {Source, i});
         ASSERT_TRUE(Provider->WaitUntilBlocked());
         auto destroyed = std::async(std::launch::async, [&] { manager.reset(); });
+        // Destruction waits for the running read before it can finish.
+        EXPECT_EQ(destroyed.wait_for(100ms), std::future_status::timeout);
         Provider->Release();
         EXPECT_EQ(destroyed.wait_for(5s), std::future_status::ready);
-        EXPECT_LT(Provider->Count(), 32u);
+        // Shutdown dropped the queued requests instead of loading them.
+        EXPECT_EQ(Provider->Count(), 1u);
     }
 } // namespace

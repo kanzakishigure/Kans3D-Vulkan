@@ -85,7 +85,7 @@ namespace Kans
             const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh);
             if (!mesh)
                 continue;
-            const AssetID      materialID = model.ResolveMaterial(mesh->Material);
+            const AssetID      materialID = model.ResolveMaterial(instance.Mesh, mesh->Material);
             const GpuMaterial* material   = materialID.IsValid() ? m_AssetCache->GetMaterial(materialID) : nullptr;
             if (!material)
                 material = &defaultMaterial;

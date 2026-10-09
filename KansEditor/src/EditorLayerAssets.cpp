@@ -81,6 +81,7 @@ namespace Kans
         m_Assets    = CreateScope<AssetManager>(
             std::get<Ref<LooseFileAssetProvider>>(std::move(provider)), std::move(snapshot), std::move(spec));
         m_ViewportRenderer->SetAssetManager(m_Assets.get());
+        m_SceneHierachyPanel.setAssetManager(m_Assets.get());
         return std::monostate {};
     }
 

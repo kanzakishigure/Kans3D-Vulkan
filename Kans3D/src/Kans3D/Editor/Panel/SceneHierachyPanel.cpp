@@ -1,6 +1,8 @@
 #include "kspch.h"
 #include "SceneHierachyPanel.h"
 
+#include "Kans3D/Asset/Runtime/MeshData.h"
+#include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/ImGui/KansUI.h"
 #include "Kans3D/Scene/Components.h"
 
@@ -346,25 +348,134 @@ namespace Kans
     void SceneHierachyPanel::drawModelComponent(Entity entity)
     {
         UI::DrawComponent<ProductModelComponent>("Model", entity, [this](ProductModelComponent& component) {
-            drawAssetPicker("Model", AssetType::Model, component.Model);
+            if (drawAssetPicker("Model", AssetType::Model, component.Model))
+                component.Overrides.clear(); // Overrides refer to the previous model's parts.
             if (!component.Model.IsValid())
-                ImGui::TextDisabled("Import a model, then pick it or drop its source file here.");
-            int remove = -1;
-            for (size_t i = 0; i < component.Overrides.size(); ++i)
             {
-                ImGui::PushID(static_cast<int>(i));
-                auto& item = component.Overrides[i];
-                drawAssetPicker("Material", AssetType::Material, item.Authored);
-                drawAssetPicker("Replace with", AssetType::Material, item.Replacement);
-                if (ImGui::SmallButton("Remove override"))
-                    remove = static_cast<int>(i);
-                ImGui::Separator();
+                ImGui::TextDisabled("Import a model, then pick it or drop its source file here.");
+                return;
+            }
+            drawModelMaterials(component);
+        });
+    }
+
+    std::string SceneHierachyPanel::materialName(AssetID material)
+    {
+        if (!material.IsValid())
+            return "(default)";
+        std::string name = material.ToString();
+        if (m_Assets)
+        {
+            const auto status = m_Assets->Request<MaterialDataAsset>(material);
+            if (status.IsReady())
+                name = status.Asset->GetData().Name.empty() ? "(unnamed)" : status.Asset->GetData().Name;
+            else if (status.State == AssetLoadState::Loading)
+                name = "(loading)";
+        }
+        for (const auto& choice : m_AssetChoices)
+            if (choice.ID == material)
+                return name + "  [" + choice.SourcePath.filename().u8string() + "]";
+        return name;
+    }
+
+    bool SceneHierachyPanel::drawMaterialCombo(const char* label, AssetID imported, AssetID current, AssetID& chosen)
+    {
+        bool picked = false;
+        if (ImGui::BeginCombo(label, materialName(current).c_str()))
+        {
+            if (ImGui::Selectable(("Imported: " + materialName(imported)).c_str(), current == imported))
+            {
+                chosen = {};
+                picked = true;
+            }
+            ImGui::Separator();
+            for (const auto& choice : m_AssetChoices)
+            {
+                if (choice.Type != AssetType::Material)
+                    continue;
+                ImGui::PushID(choice.ID.ToString().c_str());
+                if (ImGui::Selectable(materialName(choice.ID).c_str(), choice.ID == current))
+                {
+                    chosen = choice.ID;
+                    picked = true;
+                }
                 ImGui::PopID();
             }
-            if (remove >= 0)
-                component.Overrides.erase(component.Overrides.begin() + remove);
-            if (ImGui::SmallButton("Add material override"))
-                component.Overrides.push_back({});
-        });
+            ImGui::EndCombo();
+        }
+        return picked;
+    }
+
+    void SceneHierachyPanel::drawModelMaterials(ProductModelComponent& component)
+    {
+        if (!m_Assets)
+            return;
+        const auto model = m_Assets->Request<ModelAsset>(component.Model);
+        if (model.State == AssetLoadState::Loading)
+        {
+            ImGui::TextDisabled("Loading model...");
+            return;
+        }
+        if (!model.IsReady())
+        {
+            ImGui::TextWrapped("Model unavailable: %s", model.Error ? model.Error->Message.c_str() : "");
+            return;
+        }
+
+        // A part is one Mesh Product of the model, named after the node using it.
+        struct Part
+        {
+            AssetID     Mesh, Material;
+            std::string Name;
+        };
+        std::vector<Part>    parts;
+        std::vector<AssetID> slots;
+        for (const auto& node : model.Asset->GetData().Nodes)
+            for (size_t i = 0; i < node.Meshes.size(); ++i)
+            {
+                const AssetID mesh = node.Meshes[i];
+                if (std::any_of(parts.begin(), parts.end(), [&](const Part& part) { return part.Mesh == mesh; }))
+                    continue;
+                Part part {mesh, {}, node.Name.empty() ? "Part " + std::to_string(parts.size()) : node.Name};
+                if (node.Meshes.size() > 1)
+                    part.Name += " (" + std::to_string(i + 1) + ")";
+                const auto loaded = m_Assets->Request<MeshAsset>(mesh);
+                if (loaded.IsReady())
+                    part.Material = loaded.Asset->GetData().Material;
+                if (part.Material.IsValid() && std::find(slots.begin(), slots.end(), part.Material) == slots.end())
+                    slots.push_back(part.Material);
+                parts.push_back(std::move(part));
+            }
+
+        if (ImGui::TreeNodeEx("Parts", ImGuiTreeNodeFlags_DefaultOpen, "Parts (%zu)", parts.size()))
+        {
+            for (const auto& part : parts)
+            {
+                ImGui::PushID(part.Mesh.ToString().c_str());
+                AssetID    chosen;
+                const auto current = component.ResolveMaterial(part.Mesh, part.Material);
+                if (drawMaterialCombo(part.Name.c_str(), part.Material, current, chosen))
+                    component.SetOverride(part.Mesh, chosen);
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNodeEx("Material slots", 0, "Material slots (%zu)", slots.size()))
+        {
+            ImGui::TextDisabled("Replaces the material on every part using it.");
+            for (AssetID slot : slots)
+            {
+                ImGui::PushID(slot.ToString().c_str());
+                AssetID     chosen;
+                const auto* overridden = component.FindOverride(slot);
+                const auto  name       = materialName(slot);
+                if (drawMaterialCombo(name.c_str(), slot, overridden ? overridden->Replacement : slot, chosen))
+                    component.SetOverride(slot, chosen);
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
+        }
+        if (!component.Overrides.empty() && ImGui::SmallButton("Restore imported materials"))
+            component.Overrides.clear();
     }
 } // namespace Kans

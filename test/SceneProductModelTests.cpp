@@ -96,17 +96,32 @@ namespace
         EXPECT_FALSE(loaded.Overrides[1].Replacement.IsValid());
     }
 
-    TEST_F(SceneProductModelTest, ResolveMaterialAppliesOnlyCompleteOverrides)
+    TEST_F(SceneProductModelTest, PartOverridesTakePrecedenceOverMaterialSlotOverrides)
     {
-        const AssetID authored    = Component.Overrides[0].Authored;
-        const AssetID replacement = Component.Overrides[0].Replacement;
-        const AssetID other {SourceAssetID::Generate(), 9};
-        EXPECT_EQ(Component.ResolveMaterial(authored), replacement);
-        EXPECT_EQ(Component.ResolveMaterial(other), other);
-        auto partial                     = Component;
-        partial.Overrides[0].Replacement = {};
-        EXPECT_EQ(partial.ResolveMaterial(authored), authored);
-        EXPECT_EQ(Component.ResolveMaterial(AssetID {}), AssetID {});
+        const AssetID material   = Component.Overrides[0].Authored;
+        const AssetID slotChoice = Component.Overrides[0].Replacement;
+        const AssetID body {SourceAssetID::Generate(), 10}, helmet {SourceAssetID::Generate(), 11};
+        const AssetID partChoice {SourceAssetID::Generate(), 12}, other {SourceAssetID::Generate(), 13};
+        // Both parts use the overridden material slot.
+        EXPECT_EQ(Component.ResolveMaterial(body, material), slotChoice);
+        EXPECT_EQ(Component.ResolveMaterial(helmet, material), slotChoice);
+        EXPECT_EQ(Component.ResolveMaterial(body, other), other);
+
+        auto component = Component;
+        component.SetOverride(helmet, partChoice);
+        EXPECT_EQ(component.ResolveMaterial(helmet, material), partChoice);
+        EXPECT_EQ(component.ResolveMaterial(body, material), slotChoice);
+        component.SetOverride(helmet, other); // replaces, does not duplicate
+        EXPECT_EQ(component.Overrides.size(), 2u);
+        EXPECT_EQ(component.ResolveMaterial(helmet, material), other);
+        component.SetOverride(helmet, {}); // restores
+        EXPECT_EQ(component.Overrides.size(), 1u);
+        EXPECT_EQ(component.ResolveMaterial(helmet, material), slotChoice);
+
+        // Incomplete overrides are ignored.
+        component.Overrides.push_back({body, {}});
+        EXPECT_EQ(component.ResolveMaterial(body, material), slotChoice);
+        EXPECT_EQ(Component.ResolveMaterial(AssetID {}, AssetID {}), AssetID {});
     }
 
     TEST_F(SceneProductModelTest, DuplicateOverrideFailsValidationAndPreservesSavedScene)

@@ -6,7 +6,8 @@
 
 namespace Kans
 {
-    // Replaces every use of the authored Material in the model with another Material.
+    // Draws a different Material. `Authored` is either one of the model's Mesh
+    // Products (that part only) or a Material it uses (every part using it).
     struct SceneMaterialOverride
     {
         AssetID Authored, Replacement;
@@ -18,13 +19,37 @@ namespace Kans
         AssetID                            Model;
         std::vector<SceneMaterialOverride> Overrides;
 
-        // Returns the Material to draw in place of `authored`.
-        AssetID ResolveMaterial(AssetID authored) const
+        // The Material to draw for a part: its own override, else its material's, else its own.
+        AssetID ResolveMaterial(AssetID mesh, AssetID material) const
+        {
+            if (const auto* part = FindOverride(mesh))
+                return part->Replacement;
+            if (const auto* slot = FindOverride(material))
+                return slot->Replacement;
+            return material;
+        }
+        // The complete override for `authored`, or nullptr.
+        const SceneMaterialOverride* FindOverride(AssetID authored) const
         {
             for (const auto& item : Overrides)
-                if (item.Authored.IsValid() && item.Authored == authored && item.Replacement.IsValid())
-                    return item.Replacement;
-            return authored;
+                if (authored.IsValid() && item.Authored == authored && item.Replacement.IsValid())
+                    return &item;
+            return nullptr;
+        }
+        // Sets or, with an invalid replacement, removes the override for `authored`.
+        void SetOverride(AssetID authored, AssetID replacement)
+        {
+            for (auto it = Overrides.begin(); it != Overrides.end(); ++it)
+                if (it->Authored == authored)
+                {
+                    if (replacement.IsValid())
+                        it->Replacement = replacement;
+                    else
+                        Overrides.erase(it);
+                    return;
+                }
+            if (authored.IsValid() && replacement.IsValid())
+                Overrides.push_back({authored, replacement});
         }
     };
     std::variant<std::monostate, AssetError> ValidateProductModelComponent(const ProductModelComponent& component);
