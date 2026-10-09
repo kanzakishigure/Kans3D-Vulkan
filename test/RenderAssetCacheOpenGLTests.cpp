@@ -15,6 +15,7 @@
 #include "Kans3D/Asset/Product/TextureProduct.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
+#include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 
@@ -283,5 +284,108 @@ namespace
         EXPECT_EQ(assets.CollectUnused(), 2u);
         ASSERT_TRUE(Frames(cache, [&] { return cache.GetMesh(meshID) != nullptr; }));
         EXPECT_EQ(glGetError(), GL_NO_ERROR);
+    }
+
+    // Renders a quad with the engine Product PBR shader into an offscreen target.
+    TEST_F(RenderAssetCacheGL, ProductPbrShaderShadesMaterialFactorsWithSceneLights)
+    {
+        OpenGLShader shader(std::string(KANS_TEST_SHADER_DIR) + "/PBR/ProductPBR.glsl");
+        shader.Bind();
+        GLint program = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+        ASSERT_NE(program, 0);
+
+        constexpr int Size        = 16;
+        GLuint        framebuffer = 0, color = 0, depth = 0;
+        glGenFramebuffers(1, &framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glGenTextures(1, &color);
+        glBindTexture(GL_TEXTURE_2D, color);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Size, Size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
+        glGenRenderbuffers(1, &depth);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, Size, Size);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
+        ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GLenum(GL_FRAMEBUFFER_COMPLETE));
+        glViewport(0, 0, Size, Size);
+        glEnable(GL_DEPTH_TEST);
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // A quad covering the left half of clip space, facing +Z.
+        MeshData quad;
+        for (auto [x, y] : {std::pair {-1.0f, -1.0f}, {0.0f, -1.0f}, {0.0f, 1.0f}, {-1.0f, 1.0f}})
+        {
+            MeshVertexData vertex;
+            vertex.Position = {x, y, 0};
+            vertex.Normal   = {0, 0, 1};
+            quad.Vertices.push_back(vertex);
+        }
+        quad.Indices  = {0, 1, 2, 2, 3, 0};
+        auto uploaded = UploadMesh(quad);
+        ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
+        TextureData white;
+        white.Width = white.Height = 1;
+        white.Mips                 = {{{std::byte {255}, std::byte {255}, std::byte {255}, std::byte {255}}}};
+        auto texture               = Texture2D::CreateFromProduct(white);
+        ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(texture));
+        for (uint32_t slot = 0; slot < 5; ++slot)
+            std::get<Ref<Texture2D>>(texture)->Bind(slot);
+
+        shader.UploadUniformMat4("U_ViewProjection", glm::mat4(1.0f));
+        shader.UploadUniformMat4("U_Transform", glm::mat4(1.0f));
+        shader.UploadUniform3Float("U_ViewPos", {0, 0, 2});
+        for (int i = 0; i < 4; ++i)
+        {
+            shader.UploadUniform3Float("lightPositions[" + std::to_string(i) + "]", {0, 0, 1});
+            shader.UploadUniform3Float("lightColors[" + std::to_string(i) + "]", {2, 2, 2});
+        }
+        shader.UploadUniform4Float("U_BaseColor", {1, 0, 0, 1});
+        shader.UploadUniformFloat("U_Metallic", 0);
+        shader.UploadUniformFloat("U_Roughness", 1);
+        const char* samplers[] = {"U_AlbedoTexture",
+                                  "U_NormalTexture",
+                                  "U_MetallicRoughnessTexture",
+                                  "U_OcclusionTexture",
+                                  "U_EmissiveTexture"};
+        for (int i = 0; i < 5; ++i)
+            shader.UploadUniformInt(samplers[i], i);
+        // As SceneRenderer does: environment samplers on their own units. Cube and 2D
+        // samplers sharing a unit make draws fail with GL_INVALID_OPERATION.
+        shader.UploadUniformInt("U_IrradianceMap", 5);
+        shader.UploadUniformInt("U_PrefilterMap", 6);
+        shader.UploadUniformInt("U_BrdfLUTMap", 7);
+        shader.UploadUniformInt("U_HasNormalTexture", 0);
+        shader.UploadUniformInt("U_HasEmissiveTexture", 0);
+        const auto& mesh = std::get<GpuMesh>(uploaded);
+        mesh.VertexArray->Bind();
+        glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+
+        std::array<uint8_t, Size * Size * 4> pixels {};
+        glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        const auto pixel = [&](int x, int y) { return &pixels[(y * Size + x) * 4]; };
+        // Lit red where the quad is, untouched black elsewhere.
+        const uint8_t* lit = pixel(Size / 4, Size / 2);
+        EXPECT_GT(lit[0], 60);
+        EXPECT_LT(lit[1], lit[0] / 4);
+        EXPECT_LT(lit[2], lit[0] / 4);
+        const uint8_t* empty = pixel(3 * Size / 4, Size / 2);
+        EXPECT_EQ(empty[0] + empty[1] + empty[2], 0);
+
+        // The back side of the light: same quad, light behind it, is darker.
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        for (int i = 0; i < 4; ++i)
+            shader.UploadUniform3Float("lightPositions[" + std::to_string(i) + "]", {0, 0, -1});
+        glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
+        std::array<uint8_t, Size * Size * 4> unlit {};
+        glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, unlit.data());
+        EXPECT_LT(unlit[(Size / 2 * Size + Size / 4) * 4], lit[0]);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteRenderbuffers(1, &depth);
+        glDeleteTextures(1, &color);
+        glDeleteFramebuffers(1, &framebuffer);
     }
 } // namespace

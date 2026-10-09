@@ -7,7 +7,6 @@
 #include "Kans3D/Editor/EditorCamera.h"
 #include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
-#include "Panels/ImporterPanel.h"
 #include "Panels/ProductImportPanel.h"
 namespace Kans
 {
@@ -31,6 +30,11 @@ namespace Kans
         void                                     OpenProject();
         std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
         std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
+        // Adds a dropped model to the scene, importing it first if needed.
+        void                                     PlaceAsset(const std::filesystem::path& file);
+        void                                     PlacePendingModel();
+        AssetID                                  FindPublishedModel(SourceAssetID source) const;
+        std::optional<SourceAssetID>             m_PendingPlacement;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);
@@ -66,8 +70,6 @@ namespace Kans
         SceneHierachyPanel m_SceneHierachyPanel;
         // ContentBrowserPanel
         ContentBrowserPanel m_ContentBrowserPanel;
-        // ImporterPanel
-        ImporterPanel      m_ImporterPanel;
         ProductImportPanel m_ProductImportPanel;
     };
 

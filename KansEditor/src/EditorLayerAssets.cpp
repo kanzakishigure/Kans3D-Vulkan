@@ -120,6 +120,76 @@ namespace Kans
         return choices;
     }
 
+    AssetID EditorLayer::FindPublishedModel(SourceAssetID source) const
+    {
+        for (const auto& record : m_AssetImports->GetRuntimeAssetRegistry()->GetAllProducts())
+            if (record.Metadata.assetID.GetSourceID() == source && record.Metadata.Type == AssetType::Model &&
+                record.Target == EditorAssetTarget)
+                return record.Metadata.assetID;
+        return {};
+    }
+
+    void EditorLayer::PlaceAsset(const std::filesystem::path& file)
+    {
+        if (!m_AssetImports || !m_ActiveScene)
+            return;
+        auto sources = m_AssetImports->GetSources();
+        if (const auto* error = std::get_if<AssetError>(&sources))
+        {
+            m_SceneFileError = error->Message;
+            return;
+        }
+        std::error_code error;
+        const auto      dropped = std::filesystem::weakly_canonical(file, error);
+        const auto&     root    = m_AssetImports->GetConfig().AssetDirectory;
+        for (const auto& source : std::get<std::vector<SourceAssetMetadata>>(sources))
+        {
+            if (!source.Exists || std::filesystem::weakly_canonical(root / source.Path.GetPath(), error) != dropped)
+                continue;
+            const auto importer = CreateDefaultImporterRegistry();
+            const auto selected = std::get<ImporterRegistry>(importer).Resolve(file, source.Import.Importer);
+            if (std::holds_alternative<AssetError>(selected) ||
+                std::get<RegisteredImporter>(selected).Name != "ModelImporter")
+                break; // Not a model: show it in the import panel instead.
+            m_PendingPlacement = source.sourceAssetID;
+            if (FindPublishedModel(source.sourceAssetID).IsValid())
+                PlacePendingModel();
+            else
+            {
+                AssetBuildOptions options;
+                options.Target = EditorAssetTarget;
+                auto started   = m_AssetImports->Start(source.sourceAssetID, options);
+                if (const auto* failure = std::get_if<AssetError>(&started))
+                {
+                    m_SceneFileError = failure->Message;
+                    m_PendingPlacement.reset();
+                }
+            }
+            return;
+        }
+        m_ProductImportPanel.OpenWithFile(file);
+    }
+
+    void EditorLayer::PlacePendingModel()
+    {
+        if (!m_PendingPlacement || !m_ActiveScene)
+            return;
+        const auto source = *m_PendingPlacement;
+        m_PendingPlacement.reset();
+        const AssetID model = FindPublishedModel(source);
+        if (!model.IsValid())
+            return; // The import failed; the import panel shows why.
+        std::string name = "Model";
+        if (auto  sources = m_AssetImports->GetSources();
+            auto* list    = std::get_if<std::vector<SourceAssetMetadata>>(&sources))
+            for (const auto& metadata : *list)
+                if (metadata.sourceAssetID == source)
+                    name = metadata.Path.GetPath().stem().u8string();
+        auto entity                                        = m_ActiveScene->CreateEntity(name);
+        entity.AddComponent<ProductModelComponent>().Model = model;
+        m_SceneHierachyPanel.setSelectedEntity(entity);
+    }
+
     std::variant<std::monostate, AssetError> EditorLayer::ActivateScene(Ref<Scene> scene, std::filesystem::path path)
     {
         if (!scene || !m_ViewportRenderer || !m_ActiveRenderScene)
@@ -210,8 +280,6 @@ namespace Kans
                 record(RefreshProductAssets());
             if (ImGui::MenuItem("Product Import..."))
                 m_ProductImportPanel.Open();
-            if (ImGui::MenuItem("Legacy Model Preview..."))
-                m_ImporterPanel.Open();
             if (!m_SceneFileError.empty())
                 ImGui::TextWrapped("%s", m_SceneFileError.c_str());
             ImGui::EndMenu();

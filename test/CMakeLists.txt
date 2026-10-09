@@ -32,7 +32,6 @@ add_executable(Kans3DTests
     ShaderImporterTests.cpp
     MaterialBindingsTests.cpp
     TextureImporterTests.cpp
-    MeshUtilsTests.cpp
     ContentBrowserLayoutTests.cpp
     ImporterRegistryTests.cpp
     ImportFingerprintTests.cpp
@@ -56,19 +55,12 @@ include(GoogleTest)
 kans_copy_test_runtime(Kans3DTests)
 gtest_discover_tests(Kans3DTests)
 
-add_executable(SmoothNormalsBenchmark SmoothNormalsBenchmark.cpp)
-target_link_libraries(SmoothNormalsBenchmark PRIVATE Kans3D)
-add_executable(ModelLoadBenchmark ModelLoadBenchmark.cpp)
-target_link_libraries(ModelLoadBenchmark PRIVATE Kans3D)
-target_compile_definitions(ModelLoadBenchmark PRIVATE KANS_PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
-kans_copy_test_runtime(SmoothNormalsBenchmark)
-kans_copy_test_runtime(ModelLoadBenchmark)
-
 # Real GL tests run separately from the CPU-only suite.
 add_executable(OpenGLTextureTests OpenGLTextureTests.cpp RenderAssetCacheOpenGLTests.cpp)
 target_link_libraries(OpenGLTextureTests PRIVATE Kans3D GTest::gtest_main)
 target_compile_definitions(OpenGLTextureTests PRIVATE
-    KANS_TEST_ICON_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Editor/ContentBrowser")
+    KANS_TEST_ICON_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Editor/ContentBrowser"
+    KANS_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Shaders/OpenGL")
 if(UNIX AND NOT APPLE)
     find_package(OpenGL REQUIRED COMPONENTS EGL)
     target_link_libraries(OpenGLTextureTests PRIVATE OpenGL::EGL)

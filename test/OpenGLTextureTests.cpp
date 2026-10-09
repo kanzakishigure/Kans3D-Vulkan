@@ -22,7 +22,6 @@
 #include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Kans3D/Platform/OpenGL/OpenGLTexture.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
-#include "Kans3D/Renderer/Resource/Mesh.h"
 
 namespace
 {

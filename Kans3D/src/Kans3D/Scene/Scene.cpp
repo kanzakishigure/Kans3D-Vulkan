@@ -148,9 +148,6 @@ namespace Kans
     void Scene::OnComponentAdd<TransformComponent>(Entity entity, TransformComponent& component)
     {}
     template<>
-    void Scene::OnComponentAdd<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
-    {}
-    template<>
     void Scene::OnComponentAdd<ProductModelComponent>(Entity entity, ProductModelComponent& component)
     {}
     template<>
@@ -167,9 +164,6 @@ namespace Kans
     {}
     template<>
     void Scene::OnComponentAdd<PointLightComponent>(Entity entity, PointLightComponent& component)
-    {}
-    template<>
-    void Scene::OnComponentAdd<MaterialComponent>(Entity entity, MaterialComponent& component)
     {}
     template<>
     void Scene::OnComponentAdd<IDComponent>(Entity entity, IDComponent& component)

@@ -25,6 +25,13 @@ namespace Kans
 
     SceneRenderer::~SceneRenderer() = default;
 
+    void SceneRenderer::DrawGeometry(const Ref<VertexArray>& geometry)
+    {
+        geometry->Bind();
+        OpenGLRenderCommand::DrawIndexed(geometry);
+        geometry->Unbind();
+    }
+
     void SceneRenderer::SetAssetManager(AssetManager* assets)
     {
         m_AssetCache = assets ? CreateScope<RenderAssetCache>(*assets) : nullptr;
@@ -198,7 +205,7 @@ namespace Kans
 
             Ref<TextureCube> envCubemap = TextureCube::Create(envCubemapspec);
 
-            Ref<StaticMesh> cube = MeshFactory::CreatCube(glm::vec3(2.0f));
+            const auto cube = MeshFactory::GetCube();
             framebuffer->Bind();
             OpenGLRenderCommand::SetClearColor(glm::vec4(0.02f, 0.02f, 0.02f, 1.0f));
             OpenGLRenderCommand::Clear();
@@ -216,7 +223,7 @@ namespace Kans
                 hdrToCubeMapShader->UploadUniformMat4("view", captureViews[i]);
                 framebuffer->BindTextureToColorAttachMent(envCubemap, i);
                 OpenGLRenderCommand::Clear();
-                SubmitStaticMesh(cube, Renderer::GetShaderLibrary()->Get("HdrToCubeMap"));
+                DrawGeometry(cube);
             }
 
             framebuffer->Unbind();
@@ -249,7 +256,7 @@ namespace Kans
                 genIrradianceShader->UploadUniformMat4("view", captureViews[i]);
                 framebuffer->BindTextureToColorAttachMent(irradiancemap, i);
                 OpenGLRenderCommand::Clear();
-                SubmitStaticMesh(cube, Renderer::GetShaderLibrary()->Get("genIrradiance"));
+                DrawGeometry(cube);
             }
             OpenGLRenderCommand::GetError();
 
@@ -293,7 +300,7 @@ namespace Kans
                     prefilterShader->UploadUniformMat4("view", captureViews[i]);
                     framebuffer->BindTextureToColorAttachMent(prefilterMap, i, mip);
                     OpenGLRenderCommand::Clear();
-                    SubmitStaticMesh(cube, Renderer::GetShaderLibrary()->Get("prefilter"));
+                    DrawGeometry(cube);
                 }
             }
             framebuffer->Unbind();
@@ -371,255 +378,6 @@ namespace Kans
         m_FrameBuffer->Resize(width, height);
     }
 
-    void SceneRenderer::SubmitStaticMesh(Ref<StaticMesh> mesh, Ref<MaterialTable> materialTabel, glm::mat4 transform)
-    {
-        auto& VAOs   = mesh->GetMeshSource()->GetVertexArray();
-        auto  shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("StaticMeshShader").get());
-
-        shader->Bind();
-
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        {
-            // SetLight
-            {
-                // Dir
-                shader->UploadUniform3Float("dirLight.LightDir", m_SceneInfo.dirLight.Dirction);
-                shader->UploadUniform3Float("dirLight.Ambient_Intensity", m_SceneInfo.dirLight.Ambient_Intensity);
-                shader->UploadUniform3Float("dirLight.Diffuse_Intensity", m_SceneInfo.dirLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("dirLight.Specular_Intensity", m_SceneInfo.dirLight.Specular_Intensity);
-
-                // P3oint
-                shader->UploadUniform3Float("pointLight.Position", m_SceneInfo.pointLight.Position);
-                shader->UploadUniform3Float("pointLight.Ambient_Intensity", m_SceneInfo.pointLight.Ambient_Intensity);
-                shader->UploadUniform3Float("pointLight.Diffuse_Intensity", m_SceneInfo.pointLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("pointLight.Specular_Intensity", m_SceneInfo.pointLight.Specular_Intensity);
-            }
-            // SetScene
-            {
-                shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
-            }
-        }
-
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto& VA = VAOs[mesh];
-            VA->Bind();
-            auto subMtl = materialTabel->GetMaterialAsset(mesh)->GetMaterial();
-            subMtl->SetShader(Renderer::GetShaderLibrary()->Get("StaticMeshShader"));
-            subMtl->Invalidate();
-
-            OpenGLRenderCommand::DrawIndexed(VA);
-            VA->Unbind();
-        }
-    }
-
-    void SceneRenderer::SubmitStaticMesh(Ref<StaticMesh> mesh, Ref<Shader> shader)
-    {
-        auto& VAOs         = mesh->GetMeshSource()->GetVertexArray();
-        auto  openglshader = static_cast<OpenGLShader*>(shader.get());
-        openglshader->Bind();
-
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-
-            auto& VA = VAOs[mesh];
-            VA->Bind();
-            OpenGLRenderCommand::DrawIndexed(VA);
-            VA->Unbind();
-        }
-    }
-
-    void SceneRenderer::SubmitPBRStaticMesh(Ref<StaticMesh> mesh, Ref<MaterialTable> materialTabel, glm::mat4 transform)
-    {
-        auto& VAOs   = mesh->GetMeshSource()->GetVertexArray();
-        auto  shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("PBRStaticMesh").get());
-
-        shader->Bind();
-
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        uint32_t maxSlot = 0;
-        for (auto& [index, mtl] : materialTabel->GetMaterials())
-        {
-            maxSlot = glm::max((uint32_t)mtl->GetMaterial()->GetTextures().size(), maxSlot);
-        }
-        {
-            // SetLight
-            {
-                // Point
-                shader->UploadUniform3Float("lightPositions[0]", m_SceneInfo.pointLight.Position);
-                shader->UploadUniform3Float("lightPositions[1]", m_SceneInfo.pointLight.Position);
-                shader->UploadUniform3Float("lightPositions[2]", m_SceneInfo.pointLight.Position);
-                shader->UploadUniform3Float("lightPositions[3]", m_SceneInfo.pointLight.Position);
-
-                shader->UploadUniform3Float("lightColors[0]", m_SceneInfo.pointLight.Ambient_Intensity);
-                shader->UploadUniform3Float("lightColors[1]", m_SceneInfo.pointLight.Ambient_Intensity);
-                shader->UploadUniform3Float("lightColors[2]", m_SceneInfo.pointLight.Ambient_Intensity);
-                shader->UploadUniform3Float("lightColors[3]", m_SceneInfo.pointLight.Ambient_Intensity);
-            }
-            // SetScene
-            {
-                shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
-
-                shader->UploadUniformInt(MaterialAsset::GetIrradianceMapLocation(), maxSlot + 1);
-                m_Environment.IrradianceMap->Bind(maxSlot + 1);
-                shader->UploadUniformInt(MaterialAsset::GetPrefilterMapLocation(), maxSlot + 2);
-                m_Environment.RadianceMap->Bind(maxSlot + 2);
-                shader->UploadUniformInt(MaterialAsset::GetBrdfLUTMapLocation(), maxSlot + 3);
-                m_BrdfLUT->Bind(maxSlot + 3);
-            }
-        }
-
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto& VA = VAOs[mesh];
-            VA->Bind();
-            auto subMtl = materialTabel->GetMaterialAsset(mesh)->GetMaterial();
-            subMtl->SetShader(Renderer::GetShaderLibrary()->Get("PBRStaticMesh"));
-            subMtl->Invalidate();
-            shader->Bind();
-
-            OpenGLRenderCommand::DrawIndexed(VA);
-
-            VA->Unbind();
-        }
-    }
-
-    void SceneRenderer::SubmitStaticMeshStencil(Ref<StaticMesh> mesh, glm::mat4 transform)
-    {
-        auto& VAOs = mesh->GetMeshSource()->GetVertexArray();
-
-        auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("StencilShader").get());
-        shader->Bind();
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto VA = VAOs[mesh];
-            VA->Bind();
-            OpenGLRenderCommand::DrawIndexed(VA);
-        }
-    }
-
-    void SceneRenderer::SubmitStaticMeshPostEffect(Ref<StaticMesh> mesh, Ref<Texture2D> attachment, glm::mat4 transform)
-    {
-        auto& VAOs   = mesh->GetMeshSource()->GetVertexArray();
-        auto  shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("PostShader").get());
-        shader->Bind();
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-        attachment->Bind();
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto& VA = VAOs[mesh];
-            VA->Bind();
-            OpenGLRenderCommand::DrawIndexed(VA);
-        }
-    }
-
-    void SceneRenderer::SubmitStaticMeshOutLine(Ref<StaticMesh> mesh, glm::mat4 transform)
-    {
-        auto& VAOs   = mesh->GetMeshSource()->GetVertexArray();
-        auto  shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("OutLineShader").get());
-        shader->Bind();
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-        shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
-        auto material = mesh->GetMaterialTable();
-
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto  subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-            auto& VA     = VAOs[mesh];
-            // subMtl->SetShader(Renderer::GetShaderLibrary()->Get("OutLineShader"));
-            // subMtl->Invalidate();
-
-            VA->Bind();
-            OpenGLRenderCommand::DrawIndexed(VA);
-        }
-    }
-
-    void SceneRenderer::SubmitStaticMeshToneshading(Ref<StaticMesh> mesh, glm::mat4 transform)
-    {
-        auto& VAOs     = mesh->GetMeshSource()->GetVertexArray();
-        auto  shader   = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("ToneShader").get());
-        auto  material = mesh->GetMaterialTable();
-        shader->Bind();
-
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        {
-            // SetLight
-            {
-                // Dir
-                shader->UploadUniform3Float("dirLight.LightDir", m_SceneInfo.dirLight.Dirction);
-                shader->UploadUniform3Float("dirLight.Ambient_Intensity", m_SceneInfo.dirLight.Ambient_Intensity);
-                shader->UploadUniform3Float("dirLight.Diffuse_Intensity", m_SceneInfo.dirLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("dirLight.Specular_Intensity", m_SceneInfo.dirLight.Specular_Intensity);
-
-                // P3oint
-                shader->UploadUniform3Float("pointLight.Position", m_SceneInfo.pointLight.Position);
-                shader->UploadUniform3Float("pointLight.Ambient_Intensity", m_SceneInfo.pointLight.Ambient_Intensity);
-                shader->UploadUniform3Float("pointLight.Diffuse_Intensity", m_SceneInfo.pointLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("pointLight.Specular_Intensity", m_SceneInfo.pointLight.Specular_Intensity);
-            }
-            // SetScene
-            {
-                shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
-            }
-        }
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto  subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-            auto& VA     = VAOs[mesh];
-            VA->Bind();
-            subMtl->SetShader(Renderer::GetShaderLibrary()->Get("ToneShader"));
-            subMtl->Invalidate();
-            OpenGLRenderCommand::DrawIndexed(VA);
-            VA->Unbind();
-        }
-    }
-
-    void SceneRenderer::SubmitSpotCloud(Ref<StaticMesh> mesh, Ref<MaterialTable> material, glm::mat4 transform)
-    {
-        auto& VAOs   = mesh->GetMeshSource()->GetVertexArray();
-        auto  shader = static_cast<OpenGLShader*>(mesh->GetMeshSource()->GetMeshShader().get());
-        shader->Bind();
-
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto& VA     = VAOs[mesh];
-            auto  subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-            subMtl->Invalidate();
-
-            VA->Bind();
-            OpenGLRenderCommand::DrawArray(VA, VA->GetIndexBuffer()->GetCount() / 3);
-        }
-    }
-
-    void SceneRenderer::SubmitMeshEntity(Ref<StaticMesh> mesh, UUID uuid, glm::mat4 transform) {}
-
     void SceneRenderer::SubmitGrid(float size, float scale, glm::mat4 transform)
     {
         auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("GridShader").get());
@@ -640,139 +398,13 @@ namespace Kans
 
     void SceneRenderer::SubmitSkybox(Ref<TextureCube> skybox)
     {
-        Ref<StaticMesh> cube   = MeshFactory::GetCube();
-        auto            shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("skybox").get());
+        auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("skybox").get());
         shader->Bind();
         shader->UploadUniformMat4("U_Projection", m_SceneInfo.sceneCamera.camera.GetProjectionMatrix());
         shader->UploadUniformMat4("U_View", m_SceneInfo.sceneCamera.viewMatrix);
         shader->UploadUniformInt("environmentMap", 1);
         skybox->Bind(1);
-        auto& VAOs = cube->GetMeshSource()->GetVertexArray();
-        for (auto& mesh : cube->GetSubMesh())
-        {
-            auto& VA = VAOs[mesh];
-            VA->Bind();
-            OpenGLRenderCommand::DrawIndexed(VA);
-            VA->Unbind();
-        }
-    }
-
-    void SceneRenderer::SubmitStaticMeshDebugNormal(Ref<StaticMesh> mesh, glm::mat4 transform)
-    {
-        auto  shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("DebugNormalShader").get());
-        auto& VAOs   = mesh->GetMeshSource()->GetVertexArray();
-        shader->Bind();
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        auto material = mesh->GetMaterialTable();
-
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto  subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-            auto& VA     = VAOs[mesh];
-            VA->Bind();
-            // subMtl->SetShader(shader);
-            subMtl->SetShader(Renderer::GetShaderLibrary()->Get("DebugNormalShader"));
-            subMtl->Invalidate();
-            OpenGLRenderCommand::DrawIndexed(VA);
-        }
-    }
-
-    void SceneRenderer::SubmitStaticMeshDebug(Ref<StaticMesh> mesh, glm::mat4 transform)
-    {
-        auto& VAOs     = mesh->GetMeshSource()->GetVertexArray();
-        auto  shader   = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("DebugShader").get());
-        auto  material = mesh->GetMaterialTable();
-        shader->Bind();
-
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        {
-            // SetLight
-            {
-                // Dir
-                shader->UploadUniform3Float("dirLight.LightDir", m_SceneInfo.dirLight.Dirction);
-                shader->UploadUniform3Float("dirLight.Ambient_Intensity", m_SceneInfo.dirLight.Ambient_Intensity);
-                shader->UploadUniform3Float("dirLight.Diffuse_Intensity", m_SceneInfo.dirLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("dirLight.Specular_Intensity", m_SceneInfo.dirLight.Specular_Intensity);
-
-                // Point
-                shader->UploadUniform3Float("pointLight.Position", m_SceneInfo.pointLight.Position);
-                shader->UploadUniform3Float("pointLight.Ambient_Intensity", m_SceneInfo.pointLight.Ambient_Intensity);
-                shader->UploadUniform3Float("pointLight.Diffuse_Intensity", m_SceneInfo.pointLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("pointLight.Specular_Intensity", m_SceneInfo.pointLight.Specular_Intensity);
-            }
-            // SetScene
-            {
-                shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
-            }
-        }
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto  subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-            auto& VA     = VAOs[mesh];
-            VA->Bind();
-            subMtl->SetShader(Renderer::GetShaderLibrary()->Get("DebugShader"));
-            subMtl->Invalidate();
-            OpenGLRenderCommand::DrawIndexed(VA);
-        }
-    }
-
-    void SceneRenderer::SubmitToneCharactorShader(Ref<StaticMesh> mesh, glm::mat4 transform)
-    {
-        auto& VAOs = mesh->GetMeshSource()->GetVertexArray();
-
-        auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("ToneCharactorShader").get());
-
-        auto material = mesh->GetMaterialTable();
-
-        shader->Bind();
-
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        {
-            // SetLight
-            {
-                // Dir
-                shader->UploadUniform3Float("dirLight.LightDir", m_SceneInfo.dirLight.Dirction);
-                shader->UploadUniform3Float("dirLight.Ambient_Intensity", m_SceneInfo.dirLight.Ambient_Intensity);
-                shader->UploadUniform3Float("dirLight.Diffuse_Intensity", m_SceneInfo.dirLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("dirLight.Specular_Intensity", m_SceneInfo.dirLight.Specular_Intensity);
-
-                // Point
-                shader->UploadUniform3Float("pointLight.Position", m_SceneInfo.pointLight.Position);
-                shader->UploadUniform3Float("pointLight.Ambient_Intensity", m_SceneInfo.pointLight.Ambient_Intensity);
-                shader->UploadUniform3Float("pointLight.Diffuse_Intensity", m_SceneInfo.pointLight.Diffuse_Intensity);
-                shader->UploadUniform3Float("pointLight.Specular_Intensity", m_SceneInfo.pointLight.Specular_Intensity);
-            }
-            // SetScene
-            {
-                shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
-            }
-        }
-        for (auto& mesh : mesh->GetSubMesh())
-        {
-            auto  subMtl = material->GetMaterialAsset(mesh)->GetMaterial();
-            auto& VA     = VAOs[mesh];
-            VA->Bind();
-            // TODO: DrawCommand应该和Shader绑定，不和默认材质绑定
-            // subMtl->SetShader(shader);
-            // TODO:材质系统需要重写，渲染使用可提供材质用来渲染mesh和使用默认材质渲染mesh,材质和模型脱离绑定关系
-            shader->Bind();
-            subMtl->SetShader(Renderer::GetShaderLibrary()->Get("ToneCharactorShader"));
-            subMtl->Invalidate();
-            OpenGLRenderCommand::DrawIndexed(VA);
-            VA->Unbind();
-        }
+        DrawGeometry(MeshFactory::GetCube());
     }
 
 } // namespace Kans

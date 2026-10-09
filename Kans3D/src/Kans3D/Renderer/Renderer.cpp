@@ -10,7 +10,6 @@
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 
-#include "Resource/MaterialAsset.h"
 // temp
 #include "Resource/Camera.h"
 #include "Resource/MeshFactory.h"
@@ -102,66 +101,6 @@ namespace Kans
         {
             std::string shaderpath = KansFileSystem::GetShaderFolder().generic_string();
             shaderpath += RendererAPI::Current() == RendererAPIType::OPENGL ? "OpenGL/" : "Vulkan/";
-            if (RendererAPI::Current() == RendererAPIType::OPENGL)
-            {
-                {
-                    auto StaticShader = Shader::Create(shaderpath + "StaticMeshShader.glsl");
-
-                    StaticShader->SetShaderBuffer({
-                        {ShaderDataType::Float, MaterialAsset::GetShininessLocation()},
-
-                    });
-                    s_GlobalRendererResource->m_ShaderLibrary->Add(StaticShader);
-                }
-
-                {
-                    auto StandardShader = Shader::Create(shaderpath + "StandardShader.glsl");
-                    StandardShader->SetShaderBuffer({{ShaderDataType::Color4, "material.U_Color"}
-
-                    });
-                    s_GlobalRendererResource->m_ShaderLibrary->Add(StandardShader);
-                }
-
-                {
-                    auto SpotCloudShader = Shader::Create(shaderpath + "SpotCloud/SpotCloudShader.glsl");
-                    SpotCloudShader->SetShaderBuffer({});
-                    s_GlobalRendererResource->m_ShaderLibrary->Add(SpotCloudShader);
-
-                    SpotCloudShader->SetShaderBuffer({
-                        {ShaderDataType::Float, "U_PerlinBias"},
-                        {ShaderDataType::Float3, "U_Effect"},
-
-                    });
-                }
-
-                {
-                    auto PostShader = Shader::Create(shaderpath + "PostShader.glsl");
-                    PostShader->SetShaderBuffer({});
-                    s_GlobalRendererResource->m_ShaderLibrary->Add(PostShader);
-                }
-
-                {
-                    auto ToneShader = Shader::Create(shaderpath + "ToneShader.glsl");
-                    ToneShader->SetShaderBuffer({{ShaderDataType::Float3, MaterialAsset::GetDiffuseLocation()},
-                                                 {ShaderDataType::Float3, MaterialAsset::GetSpecularLocation()},
-                                                 {ShaderDataType::Float3, MaterialAsset::GetEmissionLocation()},
-                                                 {ShaderDataType::Float, MaterialAsset::GetShininessLocation()}});
-                    s_GlobalRendererResource->m_ShaderLibrary->Add(ToneShader);
-                }
-
-                {
-                    auto DebugShader = Shader::Create(shaderpath + "DebugShader.glsl");
-                    DebugShader->SetShaderBuffer({
-                        {ShaderDataType::Float, MaterialAsset::GetShininessLocation()},
-                        {ShaderDataType::Float, "U_Debug"},
-                        {ShaderDataType::Color3, "U_DarkColor"},
-                        {ShaderDataType::Color4, "U_DarkColor4"},
-
-                    });
-                    s_GlobalRendererResource->m_ShaderLibrary->Add(DebugShader);
-                }
-            }
-
             {
                 auto GridShader = Shader::Create(shaderpath + "GridShader.glsl");
                 GridShader->SetShaderBuffer(
@@ -185,30 +124,6 @@ namespace Kans
                 auto DebugnormalShader = Shader::Create(shaderpath + "DebugNormalShader.glsl");
                 DebugnormalShader->SetShaderBuffer({{ShaderDataType::Color4, "u_NormalColor"}});
                 s_GlobalRendererResource->m_ShaderLibrary->Add(DebugnormalShader);
-            }
-
-            {
-                auto ToneCharactorShader = Shader::Create(shaderpath + "GenShin_Shader/ToneCharactorShader.glsl");
-                ToneCharactorShader->SetShaderBuffer({
-                    {ShaderDataType::Float, "U_RampShadowRange"},
-                    {ShaderDataType::Float, "U_RampAOShadowRange"},
-                    {ShaderDataType::Float, "U_ShadowIntensity"},
-                    {ShaderDataType::Float, "U_BrightIntensity"},
-                    {ShaderDataType::Float, "U_AOIntensity"},
-                    {ShaderDataType::Float, "U_CharacterIntensity"},
-                    {ShaderDataType::Float, "U_RampIntensity"},
-
-                    {ShaderDataType::Float, "U_SpecularThreshold_1"},
-                    {ShaderDataType::Float, "U_SpecularIntensity_1"},
-                    {ShaderDataType::Float, "U_SpecularThreshold_2"},
-                    {ShaderDataType::Float, "U_SpecularIntensity_2"},
-                    {ShaderDataType::Float, "U_SpecularThreshold_3"},
-                    {ShaderDataType::Float, "U_SpecularIntensity_3"},
-
-                    {ShaderDataType::Bool, "_UseRamp"},
-
-                });
-                s_GlobalRendererResource->m_ShaderLibrary->Add(ToneCharactorShader);
             }
 
             // PBR-Pipeline
@@ -237,11 +152,6 @@ namespace Kans
                 auto brdfShader = Shader::Create(shaderpath + "PBR/brdf.glsl");
                 brdfShader->SetShaderBuffer({});
                 s_GlobalRendererResource->m_ShaderLibrary->Add(brdfShader);
-            }
-            {
-                auto PBRStaticMesh = Shader::Create(shaderpath + "PBR/PBRStaticMesh.glsl");
-                PBRStaticMesh->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(PBRStaticMesh);
             }
             {
                 auto productPBR = Shader::Create(shaderpath + "PBR/ProductPBR.glsl");

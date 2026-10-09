@@ -233,11 +233,9 @@ namespace Kans
         try
         {
             auto& registry = m_Scene->m_Registry;
-            if (!registry.view<StaticMeshComponent>().empty() || !registry.view<NativeScriptComponent>().empty() ||
-                !registry.view<MaterialComponent>().empty())
-                return AssetError {
-                    AssetErrorCode::NotImplemented,
-                    "Scene contains legacy GPU/native callback components without a persistent contract"};
+            if (!registry.view<NativeScriptComponent>().empty())
+                return AssetError {AssetErrorCode::NotImplemented,
+                                   "Scenes with native script components cannot be saved"};
             auto name = m_Scene->GetName();
             Require(name.size() <= 4096 && name.find('\0') == std::string::npos, "Invalid Scene name");
             YAML::Node root;

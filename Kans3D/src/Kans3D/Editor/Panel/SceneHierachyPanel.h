@@ -26,6 +26,7 @@ namespace Kans
             m_Context          = context;
         }
         Entity getSelectEntity() const { return m_SelectionContext; }
+        void   setSelectedEntity(Entity entity) { m_SelectionContext = entity; }
         void   setAssetChoices(std::vector<EditorAssetChoice> choices) { m_AssetChoices = std::move(choices); }
 
     private:

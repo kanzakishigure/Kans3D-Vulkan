@@ -2,7 +2,6 @@
 #include <glm/glm.hpp>
 #include "Kans3D/Renderer/RHI/FrameBuffer.h"
 
-#include "Kans3D/Renderer/Resource/Mesh.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
@@ -56,17 +55,6 @@ namespace Kans
         void                  SetViewportSize(uint32_t width, uint32_t height);
         std::vector<uint32_t> GetViewportSize() { return {m_ViewportWidth, m_ViewportHeight}; }
 
-        void SubmitStaticMesh(Ref<StaticMesh> mesh, Ref<MaterialTable> materialTabel, glm::mat4 transform);
-        void SubmitPBRStaticMesh(Ref<StaticMesh> mesh, Ref<MaterialTable> materialTabel, glm::mat4 transform);
-
-        void SubmitStaticMesh(Ref<StaticMesh> mesh, Ref<Shader> shader);
-        void SubmitStaticMeshStencil(Ref<StaticMesh> mesh, glm::mat4 transform);
-        void SubmitStaticMeshPostEffect(Ref<StaticMesh> mesh, Ref<Texture2D> attachment, glm::mat4 transform);
-        void SubmitStaticMeshOutLine(Ref<StaticMesh> mesh, glm::mat4 transform);
-        void SubmitStaticMeshToneshading(Ref<StaticMesh> mesh, glm::mat4 transform);
-
-        void SubmitSpotCloud(Ref<StaticMesh> mesh, Ref<MaterialTable> materialTabel, glm::mat4 transform);
-        void SubmitMeshEntity(Ref<StaticMesh> mesh, UUID uuid, glm::mat4 transform);
         void SubmitGrid(float size, float scale, glm::mat4 transform);
         void SubmitSkybox(Ref<TextureCube> skybox);
 
@@ -74,12 +62,9 @@ namespace Kans
         const Environment&     GetEnvironment() { return m_Environment; }
         const Ref<TextureCube> GetSkybox() { return m_SkyBox; }
 
-    public:
-        void SubmitStaticMeshDebugNormal(Ref<StaticMesh> mesh, glm::mat4 transform);
-        void SubmitStaticMeshDebug(Ref<StaticMesh> mesh, glm::mat4 transform);
-        void SubmitToneCharactorShader(Ref<StaticMesh> mesh, glm::mat4 transform);
-
     private:
+        void DrawGeometry(const Ref<VertexArray>& geometry);
+
         // SceneRenderer did't handle the life of Scnene;
         RenderScene*               m_RenderScene;
         SceneInfo                  m_SceneInfo;

@@ -9,6 +9,7 @@ namespace Kans
 {
     class Scene;
     class SceneRenderer;
+    struct SceneInfo;
     struct DirLight
     {
         glm::vec3 Dirction;
@@ -59,6 +60,8 @@ namespace Kans
         void                  SetRenderResource(const RenderResource& resource) { m_RenderResource = resource; }
 
     private:
+        void CollectLights(SceneInfo& info) const;
+        void Render(SceneRenderer& renderer, const SceneInfo& info);
         void SubmitModels(SceneRenderer& renderer);
 
     private:

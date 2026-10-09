@@ -21,27 +21,18 @@ Linux 额外运行 `GL43ExtensionPath`，使用 Mesa 软件驱动并设置
 测试输出 XML 中记录实际 renderer 和 version。曾复现 GL 4.3 路径没有加载
 `glGenerateTextureMipmap`、函数指针为空的问题；修复位于 OpenGLRHI 的 DSA 加载列表。
 
-## Core and model benchmarks
+## 资源系统测试
 
-项目平滑法线测试：`MeshUtilsNormals` 直接调用 `MeshUtils::SmoothNormal` 和 `SmoothNormalHash`，验证同位置顶点获得一致的归一化法线和不同位置保持独立。原 Assimp 测试仅作为解析库测试保留。
+`Kans3DTests` 为纯 CPU 测试，覆盖身份与 sidecar、Product 编解码、ProductStore
+（含 fork 后强制退出的发布中断）、Project 构建/移动/删除、AssetManager 与导入器。
 
-```sh
-cmake --build build/linux-gcc --config Debug --target Kans3DTests SmoothNormalsBenchmark -j2
-ctest --test-dir build/linux-gcc -C Debug -R MeshUtilsNormals --output-on-failure
-build/linux-gcc/test/Debug/SmoothNormalsBenchmark
-```
+`OpenGLTextureTests` 还包含 `RenderAssetCacheGL`：网格上传、异步加载后的 GPU 资源
+复用与替换，以及用 `ProductPBR.glsl` 离屏绘制并回读像素。
 
-基准直接测量上述两个 Utils 函数，使用每位置三个拆分顶点及不同输入法线。输入生成与输出校验不计时，输出分配包含在耗时内。
-每组预热一次、采样五次，报告中位数、最近秩 p95 和正确性。旧算法为平方复杂度，限定 3000/12000 顶点；Hash 版额外测试 48000/192000/768000 顶点。
-出现错误结果时仍输出耗时和 correct=false，进程最终返回 1；错误算法的耗时不能作为等价实现的性能对比。没有性能通过阈值。
-
-模型加载基准（需要 OpenGL 窗口/上下文，独立于 CTest 运行）：
+在 Linux 上 CTest 以 `LIBGL_ALWAYS_SOFTWARE=1`、`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe`
+串行运行全部 OpenGL 测试；在硬件驱动上并行运行 GL 测试曾导致 GPU 挂起。
 
 ```sh
-cmake --build build/linux-gcc --config Debug --target ModelLoadBenchmark -j2
-build/linux-gcc/test/Debug/ModelLoadBenchmark
+ctest --test-dir build/linux-gcc -C Debug -LE OpenGL -j2   # CPU
+ctest --test-dir build/linux-gcc -C Debug -L OpenGL        # OpenGL（串行，llvmpipe）
 ```
-
-该基准测量 `AssimpMeshImporter` 的 CPU 解析、GPU 资源终结和 fence 等待耗时，输出 3 次采样。
-
-现有模型测试直接调用 Assimp，不覆盖引擎导入器；引擎导入器与 GPU fence 的验证依赖 GL 上下文，未纳入无窗口的 `Kans3DTests`。资源版本的读写依赖管理仍待 `TaskGraph` 实现。

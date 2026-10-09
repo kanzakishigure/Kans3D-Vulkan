@@ -8,27 +8,14 @@
 #include "ImGuizmo.h"
 // TestInclude
 #include "Kans3D/Core/Log/Log.h"
-#include <Kans3D/Asset/AssetMetadata.h>
-#include <Kans3D/Asset/Importer/AssimpMeshImporter.h>
-#include <Kans3D/Asset/Importer/AssimpMeshSourceBackend.h>
-#include <Kans3D/Asset/Importer/MeshSourceImporter.h>
 #include <Kans3D/Core/Hash.h>
 #include <Kans3D/Core/UUID.h>
 #include <Kans3D/ImGui/Colors.h>
-#include <Kans3D/Renderer/Resource/MeshFactory.h>
-#include "Panels/ImporterPanel.h"
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define ShowImguiDemo false
 #define ShowEditorUI true
 #define EnbaleDocking true
-#define CreatePrimitives false
 
-#define TestLoadNPRMaterial false
-#define TestLoadSkinMesh false
-#define TestLoadPBRMaterial false
-#define TestCrash false
-
-#define SpotCloudTest false
 #define NativeScript false
 #define ShowDepthBuffer false
 #define ShowColorBuffer true
@@ -46,42 +33,6 @@ namespace Kans
 
         // Resource Init
         EditorResources::Init();
-
-        // Asset Importer Init
-        // Register the legacy preview backend independently of the Product pipeline.
-        if (MeshSourceImporter::GetBackendCount() == 0)
-            MeshSourceImporter::RegisterBackend(CreateScope<AssimpMeshSourceBackend>());
-
-        // ImporterPanel callback �� ������ɺ󴴽� Entity
-        m_ImporterPanel.SetImportCompleteCallback([this](const LegacyImportResult& result, const ImportConfig& config) {
-            if (!result.Success || !result.MeshSource)
-            {
-                CORE_WARN("EditorLayer �� import failed for: {}", config.SourcePath.string());
-                return;
-            }
-
-            auto  entity      = m_ActiveScene->CreateEntity(config.AssetName);
-            auto& meshCMP     = entity.AddComponent<StaticMeshComponent>();
-            auto& materialCMP = entity.AddComponent<MaterialComponent>();
-
-            Ref<StaticMesh> staticMesh = CreateRef<StaticMesh>(result.MeshSource);
-            staticMesh->assetID        = config.ExistingAssetID;
-
-            meshCMP.StaticMesh        = staticMesh;
-            meshCMP.MaterialTable     = staticMesh->GetMaterialTable();
-            materialCMP.MaterialTable = staticMesh->GetMaterialTable();
-
-            auto& transformCMP    = entity.GetComponent<TransformComponent>();
-            transformCMP.Position = {0.0f, 0.0f, -1.0f};
-            transformCMP.Rotation = {0.0f, glm::radians(90.0f), 0.0f};
-
-            CORE_INFO("EditorLayer �� created entity '{}' from imported mesh: {} "
-                      "submeshes, {} verts, {} tris",
-                      config.AssetName,
-                      result.FinalProgress.SubMeshesDetected,
-                      result.FinalProgress.VerticesDetected,
-                      result.FinalProgress.TrianglesDetected);
-        });
 
         // scene init
         {
@@ -115,163 +66,6 @@ namespace Kans
                 auto& cmp             = m_CameraEntity.AddComponent<CameraComponent>();
                 cmp.SceneCamera.SetViewportSize(1920, 1080);
             }
-#if CreatePrimitives
-            // Create Cube
-            {
-                auto& cubeEntity          = m_ActiveScene->CreateEntity("cube");
-                auto& meshCMP             = cubeEntity.AddComponent<StaticMeshComponent>();
-                meshCMP.StaticMesh        = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
-                meshCMP.MaterialTable     = meshCMP.StaticMesh->GetMaterialTable();
-                auto& materialCMP         = cubeEntity.AddComponent<MaterialComponent>();
-                materialCMP.MaterialTable = meshCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
-                auto& TransformCMP                                = cubeEntity.GetComponent<TransformComponent>();
-                TransformCMP.Position                             = {0.0f, 0.0f, -3.0f};
-                TransformCMP.Rotation                             = {0.0f, 0.0f, 0.0f};
-                TransformCMP.Scale                                = {1.0f, 1.0f, 1.0f};
-            }
-#endif
-            // load Mesh test
-#if TestLoadNPRMaterial
-            {
-
-                // ref BackScene
-
-                {
-
-                    auto  RefEntity = m_ActiveScene->CreateEntity("RefEntity");
-                    auto& spritCMP  = RefEntity.AddComponent<SpriteRendererComponent>();
-
-                    TextureSpecification spec;
-                    spritCMP.Texture      = Texture2D::Create(spec, "assets/textures/GY.png");
-                    auto& transformCMP    = RefEntity.GetComponent<TransformComponent>();
-                    transformCMP.Scale    = {19.2f, 10.8f, 1.0f};
-                    transformCMP.Position = {0.0f, 0.0f, -10.0f};
-                    transformCMP.Rotation = {0.0f, glm::radians(180.0f), 0.0f};
-                }
-
-                auto  GY_LightEntity = m_ActiveScene->CreateEntity("GY_Light");
-                auto& meshCMP        = GY_LightEntity.AddComponent<StaticMeshComponent>();
-                auto& materialCMP    = GY_LightEntity.AddComponent<MaterialComponent>();
-                auto  meshSrouce     = AssimpMeshImporter("/assets/model/GY/GY.fbx").ImportToMeshSource();
-
-                meshCMP.StaticMesh     = CreateRef<StaticMesh>(meshSrouce);
-                meshCMP.MaterialTable  = meshCMP.StaticMesh->GetMaterialTable();
-                Ref<Shader> toneShader = Renderer::GetShaderLibrary()->Get("ToneCharactorShader");
-
-                for (auto& [index, materialAsset] : meshCMP.MaterialTable->GetMaterials())
-                {
-                    const auto& textures = materialAsset->GetMaterial()->GetTextures();
-                    CORE_TRACE("texture count:{}", textures.size());
-                    Ref<Material> tonematerial = Material::Create(toneShader, materialAsset->GetMaterial()->GetName());
-                    Ref<MaterialAsset> toneMaterialAsset = CreateRef<MaterialAsset>(tonematerial);
-                    toneMaterialAsset->GetMaterial()->SetTextures(textures);
-                    meshCMP.MaterialTable->SetMaterial(index, toneMaterialAsset);
-                }
-
-                materialCMP.MaterialTable = meshCMP.MaterialTable;
-
-                auto& TransformCMP    = GY_LightEntity.GetComponent<TransformComponent>();
-                TransformCMP.Position = {0.0f, -0.6f, -1.0f};
-                TransformCMP.Rotation = {glm::radians(-90.0f), 0.0f, glm::radians(0.0f)};
-                TransformCMP.Scale    = {glm::vec3(1.0f)};
-
-                // Temp Function
-                // Init Material
-                Utils::MaterialUtils::InitMaterial(meshCMP.MaterialTable);
-                Utils::MaterialUtils::InitMaterial(materialCMP.MaterialTable);
-            }
-#endif
-#if TestLoadSkinMesh
-            {
-
-                auto  shibahu_Entity      = m_ActiveScene->CreateEntity("shibahu");
-                auto& meshCMP             = shibahu_Entity.AddComponent<StaticMeshComponent>();
-                auto& materialCMP         = shibahu_Entity.AddComponent<MaterialComponent>();
-                auto  meshSrouce          = AssimpMeshImporter("assets/model/shibahu/scene.gltf").ImportToMeshSource();
-                meshCMP.StaticMesh        = CreateRef<StaticMesh>(meshSrouce);
-                meshCMP.MaterialTable     = meshCMP.StaticMesh->GetMaterialTable();
-                materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
-
-                auto& TransformCMP    = shibahu_Entity.GetComponent<TransformComponent>();
-                TransformCMP.Position = {0.0f, -0.5f, -1.0f};
-                TransformCMP.Rotation = {glm::radians(0.0f), 0.0f, glm::radians(0.0f)};
-                TransformCMP.Scale    = {glm::vec3(0.01f)};
-            }
-#endif
-
-#if TestLoadPBRMaterial
-
-            {
-
-                auto  shibahu_Entity = m_ActiveScene->CreateEntity("modern_coffee_table");
-                auto& meshCMP        = shibahu_Entity.AddComponent<StaticMeshComponent>();
-                auto& materialCMP    = shibahu_Entity.AddComponent<MaterialComponent>();
-                auto  meshSrouce = AssimpMeshImporter("assets/model/modern_coffee_table/modern_coffee_table_01_4k.gltf")
-                                      .ImportToMeshSource();
-                meshCMP.StaticMesh        = CreateRef<StaticMesh>(meshSrouce);
-                meshCMP.MaterialTable     = meshCMP.StaticMesh->GetMaterialTable();
-                materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
-
-                auto& TransformCMP    = shibahu_Entity.GetComponent<TransformComponent>();
-                TransformCMP.Position = {0.0f, 0.0f, -1.0f};
-                TransformCMP.Rotation = {0.0f, glm::radians(90.0f), 0.0f};
-            }
-
-            {
-
-                auto  shibahu_Entity = m_ActiveScene->CreateEntity("boombox_4k");
-                auto& meshCMP        = shibahu_Entity.AddComponent<StaticMeshComponent>();
-                auto& materialCMP    = shibahu_Entity.AddComponent<MaterialComponent>();
-                auto  meshSrouce   = AssimpMeshImporter("assets/model/boombox_4k/boombox_4k.gltf").ImportToMeshSource();
-                meshCMP.StaticMesh = CreateRef<StaticMesh>(meshSrouce);
-                meshCMP.MaterialTable     = meshCMP.StaticMesh->GetMaterialTable();
-                materialCMP.MaterialTable = meshCMP.StaticMesh->GetMaterialTable();
-
-                auto& TransformCMP    = shibahu_Entity.GetComponent<TransformComponent>();
-                TransformCMP.Position = {0.0f, 0.0f, -1.0f};
-                TransformCMP.Scale    = {0.5f, 0.5f, 0.5f};
-            }
-
-#endif
-            // createMesh test
-#if TestCrash
-            // the performance is sucks
-            {
-                for (int i = 0; i < 1000; i++)
-                {
-                    {
-                        std::string name          = fmt::format("Cube_{0}", i);
-                        auto        CubeEntity    = m_ActiveScene->CreateEntity(name);
-                        auto&       meshCMP       = CubeEntity.AddComponent<StaticMeshComponent>();
-                        auto&       materialCMP   = CubeEntity.AddComponent<MaterialComponent>();
-                        meshCMP.StaticMesh        = Kans::MeshFactory::CreatCube(glm::vec3(1.0f));
-                        meshCMP.MaterialTable     = meshCMP.StaticMesh->GetMaterialTable();
-                        materialCMP.MaterialTable = meshCMP.MaterialTable;
-                        auto& TransformCMP        = CubeEntity.GetComponent<TransformComponent>();
-                        TransformCMP.Position     = {0.0f, 0.0f, -3.0f};
-                        TransformCMP.Rotation     = {0.0f, 0.0f, 0.0f};
-                        TransformCMP.Scale        = {0.1f, 0.1f, 0.1f};
-                        CubeEntity.AddComponent<ScriptComponent>("Sandbox.Player");
-                    }
-                }
-            }
-#endif
-            // spotCloud test
-#if SpotCloudTest
-            {
-                auto  CubeEntity  = m_ActiveScene->CreateEntity("Cloud");
-                auto& meshCMP     = CubeEntity.AddComponent<StaticMeshComponent>();
-                auto& materialCMP = CubeEntity.AddComponent<MaterialComponent>();
-
-                meshCMP.StaticMesh        = Kans::MeshFactory::CreatCloudSpot(10000, {1, 1, 1});
-                meshCMP.MaterialTable     = meshCMP.StaticMesh->GetMaterials();
-                materialCMP.MaterialTable = meshCMP.MaterialTable;
-                auto& TransformCMP        = CubeEntity.GetComponent<TransformComponent>();
-                TransformCMP.Position     = {0.0f, 1.0f, -5.0f};
-                TransformCMP.Rotation     = {0.0f, 0.0f, 0.0f};
-                TransformCMP.Scale        = {1.0f, 1.0f, 1.0f};
-            }
-#endif
             // Native Script
 #if NativeScript
 
@@ -398,10 +192,11 @@ namespace Kans
                 m_SceneFileError = error->Message;
             else if (std::get<bool>(completed))
             {
-                // Failed roots can still have successfully published producers.
+                // Dependencies can be published even when the root build fails.
                 auto refreshed = RefreshProductAssets();
                 if (const auto* error = std::get_if<AssetError>(&refreshed))
                     m_SceneFileError = error->Message;
+                PlacePendingModel();
             }
         }
 
@@ -584,7 +379,6 @@ namespace Kans
         // HierachyPanel
         m_SceneHierachyPanel.onImGuiRender(true);
         m_ContentBrowserPanel.onImGuiRender(true);
-        m_ImporterPanel.onImGuiRender(true);
         m_ProductImportPanel.Draw();
         // Viewport
         // Color FrameBuffer
@@ -620,20 +414,15 @@ namespace Kans
                 auto data = ImGui::AcceptDragDropPayload("asset_payload");
                 if (data)
                 {
-                    std::string           path     = std::string((char*)data->Data, data->DataSize);
-                    std::filesystem::path filePath = path;
-                    if (filePath.has_extension())
+                    const std::filesystem::path file(std::string((char*)data->Data, data->DataSize));
+                    if (file.extension() == ".kans")
                     {
-                        // ���� StaticMesh / Mesh �ʲ����� ImporterPanel ���е��� ����
-                        if (filePath.extension() == ".kans")
-                        {
-                            auto opened = OpenScene(filePath);
-                            if (const auto* error = std::get_if<AssetError>(&opened))
-                                m_SceneFileError = error->Message;
-                        }
-                        else
-                            m_ProductImportPanel.OpenWithFile(filePath);
+                        auto opened = OpenScene(file);
+                        if (const auto* error = std::get_if<AssetError>(&opened))
+                            m_SceneFileError = error->Message;
                     }
+                    else if (file.has_extension())
+                        PlaceAsset(file);
                 }
                 ImGui::EndDragDropTarget();
             }
