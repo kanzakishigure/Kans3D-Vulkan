@@ -127,6 +127,7 @@ namespace Kans
         {
             frame.LightPositions[i] = glm::vec4(m_SceneInfo.pointLight.Position, 1.0f);
             frame.LightColors[i]    = glm::vec4(m_SceneInfo.pointLight.Ambient_Intensity, 1.0f);
+            frame.LightDiffuse[i]   = glm::vec4(m_SceneInfo.pointLight.Diffuse_Intensity, 1.0f);
         }
         frame.Time = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
         if (!m_FrameUniforms)

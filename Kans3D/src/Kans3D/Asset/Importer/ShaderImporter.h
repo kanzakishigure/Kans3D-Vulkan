@@ -8,7 +8,7 @@ namespace Kans
     class ShaderImporter final : public AssetImporterBase
     {
     public:
-        uint32_t GetVersion() const override { return 5; }
+        uint32_t GetVersion() const override { return 6; }
         [[nodiscard]] std::variant<ImportInputs, AssetError>
         DiscoverInputs(const ImportContext& context) const override;
         [[nodiscard]] std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;

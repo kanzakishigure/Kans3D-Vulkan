@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <variant>
 #include <vector>
 #include "Kans3D/Asset/Asset.h"
@@ -79,9 +80,14 @@ namespace Kans
         std::vector<ShaderResourceBinding>   Bindings;
         std::vector<ShaderInterfaceVariable> Inputs, Outputs;
     };
+    // Default values of material parameters (uniform members by name), declared by
+    // the Shader source; scalars in declaration order, as in MaterialSource.
+    using ShaderParameterDefaults = std::map<std::string, std::vector<double>>;
+
     struct ShaderData
     {
-        ShaderProgramCode Code;
+        ShaderProgramCode       Code;
+        ShaderParameterDefaults ParameterDefaults;
         // Derived from validated bytecode, never trusted caller-supplied metadata.
         std::vector<ShaderStageReflection> Reflection;
     };

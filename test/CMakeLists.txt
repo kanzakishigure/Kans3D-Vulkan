@@ -61,7 +61,8 @@ add_executable(OpenGLTextureTests OpenGLTextureTests.cpp RenderAssetCacheOpenGLT
 target_link_libraries(OpenGLTextureTests PRIVATE Kans3D GTest::gtest_main)
 target_compile_definitions(OpenGLTextureTests PRIVATE
     KANS_TEST_ICON_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Editor/ContentBrowser"
-    KANS_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Shaders/OpenGL")
+    KANS_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Shaders/OpenGL"
+    KANS_TEST_EDITOR_ASSET_DIR="${PROJECT_SOURCE_DIR}/KansEditor/assets")
 if(UNIX AND NOT APPLE)
     find_package(OpenGL REQUIRED COMPONENTS EGL)
     target_link_libraries(OpenGLTextureTests PRIVATE OpenGL::EGL)

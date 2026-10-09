@@ -136,8 +136,9 @@ namespace Kans
             shaderc_include_result m_Failure {};
         };
 
-        // Compiles the source (a stage file or a .shaderprog listing stage files).
-        std::variant<ShaderProgramCode, AssetError> CompileShader(const ImportContext& context, ShaderInputs& inputs)
+        // Compiles the source (a stage file or a .shaderprog listing stage files and
+        // parameter defaults).
+        std::variant<ShaderData, AssetError> CompileShader(const ImportContext& context, ShaderInputs& inputs)
         {
             auto extension = context.SourceFile.extension().u8string();
             std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
@@ -151,11 +152,16 @@ namespace Kans
                 return AssetError {AssetErrorCode::NotFound, "Cannot read Shader source"};
 
             std::vector<std::pair<ShaderProductStage, std::string>> modules;
+            ShaderData                                              shader;
             if (extension == ".shaderprog")
             {
                 auto parsed = ParseShaderProgramSource(*primary);
                 if (auto* error = std::get_if<AssetError>(&parsed))
                     return std::move(*error);
+                auto defaults = ParseShaderProgramDefaults(*primary);
+                if (auto* error = std::get_if<AssetError>(&defaults))
+                    return std::move(*error);
+                shader.ParameterDefaults = std::get<ShaderParameterDefaults>(std::move(defaults));
                 for (const auto& stage : std::get<std::vector<ShaderStageSource>>(parsed))
                     modules.emplace_back(
                         stage.Stage, (fs::u8path(primaryName).parent_path() / stage.Path.GetPath()).generic_u8string());
@@ -166,7 +172,7 @@ namespace Kans
                                                             ShaderProductStage::Compute,
                                      primaryName);
 
-            ShaderProgramCode code;
+            auto& code = shader.Code;
             for (const auto& [stage, name] : modules)
             {
                 const auto* text = inputs.Find(name);
@@ -191,7 +197,7 @@ namespace Kans
                 }
                 code.Modules.push_back({stage, "main", {compiled.cbegin(), compiled.cend()}});
             }
-            return code;
+            return shader;
         }
 
         bool ValidContext(const ImportContext& context)
@@ -226,7 +232,8 @@ namespace Kans
             auto         compiled = CompileShader(context, inputs);
             if (auto* error = std::get_if<AssetError>(&compiled))
                 return std::move(*error);
-            auto encoded = EncodeShaderProduct(std::get<ShaderProgramCode>(compiled));
+            const auto& shader  = std::get<ShaderData>(compiled);
+            auto        encoded = EncodeShaderProduct(shader.Code, shader.ParameterDefaults);
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return std::move(*error);
             auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, {"shader:root"});

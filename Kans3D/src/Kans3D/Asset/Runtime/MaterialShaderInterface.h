@@ -31,11 +31,14 @@ namespace Kans
         glm::mat4 ViewProjection {1.0f};
         glm::vec4 CameraPosition {0.0f};
         glm::vec4 LightPositions[EngineLightCount] {};
+        // Radiance used by the engine PBR shading (the point light's ambient intensity).
         glm::vec4 LightColors[EngineLightCount] {};
+        // The point light's diffuse intensity, for non-PBR (e.g. toon) shading.
+        glm::vec4 LightDiffuse[EngineLightCount] {};
         float     Time = 0.0f;
         float     Padding[3] {};
     };
-    static_assert(sizeof(EngineFrameUniforms) == 224, "KansFrame std140 layout");
+    static_assert(sizeof(EngineFrameUniforms) == 288, "KansFrame std140 layout");
 
     struct EngineObjectUniforms
     {

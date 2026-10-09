@@ -283,9 +283,43 @@ namespace
                                  "KansShaderProgram 1\ncompute=C:/a",
                                  "KansShaderProgram 1\ncompute=folder\\a"})
             EXPECT_TRUE(std::holds_alternative<AssetError>(ParseShaderProgramSource(text))) << text;
-        EXPECT_TRUE(std::holds_alternative<AssetError>(ParseShaderProgramSource(std::string(8193, 'a'))));
+        EXPECT_TRUE(std::holds_alternative<AssetError>(ParseShaderProgramSource(std::string(65537, 'a'))));
         EXPECT_TRUE(std::holds_alternative<std::vector<ShaderStageSource>>(
             ParseShaderProgramSource("KansShaderProgram 1\ncompute=main.comp\n")));
+    }
+    TEST(ShaderProgramSource, ParsesParameterDefaultsCommentsAndBlankLines)
+    {
+        const std::string text = "KansShaderProgram 1\n# stages\nvertex=a.vert\n\nfragment=a.frag\n"
+                                 "default Tint = 1 0.5 0.25 1\ndefault Flag = true\n";
+        auto stages = ParseShaderProgramSource(text);
+        ASSERT_TRUE(std::holds_alternative<std::vector<ShaderStageSource>>(stages));
+        EXPECT_EQ(std::get<std::vector<ShaderStageSource>>(stages).size(), 2u);
+        auto defaults = ParseShaderProgramDefaults(text);
+        ASSERT_TRUE(std::holds_alternative<ShaderParameterDefaults>(defaults));
+        EXPECT_EQ(std::get<ShaderParameterDefaults>(defaults),
+                  (ShaderParameterDefaults {{"Tint", {1, 0.5, 0.25, 1}}, {"Flag", {1}}}));
+        for (const char* bad : {"default Tint 1\n",
+                                "default = 1\n",
+                                "default A B = 1\n",
+                                "default A = x\n",
+                                "default A =\n",
+                                "default A = 1\ndefault A = 2\n"})
+            EXPECT_TRUE(std::holds_alternative<AssetError>(ParseShaderProgramDefaults(bad))) << bad;
+    }
+    TEST_F(ShaderImporterTest, ProgramDefaultsAreStoredInTheProduct)
+    {
+        Program();
+        Text(Context.SourceFile,
+             "KansShaderProgram 1\nfragment=test.frag\nvertex=test.vert\ndefault Strength = 0.5\n");
+        const auto imported = Import();
+        ASSERT_EQ(imported.Products.size(), 1u);
+        auto bytes = ReadProductFile(Context.StagingDirectory / imported.Products[0].StagedFile);
+        ASSERT_TRUE(std::holds_alternative<std::vector<std::byte>>(bytes));
+        const auto& value   = std::get<std::vector<std::byte>>(bytes);
+        auto        decoded = DecodeShaderProduct(value.data(), value.size());
+        ASSERT_TRUE(std::holds_alternative<ShaderData>(decoded));
+        EXPECT_EQ(std::get<ShaderData>(decoded).ParameterDefaults,
+                  (ShaderParameterDefaults {{"Strength", {0.5}}}));
     }
     TEST_F(ShaderImporterTest, ProgramMissingStageAndInterfaceFailureLeaveStageEmpty)
     {

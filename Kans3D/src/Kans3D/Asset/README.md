@@ -67,17 +67,21 @@ assets/x.obj + x.obj.kmeta                    AssetID
   材质（`base_color`、`metallic`、`roughness`，纹理槽 `base_color`、`normal`、
   `metallic_roughness`、`occlusion`、`emissive`）；指定 Shader 时，参数是其 set 1
   uniform block 的成员，纹理是其 set 1 的 sampler2D。导入时根据 Shader 反射解析
-  成按索引的绑定配方并写入 KMAT。未填写的参数为 0，未指定的 sampler 读白色。
+  成按索引的绑定配方并写入 KMAT。未填写的参数取 Shader 声明的默认值（`.shaderprog`
+  中的 `default <名字> = <数值...>` 行，存入 Shader Product），没有默认值则为 0；
+  未指定的 sampler 读白色。
 - 材质 Shader 是 `.shaderprog`（顶点 + 片元，Vulkan GLSL 450）：set 0 是引擎数据，
   用 `#include <Kans3D/Engine.glsl>` 声明（`u_Frame`：ViewProjection、相机位置、
-  4 个点光源、Time；`u_Object`：Transform、NormalMatrix；IBL 的
+  4 个点光源的位置、PBR 辐射度 `LightColors` 与漫反射强度 `LightDiffuse`、Time；`u_Object`：Transform、NormalMatrix；IBL 的
   `u_IrradianceMap`、`u_PrefilterMap`、`u_BrdfLUT`）；顶点输入用
   `<Kans3D/VertexInput.glsl>`；`<Kans3D/Lighting.glsl>` 提供引擎 PBR 光照
   `KansShadePbr` 与 `KansToneMap`。片元在 location 0 输出 vec4。不符合约定的
   Shader 在导入材质时报错。
 - OpenGL 下由 spirv-cross 把 SPIR-V 转成 GLSL 4.30（`GpuShader`），set/binding
   展平为 GL 绑定点；材质参数打包进 uniform buffer。
-- 示例：`KansEditor/assets/shaders/Toon/Toon.shaderprog`（卡通着色 + Ramp + 边缘光）。
+- 示例：`KansEditor/assets/shaders/Toon/Toon.shaderprog`（卡通着色 + Ramp + 边缘光）；
+  `ToneCharacter/ToneCharacter.shaderprog` 是旧版原神风格 `ToneCharactorShader`
+  的移植（Diffuse + `_Light` + `_Ramp` 贴图，默认参数同旧 `MaterialUtils`）。
 
 ## 编辑器
 

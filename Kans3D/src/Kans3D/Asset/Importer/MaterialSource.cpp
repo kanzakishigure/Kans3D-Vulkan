@@ -234,6 +234,16 @@ namespace Kans
                         {member.Name, member.Type, member.Components, member.Columns, member.ArrayCount});
                 }
             }
+            for (const auto& [name, values] : shader->ParameterDefaults)
+            {
+                const auto found = std::find_if(schema.Parameters.begin(),
+                                                schema.Parameters.end(),
+                                                [&](const auto& parameter) { return parameter.Name == name; });
+                if (found == schema.Parameters.end() || found->ValueCount() != values.size())
+                    return Invalid("Shader default '" + name + "' does not match a material parameter of " +
+                                   std::to_string(values.size()) + " values");
+                schema.Defaults.emplace(name, values);
+            }
             return schema;
         }
         catch (const std::exception& error)
@@ -256,7 +266,11 @@ namespace Kans
                     return &parameter;
             return nullptr;
         };
+        // Parameters the source leaves unset take the schema defaults.
+        auto parameters = schema.Defaults;
         for (const auto& [name, values] : source.Parameters)
+            parameters[name] = values;
+        for (const auto& [name, values] : parameters)
         {
             const auto* parameter = info(name);
             if (!parameter)
@@ -281,10 +295,7 @@ namespace Kans
         data.Name = source.Name;
         if (!shader)
         {
-            const auto value = [&](const char* name) {
-                const auto found = source.Parameters.find(name);
-                return found != source.Parameters.end() ? found->second : schema.Defaults.at(name);
-            };
+            const auto value = [&](const char* name) { return parameters.at(name); };
             const auto color = value("base_color");
             for (size_t i = 0; i < 4; ++i)
                 data.BaseColor[i] = static_cast<float>(color[i]);
@@ -327,8 +338,8 @@ namespace Kans
                 for (uint32_t index = 0; index < resource.Members.size(); ++index)
                 {
                     const auto& member = resource.Members[index];
-                    const auto  found  = source.Parameters.find(member.Name);
-                    if (member.Type == ShaderUniformType::Struct || found == source.Parameters.end())
+                    const auto  found  = parameters.find(member.Name);
+                    if (member.Type == ShaderUniformType::Struct || found == parameters.end())
                         continue;
                     const size_t stride = size_t(member.Components) * member.Columns;
                     for (uint32_t element = 0; element < member.ArrayCount; ++element)

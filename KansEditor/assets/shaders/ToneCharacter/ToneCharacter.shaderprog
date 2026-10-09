@@ -1,0 +1,19 @@
+KansShaderProgram 1
+# Genshin-style character shading, ported from
+# Resources/Shaders/OpenGL/GenShin_Shader/ToneCharactorShader.glsl.
+vertex=ToneCharacter.vert
+fragment=ToneCharacter.frag
+
+# Defaults of the legacy MaterialUtils::InitMaterial.
+default RampShadowRange = 0.54
+default RampAOShadowRange = 0.68
+default ShadowIntensity = 0.92
+default BrightIntensity = 0.96
+default AOIntensity = 0.05
+default CharacterIntensity = 1.124
+default RampIntensity = 1.0
+default SpecularIntensity1 = 1.0
+default SpecularIntensity2 = 1.0
+default SpecularIntensity3 = 1.0
+default LightMapFlipV = true
+default LightMapIsData = false

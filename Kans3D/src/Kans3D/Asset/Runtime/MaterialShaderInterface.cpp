@@ -18,7 +18,8 @@ layout(set = 0, binding = 0, std140) uniform KansFrame
     mat4  ViewProjection;
     vec4  CameraPosition;
     vec4  LightPositions[KANS_LIGHT_COUNT];
-    vec4  LightColors[KANS_LIGHT_COUNT];
+    vec4  LightColors[KANS_LIGHT_COUNT];  // PBR radiance
+    vec4  LightDiffuse[KANS_LIGHT_COUNT]; // diffuse intensity for non-PBR shading
     float Time;
 } u_Frame;
 layout(set = 0, binding = 1, std140) uniform KansObject
@@ -131,7 +132,8 @@ vec4 KansToneMap(vec3 color)
                   {"CameraPosition", 64, 4, 1, 1},
                   {"LightPositions", 80, 4, 1, EngineLightCount},
                   {"LightColors", 144, 4, 1, EngineLightCount},
-                  {"Time", 208, 1, 1, 1}}},
+                  {"LightDiffuse", 208, 4, 1, EngineLightCount},
+                  {"Time", 272, 1, 1, 1}}},
                 {ShaderBindingKind::UniformBuffer,
                  ShaderImageDimension::Texture2D,
                  sizeof(EngineObjectUniforms),

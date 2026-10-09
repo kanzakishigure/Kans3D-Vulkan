@@ -7,6 +7,8 @@
 #include <GLFW/glfw3.h>
 #endif
 #include <chrono>
+#include <fstream>
+#include <sstream>
 #include <map>
 #include <thread>
 #include "Kans3D/Asset/Product/ContentDigest.h"
@@ -514,6 +516,25 @@ void main() { color = texture(other, vec2(0)); }
         auto created = GpuShader::Create(shader);
         ASSERT_TRUE(std::holds_alternative<AssetError>(created));
         EXPECT_NE(std::get<AssetError>(created).Message.find("set 3"), std::string::npos);
-        EXPECT_TRUE(std::holds_alternative<GpuShader>(GpuShader::Create({CompileTestMaterialShader(), {}})));
+        EXPECT_TRUE(std::holds_alternative<GpuShader>(GpuShader::Create({CompileTestMaterialShader(), {}, {}})));
+    }
+
+    // The editor's sample material shaders cross-compile and link on OpenGL.
+    TEST_F(RenderAssetCacheGL, EditorSampleShadersLinkOnOpenGL)
+    {
+        const auto read = [](const std::string& name) {
+            std::ifstream     file(std::string(KANS_TEST_EDITOR_ASSET_DIR) + "/shaders/" + name);
+            std::stringstream text;
+            text << file.rdbuf();
+            return text.str();
+        };
+        for (const std::string name : {"Toon/Toon", "ToneCharacter/ToneCharacter"})
+        {
+            ShaderData shader;
+            shader.Code  = CompileTestMaterialShader(read(name + ".vert"), read(name + ".frag"));
+            auto created = GpuShader::Create(shader);
+            EXPECT_TRUE(std::holds_alternative<GpuShader>(created))
+                << name << ": " << std::get<AssetError>(created).Message;
+        }
     }
 } // namespace

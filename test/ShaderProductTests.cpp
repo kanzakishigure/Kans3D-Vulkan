@@ -1,3 +1,4 @@
+#include <limits>
 #include <future>
 #include <thread>
 #include <gtest/gtest.h>
@@ -39,6 +40,30 @@ layout(location=0) in vec2 uv;
 layout(location=0) out vec4 color;
 layout(set=0,binding=1) uniform sampler2D image[2];
 void main(){ color=texture(image[1],uv); })")}};
+    }
+    TEST(ShaderProduct, ParameterDefaultsRoundTripAndVersionOneHasNone)
+    {
+        const ShaderParameterDefaults defaults {{"Tint", {1, 0.5, 0.25, 1}}, {"Steps", {3}}};
+        auto encoded = EncodeShaderProduct(Graphics(), defaults);
+        ASSERT_TRUE(std::holds_alternative<std::vector<std::byte>>(encoded));
+        auto bytes   = std::get<std::vector<std::byte>>(encoded);
+        auto decoded = DecodeShaderProduct(bytes.data(), bytes.size());
+        ASSERT_TRUE(std::holds_alternative<ShaderData>(decoded));
+        EXPECT_EQ(std::get<ShaderData>(decoded).ParameterDefaults, defaults);
+        for (size_t size = bytes.size() - 20; size < bytes.size(); ++size)
+            EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeShaderProduct(bytes.data(), size)));
+
+        // Version 1 Products end after the modules.
+        auto legacy = std::get<std::vector<std::byte>>(EncodeShaderProduct(Graphics()));
+        legacy.resize(legacy.size() - 4);
+        legacy[4] = std::byte {1};
+        auto old  = DecodeShaderProduct(legacy.data(), legacy.size());
+        ASSERT_TRUE(std::holds_alternative<ShaderData>(old));
+        EXPECT_TRUE(std::get<ShaderData>(old).ParameterDefaults.empty());
+
+        EXPECT_TRUE(std::holds_alternative<AssetError>(EncodeShaderProduct(Graphics(), {{"Bad", {}}})));
+        EXPECT_TRUE(std::holds_alternative<AssetError>(
+            EncodeShaderProduct(Graphics(), {{"Bad", {std::numeric_limits<double>::infinity()}}})));
     }
     TEST(ShaderProduct, UniformReflectionOwnsNestedArrayAndRowMajorLayout)
     {
@@ -408,7 +433,7 @@ layout(set=0,binding=0) uniform A {vec4 color;} a;void main(){gl_Position=a.colo
                 << offset;
         }
         auto newer = bytes;
-        newer[4]   = std::byte {2};
+        newer[4]   = std::byte {3};
         EXPECT_EQ(std::get<AssetError>(DecodeShaderProduct(newer.data(), newer.size())).Code,
                   AssetErrorCode::UnsupportedVersion);
         auto trailing = bytes;

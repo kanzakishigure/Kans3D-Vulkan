@@ -3,6 +3,7 @@
 #include <sstream>
 #include <gtest/gtest.h>
 #include "Kans3D/Asset/Importer/MaterialSource.h"
+#include "Kans3D/Asset/Importer/ShaderProgramSource.h"
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "MaterialShaderTestUtilities.h"
 
@@ -182,21 +183,69 @@ namespace
         EXPECT_TRUE(std::holds_alternative<AssetError>(ResolveMaterialSource(source, nullptr)));
     }
 
-    // The sample shader shipped with the editor follows the material contract.
-    TEST_F(MaterialSourceTest, EditorToonSampleIsAValidMaterialShader)
+    TEST_F(MaterialSourceTest, ShaderDefaultsFillUnsetParameters)
     {
-        const auto read = [](const char* name) {
-            std::ifstream     file(std::string(KANS_TEST_ASSET_DIR) + "/../shaders/Toon/" + name);
+        Shader.ParameterDefaults = {{"Tint", {0.5, 0.5, 0.5, 1}}, {"Strength", {2}}};
+        auto described           = DescribeMaterial(&Shader);
+        ASSERT_TRUE(std::holds_alternative<MaterialSchema>(described)) << std::get<AssetError>(described).Message;
+        EXPECT_EQ(std::get<MaterialSchema>(described).Defaults.at("Strength"), (std::vector<double> {2}));
+
+        MaterialSource source;
+        source.Shader               = ShaderID;
+        source.Parameters["Tint"]   = {1, 0, 0, 1};
+        auto resolved               = ResolveMaterialSource(source, &Shader);
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(resolved)) << std::get<AssetError>(resolved).Message;
+        const auto& data   = std::get<MaterialData>(resolved);
+        auto        packed = PackMaterialUniforms(data, Shader.Code, *data.Bindings);
+        ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+        const auto& bytes = std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes;
+        // The source wins over the default; the unset Strength takes its default.
+        EXPECT_EQ(FloatAt(bytes, 0), 1.0f);
+        EXPECT_EQ(FloatAt(bytes, 16), 2.0f);
+
+        // Defaults must name a parameter with the right number of values.
+        Shader.ParameterDefaults = {{"Missing", {1}}};
+        EXPECT_TRUE(std::holds_alternative<AssetError>(DescribeMaterial(&Shader)));
+        Shader.ParameterDefaults = {{"Tint", {1}}};
+        EXPECT_TRUE(std::holds_alternative<AssetError>(DescribeMaterial(&Shader)));
+        Shader.ParameterDefaults = {{"Steps", {0.5}}};
+        EXPECT_TRUE(std::holds_alternative<AssetError>(ResolveMaterialSource(source, &Shader)));
+    }
+
+    // The sample shaders shipped with the editor follow the material contract and
+    // their declared defaults resolve.
+    TEST_F(MaterialSourceTest, EditorSampleShadersAreValidMaterialShaders)
+    {
+        const auto read = [](const std::string& name) {
+            std::ifstream     file(std::string(KANS_TEST_ASSET_DIR) + "/../shaders/" + name);
             std::stringstream text;
             text << file.rdbuf();
             return text.str();
         };
-        ShaderData toon;
-        toon.Code      = CompileTestMaterialShader(read("Toon.vert"), read("Toon.frag"));
-        auto described = DescribeMaterial(&toon);
-        ASSERT_TRUE(std::holds_alternative<MaterialSchema>(described)) << std::get<AssetError>(described).Message;
-        const auto& schema = std::get<MaterialSchema>(described);
-        EXPECT_EQ(schema.Parameters.size(), 7u);
-        EXPECT_EQ(schema.Textures, (std::vector<std::string> {"u_Albedo", "u_Ramp"}));
+        struct Sample
+        {
+            std::string              Name;
+            size_t                   Parameters;
+            std::vector<std::string> Textures;
+        };
+        for (const auto& sample : {Sample {"Toon/Toon", 7, {"u_Albedo", "u_Ramp"}},
+                                   Sample {"ToneCharacter/ToneCharacter", 12, {"u_Diffuse", "u_LightMap", "u_RampMap"}}})
+        {
+            SCOPED_TRACE(sample.Name);
+            ShaderData shader;
+            shader.Code = CompileTestMaterialShader(read(sample.Name + ".vert"), read(sample.Name + ".frag"));
+            auto defaults = ParseShaderProgramDefaults(read(sample.Name + ".shaderprog"));
+            ASSERT_TRUE(std::holds_alternative<ShaderParameterDefaults>(defaults));
+            shader.ParameterDefaults = std::get<ShaderParameterDefaults>(defaults);
+            auto described           = DescribeMaterial(&shader);
+            ASSERT_TRUE(std::holds_alternative<MaterialSchema>(described)) << std::get<AssetError>(described).Message;
+            const auto& schema = std::get<MaterialSchema>(described);
+            EXPECT_EQ(schema.Parameters.size(), sample.Parameters);
+            EXPECT_EQ(schema.Textures, sample.Textures);
+            MaterialSource source;
+            source.Shader = ShaderID;
+            auto resolved = ResolveMaterialSource(source, &shader);
+            EXPECT_TRUE(std::holds_alternative<MaterialData>(resolved)) << std::get<AssetError>(resolved).Message;
+        }
     }
 } // namespace

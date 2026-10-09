@@ -1,10 +1,14 @@
 #include "kspch.h"
 #include "ShaderProduct.h"
+#include <cmath>
+#include <cstring>
 namespace Kans
 {
     namespace
     {
-        constexpr uint32_t Magic = 0x4448534b, Version = 1, TargetVulkan12 = 1;
+        // Version 2 appends parameter defaults; version 1 has none.
+        constexpr uint32_t Magic = 0x4448534b, Version = 2, TargetVulkan12 = 1;
+        constexpr size_t   MaximumDefaults = 4096, MaximumDefaultValues = 4096;
         constexpr size_t   MaximumBytes = 16 * 1024 * 1024;
         void               Write(std::vector<std::byte>& bytes, uint32_t word)
         {
@@ -18,12 +22,39 @@ namespace Kans
                 word |= uint32_t(std::to_integer<uint8_t>(*cursor++)) << (8 * i);
             return word;
         }
+        void WriteDouble(std::vector<std::byte>& bytes, double value)
+        {
+            uint64_t bits = 0;
+            std::memcpy(&bits, &value, 8);
+            Write(bytes, uint32_t(bits));
+            Write(bytes, uint32_t(bits >> 32));
+        }
+        double ReadDouble(const std::byte*& cursor)
+        {
+            const uint64_t low = Read(cursor), high = Read(cursor);
+            const uint64_t bits  = low | (high << 32);
+            double         value = 0;
+            std::memcpy(&value, &bits, 8);
+            return value;
+        }
+        bool ValidDefault(const std::string& name, const std::vector<double>& values)
+        {
+            return !name.empty() && name.size() <= 256 && !values.empty() && values.size() <= MaximumDefaultValues &&
+                   std::all_of(name.begin(), name.end(), [](unsigned char c) { return c > 32 && c != 127; }) &&
+                   std::all_of(values.begin(), values.end(), [](double v) { return std::isfinite(v); });
+        }
     } // namespace
-    std::variant<std::vector<std::byte>, AssetError> EncodeShaderProduct(const ShaderProgramCode& code)
+    std::variant<std::vector<std::byte>, AssetError> EncodeShaderProduct(const ShaderProgramCode&       code,
+                                                                         const ShaderParameterDefaults& defaults)
     {
         auto inspected = InspectShaderProgram(code);
         if (auto* error = std::get_if<AssetError>(&inspected))
             return *error;
+        if (defaults.size() > MaximumDefaults)
+            return AssetError {AssetErrorCode::InvalidArgument, "Too many Shader parameter defaults"};
+        for (const auto& [name, values] : defaults)
+            if (!ValidDefault(name, values))
+                return AssetError {AssetErrorCode::InvalidArgument, "Invalid Shader parameter default '" + name + "'"};
         std::vector<std::byte> bytes;
         Write(bytes, Magic);
         Write(bytes, Version);
@@ -42,6 +73,16 @@ namespace Kans
             for (auto word : module.Words)
                 Write(bytes, word);
         }
+        Write(bytes, uint32_t(defaults.size()));
+        for (const auto& [name, values] : defaults)
+        {
+            Write(bytes, uint32_t(name.size()));
+            Write(bytes, uint32_t(values.size()));
+            for (auto c : name)
+                bytes.push_back(static_cast<std::byte>(c));
+            for (double value : values)
+                WriteDouble(bytes, value);
+        }
         return bytes;
     }
     std::variant<ShaderData, AssetError> DecodeShaderProduct(const std::byte* bytes, size_t size)
@@ -51,7 +92,8 @@ namespace Kans
         const auto* cursor = bytes;
         if (Read(cursor) != Magic)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Shader Product magic"};
-        if (Read(cursor) != Version)
+        const auto version = Read(cursor);
+        if (version != 1 && version != Version)
             return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Shader Product version"};
         if (Read(cursor) != uint32_t(AssetType::Shader) || Read(cursor) != TargetVulkan12)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Shader Product type/target"};
@@ -76,6 +118,31 @@ namespace Kans
             for (uint32_t j = 0; j < words; ++j)
                 module.Words.push_back(Read(cursor));
             result.Code.Modules.push_back(std::move(module));
+        }
+        if (version >= 2)
+        {
+            const auto remaining = [&] { return size - size_t(cursor - bytes); };
+            if (remaining() < 4)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Shader parameter defaults"};
+            const auto defaults = Read(cursor);
+            if (defaults > MaximumDefaults)
+                return AssetError {AssetErrorCode::InvalidData, "Too many Shader parameter defaults"};
+            for (uint32_t i = 0; i < defaults; ++i)
+            {
+                if (remaining() < 8)
+                    return AssetError {AssetErrorCode::InvalidData, "Truncated Shader parameter default"};
+                const auto nameBytes = Read(cursor), count = Read(cursor);
+                if (nameBytes > 256 || count > MaximumDefaultValues ||
+                    uint64_t(nameBytes) + uint64_t(count) * 8 > remaining())
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader parameter default"};
+                std::string         name(reinterpret_cast<const char*>(cursor), nameBytes);
+                std::vector<double> values;
+                cursor += nameBytes;
+                for (uint32_t j = 0; j < count; ++j)
+                    values.push_back(ReadDouble(cursor));
+                if (!ValidDefault(name, values) || !result.ParameterDefaults.emplace(name, std::move(values)).second)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader parameter default"};
+            }
         }
         if (size_t(cursor - bytes) != size)
             return AssetError {AssetErrorCode::InvalidData, "Trailing Shader Product bytes"};

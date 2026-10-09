@@ -42,7 +42,8 @@ namespace Kans
     {
         std::vector<MaterialParameterInfo> Parameters;
         std::vector<std::string>           Textures;
-        // Values used for parameters a source does not set.
+        // Values used for parameters a source does not set (declared by the Shader's
+        // .shaderprog `default` lines); other parameters are zero.
         std::map<std::string, std::vector<double>> Defaults;
     };
 
