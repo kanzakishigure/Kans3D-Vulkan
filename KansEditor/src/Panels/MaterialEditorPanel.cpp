@@ -1,6 +1,7 @@
 #include "MaterialEditorPanel.h"
 #include <fstream>
 #include <imgui.h>
+#include "Kans3D/Asset/Importer/ImporterRegistry.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
 
 namespace Kans
@@ -45,6 +46,8 @@ namespace Kans
         m_Source = {};
         m_Status.clear();
         m_Building = false;
+        m_PendingTexture.reset();
+        m_Thumbnails.clear();
         auto bytes = ReadProductFile(file, 1024 * 1024);
         if (const auto* error = std::get_if<AssetError>(&bytes))
         {
@@ -225,29 +228,222 @@ namespace Kans
         }
     }
 
+    void MaterialEditorPanel::SetTexture(const std::string& slot, AssetID texture)
+    {
+        auto found = m_Source.Textures.find(slot);
+        if (texture.IsValid() ? found != m_Source.Textures.end() && found->second == texture :
+                                found == m_Source.Textures.end())
+            return;
+        if (texture.IsValid())
+            m_Source.Textures[slot] = texture;
+        else
+            m_Source.Textures.erase(slot);
+        m_Dirty = true;
+    }
+
+    void MaterialEditorPanel::DrawThumbnail(AssetID texture, float size)
+    {
+        Thumbnail* thumbnail = nullptr;
+        if (texture.IsValid() && m_Assets)
+        {
+            auto  status = m_Assets->Request<TextureAsset>(texture);
+            auto& entry  = m_Thumbnails[texture];
+            if (status.IsReady() && status.Asset != entry.Source)
+            {
+                entry.Source  = status.Asset;
+                auto uploaded = Texture2D::CreateFromProduct(status.Asset->GetData());
+                entry.Texture =
+                    std::holds_alternative<Ref<Texture2D>>(uploaded) ? std::get<Ref<Texture2D>>(uploaded) : nullptr;
+                entry.FlipY = status.Asset->GetData().Origin == TextureOrigin::BottomLeft;
+            }
+            if (entry.Texture)
+                thumbnail = &entry;
+        }
+        if (!thumbnail)
+        {
+            ImGui::Button(texture.IsValid() ? "..." : "None", {size, size});
+            return;
+        }
+        const ImVec2 uv0(0, thumbnail->FlipY ? 1.0f : 0.0f), uv1(1, thumbnail->FlipY ? 0.0f : 1.0f);
+        const auto   id = (ImTextureID)(uintptr_t)thumbnail->Texture->GetRenererID();
+        ImGui::Image(id, {size, size}, uv0, uv1);
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::BeginTooltip();
+            const float width  = float(thumbnail->Texture->GetWidth());
+            const float height = float(thumbnail->Texture->GetHeight());
+            const float scale  = std::min(256.0f / std::max(width, height), 1.0f);
+            ImGui::Image(id, {width * scale, height * scale}, uv0, uv1);
+            ImGui::Text("%s", ChoiceName(texture).c_str());
+            ImGui::TextDisabled("%u x %u", thumbnail->Texture->GetWidth(), thumbnail->Texture->GetHeight());
+            ImGui::EndTooltip();
+        }
+    }
+
     void MaterialEditorPanel::DrawTexture(const std::string& name)
     {
-        const auto  found   = m_Source.Textures.find(name);
-        std::string preview = found == m_Source.Textures.end() ? "(none)" : ChoiceName(found->second);
-        if (!ImGui::BeginCombo(name.c_str(), preview.c_str()))
-            return;
-        if (ImGui::Selectable("(none)", found == m_Source.Textures.end()))
+        constexpr float Size    = 48.0f;
+        const auto      found   = m_Source.Textures.find(name);
+        const AssetID   current = found == m_Source.Textures.end() ? AssetID {} : found->second;
+
+        ImGui::PushID(name.c_str());
+        ImGui::BeginGroup();
+        DrawThumbnail(current, Size);
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted(name.c_str());
+        const bool pending = m_PendingTexture && m_PendingTexture->first == name;
+        const std::string preview =
+            pending ? "Importing..." : current.IsValid() ? ChoiceName(current) : std::string("(none)");
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##texture", preview.c_str(), ImGuiComboFlags_HeightLarge))
         {
-            m_Source.Textures.erase(name);
-            m_Dirty = true;
-        }
-        for (const auto& choice : m_Choices)
-        {
-            if (choice.Type != AssetType::Texture)
-                continue;
-            const bool selected = found != m_Source.Textures.end() && found->second == choice.ID;
-            if (ImGui::Selectable(choice.Name.c_str(), selected))
+            if (ImGui::IsWindowAppearing())
             {
-                m_Source.Textures[name] = choice.ID;
-                m_Dirty                 = true;
+                m_TextureFilter.clear();
+                ImGui::SetKeyboardFocusHere();
             }
+            char filter[256] = {};
+            m_TextureFilter.copy(filter, sizeof(filter) - 1);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::InputTextWithHint("##filter", "Search", filter, sizeof(filter)))
+                m_TextureFilter = filter;
+            std::string needle(m_TextureFilter);
+            std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+
+            std::vector<const EditorAssetChoice*> matches;
+            for (const auto& choice : m_Choices)
+            {
+                if (choice.Type != AssetType::Texture)
+                    continue;
+                std::string haystack(choice.Name);
+                std::transform(haystack.begin(), haystack.end(), haystack.begin(), [](unsigned char c) {
+                    return static_cast<char>(std::tolower(c));
+                });
+                if (haystack.find(needle) != std::string::npos)
+                    matches.push_back(&choice);
+            }
+            if (ImGui::Selectable("(none)", !current.IsValid()))
+                SetTexture(name, {});
+            // Only visible rows load thumbnails.
+            constexpr float  Row = 28.0f;
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(matches.size()), Row + ImGui::GetStyle().ItemSpacing.y);
+            while (clipper.Step())
+                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+                {
+                    const auto& choice = *matches[i];
+                    ImGui::PushID(i);
+                    const float start = ImGui::GetCursorPosX();
+                    if (ImGui::Selectable(
+                            "##choice", choice.ID == current, ImGuiSelectableFlags_AllowItemOverlap, {0, Row}))
+                        SetTexture(name, choice.ID);
+                    // Thumbnail and name are drawn over the selectable row.
+                    ImGui::SameLine(start);
+                    DrawThumbnail(choice.ID, Row);
+                    ImGui::SameLine();
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(choice.Name.c_str());
+                    ImGui::PopID();
+                }
+            if (matches.empty())
+                ImGui::TextDisabled("No imported textures match.");
+            ImGui::EndCombo();
         }
-        ImGui::EndCombo();
+        ImGui::EndGroup();
+        ImGui::EndGroup();
+
+        // Drop an image from the content browser on the row.
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const auto* payload = ImGui::AcceptDragDropPayload("asset_payload"))
+                AssignDroppedFile(name,
+                                  std::filesystem::u8path(std::string(
+                                      static_cast<const char*>(payload->Data), size_t(payload->DataSize))));
+            ImGui::EndDragDropTarget();
+        }
+        ImGui::PopID();
+    }
+
+    void MaterialEditorPanel::AssignDroppedFile(const std::string& slot, const std::filesystem::path& file)
+    {
+        const auto dropped = Canonical(file);
+        // Already imported: use its Texture Product.
+        for (const auto& choice : m_Choices)
+            if (choice.Type == AssetType::Texture && choice.SourcePath == dropped)
+            {
+                SetTexture(slot, choice.ID);
+                return;
+            }
+        if (!m_Service)
+            return;
+        const auto findSource = [&]() -> std::optional<SourceAssetMetadata> {
+            auto sources = m_Service->GetSources();
+            if (!std::holds_alternative<std::vector<SourceAssetMetadata>>(sources))
+                return std::nullopt;
+            const auto& root = m_Service->GetConfig().AssetDirectory;
+            for (const auto& source : std::get<std::vector<SourceAssetMetadata>>(sources))
+                if (source.Exists && Canonical(root / source.Path.GetPath()) == dropped)
+                    return source;
+            return std::nullopt;
+        };
+        auto source = findSource();
+        if (!source)
+        {
+            (void)m_Service->RefreshSources();
+            source = findSource();
+        }
+        if (!source)
+        {
+            m_Status = file.filename().u8string() + " is not a project asset.";
+            return;
+        }
+        const auto registry = CreateDefaultImporterRegistry();
+        const auto importer = std::get<ImporterRegistry>(registry).Resolve(file, source->Import.Importer);
+        if (std::holds_alternative<AssetError>(importer) ||
+            std::get<RegisteredImporter>(importer).Name != "TextureImporter")
+        {
+            m_Status = file.filename().u8string() + " is not a texture.";
+            return;
+        }
+        AssetBuildOptions options;
+        options.Target = EditorAssetTarget;
+        auto started   = m_Service->Start(source->sourceAssetID, options);
+        if (const auto* error = std::get_if<AssetError>(&started))
+        {
+            m_Status = "Cannot import " + file.filename().u8string() + ": " + error->Message;
+            return;
+        }
+        m_PendingTexture = std::make_pair(slot, source->sourceAssetID);
+        m_Status         = "Importing " + file.filename().u8string() + "...";
+    }
+
+    void MaterialEditorPanel::FinishPendingTexture()
+    {
+        if (!m_PendingTexture || !m_Service)
+            return;
+        auto snapshot = m_Service->GetSnapshot();
+        const auto* status = std::get_if<EditorAssetImportSnapshot>(&snapshot);
+        if (!status || status->State == EditorAssetImportState::Building)
+            return;
+        const auto [slot, source] = *m_PendingTexture;
+        // The editor refreshes the asset choices when the build completes.
+        for (const auto& choice : m_Choices)
+            if (choice.Type == AssetType::Texture && choice.ID.GetSourceID() == source)
+            {
+                SetTexture(slot, choice.ID);
+                m_PendingTexture.reset();
+                m_Status = "Texture imported.";
+                return;
+            }
+        if (status->Source == source && status->State != EditorAssetImportState::Succeeded)
+        {
+            m_PendingTexture.reset();
+            m_Status = status->Error ? "Texture import failed: " + status->Error->Message :
+                                       std::string("Texture import did not finish.");
+        }
     }
 
     void MaterialEditorPanel::Save()
@@ -353,6 +549,7 @@ namespace Kans
             ImGui::SetTooltip("Shaders appear here once imported. Import a .shaderprog (vertex + fragment)\n"
                               "that follows the material contract, e.g. assets/shaders/Toon/Toon.shaderprog.");
 
+        FinishPendingTexture();
         ImGui::Separator();
         if (const auto* schema = Schema())
         {

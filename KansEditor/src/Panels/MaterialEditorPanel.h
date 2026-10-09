@@ -2,6 +2,7 @@
 #include "Kans3D/Asset/Importer/MaterialSource.h"
 #include "Kans3D/Editor/EditorAssetImportService.h"
 #include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
 
 namespace Kans
 {
@@ -25,6 +26,12 @@ namespace Kans
         const MaterialSchema* Schema();
         void                  DrawParameter(const MaterialParameterInfo& parameter, const MaterialSchema& schema);
         void                  DrawTexture(const std::string& name);
+        // Thumbnail button for a texture (or an empty slot); shows a larger preview on hover.
+        void DrawThumbnail(AssetID texture, float size);
+        // Assigns a file dropped from the content browser, importing it first if needed.
+        void AssignDroppedFile(const std::string& slot, const std::filesystem::path& file);
+        void FinishPendingTexture();
+        void SetTexture(const std::string& slot, AssetID texture);
         void                  Save();
         std::string           ChoiceName(AssetID id) const;
 
@@ -38,6 +45,18 @@ namespace Kans
         MaterialSource        m_Source;
         std::string           m_Status;
         bool                  m_Building = false;
+
+        // GPU thumbnails of texture Products, rebuilt when the asset changes.
+        struct Thumbnail
+        {
+            Ref<const TextureAsset> Source;
+            Ref<Texture2D>          Texture;
+            bool                    FlipY = false;
+        };
+        std::unordered_map<AssetID, Thumbnail> m_Thumbnails;
+        // Texture slot waiting for a dropped source to finish importing.
+        std::optional<std::pair<std::string, SourceAssetID>> m_PendingTexture;
+        std::string                                          m_TextureFilter;
 
         // Schema cache, keyed by the Shader asset it was built from.
         Ref<const ShaderDataAsset>    m_SchemaShader;
