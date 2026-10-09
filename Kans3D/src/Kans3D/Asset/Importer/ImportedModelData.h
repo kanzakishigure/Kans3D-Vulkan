@@ -53,6 +53,8 @@ namespace Kans
         std::vector<ImportedNodeData>     Nodes;
         // Successfully read files, including .mtl and external glTF buffers.
         std::vector<std::filesystem::path> SourceFiles;
+        // Source content that was skipped, such as animations.
+        std::vector<std::string> Warnings;
     };
 
     // Owns all returned data. No Assimp or rendering objects escape this boundary.

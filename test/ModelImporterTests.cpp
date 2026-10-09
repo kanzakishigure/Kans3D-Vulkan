@@ -382,4 +382,45 @@ namespace
         ASSERT_TRUE(std::holds_alternative<ImportInputs>(missing));
         EXPECT_NE(std::get<ImportInputs>(missing).Warnings.at(0).find("missing.png"), std::string::npos);
     }
+
+    // Every model shipped with the editor imports its static geometry; content the
+    // importer does not support yet (animation, skinning, embedded textures) is
+    // reported as a warning instead of failing the model.
+    TEST(ModelImporterAssets, BundledModelsImportWithWarningsForUnsupportedContent)
+    {
+        const fs::path root(KANS_TEST_ASSET_DIR);
+        size_t         models = 0;
+        for (const auto& entry : fs::recursive_directory_iterator(root))
+        {
+            if (!entry.is_regular_file())
+                continue;
+            auto extension = entry.path().extension().u8string();
+            std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+            if (extension != ".obj" && extension != ".fbx" && extension != ".gltf" && extension != ".glb")
+                continue;
+            ++models;
+            ImportContext context;
+            context.SourceID   = SourceAssetID::Generate();
+            context.SourceFile = entry.path();
+            auto discovered    = ModelImporter().DiscoverInputs(context);
+            ASSERT_TRUE(std::holds_alternative<ImportInputs>(discovered))
+                << entry.path().u8string() << ": " << std::get<AssetError>(discovered).Message;
+            for (const auto& file : std::get<ImportInputs>(discovered).SourceFiles)
+                context.SourceInputs.emplace(file, SourceAssetID::Generate());
+            for (const auto& file : std::get<ImportInputs>(discovered).ProductSources)
+                context.ProductsBySource.emplace(file, AssetID(SourceAssetID::Generate(), 1));
+            context.StagingDirectory =
+                fs::temp_directory_path() / ("kans-bundled-" + SourceAssetID::Generate().ToString());
+            fs::create_directory(context.StagingDirectory);
+            auto            imported = ModelImporter().Import(context);
+            std::error_code ignored;
+            fs::remove_all(context.StagingDirectory, ignored);
+            ASSERT_TRUE(std::holds_alternative<ImportResult>(imported))
+                << entry.path().u8string() << ": " << std::get<AssetError>(imported).Message;
+            EXPECT_TRUE(std::any_of(std::get<ImportResult>(imported).Products.begin(),
+                                    std::get<ImportResult>(imported).Products.end(),
+                                    [](const auto& product) { return product.Type == AssetType::Model; }));
+        }
+        EXPECT_GE(models, 10u);
+    }
 } // namespace

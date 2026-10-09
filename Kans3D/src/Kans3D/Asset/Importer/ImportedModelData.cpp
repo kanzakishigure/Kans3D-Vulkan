@@ -203,12 +203,13 @@ namespace Kans
                                "Cannot read model material input: " + context.MissingMaterials.front().u8string()};
         if (!scene || !scene->mRootNode || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mNumMeshes)
             return AssetError {AssetErrorCode::InvalidData, "Model parse failed: " + parseError};
-        if (scene->HasAnimations() || scene->HasTextures())
-            return AssetError {AssetErrorCode::NotImplemented,
-                               "Animation and embedded texture CPU data are not supported yet"};
-
+        // Unsupported content is skipped so the static geometry still imports.
         ImportedModelData result;
         result.SourceFiles = context.Files;
+        if (scene->HasAnimations())
+            result.Warnings.push_back(std::to_string(scene->mNumAnimations) + " animation(s) were not imported");
+        if (scene->HasTextures())
+            result.Warnings.push_back(std::to_string(scene->mNumTextures) + " embedded texture(s) were not imported");
         for (uint32_t i = 0; i < scene->mNumMaterials; ++i)
         {
             const auto*          material = scene->mMaterials[i];
@@ -244,11 +245,13 @@ namespace Kans
         for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
         {
             const auto* mesh = scene->mMeshes[i];
+            const std::string name = mesh->mName.C_Str();
             if (mesh->HasBones())
-                return AssetError {AssetErrorCode::NotImplemented, "Skinned model CPU data is not supported yet"};
-            if (mesh->GetNumUVChannels() > 1 || mesh->GetNumColorChannels() > 1 || mesh->mNumAnimMeshes > 0)
-                return AssetError {AssetErrorCode::NotImplemented,
-                                   "Additional vertex channels and morph targets are not supported yet"};
+                result.Warnings.push_back("mesh '" + name + "' imported in its bind pose without skinning");
+            if (mesh->GetNumUVChannels() > 1 || mesh->GetNumColorChannels() > 1)
+                result.Warnings.push_back("mesh '" + name + "' keeps only its first UV and color channel");
+            if (mesh->mNumAnimMeshes > 0)
+                result.Warnings.push_back("mesh '" + name + "' morph targets were not imported");
             if (!mesh->HasPositions() || !mesh->HasNormals() || mesh->mMaterialIndex >= result.Materials.size())
                 return AssetError {AssetErrorCode::InvalidData, "Model mesh has invalid geometry or material"};
             ImportedMeshData data;

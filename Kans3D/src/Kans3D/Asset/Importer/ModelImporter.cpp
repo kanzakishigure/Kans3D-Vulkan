@@ -76,12 +76,15 @@ namespace Kans
             return *error;
         const auto&  model = std::get<ImportedModelData>(parsed);
         ImportInputs inputs;
+        inputs.Warnings = model.Warnings;
         for (const auto& file : model.SourceFiles)
             if (file != context.SourceFile.lexically_normal())
                 inputs.SourceFiles.push_back(file);
         for (const auto& material : model.Materials)
             for (const auto& texture : material.Textures)
             {
+                if (!texture.Source.empty() && texture.Source[0] == '*')
+                    continue; // Embedded texture; reported by the parser.
                 // A missing texture leaves the material slot empty instead of failing the model.
                 auto resolved = ResolveModelTexture(context.SourceFile, texture.Source);
                 if (const auto* error = std::get_if<AssetError>(&resolved))
