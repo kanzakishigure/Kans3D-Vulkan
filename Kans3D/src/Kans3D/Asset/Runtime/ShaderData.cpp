@@ -154,8 +154,10 @@ namespace Kans
                 for (size_t cursor = 5; cursor < module.Words.size(); cursor += module.Words[cursor] >> 16)
                 {
                     const auto opcode = module.Words[cursor] & 65535;
+                    // ImageQuery: textureSize / textureQueryLod.
                     if ((opcode == spv::OpCapability && module.Words[cursor + 1] != spv::CapabilityShader &&
-                         module.Words[cursor + 1] != spv::CapabilityMatrix) ||
+                         module.Words[cursor + 1] != spv::CapabilityMatrix &&
+                         module.Words[cursor + 1] != spv::CapabilityImageQuery) ||
                         opcode == spv::OpExtension)
                         return AssetError {AssetErrorCode::NotImplemented,
                                            "Shader capability/extension is unsupported"};

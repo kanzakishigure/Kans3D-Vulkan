@@ -4,8 +4,9 @@
 //
 // Textures: u_Diffuse (base color), u_LightMap (*_Light: R specular type,
 // G shadow/AO mask, B specular mask, A ramp row), u_RampMap (*_Ramp).
-// Like the legacy shader, shading is computed on gamma-encoded texture values
-// and written without further encoding.
+// Like the legacy shader, shading is computed on the stored (gamma-encoded)
+// texture values and written without further encoding, and textures are
+// sampled the way the legacy loader configured them (see LegacySample).
 #include <Kans3D/Engine.glsl>
 
 layout(set = 1, binding = 0, std140) uniform ToneParameters
@@ -39,7 +40,22 @@ vec3 Encode(vec3 linear)
     return mix(linear * 12.92, 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), linear));
 }
 
-vec3 RampRow(float u, float v) { return pow(Encode(texture(u_RampMap, vec2(u, v)).rgb), vec3(1.0 / 2.2)); }
+// The legacy loader created textures without mipmaps, with linear minification,
+// nearest magnification and repeat wrapping; imported textures have mipmaps and
+// linear magnification, which would blend ramp rows and light-map regions.
+vec4 LegacySample(sampler2D image, vec2 uv)
+{
+    if (textureQueryLod(image, uv).y > 0.0)
+        return textureLod(image, uv, 0.0);
+    ivec2 size  = textureSize(image, 0);
+    ivec2 texel = clamp(ivec2(floor(fract(uv) * vec2(size))), ivec2(0), size - 1);
+    return texelFetch(image, texel, 0);
+}
+
+// Stored 8-bit value of a color texture channel.
+vec3 Stored(vec3 sampled) { return round(Encode(sampled) * 255.0) / 255.0; }
+
+vec3 RampRow(float u, float v) { return pow(Stored(LegacySample(u_RampMap, vec2(u, v)).rgb), vec3(1.0 / 2.2)); }
 
 void main()
 {
@@ -47,11 +63,11 @@ void main()
     vec3 viewDir  = normalize(u_Frame.CameraPosition.xyz - v_WorldPos);
     vec3 lightDir = normalize(u_Frame.LightPositions[0].xyz - v_WorldPos);
 
-    vec4 baseColor = vec4(Encode(texture(u_Diffuse, v_UV).rgb), 1.0);
+    vec4 baseColor = vec4(Stored(LegacySample(u_Diffuse, v_UV).rgb), 1.0);
     vec2 lightUV   = u_Tone.LightMapFlipV ? vec2(v_UV.x, 1.0 - v_UV.y) : v_UV;
-    vec4 lightMap  = texture(u_LightMap, lightUV);
+    vec4 lightMap  = LegacySample(u_LightMap, lightUV);
     if (!u_Tone.LightMapIsData)
-        lightMap.rgb = Encode(lightMap.rgb);
+        lightMap.rgb = Stored(lightMap.rgb);
 
     float lambert = max(0.0, dot(lightDir, norm)) * 0.5 + 0.5;
     float NoV     = dot(viewDir, norm);

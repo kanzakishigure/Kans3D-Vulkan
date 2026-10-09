@@ -254,7 +254,6 @@ namespace Kans
                 auto uploaded = Texture2D::CreateFromProduct(status.Asset->GetData());
                 entry.Texture =
                     std::holds_alternative<Ref<Texture2D>>(uploaded) ? std::get<Ref<Texture2D>>(uploaded) : nullptr;
-                entry.FlipY = status.Asset->GetData().Origin == TextureOrigin::BottomLeft;
             }
             if (entry.Texture)
                 thumbnail = &entry;
@@ -264,7 +263,8 @@ namespace Kans
             ImGui::Button(texture.IsValid() ? "..." : "None", {size, size});
             return;
         }
-        const ImVec2 uv0(0, thumbnail->FlipY ? 1.0f : 0.0f), uv1(1, thumbnail->FlipY ? 0.0f : 1.0f);
+        // Uploads store the image bottom row first (OpenGL convention).
+        const ImVec2 uv0(0, 1), uv1(1, 0);
         const auto   id = (ImTextureID)(uintptr_t)thumbnail->Texture->GetRenererID();
         ImGui::Image(id, {size, size}, uv0, uv1);
         if (ImGui::IsItemHovered())

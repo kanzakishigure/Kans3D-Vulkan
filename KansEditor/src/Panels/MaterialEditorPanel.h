@@ -51,7 +51,6 @@ namespace Kans
         {
             Ref<const TextureAsset> Source;
             Ref<Texture2D>          Texture;
-            bool                    FlipY = false;
         };
         std::unordered_map<AssetID, Thumbnail> m_Thumbnails;
         // Texture slot waiting for a dropped source to finish importing.
