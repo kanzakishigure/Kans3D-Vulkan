@@ -21,7 +21,7 @@ layout(set = 1, binding = 0, std140) uniform ToneParameters
     float SpecularIntensity1; // silk
     float SpecularIntensity2; // black stockings
     float SpecularIntensity3; // ropes
-    bool  LightMapFlipV;      // the legacy shader sampled the light map at (u, 1 - v)
+    bool  LightMapFlipV;      // sample the light map at (u, 1 - v), as the legacy shader did
     bool  LightMapIsData;     // set when the light map is imported with usage: data
 } u_Tone;
 layout(set = 1, binding = 1) uniform sampler2D u_Diffuse;
