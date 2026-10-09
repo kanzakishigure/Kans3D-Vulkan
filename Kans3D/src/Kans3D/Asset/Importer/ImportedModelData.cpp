@@ -219,8 +219,25 @@ namespace Kans
             if (material->Get(AI_MATKEY_BASE_COLOR, color) != AI_SUCCESS)
                 material->Get(AI_MATKEY_COLOR_DIFFUSE, color);
             data.BaseColor = {color.r, color.g, color.b, color.a};
-            material->Get(AI_MATKEY_METALLIC_FACTOR, data.Metallic);
-            material->Get(AI_MATKEY_ROUGHNESS_FACTOR, data.Roughness);
+            int shading    = 0;
+            material->Get(AI_MATKEY_SHADING_MODEL, shading);
+            if (shading == aiShadingMode_PBR_BRDF)
+            {
+                material->Get(AI_MATKEY_METALLIC_FACTOR, data.Metallic);
+                material->Get(AI_MATKEY_ROUGHNESS_FACTOR, data.Roughness);
+            }
+            else
+            {
+                // Phong-style material: approximate roughness from the specular exponent.
+                float shininess = 0;
+                if (material->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS && shininess > 0)
+                    data.Roughness = std::clamp(std::sqrt(2.0f / (shininess + 2.0f)), 0.04f, 1.0f);
+            }
+            float opacity = 1.0f;
+            material->Get(AI_MATKEY_OPACITY, opacity);
+            aiString   alphaMode; // glTF: OPAQUE, MASK or BLEND
+            const bool gltfAlpha = material->Get("$mat.gltf.alphaMode", 0, 0, alphaMode) == AI_SUCCESS;
+            data.Opaque          = opacity >= 1.0f && (!gltfAlpha || std::string(alphaMode.C_Str()) == "OPAQUE");
             if (!std::all_of(data.BaseColor.begin(), data.BaseColor.end(), [](float v) { return std::isfinite(v); }) ||
                 !std::isfinite(data.Metallic) || !std::isfinite(data.Roughness))
                 return AssetError {AssetErrorCode::InvalidData, "Model material contains non-finite data"};
@@ -328,8 +345,28 @@ namespace Kans
             for (uint32_t i = entry.first->mNumChildren; i > 0; --i)
                 pending.emplace_back(entry.first->mChildren[i - 1], index);
         }
+        // The engine works in meters. FBX records its unit as centimeters per unit.
+        double unit = 0;
+        if (scene->mMetaData)
+        {
+            float single = 0;
+            if (!scene->mMetaData->Get("UnitScaleFactor", unit) && scene->mMetaData->Get("UnitScaleFactor", single))
+                unit = single;
+        }
+        if (std::isfinite(unit) && unit > 0 && unit != 100 && !result.Nodes.empty())
+            ScaleModel(result, static_cast<float>(unit / 100.0));
         return result;
     }
+
+    void ScaleModel(ImportedModelData& model, float scale)
+    {
+        // Scaling the root node scales the whole hierarchy (row-major: scale rows 0-2).
+        for (auto& node : model.Nodes)
+            if (node.Parent < 0)
+                for (size_t i = 0; i < 12; ++i)
+                    node.LocalTransform[i] *= scale;
+    }
+
     std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path)
     {
         return ParseModelCpuImpl(path, nullptr);

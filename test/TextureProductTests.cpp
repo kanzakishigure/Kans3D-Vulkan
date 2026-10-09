@@ -252,6 +252,14 @@ namespace
         EXPECT_EQ(Generated(texture).Mips[1].Pixels[0], std::byte {128});
     }
 
+    TEST(TextureMips, FullyTransparentBlocksKeepTheirAverageColorInsteadOfBlack)
+    {
+        // Textures that store a mask in alpha are often almost entirely alpha 0.
+        auto texture = RGBA(2, 1, {200, 100, 50, 0, 100, 50, 150, 0});
+        auto mip     = Generated(texture).Mips[1].Pixels;
+        EXPECT_EQ(mip, (std::vector<std::byte> {std::byte {150}, std::byte {75}, std::byte {100}, std::byte {0}}));
+    }
+
     TEST(TextureMips, OddDimensionsIncludeLastRowsColumnsAndFractionalAreaCoverage)
     {
         EXPECT_EQ(Generated(R8(3, 1, {0, 0, 255})).Mips[1].Pixels[0], std::byte {85});

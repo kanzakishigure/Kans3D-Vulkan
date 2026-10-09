@@ -6,6 +6,7 @@
 #include "ImportedModelData.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <map>
 #include <set>
@@ -67,6 +68,25 @@ namespace Kans
         }
     } // namespace
 
+    namespace
+    {
+        // Settings: "scale" (positive number, default 1) multiplies the model size.
+        std::variant<float, AssetError> ParseModelScale(const std::map<std::string, std::string>& settings)
+        {
+            float scale = 1.0f;
+            for (const auto& [key, value] : settings)
+            {
+                if (key != "scale")
+                    return AssetError {AssetErrorCode::InvalidArgument, "Unknown model import setting: " + key};
+                char* end = nullptr;
+                scale     = std::strtof(value.c_str(), &end);
+                if (value.empty() || *end || !std::isfinite(scale) || scale <= 0.0f)
+                    return AssetError {AssetErrorCode::InvalidArgument, "Model scale must be a positive number"};
+            }
+            return scale;
+        }
+    } // namespace
+
     std::variant<ImportInputs, AssetError> ModelImporter::DiscoverInputs(const ImportContext& context) const
     {
         if (!context.SourceFile.is_absolute())
@@ -77,6 +97,7 @@ namespace Kans
         const auto&  model = std::get<ImportedModelData>(parsed);
         ImportInputs inputs;
         inputs.Warnings = model.Warnings;
+        std::set<std::filesystem::path> conflicted; // referenced with differing settings
         for (const auto& file : model.SourceFiles)
             if (file != context.SourceFile.lexically_normal())
                 inputs.SourceFiles.push_back(file);
@@ -93,23 +114,34 @@ namespace Kans
                     continue;
                 }
                 auto path = std::get<std::filesystem::path>(std::move(resolved));
-                // Non-color textures must not be decoded as sRGB. A texture used
-                // for color anywhere keeps the default color settings.
-                using S              = MaterialTextureSemantic;
-                const auto  semantic = static_cast<S>(texture.Semantic);
-                const char* usage =
-                    semantic == S::Normal || semantic == S::NormalCamera || semantic == S::Height ? "normal" :
-                    semantic == S::MetallicRoughness || semantic == S::Metalness || semantic == S::DiffuseRoughness ||
-                            semantic == S::AmbientOcclusion || semantic == S::Unknown || semantic == S::Lightmap ?
-                                                                                                    "data" :
-                                                                                                    nullptr;
+                // Suggested import settings: non-color textures must not be decoded as
+                // sRGB, and an opaque material's color texture uses its alpha as data,
+                // not coverage. A texture referenced with different needs gets none.
+                using S                                     = MaterialTextureSemantic;
+                const auto                         semantic = static_cast<S>(texture.Semantic);
+                std::map<std::string, std::string> hint;
+                if (semantic == S::Normal || semantic == S::NormalCamera || semantic == S::Height)
+                    hint = {{"usage", "normal"}};
+                else if (semantic == S::MetallicRoughness || semantic == S::Metalness ||
+                         semantic == S::DiffuseRoughness || semantic == S::AmbientOcclusion || semantic == S::Unknown ||
+                         semantic == S::Lightmap)
+                    hint = {{"usage", "data"}};
+                else if ((semantic == S::BaseColor || semantic == S::Diffuse) && material.Opaque)
+                    hint = {{"alpha_mode", "opaque"}};
                 const bool first = std::find(inputs.ProductSources.begin(), inputs.ProductSources.end(), path) ==
                                    inputs.ProductSources.end();
-                if (first && usage)
-                    inputs.ProductSourceSettings[path] = {{"usage", usage}};
-                else if (!usage || (inputs.ProductSourceSettings.count(path) &&
-                                    inputs.ProductSourceSettings[path].at("usage") != usage))
+                if (first)
+                {
+                    if (!hint.empty())
+                        inputs.ProductSourceSettings[path] = hint;
+                    else
+                        conflicted.insert(path);
+                }
+                else if (!conflicted.count(path) && (hint.empty() || inputs.ProductSourceSettings[path] != hint))
+                {
                     inputs.ProductSourceSettings.erase(path);
+                    conflicted.insert(path);
+                }
                 if (first)
                     inputs.ProductSources.push_back(std::move(path));
             }
@@ -120,16 +152,18 @@ namespace Kans
     {
         if (!context.SourceID.IsValid() || !context.SourceFile.is_absolute() || !context.StagingDirectory.is_absolute())
             return AssetError {AssetErrorCode::InvalidArgument, "Invalid model import context"};
-        if (!context.Settings.empty())
-            return AssetError {AssetErrorCode::InvalidArgument,
-                               "Model import settings are not supported by this importer version"};
+        auto scale = ParseModelScale(context.Settings);
+        if (const auto* error = std::get_if<AssetError>(&scale))
+            return *error;
         std::vector<std::filesystem::path> allowedFiles {context.SourceFile};
         for (const auto& input : context.SourceInputs)
             allowedFiles.push_back(input.first);
         auto parsed = ParseModelCpu(context.SourceFile, allowedFiles);
         if (const auto* error = std::get_if<AssetError>(&parsed))
             return *error;
-        const auto&              source = std::get<ImportedModelData>(parsed);
+        auto& source = std::get<ImportedModelData>(parsed);
+        if (std::get<float>(scale) != 1.0f)
+            ScaleModel(source, std::get<float>(scale));
         std::vector<std::string> materialKeys;
         std::vector<std::string> meshKeys;
         for (const auto& material : source.Materials)

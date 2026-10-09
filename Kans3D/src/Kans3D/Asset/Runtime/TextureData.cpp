@@ -229,7 +229,7 @@ namespace Kans
                             const double          x0 = double(x) * pw / w, x1 = double(x + 1) * pw / w;
                             const double          y0 = double(y) * ph / h, y1 = double(y + 1) * ph / h;
                             const double          z0 = double(z) * pd / d, z1 = double(z + 1) * pd / d;
-                            std::array<double, 4> sum {};
+                            std::array<double, 4> sum {}, plain {};
                             double                weights = 0, alphaWeights = 0;
                             for (uint32_t pz = static_cast<uint32_t>(z0); pz < static_cast<uint32_t>(std::ceil(z1));
                                  ++pz)
@@ -248,8 +248,11 @@ namespace Kans
                                         const bool   associate = out.Usage == TextureUsage::Color &&
                                                                out.AlphaMode == TextureAlphaMode::Straight;
                                         for (unsigned channel = 0; channel < 4; ++channel)
+                                        {
                                             sum[channel] +=
                                                 pixel[channel] * weight * ((associate && channel < 3) ? pixel[3] : 1);
+                                            plain[channel] += pixel[channel] * weight;
+                                        }
                                         weights += weight;
                                         alphaWeights += weight * pixel[3];
                                     }
@@ -257,7 +260,9 @@ namespace Kans
                                 sum[channel] /= weights;
                             if (out.Usage == TextureUsage::Color && out.AlphaMode == TextureAlphaMode::Straight)
                                 for (unsigned channel = 0; channel < 3; ++channel)
-                                    sum[channel] = alphaWeights > 0 ? sum[channel] * weights / alphaWeights : 0;
+                                    // A fully transparent block keeps its average color instead of black.
+                                    sum[channel] = alphaWeights > 0 ? sum[channel] * weights / alphaWeights :
+                                                                      plain[channel] / weights;
                             if (out.Usage == TextureUsage::Normal)
                             {
                                 const double length = std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);

@@ -3,6 +3,8 @@
 #include <future>
 #include <iterator>
 #include <set>
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <gtest/gtest.h>
 #include "Kans3D/Asset/Importer/ImportedModelData.h"
 #include "Kans3D/Asset/Importer/ModelImporter.h"
@@ -372,9 +374,17 @@ namespace
         // The same file referenced with different case is one input.
         EXPECT_EQ(inputs.ProductSources,
                   (std::vector<fs::path> {Workspace / "Textures" / "Albedo.PNG", Workspace / "normal.png"}));
-        // Only the bump map is non-color data.
-        EXPECT_EQ(inputs.ProductSourceSettings.size(), 1u);
+        // The bump map is non-color data; the opaque materials' color texture uses alpha as data.
+        EXPECT_EQ(inputs.ProductSourceSettings.size(), 2u);
         EXPECT_EQ(inputs.ProductSourceSettings.at(Workspace / "normal.png").at("usage"), "normal");
+        EXPECT_EQ(inputs.ProductSourceSettings.at(Workspace / "Textures" / "Albedo.PNG").at("alpha_mode"), "opaque");
+
+        // A color texture also used by a transparent material gets no suggestion.
+        Write(Workspace / "model.mtl",
+              "newmtl Surface\nmap_Kd Textures/Albedo.PNG\nnewmtl Other\nd 0.5\nmap_Kd Textures/Albedo.PNG\n");
+        auto mixed = ModelImporter().DiscoverInputs(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportInputs>(mixed));
+        EXPECT_TRUE(std::get<ImportInputs>(mixed).ProductSourceSettings.empty());
 
         Write(Workspace / "model.mtl", "newmtl Surface\nmap_Kd missing.png\n");
         Write(Context.SourceFile, "mtllib model.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Surface\nf 1 2 3\n");
@@ -422,5 +432,69 @@ namespace
                                     [](const auto& product) { return product.Type == AssetType::Model; }));
         }
         EXPECT_GE(models, 10u);
+    }
+
+    // Model height in the parsed hierarchy, following parent transforms (parents come first).
+    float ModelHeight(const ImportedModelData& model)
+    {
+        std::vector<glm::mat4> world(model.Nodes.size());
+        float                  low = 1e30f, high = -1e30f;
+        for (size_t i = 0; i < model.Nodes.size(); ++i)
+        {
+            const auto& node  = model.Nodes[i];
+            const auto  local = glm::transpose(glm::make_mat4(node.LocalTransform.data()));
+            world[i]          = node.Parent < 0 ? local : world[node.Parent] * local;
+            for (uint32_t mesh : node.Meshes)
+                for (const auto& vertex : model.Meshes[mesh].Vertices)
+                {
+                    const auto p = world[i] * glm::vec4(vertex.Position[0], vertex.Position[1], vertex.Position[2], 1);
+                    low          = std::min(low, p.y);
+                    high         = std::max(high, p.y);
+                }
+        }
+        return high - low;
+    }
+
+    // FBX units are converted to engine meters (UnitScaleFactor is centimeters per unit).
+    // This model is authored in centimeters at 19.9 m (an oversized MMD conversion).
+    TEST(ModelImporterAssets, FbxUnitsAreConvertedToMeters)
+    {
+        auto parsed = ParseModelCpu(fs::path(KANS_TEST_ASSET_DIR) / "GY_Light" / "GY_Light.fbx");
+        ASSERT_TRUE(std::holds_alternative<ImportedModelData>(parsed));
+        EXPECT_NEAR(ModelHeight(std::get<ImportedModelData>(parsed)), 19.905f, 0.01f);
+    }
+
+    TEST_F(ModelImporterTest, ScaleSettingResizesTheWholeModel)
+    {
+        ModelSource();
+        const auto rootScale = [&](const ImportResult& result) {
+            for (const auto& product : result.Products)
+                if (product.Type == AssetType::Model)
+                {
+                    const auto bytes = Read(product);
+                    return std::get<ModelData>(DecodeModelProduct(bytes.data(), bytes.size())).Nodes[0].LocalTransform;
+                }
+            return std::array<float, 16> {};
+        };
+        auto normal = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(normal));
+        const auto before        = rootScale(std::get<ImportResult>(normal)); // read before changing staging
+        Context.StagingDirectory = Workspace / "scaled";
+        fs::create_directory(Context.StagingDirectory);
+        Context.Settings = {{"scale", "0.25"}};
+        auto scaled      = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(scaled)) << std::get<AssetError>(scaled).Message;
+        const auto after = rootScale(std::get<ImportResult>(scaled));
+        for (size_t i = 0; i < 12; ++i)
+            EXPECT_FLOAT_EQ(after[i], before[i] * 0.25f) << i;
+        EXPECT_EQ(after[15], before[15]);
+        // Identity does not depend on scale.
+        EXPECT_EQ(std::get<ImportResult>(scaled).LocalIDs, std::get<ImportResult>(normal).LocalIDs);
+
+        for (const char* bad : {"0", "-1", "abc", "1x", "", "inf"})
+        {
+            Context.Settings = {{"scale", bad}};
+            EXPECT_TRUE(std::holds_alternative<AssetError>(ModelImporter().Import(Context))) << bad;
+        }
     }
 } // namespace

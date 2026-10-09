@@ -152,19 +152,15 @@ namespace Kans
             if (std::holds_alternative<AssetError>(selected) ||
                 std::get<RegisteredImporter>(selected).Name != "ModelImporter")
                 break; // Not a model: show it in the import panel instead.
+            // Always build: it is quick when up to date and picks up edited sources.
             m_PendingPlacement = source.sourceAssetID;
-            if (FindPublishedModel(source.sourceAssetID).IsValid())
-                PlacePendingModel();
-            else
+            AssetBuildOptions options;
+            options.Target = EditorAssetTarget;
+            auto started   = m_AssetImports->Start(source.sourceAssetID, options);
+            if (const auto* failure = std::get_if<AssetError>(&started))
             {
-                AssetBuildOptions options;
-                options.Target = EditorAssetTarget;
-                auto started   = m_AssetImports->Start(source.sourceAssetID, options);
-                if (const auto* failure = std::get_if<AssetError>(&started))
-                {
-                    m_SceneFileError = failure->Message;
-                    m_PendingPlacement.reset();
-                }
+                m_SceneFileError = failure->Message;
+                m_PendingPlacement.reset();
             }
             return;
         }

@@ -34,6 +34,8 @@ namespace Kans
         std::array<float, 4>                  BaseColor {1, 1, 1, 1};
         float                                 Metallic  = 0;
         float                                 Roughness = 1;
+        // False when the source marks the material as transparent or alpha tested.
+        bool                                  Opaque = true;
         std::vector<ImportedTextureReference> Textures;
     };
 
@@ -64,6 +66,8 @@ namespace Kans
     // Closed input IO: undeclared paths are rejected before opening them.
     [[nodiscard]] std::variant<ImportedModelData, AssetError>
     ParseModelCpu(const std::filesystem::path& path, const std::vector<std::filesystem::path>& allowedFiles);
+    // Uniformly scales the model by scaling its root nodes.
+    void ScaleModel(ImportedModelData& model, float scale);
     // Finds the file a model's texture reference points to. Accepts backslashes,
     // absolute paths from other machines and case mismatches by falling back to a
     // file-name search below the model directory.

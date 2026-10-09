@@ -8,7 +8,7 @@ namespace Kans
     class ModelImporter final : public AssetImporterBase
     {
     public:
-        uint32_t GetVersion() const override { return 4; }
+        uint32_t GetVersion() const override { return 5; }
         [[nodiscard]] std::variant<ImportInputs, AssetError>
         DiscoverInputs(const ImportContext& context) const override;
         [[nodiscard]] std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;

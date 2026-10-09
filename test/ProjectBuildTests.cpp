@@ -135,7 +135,9 @@ namespace
         // A texture used as a bump/normal map gets non-color import settings.
         EXPECT_EQ(Owner->GetSourceAssetDatabase().FindByID(ID("normal.tga")).Import.Settings,
                   (std::map<std::string, std::string> {{"usage", "normal"}}));
-        EXPECT_TRUE(Owner->GetSourceAssetDatabase().FindByID(ID("diffuse.tga")).Import.Settings.empty());
+        // An opaque material's color texture keeps alpha as data rather than coverage.
+        EXPECT_EQ(Owner->GetSourceAssetDatabase().FindByID(ID("diffuse.tga")).Import.Settings,
+                  (std::map<std::string, std::string> {{"alpha_mode", "opaque"}}));
 
         auto provider = LooseFileAssetProvider::Open(Owner->GetProductDirectory());
         ASSERT_TRUE(std::holds_alternative<Ref<LooseFileAssetProvider>>(provider));

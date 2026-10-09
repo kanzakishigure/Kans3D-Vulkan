@@ -145,5 +145,6 @@ void main()
 
     color     = color / (color + vec3(1.0));
     color     = pow(color, vec3(1.0 / 2.2));
-    FragColor = vec4(color, baseColor.a);
+    // Opaque pipeline: texture alpha is often a mask, not coverage.
+    FragColor = vec4(color, 1.0);
 }
