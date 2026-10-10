@@ -5,6 +5,7 @@
 #include <set>
 #include <stdexcept>
 #include <yaml-cpp/yaml.h>
+#include "Kans3D/Asset/Product/MaterialRenderStateYaml.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Asset/Runtime/MaterialShaderInterface.h"
@@ -125,16 +126,17 @@ namespace Kans
             {
                 const auto field = entry.first.as<std::string>();
                 if (!fields.insert(field).second ||
-                    !std::set<std::string> {"magic", "version", "name", "shader", "parameters", "textures"}.count(
-                        field))
+                    !std::set<std::string> {"magic", "version", "name", "shader", "parameters", "textures", "render"}
+                         .count(field))
                     return Invalid("unknown or duplicate field '" + field + "'");
             }
             if (!root["magic"] || root["magic"].as<std::string>() != "KansMaterial")
                 return Invalid("missing 'magic: KansMaterial'");
-            if (!root["version"] || root["version"].as<uint32_t>() != 2)
-                return AssetError {AssetErrorCode::UnsupportedVersion, "Material source requires version 2"};
+            if (!root["version"] || (root["version"].as<uint32_t>() != 2 && root["version"].as<uint32_t>() != 3))
+                return AssetError {AssetErrorCode::UnsupportedVersion, "Material source requires version 2 or 3"};
 
             MaterialSource source;
+            source.Render = ReadMaterialRenderState(root["render"]);
             source.Name = root["name"] ? root["name"].as<std::string>() : std::string();
             if (source.Name.size() > 4096)
                 return Invalid("name is too long");
@@ -181,12 +183,14 @@ namespace Kans
     {
         const auto    source = CanonicalSource(input);
         YAML::Emitter out;
+        out.SetFloatPrecision(9);
         out << YAML::BeginMap;
         out << YAML::Key << "magic" << YAML::Value << "KansMaterial";
-        out << YAML::Key << "version" << YAML::Value << 2;
+        out << YAML::Key << "version" << YAML::Value << 3;
         out << YAML::Key << "name" << YAML::Value << source.Name;
         out << YAML::Key << "shader" << YAML::Value
             << (source.Shader.IsValid() ? source.Shader.ToString() : std::string());
+        EmitMaterialRenderState(out, source.Render);
         out << YAML::Key << "parameters" << YAML::Value << YAML::BeginMap;
         for (const auto& [name, values] : source.Parameters)
         {
@@ -334,6 +338,9 @@ namespace Kans
 
         MaterialData data;
         data.Name = source.Name;
+        data.Render = source.Render;
+        if (!IsValidMaterialRenderState(data.Render))
+            return Invalid("invalid render state");
         if (standard)
         {
             const auto& color = parameters.at("BaseColor");

@@ -210,6 +210,11 @@ namespace Kans
             result.Warnings.push_back(std::to_string(scene->mNumAnimations) + " animation(s) were not imported");
         if (scene->HasTextures())
             result.Warnings.push_back(std::to_string(scene->mNumTextures) + " embedded texture(s) were not imported");
+        auto extension = path.extension().u8string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        const bool gltfSource = extension == ".gltf" || extension == ".glb";
         for (uint32_t i = 0; i < scene->mNumMaterials; ++i)
         {
             const auto*          material = scene->mMaterials[i];
@@ -240,9 +245,36 @@ namespace Kans
             material->Get(AI_MATKEY_OPACITY, opacity);
             aiString   alphaMode; // glTF: OPAQUE, MASK or BLEND
             const bool gltfAlpha = material->Get("$mat.gltf.alphaMode", 0, 0, alphaMode) == AI_SUCCESS;
-            data.Opaque          = opacity >= 1.0f && (!gltfAlpha || std::string(alphaMode.C_Str()) == "OPAQUE");
+            if (gltfAlpha)
+            {
+                const std::string mode = alphaMode.C_Str();
+                if (mode == "MASK")
+                    data.Render.AlphaMode = MaterialAlphaMode::Mask;
+                else if (mode == "BLEND")
+                    data.Render.AlphaMode = MaterialAlphaMode::Blend;
+                material->Get("$mat.gltf.alphaCutoff", 0, 0, data.Render.AlphaCutoff);
+            }
+            else
+            {
+                if (!std::isfinite(opacity) || opacity <= 0.0f)
+                {
+                    result.Warnings.push_back("material '" + data.Name +
+                                              "' has unreliable non-glTF opacity; using opaque alpha 1");
+                    opacity = 1.0f;
+                }
+                else if (opacity < 1.0f)
+                    data.Render.AlphaMode = MaterialAlphaMode::Blend;
+                // Assimp's legacy diffuse colour does not necessarily carry opacity.
+                data.BaseColor[3] = opacity;
+            }
+            int doubleSided = 0;
+            material->Get(AI_MATKEY_TWOSIDED, doubleSided);
+            // Legacy character formats have no reliable single-sided flag; preserve their visible inner surfaces.
+            data.Render.DoubleSided = !gltfSource || doubleSided != 0;
+            data.Opaque             = data.Render.AlphaMode == MaterialAlphaMode::Opaque;
             if (!std::all_of(data.BaseColor.begin(), data.BaseColor.end(), [](float v) { return std::isfinite(v); }) ||
-                !std::isfinite(data.Metallic) || !std::isfinite(data.Roughness) ||
+                !std::isfinite(data.Metallic) || !std::isfinite(data.Roughness) || !std::isfinite(opacity) ||
+                !IsValidMaterialRenderState(data.Render) ||
                 !std::all_of(
                     data.EmissiveColor.begin(), data.EmissiveColor.end(), [](float v) { return std::isfinite(v); }))
                 return AssetError {AssetErrorCode::InvalidData, "Model material contains non-finite data"};

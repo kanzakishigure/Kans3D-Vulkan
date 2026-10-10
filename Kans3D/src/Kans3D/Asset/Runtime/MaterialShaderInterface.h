@@ -46,8 +46,11 @@ namespace Kans
     {
         glm::mat4 Transform {1.0f};
         glm::mat4 NormalMatrix {1.0f};
+        // x: MaterialAlphaMode (0 opaque, 1 mask, 2 blend), y: cutoff, z: double-sided.
+        glm::vec4 MaterialRender {0.0f, 0.5f, 0.0f, 0.0f};
     };
-    static_assert(sizeof(EngineObjectUniforms) == 128, "KansObject std140 layout");
+    static_assert(sizeof(EngineObjectUniforms) == 144, "KansObject std140 layout");
+    static_assert(offsetof(EngineObjectUniforms, MaterialRender) == 128, "KansObject render state appended");
 
     // GLSL text of an engine include (`#include <name>`), or nullptr.
     [[nodiscard]] const std::string* FindEngineShaderInclude(const std::string& name);

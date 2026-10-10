@@ -8,6 +8,7 @@
 #include <vector>
 #include "Kans3D/Asset/AssetError.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
+#include "Kans3D/Asset/Runtime/ModelData.h"
 
 namespace Kans
 {
@@ -38,6 +39,7 @@ namespace Kans
         bool                                  Opaque = true;
         std::vector<ImportedTextureReference> Textures;
         std::array<float, 3>                  EmissiveColor {0, 0, 0};
+        MaterialRenderState                   Render;
     };
 
     struct ImportedNodeData

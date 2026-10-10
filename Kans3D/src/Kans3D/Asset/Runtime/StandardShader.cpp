@@ -62,6 +62,7 @@ void main()
 )"},
                                                                        {"Standard.frag", R"(#version 450
 #include <Kans3D/Lighting.glsl>
+#include <Kans3D/Alpha.glsl>
 layout(set = 1, binding = 0, std140) uniform StandardParameters
 {
     vec4 BaseColor;
@@ -115,16 +116,21 @@ vec3 StandardNormal(vec2 uv)
 void main()
 {
     vec2 uv = v_UV * p.UVTiling + p.UVOffset;
-    vec3 albedo = (p.BaseColor * mix(vec4(1), v_Color, p.VertexColorStrength) * texture(BaseColorMap, uv)).rgb;
+    vec4 baseColor = p.BaseColor * mix(vec4(1), v_Color, p.VertexColorStrength) * texture(BaseColorMap, uv);
+    KansAlphaClip(baseColor.a);
+    float alpha = KansOutputAlpha(baseColor.a);
+    vec3 albedo = baseColor.rgb;
     vec3 N = StandardNormal(uv);
+    if (u_Object.MaterialRender.z != 0.0 && !gl_FrontFacing)
+        N = -N;
     if (u_Frame.DebugView == 1)
     {
-        o_Color = vec4(pow(albedo, vec3(1.0 / 2.2)), 1);
+        o_Color = vec4(pow(albedo, vec3(1.0 / 2.2)), alpha);
         return;
     }
     if (u_Frame.DebugView == 2)
     {
-        o_Color = vec4(N * 0.5 + 0.5, 1);
+        o_Color = vec4(N * 0.5 + 0.5, alpha);
         return;
     }
     vec4 mr = texture(MetallicRoughnessMap, uv);
@@ -132,6 +138,7 @@ void main()
     vec3 color = KansShadePbr(albedo, p.Metallic * mr.b, p.Roughness * mr.g, ao, N, v_WorldPosition);
     color += p.EmissiveColor * p.EmissiveIntensity * texture(EmissiveMap, uv).rgb;
     o_Color = KansToneMap(color);
+    o_Color.a = alpha;
 }
 )"}});
             if (auto* error = std::get_if<AssetError>(&compiled))
@@ -162,6 +169,7 @@ void main()
             return legacy;
         MaterialSource source;
         source.Name       = legacy.Name;
+        source.Render     = legacy.Render;
         source.Parameters = {{"BaseColor", {legacy.BaseColor.begin(), legacy.BaseColor.end()}},
                              {"Metallic", {legacy.Metallic}},
                              {"Roughness", {legacy.Roughness}}};

@@ -23,9 +23,26 @@ namespace Kans
         PointLight          pointLight;
         SceneRendererCamera sceneCamera;
     };
+    class ShaderLibrary;
+
+    // Explicit deferred draw intent; submission does not inspect GL state.
+    enum class ModelStencilMode
+    {
+        Disabled,
+        WriteReference, // Write 1 where a material fragment passes depth.
+    };
+    enum class ModelGeometryMode
+    {
+        Default,
+        StencilOutline, // Only outside reference 1, with no stencil writes.
+        BackFaces,      // Inverted hull outline: cull front faces.
+    };
+
     struct SceneRendererSpecification
     {
         bool SwapChainTarget = false;
+        // Optional library for auxiliary geometry; defaults to the renderer library.
+        Ref<ShaderLibrary> GeometryShaders;
     };
 
     class Scene;
@@ -55,14 +72,17 @@ namespace Kans
         void              SetAssetManager(AssetManager* assets);
         RenderAssetCache* GetAssetCache() { return m_AssetCache.get(); }
 
-        // Draws each part through its material Shader. Empty, pending or failed
+        // Queues each part until EndScene, across all submitted models. Empty, pending or failed
         // Shaders use engine Standard; samplers use Shader-declared fallbacks.
-        void SubmitModel(const ProductModelComponent& model, const glm::mat4& transform);
-        // Draws model geometry with a shader from the library that takes
+        void SubmitModel(const ProductModelComponent& model,
+                         const glm::mat4&             transform,
+                         ModelStencilMode             stencil = ModelStencilMode::Disabled);
+        // Queues model geometry after the material pass with a shader from the library that takes
         // U_ViewProjection, U_Transform and U_ViewPos (outline, stencil, debug).
         void SubmitModelGeometry(const ProductModelComponent& model,
                                  const glm::mat4&             transform,
-                                 const std::string&           shaderName);
+                                 const std::string&           shaderName,
+                                 ModelGeometryMode            mode = ModelGeometryMode::Default);
 
         // Editor helpers: meshes of a model for picking/highlighting (skips parts
         // still loading), the ID under a pixel (bottom-left origin), and draws to
@@ -103,11 +123,23 @@ namespace Kans
         void DrawMesh(const GpuMesh& mesh);
         struct ShaderDraw
         {
-            const GpuMesh* Mesh;
-            glm::mat4      Transform;
-            AssetID        Material;
+            AssetID          Mesh;
+            glm::mat4        Transform;
+            AssetID          Material;
+            SceneViewMode    ViewMode;
+            ModelStencilMode Stencil;
         };
-        void DrawShaderMaterials(const std::vector<ShaderDraw>& draws);
+        struct GeometryDraw
+        {
+            ProductModelComponent Model;
+            glm::mat4             Transform;
+            std::string           ShaderName;
+            ModelGeometryMode     Mode;
+        };
+        void                      DrawShaderMaterials(const std::vector<ShaderDraw>& draws);
+        void                      DrawModelGeometry(const GeometryDraw& draw);
+        std::vector<ShaderDraw>   m_ModelDraws;
+        std::vector<GeometryDraw> m_GeometryDraws;
 
         // SceneRenderer did't handle the life of Scnene;
         RenderScene*               m_RenderScene;
@@ -117,22 +149,22 @@ namespace Kans
         uint32_t         m_ViewportWidth = 0, m_ViewportHeight = 0;
         Ref<FrameBuffer> m_FrameBuffer;
 
-        Environment                     m_Environment;
-        Ref<TextureCube>                m_SkyBox;
-        Ref<Texture2D>                  m_BrdfLUT;
-        bool                            m_Active = false;
-        Scope<RenderAssetCache>         m_AssetCache;
-        EntityPicker                    m_Picker;
-        SelectionOutline                m_Outline;
-        std::vector<MeshDraw>           m_Highlight;
+        Environment             m_Environment;
+        Ref<TextureCube>        m_SkyBox;
+        Ref<Texture2D>          m_BrdfLUT;
+        bool                    m_Active = false;
+        Scope<RenderAssetCache> m_AssetCache;
+        EntityPicker            m_Picker;
+        SelectionOutline        m_Outline;
+        std::vector<MeshDraw>   m_Highlight;
         struct Preview
         {
             ProductModelComponent Model;
             glm::mat4             Transform;
         };
-        std::optional<Preview>          m_Preview;
-        SceneViewMode                   m_ViewMode = SceneViewMode::Lit;
-        SceneRenderStats                m_Stats;
+        std::optional<Preview> m_Preview;
+        SceneViewMode          m_ViewMode = SceneViewMode::Lit;
+        SceneRenderStats       m_Stats;
         // Engine data (set 0) of Shader materials, created on first use.
         Scope<GpuUniformBuffer>               m_FrameUniforms;
         Scope<GpuUniformBuffer>               m_ObjectUniforms;

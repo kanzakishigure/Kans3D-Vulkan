@@ -89,6 +89,77 @@ namespace
         EXPECT_EQ(std::get<AssetError>(old).Code, AssetErrorCode::UnsupportedVersion);
     }
 
+    TEST_F(MaterialSourceTest, RenderStateSurvivesSourceSaveResolveAndProductForBothShaderPaths)
+    {
+        // Losing render state while resolving a custom Shader or migrating Standard turns cutouts opaque.
+        for (bool custom : {false, true})
+            for (const std::string mode : {"mask", "blend"})
+            {
+                auto source = ParseOk(
+                    "magic: KansMaterial\nversion: 3\nshader: '" + (custom ? ShaderID.ToString() : std::string()) +
+                    "'\nrender: {alpha_mode: " + mode + ", alpha_cutoff: 0.375, double_sided: true}\n");
+                const auto saved    = ParseOk(SerializeMaterialSource(source));
+                auto       resolved = ResolveMaterialSource(saved, custom ? &Shader : nullptr);
+                ASSERT_TRUE(std::holds_alternative<MaterialData>(resolved));
+                auto encoded = EncodeMaterialProduct(std::get<MaterialData>(resolved));
+                ASSERT_TRUE(std::holds_alternative<std::vector<std::byte>>(encoded));
+                const auto& bytes   = std::get<std::vector<std::byte>>(encoded);
+                auto        decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+                ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+                const auto& state = std::get<MaterialData>(decoded).Render;
+                EXPECT_EQ(state.AlphaMode, mode == "mask" ? MaterialAlphaMode::Mask : MaterialAlphaMode::Blend);
+                EXPECT_FLOAT_EQ(state.AlphaCutoff, 0.375f);
+                EXPECT_TRUE(state.DoubleSided);
+            }
+    }
+
+    TEST_F(MaterialSourceTest, LegacySourceWithTransparentBaseAlphaDoesNotOptIntoBlending)
+    {
+        // Old sources use alpha as data; upgrading must not infer blend from BaseColor.a.
+        auto source   = ParseOk("magic: KansMaterial\nversion: 2\nparameters: {base_color: [1, 0, 0, 0.2]}\n");
+        auto resolved = ResolveMaterialSource(source, nullptr);
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(resolved));
+        const auto& data = std::get<MaterialData>(resolved);
+        EXPECT_EQ(data.Render.AlphaMode, MaterialAlphaMode::Opaque);
+        EXPECT_FALSE(data.Render.DoubleSided);
+    }
+
+    TEST_F(MaterialSourceTest, RejectsMisspelledModesAndInvalidCutoffsInsteadOfSilentlyDrawingOpaque)
+    {
+        for (const std::string render : {"{alpha_mode: glass}",
+                                         "{alpha_mode: mask, alpha_cutoff: .nan}",
+                                         "{alpha_cutoff: -1}",
+                                         "{double_sided: perhaps}",
+                                         "{alpha_mode: mask, alpha_mode: blend}",
+                                         "{alpha_cutof: 0.2}"})
+            EXPECT_TRUE(
+                std::holds_alternative<AssetError>(Parse("magic: KansMaterial\nversion: 3\nrender: " + render + "\n")))
+                << render;
+    }
+
+    TEST_F(MaterialSourceTest, PublishedObjectBlockStillValidatesButMalformedNewRenderMemberDoesNot)
+    {
+        // A contract upgrade must accept already compiled project shaders, without accepting a mispacked new block.
+        auto       engine = *FindEngineShaderInclude("Kans3D/Engine.glsl");
+        const auto start  = engine.find("    vec4 MaterialRender;");
+        ASSERT_NE(start, std::string::npos);
+        engine.erase(start, engine.find('\n', start) - start + 1);
+        std::string vertex = TestMaterialVertex;
+        vertex.replace(
+            vertex.find("#include <Kans3D/Engine.glsl>"), std::strlen("#include <Kans3D/Engine.glsl>"), engine);
+        ShaderData legacy;
+        legacy.Code = CompileTestMaterialShader(vertex);
+        EXPECT_TRUE(std::holds_alternative<MaterialSchema>(DescribeMaterial(&legacy)));
+        auto wrong = *FindEngineShaderInclude("Kans3D/Engine.glsl");
+        wrong.replace(wrong.find("vec4 MaterialRender;"), std::strlen("vec4 MaterialRender;"), "vec3 MaterialRender;");
+        vertex = TestMaterialVertex;
+        vertex.replace(
+            vertex.find("#include <Kans3D/Engine.glsl>"), std::strlen("#include <Kans3D/Engine.glsl>"), wrong);
+        ShaderData malformed;
+        malformed.Code = CompileTestMaterialShader(vertex);
+        EXPECT_TRUE(std::holds_alternative<AssetError>(DescribeMaterial(&malformed)));
+    }
+
     TEST_F(MaterialSourceTest, ShaderSchemaListsMaterialParametersAndSamplers)
     {
         auto described = DescribeMaterial(&Shader);

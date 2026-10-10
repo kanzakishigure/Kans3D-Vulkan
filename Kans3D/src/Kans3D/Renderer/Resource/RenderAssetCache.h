@@ -29,6 +29,7 @@ namespace Kans
     struct GpuMaterialBindings
     {
         AssetID Shader; // Actual program, including Standard while a custom Shader is unavailable.
+        MaterialRenderState Render;
         std::vector<std::pair<uint32_t, GpuUniformBuffer>> Blocks;
         std::vector<std::pair<uint32_t, AssetID>>          Textures;
     };

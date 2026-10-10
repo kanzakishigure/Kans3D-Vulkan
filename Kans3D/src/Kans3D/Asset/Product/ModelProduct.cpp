@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "ModelProduct.h"
 #include "MaterialBindingRecipe.h"
+#include "MaterialRenderStateYaml.h"
 
 #include <algorithm>
 #include <cmath>
@@ -154,10 +155,7 @@ namespace Kans
         YAML::Emitter out;
         out.SetFloatPrecision(9);
         out << YAML::BeginMap << YAML::Key << "magic" << YAML::Value << "KMAT" << YAML::Key << "version" << YAML::Value
-            << (data.Bindings         ? 3 :
-                data.Shader.IsValid() ? 2 :
-                                        1)
-            << YAML::Key << "name" << YAML::Value << data.Name << YAML::Key << "base_color" << YAML::Value;
+            << 4 << YAML::Key << "name" << YAML::Value << data.Name << YAML::Key << "base_color" << YAML::Value;
         EmitFloats(out, data.BaseColor);
         out << YAML::Key << "metallic" << YAML::Value << data.Metallic << YAML::Key << "roughness" << YAML::Value
             << data.Roughness << YAML::Key << "textures" << YAML::Value << YAML::BeginSeq;
@@ -170,6 +168,7 @@ namespace Kans
             out << YAML::Key << "shader" << YAML::Value << data.Shader.ToString();
         if (data.Bindings)
             out << YAML::Key << "bindings" << YAML::Value << YAML::DoubleQuoted << recipe;
+        EmitMaterialRenderState(out, data.Render);
         out << YAML::EndMap;
         return Finish(out);
     }
@@ -178,19 +177,27 @@ namespace Kans
     {
         try
         {
-            auto loaded = ReadRoot(bytes, size, "KMAT", 3);
+            auto loaded = ReadRoot(bytes, size, "KMAT", 4);
             if (const auto* error = std::get_if<AssetError>(&loaded))
                 return *error;
             const auto& root          = std::get<YAML::Node>(loaded);
             const auto  version       = root["version"].as<uint32_t>();
-            const bool  shaderVersion = version >= 2;
-            if (root.size() != (version == 3  ? 9 :
+            const bool  shaderVersion = version == 4 ? bool(root["shader"]) : version >= 2;
+            const bool  recipeVersion = version == 4 ? bool(root["bindings"]) : version == 3;
+            if (root.size() != (version == 4  ? 8 + size_t(shaderVersion) + size_t(recipeVersion) :
+                                version == 3  ? 9 :
                                 shaderVersion ? 8 :
                                                 7) ||
                 !root["textures"].IsSequence() || root["textures"].size() > kMaximumItems)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid material Product fields"};
             MaterialData data;
-            if (version == 3)
+            if (version == 4)
+            {
+                if (!root["render"])
+                    return AssetError {AssetErrorCode::InvalidData, "Missing material render state"};
+                data.Render = ReadMaterialRenderState(root["render"]);
+            }
+            if (recipeVersion)
             {
                 auto recipe = ReadRecipe(root["bindings"]);
                 if (auto error = std::get_if<AssetError>(&recipe))
@@ -220,7 +227,7 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidData, "Invalid material Product values"};
             return data;
         }
-        catch (const YAML::Exception& error)
+        catch (const std::exception& error)
         {
             return AssetError {AssetErrorCode::InvalidData,
                                "Cannot decode material Product: " + std::string(error.what())};

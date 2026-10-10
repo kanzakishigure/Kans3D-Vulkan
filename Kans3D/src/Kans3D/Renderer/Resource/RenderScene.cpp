@@ -121,33 +121,15 @@ namespace Kans
         {
             auto [transformCMP, model] = view.get(entity);
             const glm::mat4 transform  = m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()});
-            OpenGLRenderCommand::EnableCullFace(false);
+            renderer.SubmitModel(
+                model, transform, state.EnableStencil ? ModelStencilMode::WriteReference : ModelStencilMode::Disabled);
             if (state.EnableStencil)
-            {
-                OpenGLRenderCommand::EnableSetStencil(true);
-                OpenGLRenderCommand::StencilOp(StencilOption::KEEP, StencilOption::KEEP, StencilOption::REPLACE);
-                OpenGLRenderCommand::SetStencilFunc(StencilFunction::ALWAYS, 1, 0xff);
-                OpenGLRenderCommand::SetStencilMask(0xff);
-            }
-            renderer.SubmitModel(model, transform);
-            if (state.EnableStencil)
-            {
-                // Draw a slightly larger silhouette where the model did not write stencil.
-                OpenGLRenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
-                OpenGLRenderCommand::SetStencilMask(0x00);
-                renderer.SubmitModelGeometry(
-                    model, transform * glm::scale(glm::mat4(1.0f), glm::vec3(1.007f)), "StencilShader");
-                OpenGLRenderCommand::SetStencilMask(0xff);
-                OpenGLRenderCommand::EnableSetStencil(false);
-            }
+                renderer.SubmitModelGeometry(model,
+                                             transform * glm::scale(glm::mat4(1.0f), glm::vec3(1.007f)),
+                                             "StencilShader",
+                                             ModelGeometryMode::StencilOutline);
             if (state.EnableOutline)
-            {
-                OpenGLRenderCommand::EnableCullFace(true);
-                OpenGLRenderCommand::CullFace(CullFaceOption::FRONT);
-                renderer.SubmitModelGeometry(model, transform, "OutLineShader");
-                OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
-                OpenGLRenderCommand::EnableCullFace(false);
-            }
+                renderer.SubmitModelGeometry(model, transform, "OutLineShader", ModelGeometryMode::BackFaces);
             if (state.EnableDebugNormal)
                 renderer.SubmitModelGeometry(model, transform, "DebugNormalShader");
         }

@@ -4,12 +4,18 @@
 #include <cmath>
 namespace Kans
 {
+    bool IsValidMaterialRenderState(const MaterialRenderState& state)
+    {
+        return uint32_t(state.AlphaMode) <= uint32_t(MaterialAlphaMode::Blend) && std::isfinite(state.AlphaCutoff) &&
+               state.AlphaCutoff >= 0;
+    }
+
     std::variant<std::monostate, AssetError> ValidateMaterialData(const MaterialData& data)
     {
         if ((!data.Shader.IsValid() && data.Shader != AssetID {}) || data.Name.size() > 4096 ||
             data.Name.find('\0') != std::string::npos || data.Textures.size() > 1000000 ||
             !std::all_of(data.BaseColor.begin(), data.BaseColor.end(), [](float v) { return std::isfinite(v); }) ||
-            !std::isfinite(data.Metallic) || !std::isfinite(data.Roughness))
+            !std::isfinite(data.Metallic) || !std::isfinite(data.Roughness) || !IsValidMaterialRenderState(data.Render))
             return AssetError {AssetErrorCode::InvalidData, "Invalid material Product data"};
         for (const auto& binding : data.Textures)
             if (!binding.Texture.IsValid() || binding.Texture == data.Shader || !binding.Semantic ||

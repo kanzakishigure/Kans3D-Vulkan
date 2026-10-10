@@ -8,11 +8,12 @@ namespace Kans
     // Human-authored `.material` source (YAML). Parameters and textures are named:
     //
     //   magic: KansMaterial
-    //   version: 2
+    //   version: 3
     //   name: Toon
     //   shader: <Shader AssetID>   # empty: engine Standard
     //   parameters: {Tint: [1, 0.8, 0.8, 1], Steps: 3}
     //   textures: {u_Albedo: <Texture AssetID>}
+    //   render: {alpha_mode: mask, alpha_cutoff: 0.5, double_sided: true}
     //
     // Parameter names are set-1 uniform members; textures name set-1 samplers.
     // An empty Shader selects the embedded Standard Shader. Legacy PBR spellings
@@ -25,6 +26,7 @@ namespace Kans
         // matrices are column-major.
         std::map<std::string, std::vector<double>> Parameters;
         std::map<std::string, AssetID>              Textures;
+        MaterialRenderState                         Render;
     };
 
     struct MaterialParameterInfo

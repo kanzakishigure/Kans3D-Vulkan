@@ -63,11 +63,21 @@ assets/x.obj + x.obj.kmeta                    AssetID
 
 ## 材质与材质 Shader（`Importer/MaterialSource`、`Runtime/MaterialShaderInterface`）
 
-- 材质只有一个模型：Shader + 命名参数 + 命名纹理。`.material`（YAML v2）的
+- 材质只有一个模型：Shader + 命名参数 + 命名纹理 + render state。`.material`（YAML v3，兼容 v2）的
   `shader` 为空时选择引擎内嵌 Standard（保留 ID `ffffffffffffffff:0000000000000001`），
   无需项目文件。Standard 和项目 Shader 使用同一编译、SPIR-V 反射、约定校验及
   GL 交叉编译流程；`DescribeMaterial(nullptr)` 在 CPU 上提供其真实反射 schema、默认值和 hint。
-- 参数是 set 1 uniform block 的成员，纹理是 set 1 sampler2D；导入后写入 KMAT v3
+- `render: {alpha_mode: mask, alpha_cutoff: 0.5, double_sided: true}` 适用于所有 Shader。
+  `alpha_mode` 为 `opaque`（默认）、`mask` 或 `blend`；cutoff 默认 0.5、有限且非负，双面默认 false。
+  glTF alphaMode/alphaCutoff、doubleSided 直接映射，未指定 doubleSided 时为单面；
+  非 glTF 模型默认双面，保留旧模型头发、裙摆等单层表面的内侧；`.material` 仍默认单面并使用显式值。
+  其他模型 0 < opacity < 1 使用 blend；非 glTF 的 opacity ≤ 0 或非有限值
+  视为不可靠，恢复 opaque / alpha=1 并给出包含材质名的导入警告。
+  场景先画 opaque/mask，再按每个 part 的世界包围盒中心到相机的距离从远到近画 blend（含拖放预览）。
+  blend 测试深度但不写深度，颜色使用 SRC_ALPHA / ONE_MINUS_SRC_ALPHA；清屏设置 alpha=1，材质绘制禁止写 alpha，
+  包括自定义 Shader 的 opaque/mask 输出。
+  双面材质不剔除背面，Standard 翻转背面法线。
+- 参数是 set 1 uniform block 的成员，纹理是 set 1 sampler2D；导入后写入 KMAT v4
   绑定配方。Standard 提供 `BaseColor`、`Metallic`、`Roughness`、`EmissiveColor`、
   `EmissiveIntensity`、`NormalStrength`、`OcclusionStrength`、`UVTiling`、`UVOffset`、`VertexColorStrength`，
   以及 `BaseColorMap`、`NormalMap`、`MetallicRoughnessMap`（G 粗糙度 / B 金属度）、
@@ -81,15 +91,22 @@ assets/x.obj + x.obj.kmeta                    AssetID
   `VertexColorStrength` 默认 0，保持旧模型外观；设为 1 时使用顶点颜色。
 - 模型材质映射为 Standard，包含 Assimp 的自发光因子；有自发光贴图且导入因子为黑色时使用白色因子。旧 `.material` 的
   `base_color`、`metallic`、`roughness` 和旧纹理槽名在读取时迁移，保存使用新名字。
-  KMAT v1–v3 和 KSHD v1–v3 仍可读取；旧无配方材质在渲染缓存中转换为 Standard。
+  KMAT v1–v3 和 KSHD v1–v3 仍可读取；缺少 render state 的旧产品/源保持 opaque、单面。
+  旧无配方材质在渲染缓存中转换为 Standard。
   导入器版本升级后项目会自动重导入，不把内建 Shader 当作项目依赖。
 - 材质 Shader 是 `.shaderprog`（顶点 + 片元，Vulkan GLSL 450）：set 0 是引擎数据，
   用 `#include <Kans3D/Engine.glsl>` 声明（`u_Frame`：ViewProjection、相机位置、
-  4 个点光源的位置、PBR 辐射度 `LightColors` 与漫反射强度 `LightDiffuse`、Time、DebugView；`u_Object`：Transform、NormalMatrix；IBL 的
+  4 个点光源的位置、PBR 辐射度 `LightColors` 与漫反射强度 `LightDiffuse`、Time、DebugView；`u_Object`：Transform、NormalMatrix、
+  `MaterialRender`（x: alpha mode 0/1/2，y: cutoff，z: double_sided）；IBL 的
   `u_IrradianceMap`、`u_PrefilterMap`、`u_BrdfLUT`）；顶点输入用
   `<Kans3D/VertexInput.glsl>`；`<Kans3D/Lighting.glsl>` 提供引擎 PBR 光照
   `KansShadePbr` 与 `KansToneMap`。片元在 location 0 输出 vec4。不符合约定的
   Shader 在导入材质时报错。
+- 新 object block 为 144 bytes，旧 128-byte block 仍可校验。
+  片元包含 `<Kans3D/Alpha.glsl>`，用 `KansAlphaClip(alpha)` 做 mask discard、
+  `KansOutputAlpha(alpha)` 输出 blend 的 alpha 或 opaque/mask 的 1。Standard 的 alpha 为
+  BaseColor.a × BaseColorMap.a × 顶点颜色项，debug 模式也遵循 clip/alpha。
+  自定义 Shader 应调用这些 helper；现有不使用它们的 Toon/ToneCharacter 保持原来的着色。
 - OpenGL 下由 spirv-cross 把 SPIR-V 转成 GLSL 4.30（`GpuShader`），set/binding
   展平为 GL 绑定点；材质参数打包进 uniform buffer。
 - 示例：`KansEditor/assets/shaders/Toon/Toon.shaderprog`（卡通着色 + Ramp + 边缘光）；

@@ -242,6 +242,178 @@ namespace
         EXPECT_TRUE(found);
     }
 
+    TEST_F(ModelImporterTest, GltfAlphaModesCutoffAndTwoSidedReachPublishedStandardMaterialsAndTextureHints)
+    {
+        // MASK must retain its cutoff; the legacy two-sided default must not override glTF absence/false/true.
+        InstancedGltf(false); // Creates the external triangle buffer.
+        Write(Workspace / "albedo.png", "supplied by build coordinator");
+        Write(Context.SourceFile, R"({"asset":{"version":"2.0"},
+"buffers":[{"uri":"geometry.bin","byteLength":42}],
+"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],
+"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},
+{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],
+"images":[{"uri":"albedo.png"}],"textures":[{"source":0}],
+"materials":[
+{"name":"Solid","alphaMode":"OPAQUE","pbrMetallicRoughness":{"baseColorFactor":[1,1,1,0.25],"baseColorTexture":{"index":0}}},
+{"name":"Cutout","alphaMode":"MASK","alphaCutoff":0.375,"doubleSided":true,"pbrMetallicRoughness":{"baseColorTexture":{"index":0}}},
+{"name":"Glass","alphaMode":"BLEND","doubleSided":false,"pbrMetallicRoughness":{"baseColorFactor":[1,1,1,0.5],"baseColorTexture":{"index":0}}},
+{"name":"Defaults","pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],
+"meshes":[{"name":"Parts","primitives":[
+{"attributes":{"POSITION":0},"indices":1,"material":0},
+{"attributes":{"POSITION":0},"indices":1,"material":1},
+{"attributes":{"POSITION":0},"indices":1,"material":2},
+{"attributes":{"POSITION":0},"indices":1,"material":3}]}],
+"nodes":[{"mesh":0}],"scenes":[{"nodes":[0]}],"scene":0})");
+        auto parsed = ParseModelCpu(Context.SourceFile);
+        ASSERT_TRUE(std::holds_alternative<ImportedModelData>(parsed));
+        for (const auto& material : std::get<ImportedModelData>(parsed).Materials)
+        {
+            if (material.Name == "Solid")
+                EXPECT_TRUE(material.Opaque); // glTF OPAQUE wins over base factor alpha.
+            if (material.Name == "Cutout" || material.Name == "Glass")
+                EXPECT_FALSE(material.Opaque);
+        }
+        const auto inputs = ResolveExternalInputs();
+        EXPECT_EQ(inputs.ProductSourceSettings.count(Workspace / "albedo.png"), 0u);
+        auto imported = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(imported));
+        size_t checked = 0;
+        for (const auto& product : std::get<ImportResult>(imported).Products)
+        {
+            if (product.Type != AssetType::Material)
+                continue;
+            const auto bytes   = Read(product);
+            auto       decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+            ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+            const auto& data = std::get<MaterialData>(decoded);
+            if (data.Name == "Solid")
+            {
+                EXPECT_EQ(data.Render.AlphaMode, MaterialAlphaMode::Opaque);
+                EXPECT_FALSE(data.Render.DoubleSided);
+                ++checked;
+            }
+            else if (data.Name == "Cutout")
+            {
+                EXPECT_EQ(data.Render.AlphaMode, MaterialAlphaMode::Mask);
+                EXPECT_FLOAT_EQ(data.Render.AlphaCutoff, 0.375f);
+                EXPECT_TRUE(data.Render.DoubleSided);
+                ++checked;
+            }
+            else if (data.Name == "Glass")
+            {
+                EXPECT_EQ(data.Render.AlphaMode, MaterialAlphaMode::Blend);
+                EXPECT_FLOAT_EQ(data.BaseColor[3], 0.5f);
+                EXPECT_FALSE(data.Render.DoubleSided);
+                ++checked;
+            }
+            else if (data.Name == "Defaults")
+            {
+                EXPECT_EQ(data.Render.AlphaMode, MaterialAlphaMode::Opaque);
+                EXPECT_FALSE(data.Render.DoubleSided);
+                ++checked;
+            }
+        }
+        EXPECT_EQ(checked, 4u);
+    }
+
+    TEST_F(ModelImporterTest, ObjWithoutTwoSidedFlagPreservesInnerSurfacesInPublishedMaterials)
+    {
+        // Treating a missing legacy two-sided flag as false recreates holes in imported hair and skirts.
+        Write(Workspace / "model.mtl", "newmtl Hair\nKd 1 0 0\n");
+        Write(Context.SourceFile, "mtllib model.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Hair\nf 1 2 3\n");
+        ResolveExternalInputs();
+        auto imported = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(imported));
+        bool checked = false;
+        for (const auto& product : std::get<ImportResult>(imported).Products)
+        {
+            if (product.Type != AssetType::Material)
+                continue;
+            const auto bytes   = Read(product);
+            auto       decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+            ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+            const auto& material = std::get<MaterialData>(decoded);
+            if (material.Name != "Hair")
+                continue;
+            EXPECT_TRUE(material.Render.DoubleSided);
+            checked = true;
+        }
+        EXPECT_TRUE(checked);
+    }
+
+    TEST_F(ModelImporterTest, ObjOpacityReachesBlendStateAndTheActualStandardAlpha)
+    {
+        // Mapping only the mode is insufficient: OBJ Kd has no alpha, so d must also reach BaseColor.a.
+        Write(Workspace / "model.mtl", "newmtl Glass\nKd 1 0 0\nd 0.25\nmap_Kd albedo.png\n");
+        Write(Context.SourceFile, "mtllib model.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Glass\nf 1 2 3\n");
+        Write(Workspace / "albedo.png", "supplied by build coordinator");
+        const auto inputs = ResolveExternalInputs();
+        EXPECT_EQ(inputs.ProductSourceSettings.count(Workspace / "albedo.png"), 0u);
+        auto imported = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(imported));
+        bool checked = false;
+        for (const auto& product : std::get<ImportResult>(imported).Products)
+        {
+            if (product.Type != AssetType::Material)
+                continue;
+            const auto bytes   = Read(product);
+            auto       decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+            ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+            const auto& data = std::get<MaterialData>(decoded);
+            if (data.Name != "Glass")
+                continue;
+            EXPECT_EQ(data.Render.AlphaMode, MaterialAlphaMode::Blend);
+            auto packed = PackMaterialUniforms(data, GetStandardShader().Code, *data.Bindings);
+            ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+            float       alpha;
+            const auto& block = std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes;
+            std::memcpy(&alpha, block.data() + 12, sizeof(alpha));
+            EXPECT_FLOAT_EQ(alpha, 0.25f);
+            checked = true;
+        }
+        EXPECT_TRUE(checked);
+    }
+
+    TEST_F(ModelImporterTest, UnreliableLegacyOpacityKeepsMaterialsVisibleAndNamesThemInWarnings)
+    {
+        // Exporter opacity 0/negative/NaN must not make a part invisible or reject the whole model.
+        Write(Workspace / "model.mtl",
+              "newmtl ZeroOpacity\nKd 1 0 0\nd 0\n"
+              "newmtl NegativeOpacity\nKd 0 1 0\nd -0.25\n"
+              "newmtl NonFiniteOpacity\nKd 0 0 1\nd nan\n");
+        Write(Context.SourceFile,
+              "mtllib model.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\n"
+              "usemtl ZeroOpacity\nf 1 2 3\nusemtl NegativeOpacity\nf 1 3 2\nusemtl NonFiniteOpacity\nf 1 2 3\n");
+        const auto inputs   = ResolveExternalInputs();
+        auto       imported = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(imported));
+        const auto&           result = std::get<ImportResult>(imported);
+        std::set<std::string> checked;
+        for (const auto& product : result.Products)
+        {
+            if (product.Type != AssetType::Material)
+                continue;
+            const auto bytes   = Read(product);
+            auto       decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+            ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+            const auto& data = std::get<MaterialData>(decoded);
+            if (data.Name != "ZeroOpacity" && data.Name != "NegativeOpacity" && data.Name != "NonFiniteOpacity")
+                continue;
+            checked.insert(data.Name);
+            EXPECT_EQ(data.Render.AlphaMode, MaterialAlphaMode::Opaque) << data.Name;
+            auto packed = PackMaterialUniforms(data, GetStandardShader().Code, *data.Bindings);
+            ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+            float       alpha;
+            const auto& block = std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes;
+            std::memcpy(&alpha, block.data() + 12, sizeof(alpha));
+            EXPECT_FLOAT_EQ(alpha, 1.0f) << data.Name;
+            EXPECT_TRUE(std::any_of(inputs.Warnings.begin(), inputs.Warnings.end(), [&](const auto& warning) {
+                return warning.find(data.Name) != std::string::npos && warning.find("opacity") != std::string::npos;
+            })) << data.Name;
+        }
+        EXPECT_EQ(checked, (std::set<std::string> {"ZeroOpacity", "NegativeOpacity", "NonFiniteOpacity"}));
+    }
+
     TEST_F(ModelImporterTest, BlackImportedEmissiveFactorPreservesEmissiveTexture)
     {
         // OBJ/FBX black Ke with an emissive map must not suppress the texture's previously visible emission.

@@ -106,6 +106,7 @@ namespace Kans
             return std::move(*error);
         GpuMaterialBindings bindings;
         bindings.Shader = material.Shader;
+        bindings.Render = material.Render;
         for (const auto& block : std::get<std::vector<MaterialUniformBlock>>(packed))
             bindings.Blocks.emplace_back(block.Binding, GpuUniformBuffer(block.Bytes.size(), block.Bytes.data()));
         for (const auto& texture : material.Bindings->Textures)
@@ -243,7 +244,11 @@ namespace Kans
                 // A custom recipe addresses another layout. Use the default Standard
                 // material in debug views and while that Shader is unavailable.
                 if (!IsStandardShader(data.Shader) && data.Bindings)
+                {
+                    const auto render = data.Render;
                     data = MaterialData {};
+                    data.Render       = render;
+                }
                 auto resolved = ResolveStandardMaterial(data);
                 if (auto* error = std::get_if<AssetError>(&resolved))
                 {

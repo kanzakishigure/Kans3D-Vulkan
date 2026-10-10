@@ -131,7 +131,7 @@ namespace
         EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeMaterialProduct(nullptr, 0)));
         EXPECT_TRUE(std::holds_alternative<AssetError>(Loader<MaterialDataAsset>().Load({})));
     }
-    TEST(MaterialProduct, ShaderReferenceRoundTripsInVersionTwoAndLegacyStaysVersionOne)
+    TEST(MaterialProduct, ShaderReferenceRoundTripsWithAndWithoutExplicitShader)
     {
         MaterialData data;
         data.Name   = "Rendering material";
@@ -148,6 +148,24 @@ namespace
         ASSERT_TRUE(std::holds_alternative<Ref<MaterialDataAsset>>(loaded));
         EXPECT_EQ(std::get<Ref<MaterialDataAsset>>(loaded)->GetData().Shader, data.Shader);
         EXPECT_NE(bytes, oldBytes);
+    }
+    TEST(MaterialProduct, PublishedVersionsOneToThreeRemainOpaqueAndSingleSided)
+    {
+        // Real legacy bytes, rather than encoding with today's writer, catch incompatible codec upgrades.
+        for (unsigned version : {1u, 2u, 3u})
+        {
+            std::string text = "magic: KMAT\nversion: " + std::to_string(version) +
+                               "\nname: old\nbase_color: [1,1,1,0.25]\nmetallic: 0\nroughness: 1\ntextures: []\n";
+            if (version >= 2)
+                text += "shader: 0000000000000123:0000000000000001\n";
+            if (version == 3)
+                text += "bindings: '4b4d4252010000000000000000000000'\n";
+            auto decoded = DecodeMaterialProduct(reinterpret_cast<const std::byte*>(text.data()), text.size());
+            ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded)) << version;
+            const auto& state = std::get<MaterialData>(decoded).Render;
+            EXPECT_EQ(state.AlphaMode, MaterialAlphaMode::Opaque);
+            EXPECT_FALSE(state.DoubleSided);
+        }
     }
     TEST(MaterialProduct, VersionTwoRejectsMissingInvalidAndAliasedShaderReferences)
     {

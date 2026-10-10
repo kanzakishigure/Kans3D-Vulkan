@@ -28,6 +28,7 @@
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Scene/Entity.h"
 #include "MaterialShaderTestUtilities.h"
 
 namespace
@@ -998,28 +999,33 @@ void main() { color = texture(other, vec2(0)); }
         glDisable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
         glViewport(0, 0, 16, 16);
-        const auto read = [](int x) {
+        const auto read = [&](int x) {
+            // Model submissions are consumed at EndScene; inspect the scene texture after unbinding it.
+            std::array<uint8_t, 16 * 16 * 4> image {};
+            glBindTexture(GL_TEXTURE_2D, renderer.GetOutput(0));
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
             std::array<uint8_t, 4> pixel {};
-            glReadPixels(x, 8, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data());
+            std::copy_n(image.data() + (8 * 16 + x) * 4, 4, pixel.data());
             return pixel;
         };
         renderer.BeginScene(info);
         renderer.SubmitModel(component, glm::mat4(1));
+        renderer.EndScene();
         EXPECT_GT(read(4)[0], 150);
         EXPECT_EQ(read(12)[1], 255); // Custom shader still runs in the lit view.
         EXPECT_EQ(read(12)[0], 0);
         EXPECT_EQ(renderer.GetStats().DrawCalls, 2u);
         EXPECT_EQ(renderer.GetStats().Triangles, 4u);
-        renderer.EndScene();
         renderer.SetViewMode(SceneViewMode::BaseColor);
         renderer.BeginScene(info);
         renderer.SubmitModel(component, glm::mat4(1));
+        renderer.EndScene();
         EXPECT_EQ(read(4), (std::array<uint8_t, 4> {255, 0, 0, 255}));
         EXPECT_EQ(read(12), (std::array<uint8_t, 4> {255, 255, 255, 255}));
-        renderer.EndScene();
         renderer.SetViewMode(SceneViewMode::Normals);
         renderer.BeginScene(info);
         renderer.SubmitModel(component, glm::mat4(1));
+        renderer.EndScene();
         for (int x : {4, 12})
         {
             const auto pixel = read(x);
@@ -1027,17 +1033,21 @@ void main() { color = texture(other, vec2(0)); }
             EXPECT_NEAR(pixel[1], 128, 1);
             EXPECT_EQ(pixel[2], 255);
         }
-        renderer.SetPreview(component, glm::mat4(1));
+        renderer.BeginScene(info);
+        renderer.SubmitModel(component, glm::mat4(1));
+        renderer.SetPreview(component, glm::translate(glm::mat4(1), {0, 0, -0.1f}));
         renderer.EndScene();
         EXPECT_EQ(renderer.GetStats().DrawCalls, 4u); // Preview submits both parts through the lit path.
+        // Lit green plus the existing preview fill: .88 * (0,1,0) + .12 * (.35,.7,1).
+        EXPECT_EQ(read(12), (std::array<uint8_t, 4> {11, 246, 31, 255}));
         renderer.SetViewMode(SceneViewMode::Wireframe);
         renderer.BeginScene(info);
         renderer.SubmitModel(component, glm::mat4(1));
+        renderer.EndScene();
         GLint polygon[2] {};
         glGetIntegerv(GL_POLYGON_MODE, polygon);
         EXPECT_EQ(polygon[0], GLint(GL_FILL));
         EXPECT_LT(read(2)[0], 50); // Interior away from the triangulation diagonal stays clear.
-        renderer.EndScene();
         std::vector<MeshDraw> draws;
         renderer.AppendModelDraws(component, glm::mat4(1), 7, draws);
         ASSERT_EQ(draws.size(), 2u);
@@ -1045,9 +1055,667 @@ void main() { color = texture(other, vec2(0)); }
         EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    class SurfacePickerGL : public RenderAssetCacheGL, public testing::WithParamInterface<bool>
+    class MaterialSceneGL : public RenderAssetCacheGL
     {
+    protected:
+        void SetUp() override
+        {
+            RenderAssetCacheGL::SetUp();
+            Assets     = CreateScope<AssetManager>(Provider, Registry({}));
+            LogicScene = CreateRef<Scene>();
+            Render     = CreateScope<RenderScene>(LogicScene);
+            Render->OnViewportResize(16, 16);
+            Renderer = CreateRef<SceneRenderer>(Render.get());
+            Renderer->SetAssetManager(Assets.get());
+            Info.sceneCamera.camera           = Camera(glm::mat4(1));
+            Info.sceneCamera.viewMatrix       = glm::mat4(1);
+            Info.sceneCamera.Position         = {0, 0, -2};
+            Info.pointLight.Position          = {0, 0, -1};
+            Info.pointLight.Ambient_Intensity = {2, 2, 2};
+            Custom.Code                       = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+#include <Kans3D/Alpha.glsl>
+layout(set = 1, binding = 0, std140) uniform Parameters { vec4 Tint; } p;
+layout(location = 0) out vec4 o_Color;
+void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlpha(p.Tint.a)); }
+)");
+            ShaderID                          = Add(AssetType::Shader, EncodeShaderProduct(Custom.Code));
+            glDisable(GL_FRAMEBUFFER_SRGB);
+        }
+        void TearDown() override
+        {
+            Renderer.reset();
+            Render.reset();
+            LogicScene.reset();
+            Assets.reset();
+            RenderAssetCacheGL::TearDown();
+        }
+        AssetID Add(AssetType type, std::variant<std::vector<std::byte>, AssetError> encoded)
+        {
+            if (const auto* error = std::get_if<AssetError>(&encoded))
+                throw std::runtime_error(error->Message);
+            AssetID id {Source, ++NextID};
+            Records.push_back(Store(id, type, std::get<std::vector<std::byte>>(std::move(encoded))));
+            auto result = Assets->SetRegistry(Registry(Records));
+            if (const auto* error = std::get_if<AssetError>(&result))
+                throw std::runtime_error(error->Message);
+            return id;
+        }
+        AssetID Material(MaterialSource source, bool custom = true)
+        {
+            if (custom)
+                source.Shader = ShaderID;
+            auto resolved = ResolveMaterialSource(source, custom ? &Custom : nullptr);
+            if (const auto* error = std::get_if<AssetError>(&resolved))
+                throw std::runtime_error(error->Message);
+            const auto id = Add(AssetType::Material, EncodeMaterialProduct(std::get<MaterialData>(resolved)));
+            Materials.push_back(id);
+            return id;
+        }
+        AssetID
+        Color(std::array<double, 4> color, MaterialAlphaMode mode = MaterialAlphaMode::Opaque, bool doubleSided = false)
+        {
+            MaterialSource source;
+            source.Parameters["Tint"] = {color.begin(), color.end()};
+            source.Render.AlphaMode   = mode;
+            source.Render.DoubleSided = doubleSided;
+            return Material(source);
+        }
+        ProductModelComponent
+        Quad(AssetID material, float z = 0, bool back = false, float left = -1, float right = 1, float vertexAlpha = 1)
+        {
+            MeshData mesh;
+            mesh.Material = material;
+            for (const auto& xy : {glm::vec2 {left, -1}, {right, -1}, {right, 1}, {left, 1}})
+            {
+                MeshVertexData vertex;
+                vertex.Position = {xy.x, xy.y, z};
+                vertex.Normal   = {0, 0, 1};
+                vertex.Tangent  = {1, 0, 0, 1};
+                vertex.UV       = {(xy.x - left) / (right - left), (xy.y + 1) / 2};
+                vertex.Color    = {1, 1, 1, vertexAlpha};
+                mesh.Vertices.push_back(vertex);
+            }
+            mesh.Indices = back ? std::vector<uint32_t> {2, 1, 0, 0, 3, 2} : std::vector<uint32_t> {0, 1, 2, 2, 3, 0};
+            const auto meshID = Add(AssetType::StaticMesh, EncodeMeshProduct(mesh));
+            Meshes.push_back(meshID);
+            ModelData model;
+            model.Nodes.push_back({"Root", -1, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, {meshID}});
+            ProductModelComponent component;
+            component.Model = Add(AssetType::Model, EncodeModelProduct(model));
+            Models.push_back(component.Model);
+            return component;
+        }
+        void Ready()
+        {
+            auto& cache = *Renderer->GetAssetCache();
+            ASSERT_TRUE(Frames(cache, [&] {
+                bool loaded = cache.GetShader(ShaderID) != nullptr;
+                for (auto id : Models)
+                    loaded &= cache.GetModel(id) != nullptr;
+                for (auto id : Meshes)
+                    loaded &= cache.GetMesh(id) != nullptr;
+                for (auto id : Materials)
+                    loaded &= cache.GetMaterialBindings(id) != nullptr;
+                return loaded;
+            }));
+        }
+        std::array<uint8_t, 4> Pixel(int x = 8, int y = 8)
+        {
+            std::array<uint8_t, 16 * 16 * 4> image {};
+            glBindTexture(GL_TEXTURE_2D, Renderer->GetOutput(0));
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+            std::array<uint8_t, 4> pixel;
+            std::copy_n(image.data() + (y * 16 + x) * 4, 4, pixel.data());
+            return pixel;
+        }
+        float Depth(int x = 8)
+        {
+            std::array<float, 16 * 16> depth {};
+            glBindTexture(GL_TEXTURE_2D, Renderer->GetOutput(2));
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, GL_FLOAT, depth.data());
+            return depth[8 * 16 + x];
+        }
+        Ref<Scene>                 LogicScene;
+        Scope<RenderScene>         Render;
+        Ref<SceneRenderer>         Renderer;
+        Scope<AssetManager>        Assets;
+        SceneInfo                  Info {};
+        ShaderData                 Custom;
+        AssetID                    ShaderID;
+        uint64_t                   NextID = 0;
+        std::vector<ProductRecord> Records;
+        std::vector<AssetID>       Models, Meshes, Materials;
     };
+
+    TEST_F(MaterialSceneGL, TargetAlphaIsOpaqueEvenWhenProjectShadersReturnFractionalAlpha)
+    {
+        // A project shader can bypass KansOutputAlpha; opaque/mask draws must not punch holes in ImGui.
+        Custom.Code       = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(set = 1, binding = 0, std140) uniform Parameters { vec4 Tint; } p;
+layout(location = 0) out vec4 o_Color;
+void main() { o_Color = p.Tint; }
+)");
+        ShaderID          = Add(AssetType::Shader, EncodeShaderProduct(Custom.Code));
+        const auto blend  = Quad(Color({1, 0, 0, 0.25}, MaterialAlphaMode::Blend));
+        const auto opaque = Quad(Color({0, 1, 0, 0.3}));
+        const auto mask   = Quad(Color({0, 0, 1, 0.3}, MaterialAlphaMode::Mask));
+        Ready();
+        glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
+        for (const auto& model : {blend, opaque, mask})
+        {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(model, glm::mat4(1));
+            Renderer->EndScene();
+            EXPECT_EQ(Pixel()[3], 255);
+            GLboolean mask[4];
+            glGetBooleanv(GL_COLOR_WRITEMASK, mask);
+            EXPECT_EQ(mask[0], GL_FALSE);
+            EXPECT_EQ(mask[1], GL_TRUE);
+            EXPECT_EQ(mask[2], GL_FALSE);
+            EXPECT_EQ(mask[3], GL_TRUE);
+            if (model.Model == blend.Model)
+            {
+                EXPECT_NEAR(Pixel()[0], 68, 1); // .25 red + .75 * 5/255 clear colour.
+                EXPECT_NEAR(Pixel()[1], 4, 1);
+            }
+            else if (model.Model == opaque.Model)
+                EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+            else
+                EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {0, 0, 255, 255}));
+        }
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    TEST_F(MaterialSceneGL, LegacyStencilOptionDrawsARingOutsideTheModelAndClearsPreviousReferences)
+    {
+        // Deferred submissions must preserve write-reference/exclude-reference intent, not the last GL state.
+        auto library = CreateRef<ShaderLibrary>();
+        library->Load(std::string(KANS_TEST_SHADER_DIR) + "/StencilShader.glsl");
+        SceneRendererSpecification spec;
+        spec.GeometryShaders = library;
+        Renderer             = CreateRef<SceneRenderer>(Render.get(), spec);
+        Renderer->SetAssetManager(Assets.get());
+        const auto model = Quad(Color({0, 1, 0, 1}));
+        Ready();
+        auto entity = LogicScene->CreateEntity("Outlined");
+        entity.AddComponent<ProductModelComponent>(model);
+        entity.GetComponent<TransformComponent>().Scale = glm::vec3(0.56f);
+        auto  cameraEntity                              = LogicScene->CreateEntity("Camera");
+        auto& camera                                    = cameraEntity.AddComponent<CameraComponent>().SceneCamera;
+        camera.SetOrthographic(2, -1, 1);
+        camera.SetViewportSize(16, 16);
+        auto resource                          = Render->GetRenderResource();
+        resource.Piplinestate.EnableStencil    = true;
+        resource.Piplinestate.EnableGridShader = false;
+        Render->SetRenderResource(resource);
+        // EGL's default framebuffer has no stencil bits and clamps stencil references to 0.
+        // Verify restoration against a real external stencil target, as another render pass would.
+        FrameBufferSpecification externalSpec;
+        externalSpec.Width = externalSpec.Height = 16;
+        externalSpec.SwapChainTarget             = true;
+        externalSpec.AttachmentSpecification     = {FrameBufferTextureFormat::RGBA8, FrameBufferTextureFormat::Depth};
+        auto external                            = FrameBuffer::Create(externalSpec);
+        external->Bind();
+        glEnable(GL_STENCIL_TEST);
+        glStencilFuncSeparate(GL_FRONT, GL_EQUAL, 3, 0x37);
+        glStencilFuncSeparate(GL_BACK, GL_GREATER, 4, 0x73);
+        glStencilMaskSeparate(GL_FRONT, 0x12);
+        glStencilMaskSeparate(GL_BACK, 0x21);
+        glStencilOpSeparate(GL_FRONT, GL_INCR, GL_DECR, GL_INVERT);
+        glStencilOpSeparate(GL_BACK, GL_ZERO, GL_REPLACE, GL_KEEP);
+        glClearStencil(9);
+        for (const float x : {0.0f, -0.125f})
+        {
+            entity.GetComponent<TransformComponent>().Position.x = x;
+            Render->OnRenderRuntime(Renderer, TimeStep(0));
+            const int ringX = x == 0 ? 12 : 11;
+            // Original edge .56 falls just inside a pixel centre; the 1.007 expansion reaches that pixel.
+            EXPECT_EQ(Pixel(ringX), (std::array<uint8_t, 4> {227, 171, 133, 255}));
+            EXPECT_EQ(Pixel(ringX - 1), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+            EXPECT_EQ(Pixel(ringX + 1), (std::array<uint8_t, 4> {5, 5, 5, 255}));
+            EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+            EXPECT_EQ(Renderer->GetStats().DrawCalls, 2u);
+            external->Bind();
+        }
+        EXPECT_EQ(glIsEnabled(GL_STENCIL_TEST), GL_TRUE);
+        for (auto [property, expected] : {std::pair {GL_STENCIL_FUNC, GL_EQUAL},
+                                          {GL_STENCIL_REF, 3},
+                                          {GL_STENCIL_VALUE_MASK, 0x37},
+                                          {GL_STENCIL_WRITEMASK, 0x12},
+                                          {GL_STENCIL_FAIL, GL_INCR},
+                                          {GL_STENCIL_PASS_DEPTH_FAIL, GL_DECR},
+                                          {GL_STENCIL_PASS_DEPTH_PASS, GL_INVERT},
+                                          {GL_STENCIL_BACK_FUNC, GL_GREATER},
+                                          {GL_STENCIL_BACK_REF, 4},
+                                          {GL_STENCIL_BACK_VALUE_MASK, 0x73},
+                                          {GL_STENCIL_BACK_WRITEMASK, 0x21},
+                                          {GL_STENCIL_BACK_FAIL, GL_ZERO},
+                                          {GL_STENCIL_BACK_PASS_DEPTH_FAIL, GL_REPLACE},
+                                          {GL_STENCIL_BACK_PASS_DEPTH_PASS, GL_KEEP},
+                                          {GL_STENCIL_CLEAR_VALUE, 9}})
+        {
+            GLint value;
+            glGetIntegerv(property, &value);
+            EXPECT_EQ(value, expected) << property;
+        }
+        external->Unbind();
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    TEST_F(MaterialSceneGL, LegacyOutlineCullsFrontFacesAndKeepsTheInflatedBackShell)
+    {
+        // Disabling culling paints the inflated front surface black outside its material silhouette.
+        auto library = CreateRef<ShaderLibrary>();
+        library->Load(std::string(KANS_TEST_SHADER_DIR) + "/OutLineShader.glsl");
+        SceneRendererSpecification spec;
+        spec.GeometryShaders = library;
+        Renderer             = CreateRef<SceneRenderer>(Render.get(), spec);
+        Renderer->SetAssetManager(Assets.get());
+        const auto material = Color({0, 1, 0, 1}, MaterialAlphaMode::Opaque, true);
+        const auto front    = Quad(material, 0, false, -1, -0.439f);
+        const auto back     = Quad(material, 0, true, 0, 0.561f);
+        Ready();
+        auto frontEntity = LogicScene->CreateEntity("Front surface");
+        frontEntity.AddComponent<ProductModelComponent>(front);
+        auto backEntity = LogicScene->CreateEntity("Back surface");
+        backEntity.AddComponent<ProductModelComponent>(back);
+        auto  cameraEntity = LogicScene->CreateEntity("Camera");
+        auto& camera       = cameraEntity.AddComponent<CameraComponent>().SceneCamera;
+        camera.SetOrthographic(2, -1, 1);
+        camera.SetViewportSize(16, 16);
+        auto resource                          = Render->GetRenderResource();
+        resource.Piplinestate.EnableOutline    = true;
+        resource.Piplinestate.EnableGridShader = false;
+        Render->SetRenderResource(resource);
+        Render->OnRenderRuntime(Renderer, TimeStep(0));
+        // Pixel centres x=-.4375/.5625 sit .0015 past the original right edges.
+        // The real outline shader offsets white-encoded normals by about .004 * (2/3) = .002667.
+        EXPECT_EQ(Pixel(4), (std::array<uint8_t, 4> {5, 5, 5, 255}));  // Front shell must be culled.
+        EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {0, 0, 0, 255})); // Back shell must reach the edge pixel.
+        EXPECT_EQ(Pixel(3), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        EXPECT_EQ(Pixel(11), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    // Instrument actual driver calls, forwarding every call and restoring GLAD pointers on scope exit.
+    class FrameUploadTrace
+    {
+    public:
+        FrameUploadTrace()
+        {
+            Active               = this;
+            glad_glBufferSubData = Record;
+        }
+        ~FrameUploadTrace()
+        {
+            glad_glBufferSubData = Original;
+            Active               = nullptr;
+        }
+        std::vector<float> Views;
+        uint32_t           Objects = 0;
+
+    private:
+        static FrameUploadTrace* Active;
+        PFNGLBUFFERSUBDATAPROC   Original = glad_glBufferSubData;
+        static void APIENTRY     Record(GLenum target, GLintptr offset, GLsizeiptr bytes, const void* data)
+        {
+            if (target == GL_UNIFORM_BUFFER && offset == 0)
+            {
+                if (bytes == sizeof(EngineFrameUniforms))
+                    Active->Views.push_back(static_cast<const EngineFrameUniforms*>(data)->DebugView);
+                else if (bytes == sizeof(EngineObjectUniforms))
+                    ++Active->Objects;
+            }
+            Active->Original(target, offset, bytes, data);
+        }
+    };
+    FrameUploadTrace* FrameUploadTrace::Active = nullptr;
+
+    class RasterQueryTrace
+    {
+    public:
+        RasterQueryTrace()
+        {
+            Active             = this;
+            glad_glGetIntegerv = RecordInteger;
+            glad_glGetBooleanv = RecordBoolean;
+            glad_glIsEnabled   = RecordEnabled;
+        }
+        ~RasterQueryTrace()
+        {
+            glad_glGetIntegerv = Integer;
+            glad_glGetBooleanv = Boolean;
+            glad_glIsEnabled   = Enabled;
+            Active             = nullptr;
+        }
+        uint32_t Queries = 0;
+
+    private:
+        static RasterQueryTrace* Active;
+        PFNGLGETINTEGERVPROC     Integer = glad_glGetIntegerv;
+        PFNGLGETBOOLEANVPROC     Boolean = glad_glGetBooleanv;
+        PFNGLISENABLEDPROC       Enabled = glad_glIsEnabled;
+        static void APIENTRY     RecordInteger(GLenum name, GLint* value)
+        {
+            ++Active->Queries;
+            Active->Integer(name, value);
+        }
+        static void APIENTRY RecordBoolean(GLenum name, GLboolean* value)
+        {
+            ++Active->Queries;
+            Active->Boolean(name, value);
+        }
+        static GLboolean APIENTRY RecordEnabled(GLenum name)
+        {
+            ++Active->Queries;
+            return Active->Enabled(name);
+        }
+    };
+    RasterQueryTrace* RasterQueryTrace::Active = nullptr;
+
+    TEST_F(MaterialSceneGL, DeferredSubmissionDoesNotQueryDriverRasterState)
+    {
+        // Per-submission GL snapshots make driver-query cost grow with every entity/outline.
+        const auto model = Quad(Color({1, 0, 0, 1}));
+        Ready();
+        Renderer->BeginScene(Info);
+        {
+            RasterQueryTrace trace;
+            Renderer->SubmitModel(model, glm::mat4(1), ModelStencilMode::WriteReference);
+            Renderer->SubmitModel(model, glm::mat4(1));
+            Renderer->SubmitModelGeometry(model, glm::mat4(1), "StencilShader", ModelGeometryMode::StencilOutline);
+            Renderer->SubmitModelGeometry(model, glm::mat4(1), "OutLineShader", ModelGeometryMode::BackFaces);
+            EXPECT_EQ(trace.Queries, 0u);
+        }
+        Renderer->EndScene();
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 2u);
+    }
+
+    TEST_F(MaterialSceneGL, FrameUniformsUploadOnlyAtDebugViewTransitionsIncludingLitPreview)
+    {
+        // Re-uploading frame data for every object regresses scene submission cost; preview still needs Lit data.
+        const auto opaque = Quad(Color({1, 0, 0, 1}));
+        const auto blend  = Quad(Color({1, 0, 0, 0.25}, MaterialAlphaMode::Blend));
+        Ready();
+        Renderer->SetViewMode(SceneViewMode::Normals);
+        FrameUploadTrace trace;
+        Renderer->BeginScene(Info);
+        for (int i = 0; i < 4; ++i)
+            Renderer->SubmitModel(opaque, glm::mat4(1));
+        Renderer->EndScene();
+        EXPECT_EQ(trace.Views, (std::vector<float> {2}));
+        EXPECT_EQ(trace.Objects, 4u);
+        trace.Views.clear();
+        trace.Objects = 0;
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(opaque, glm::mat4(1));
+        Renderer->SubmitModel(opaque, glm::mat4(1));
+        Renderer->SetPreview(opaque, glm::mat4(1));
+        Renderer->SubmitModel(blend, glm::mat4(1));
+        Renderer->SubmitModel(blend, glm::mat4(1));
+        Renderer->EndScene();
+        EXPECT_EQ(trace.Views, (std::vector<float> {2, 0, 2}));
+        EXPECT_EQ(trace.Objects, 5u);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 5u);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    TEST_F(MaterialSceneGL, BlendSortsAcrossModelsAndPreviewByTransformedBoundsAfterOpaque)
+    {
+        // Submission order and object-origin distance both put red before blue, which gives the wrong colour.
+        const auto near       = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), -0.8f);
+        const auto far        = Quad(Color({0, 0, 1, 0.5}, MaterialAlphaMode::Blend), 0.8f);
+        const auto background = Quad(Color({0, 1, 0, 1}), 0.9f);
+        Ready();
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(near, glm::translate(glm::mat4(1), {0, 0, 0.3f}));
+        Renderer->SubmitModel(background, glm::mat4(1));
+        Renderer->SubmitModel(far, glm::translate(glm::mat4(1), {0, 0, -0.3f}));
+        Renderer->EndScene();
+        const auto pixel = Pixel();
+        // Blue over green, then red: (0.5, 0.25, 0.25). RGBA8 rounds each blend operation.
+        EXPECT_NEAR(pixel[0], 128, 1);
+        EXPECT_NEAR(pixel[1], 64, 1);
+        EXPECT_NEAR(pixel[2], 64, 1);
+        EXPECT_EQ(pixel[3], 255); // glBlendFunc alone reduces destination alpha and makes ImGui see through it.
+        EXPECT_NEAR(Depth(), 0.95f, 1e-6f); // Transparent parts must leave the opaque depth untouched.
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
+        EXPECT_EQ(Renderer->GetStats().Triangles, 6u);
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(near, glm::translate(glm::mat4(1), {0, 0, 0.3f}));
+        Renderer->SubmitModel(background, glm::mat4(1));
+        Renderer->SetPreview(far, glm::translate(glm::mat4(1), {0, 0, -0.3f}));
+        Renderer->EndScene();
+        // The same sorted colour, then the preview's 12% blue fill:
+        // .88 * (.5,.25,.25) + .12 * (.35,.7,1) = (.482,.304,.34).
+        const auto preview = Pixel();
+        EXPECT_NEAR(preview[0], 123, 1);
+        EXPECT_NEAR(preview[1], 78, 1);
+        EXPECT_NEAR(preview[2], 87, 1);
+        EXPECT_EQ(preview[3], 255);
+        EXPECT_NEAR(Depth(), 0.95f, 1e-6f);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    TEST_F(MaterialSceneGL, BlendTestsOpaqueDepthAndLeavesUncoveredDepthClear)
+    {
+        // A blend behind the opaque half must be occluded, and must not write depth in the other half.
+        const auto opaque = Quad(Color({0, 1, 0, 1}), 0, false, 0, 1);
+        const auto blend  = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), 0.5f);
+        Ready();
+        glDisable(GL_DEPTH_TEST);
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(blend, glm::mat4(1));
+        Renderer->SubmitModel(opaque, glm::mat4(1));
+        Renderer->EndScene();
+        EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        EXPECT_NEAR(Pixel(4)[0], 130, 1); // 0.5 red + 0.5 * the 5/255 clear colour.
+        EXPECT_EQ(Pixel(4)[3], 255);
+        EXPECT_FLOAT_EQ(Depth(4), 1.0f);
+        EXPECT_NEAR(Depth(12), 0.5f, 1e-6f);
+    }
+
+    TEST_F(MaterialSceneGL, BlendDistanceUsesTheCameraAndEachPartsBoundsWithinOneModel)
+    {
+        // Equal-depth parts need radial distance from the camera, not node origin or camera-space Z.
+        Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), 0, false, -0.2f, 1);
+        Quad(Color({0, 0, 1, 0.5}, MaterialAlphaMode::Blend), 0, false, -1, 0.2f);
+        ModelData model;
+        model.Nodes.push_back({"Root", -1, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, Meshes});
+        ProductModelComponent component;
+        component.Model = Add(AssetType::Model, EncodeModelProduct(model));
+        Models.push_back(component.Model);
+        Ready();
+        Info.sceneCamera.Position = {4, 0, 0}; // Red centre x=0.4 is nearer than blue centre x=-0.4.
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(component, glm::mat4(1));
+        Renderer->EndScene();
+        const auto pixel = Pixel();
+        EXPECT_NEAR(pixel[0], 129, 1); // red .5 + blue .25 + clear .25
+        EXPECT_NEAR(pixel[2], 65, 1);
+        EXPECT_EQ(pixel[3], 255);
+    }
+
+    TEST_F(MaterialSceneGL, StandardMaskMultipliesTextureFactorAndVertexAlphaAndRetainsCutoffEquality)
+    {
+        TextureData texture;
+        texture.Width        = 3;
+        texture.Height       = 1;
+        texture.Usage        = TextureUsage::Data;
+        texture.Mips         = {{{std::byte {255},
+                                  std::byte {255},
+                                  std::byte {255},
+                                  std::byte {32},
+                                  std::byte {255},
+                                  std::byte {255},
+                                  std::byte {255},
+                                  std::byte {224},
+                                  std::byte {255},
+                                  std::byte {255},
+                                  std::byte {255},
+                                  std::byte {255}}}};
+        const auto textureID = Add(AssetType::Texture, EncodeTextureProduct(texture));
+        auto&      cache     = *Renderer->GetAssetCache();
+        ASSERT_TRUE(Frames(cache, [&] { return cache.GetTexture(textureID) != nullptr; }));
+        cache.GetTexture(textureID)->Bind(12);
+        glActiveTexture(GL_TEXTURE12);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        MaterialSource source;
+        source.Parameters               = {{"BaseColor", {1, 0, 0, 0.75}}, {"VertexColorStrength", {1}},
+                                           {"EmissiveColor", {1, 0, 0}}};
+        source.Textures["BaseColorMap"] = textureID;
+        source.Render.AlphaMode         = MaterialAlphaMode::Mask;
+        source.Render.AlphaCutoff       = 0.35f;
+        const auto mask                 = Quad(Material(source, false), 0, false, -1, 1, 0.5f);
+        source.Render.AlphaCutoff       = 0.375f;
+        const auto equality             = Quad(Material(source, false), 0, false, -1, 1, 0.5f);
+        source.Render.AlphaCutoff       = 0.25f;
+        const auto lowCutoff            = Quad(Material(source, false), 0, false, -1, 1, 0.5f);
+        source.Render.AlphaMode         = MaterialAlphaMode::Opaque;
+        const auto opaque               = Quad(Material(source, false), 0, false, -1, 1, 0.5f);
+        source.Render.AlphaMode         = MaterialAlphaMode::Blend;
+        const auto blend                = Quad(Material(source, false), 0, false, -1, 1, 0.5f);
+        Ready();
+        Renderer->SetViewMode(SceneViewMode::BaseColor);
+        for (auto model : {mask, equality, lowCutoff, opaque})
+        {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(model, glm::mat4(1));
+            Renderer->EndScene();
+            const bool isOpaque = model.Model == opaque.Model;
+            EXPECT_EQ(Pixel(2),
+                      (isOpaque ? std::array<uint8_t, 4> {255, 0, 0, 255} : std::array<uint8_t, 4> {5, 5, 5, 255}));
+            EXPECT_EQ(Pixel(8),
+                      ((isOpaque || model.Model == lowCutoff.Model) ? std::array<uint8_t, 4> {255, 0, 0, 255} :
+                                                                      std::array<uint8_t, 4> {5, 5, 5, 255}));
+            EXPECT_EQ(Pixel(13),
+                      (std::array<uint8_t, 4> {255, 0, 0, 255})); // alpha == cutoff survives; output alpha is 1.
+            EXPECT_NEAR(Depth(2), isOpaque ? 0.5f : 1.0f, 1e-6f); // Discard must also leave a depth hole.
+        }
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(blend, glm::mat4(1));
+        Renderer->EndScene();
+        // Blend must use that same final alpha: .75 * .5 * 1 = .375 on the right texel.
+        EXPECT_NEAR(Pixel(13)[0], 99, 1); // .375 * 255 + .625 * 5.
+        EXPECT_NEAR(Pixel(8)[0], 87, 1);  // .375 * (224/255) * 255 + remaining clear colour.
+        EXPECT_EQ(Pixel(13)[3], 255);
+        EXPECT_FLOAT_EQ(Depth(13), 1.0f);
+        Renderer->SetViewMode(SceneViewMode::Lit);
+        Info.pointLight.Ambient_Intensity = {0, 0, 0};
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(blend, glm::mat4(1));
+        Renderer->EndScene();
+        // Lit output must retain alpha after KansToneMap: emission=1 gives pow(1/2,1/2.2).
+        EXPECT_NEAR(Pixel(13)[0], 73, 1); // .375 * .72974 * 255 + .625 * 5; forgetting output alpha gives 186.
+        EXPECT_EQ(Pixel(13)[3], 255);
+    }
+
+    TEST_F(MaterialSceneGL, FailedCustomShaderAndDebugFallbackKeepBlendAndDoubleSidedState)
+    {
+        // Falling back to Standard must not reset render state along with the incompatible named parameters.
+        const auto     broken   = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(location = 1) out vec4 o_Color;
+void main() { o_Color = vec4(1); }
+)");
+        const auto     brokenID = Add(AssetType::Shader, EncodeShaderProduct(broken));
+        MaterialSource source;
+        source.Shader = ShaderID;
+        source.Render = {MaterialAlphaMode::Blend, 0.375f, true};
+        auto resolved = ResolveMaterialSource(source, &Custom);
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(resolved));
+        auto data           = std::get<MaterialData>(resolved);
+        data.Shader         = brokenID;
+        const auto material = Add(AssetType::Material, EncodeMaterialProduct(data));
+        Materials.push_back(material);
+        const auto quad = Quad(material, 0, true);
+        Ready();
+        for (auto mode : {SceneViewMode::Lit, SceneViewMode::BaseColor})
+        {
+            Renderer->SetViewMode(mode);
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(quad, glm::mat4(1));
+            Renderer->EndScene();
+            EXPECT_GT(Pixel()[0], 150);     // Still double-sided when the Shader changes.
+            EXPECT_FLOAT_EQ(Depth(), 1.0f); // Still blend: no depth writes even though Standard's fallback alpha is 1.
+            EXPECT_EQ(Pixel()[3], 255);
+        }
+    }
+
+    TEST_F(MaterialSceneGL, DoubleSidedBackFacesFlipNormalsAndDoNotDisableCullingForTheNextPart)
+    {
+        MaterialSource source;
+        source.Parameters["BaseColor"] = {1, 0, 0, 1};
+        source.Render.DoubleSided      = true;
+        const auto doubleSided         = Quad(Material(source, false), 0, true, -1, 0);
+        source.Render.DoubleSided      = false;
+        const auto singleSided         = Quad(Material(source, false), 0, true, 0, 1);
+        Ready();
+        glDisable(GL_CULL_FACE);
+        Renderer->SetViewMode(SceneViewMode::Normals);
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(doubleSided, glm::mat4(1));
+        Renderer->SubmitModel(singleSided, glm::mat4(1));
+        Renderer->EndScene();
+        EXPECT_EQ(Pixel(4)[2], 0); // +Z geometric normal becomes -Z on the visible back face.
+        EXPECT_NEAR(Pixel(4)[0], 128, 1);
+        EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {5, 5, 5, 255}));
+        Renderer->SetViewMode(SceneViewMode::Lit);
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(doubleSided, glm::mat4(1));
+        Renderer->EndScene();
+        EXPECT_GT(Pixel(4)[0], 150); // A light on -Z must illuminate the flipped back-face normal.
+        EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_FALSE);
+    }
+
+    TEST_F(MaterialSceneGL, RenderStateRestoresDepthCullBlendFunctionsAndWireframeModeAfterPreviewOutline)
+    {
+        // A viewport render must not change the raster state used by the following UI/geometry pass.
+        const auto model = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend, true), 0, false, -0.5f, 0.5f);
+        Ready();
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);
+        glDisable(GL_DEPTH_TEST);
+        glDepthFunc(GL_GREATER);
+        glDepthMask(GL_FALSE);
+        glEnable(GL_BLEND);
+        glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+        glBlendEquationSeparate(GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        Renderer->BeginScene(Info);
+        Renderer->SetPreview(model, glm::mat4(1));
+        Renderer->EndScene();
+        EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_TRUE);
+        EXPECT_EQ(glIsEnabled(GL_DEPTH_TEST), GL_FALSE);
+        EXPECT_EQ(glIsEnabled(GL_BLEND), GL_TRUE);
+        GLboolean depthWrite;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
+        EXPECT_EQ(depthWrite, GL_FALSE);
+        for (auto [property, expected] : {std::pair {GL_CULL_FACE_MODE, GL_FRONT},
+                                          {GL_DEPTH_FUNC, GL_GREATER},
+                                          {GL_BLEND_SRC_RGB, GL_ONE},
+                                          {GL_BLEND_DST_RGB, GL_ZERO},
+                                          {GL_BLEND_SRC_ALPHA, GL_ONE},
+                                          {GL_BLEND_DST_ALPHA, GL_ZERO},
+                                          {GL_BLEND_EQUATION_RGB, GL_FUNC_SUBTRACT},
+                                          {GL_BLEND_EQUATION_ALPHA, GL_FUNC_REVERSE_SUBTRACT}})
+        {
+            GLint actual;
+            glGetIntegerv(property, &actual);
+            EXPECT_EQ(actual, expected) << property;
+        }
+        GLint polygon[2];
+        glGetIntegerv(GL_POLYGON_MODE, polygon);
+        EXPECT_EQ(polygon[0], GLint(GL_LINE));
+        EXPECT_EQ(Pixel(8)[3], 255);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    class SurfacePickerGL : public RenderAssetCacheGL, public testing::WithParamInterface<bool>
+    {};
 
     TEST_P(SurfacePickerGL, UnprojectsNearestDepthAtPixelCentreAndClearsPreviousHit)
     {
@@ -1058,16 +1726,16 @@ void main() { color = texture(other, vec2(0)); }
             vertex.Position = {x, y, 0};
             quad.Vertices.push_back(vertex);
         }
-        quad.Indices = {0, 1, 2, 2, 3, 0};
+        quad.Indices  = {0, 1, 2, 2, 3, 0};
         auto uploaded = UploadMesh(quad);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
-        const auto& mesh = std::get<GpuMesh>(uploaded);
-        const bool perspective = GetParam();
-        const glm::mat4 projection = perspective ? glm::perspective(glm::radians(90.0f), 2.0f, 1.0f, 9.0f) :
-                                                   glm::ortho(-8.0f, 8.0f, -4.0f, 4.0f, 1.0f, 9.0f);
+        const auto&     mesh           = std::get<GpuMesh>(uploaded);
+        const bool      perspective    = GetParam();
+        const glm::mat4 projection     = perspective ? glm::perspective(glm::radians(90.0f), 2.0f, 1.0f, 9.0f) :
+                                                       glm::ortho(-8.0f, 8.0f, -4.0f, 4.0f, 1.0f, 9.0f);
         const glm::mat4 viewProjection = projection * glm::translate(glm::mat4(1.0f), {-10, -20, -30});
-        const MeshDraw near {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 26}), 7};
-        const MeshDraw far {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 24}), 9};
+        const MeshDraw  near {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 26}), 7};
+        const MeshDraw  far {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 24}), 9};
 
         // Picking must establish its depth state even after other render passes.
         glDepthMask(GL_FALSE);
@@ -1075,7 +1743,7 @@ void main() { color = texture(other, vec2(0)); }
         glDepthRange(0.25, 0.75);
         glClearDepth(0.0);
         EntityPicker picker;
-        const auto hit = picker.PickSurface({near, far}, viewProjection, {32, 16}, {19, 5});
+        const auto   hit = picker.PickSurface({near, far}, viewProjection, {32, 16}, {19, 5});
         ASSERT_EQ(hit.ID, 7u);
         ASSERT_TRUE(hit.Position);
         // NDC=(7/32,-5/16); at z=-4 both views span 16x8. Catches +0.5,

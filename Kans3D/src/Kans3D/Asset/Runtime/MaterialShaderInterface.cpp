@@ -27,10 +27,26 @@ layout(set = 0, binding = 1, std140) uniform KansObject
 {
     mat4 Transform;
     mat4 NormalMatrix;
+    vec4 MaterialRender; // x: alpha mode (0 opaque / 1 mask / 2 blend), y: cutoff, z: double-sided
 } u_Object;
 layout(set = 0, binding = 2) uniform samplerCube u_IrradianceMap;
 layout(set = 0, binding = 3) uniform samplerCube u_PrefilterMap;
 layout(set = 0, binding = 4) uniform sampler2D   u_BrdfLUT;
+#endif
+)"},
+                {"Kans3D/Alpha.glsl", R"(#ifndef KANS3D_ALPHA_GLSL
+#define KANS3D_ALPHA_GLSL
+#include <Kans3D/Engine.glsl>
+// Fragment-stage helpers. Call with the final base colour alpha, before any debug-view return.
+void KansAlphaClip(float alpha)
+{
+    if (u_Object.MaterialRender.x == 1.0 && alpha < u_Object.MaterialRender.y)
+        discard;
+}
+float KansOutputAlpha(float alpha)
+{
+    return u_Object.MaterialRender.x == 2.0 ? alpha : 1.0;
+}
 #endif
 )"},
                 {"Kans3D/VertexInput.glsl", R"(#ifndef KANS3D_VERTEX_INPUT_GLSL
@@ -139,7 +155,7 @@ vec4 KansToneMap(vec3 color)
                 {ShaderBindingKind::UniformBuffer,
                  ShaderImageDimension::Texture2D,
                  sizeof(EngineObjectUniforms),
-                 {{"Transform", 0, 4, 4, 1}, {"NormalMatrix", 64, 4, 4, 1}}},
+                 {{"Transform", 0, 4, 4, 1}, {"NormalMatrix", 64, 4, 4, 1}, {"MaterialRender", 128, 4, 1, 1}}},
                 {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
                 {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
                 {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Texture2D, 0, {}},
@@ -154,6 +170,7 @@ vec4 KansToneMap(vec3 color)
 
         // Published shaders before DebugView contain only the original KansFrame members.
         constexpr size_t LegacyFrameMemberCount = 6;
+        constexpr size_t LegacyObjectMemberCount = 2;
 
         std::optional<AssetError> CheckEngineBinding(const ShaderResourceBinding& binding)
         {
@@ -167,7 +184,9 @@ vec4 KansToneMap(vec3 color)
                 (binding.Kind != ShaderBindingKind::CombinedImageSampler || binding.Dimension == expected.Dimension) &&
                 (binding.Members.size() == expected.Members.size() ||
                  (binding.Binding == uint32_t(EngineBinding::Frame) &&
-                  binding.Members.size() == LegacyFrameMemberCount));
+                  binding.Members.size() == LegacyFrameMemberCount) ||
+                 (binding.Binding == uint32_t(EngineBinding::Object) &&
+                  binding.Members.size() == LegacyObjectMemberCount));
             for (size_t i = 0; matches && i < binding.Members.size(); ++i)
             {
                 const auto& member = binding.Members[i];

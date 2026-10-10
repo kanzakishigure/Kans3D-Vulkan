@@ -90,6 +90,8 @@ void main()
         {
             GLint     Framebuffer = 0, ReadFramebuffer = 0, Program = 0, Viewport[4] = {}, Scissor[4] = {};
             GLint     DepthFunction = GL_LESS;
+            GLint     PolygonMode[2] {}, BlendSourceRGB, BlendDestinationRGB, BlendSourceAlpha, BlendDestinationAlpha;
+            GLint     BlendEquationRGB, BlendEquationAlpha;
             GLboolean DepthMask = GL_TRUE;
             GLdouble  DepthRange[2] = {}, ClearDepth = 1.0;
             GLboolean Depth = GL_FALSE, Blend = GL_FALSE, ScissorTest = GL_FALSE, Cull = GL_FALSE, Stencil = GL_FALSE;
@@ -98,6 +100,13 @@ void main()
                 glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &Framebuffer);
                 glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &ReadFramebuffer);
                 glGetIntegerv(GL_DEPTH_FUNC, &DepthFunction);
+                glGetIntegerv(GL_POLYGON_MODE, PolygonMode);
+                glGetIntegerv(GL_BLEND_SRC_RGB, &BlendSourceRGB);
+                glGetIntegerv(GL_BLEND_DST_RGB, &BlendDestinationRGB);
+                glGetIntegerv(GL_BLEND_SRC_ALPHA, &BlendSourceAlpha);
+                glGetIntegerv(GL_BLEND_DST_ALPHA, &BlendDestinationAlpha);
+                glGetIntegerv(GL_BLEND_EQUATION_RGB, &BlendEquationRGB);
+                glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &BlendEquationAlpha);
                 glGetBooleanv(GL_DEPTH_WRITEMASK, &DepthMask);
                 glGetDoublev(GL_DEPTH_RANGE, DepthRange);
                 glGetDoublev(GL_DEPTH_CLEAR_VALUE, &ClearDepth);
@@ -121,8 +130,9 @@ void main()
                 glUseProgram(GLuint(Program));
                 glViewport(Viewport[0], Viewport[1], Viewport[2], Viewport[3]);
                 glScissor(Scissor[0], Scissor[1], Scissor[2], Scissor[3]);
-                // Renderers set the polygon mode they need; leave the default.
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glPolygonMode(GL_FRONT_AND_BACK, PolygonMode[0]);
+                glBlendFuncSeparate(BlendSourceRGB, BlendDestinationRGB, BlendSourceAlpha, BlendDestinationAlpha);
+                glBlendEquationSeparate(BlendEquationRGB, BlendEquationAlpha);
                 const auto set = [](GLenum cap, GLboolean on) { on ? glEnable(cap) : glDisable(cap); };
                 set(GL_DEPTH_TEST, Depth);
                 set(GL_BLEND, Blend);
@@ -340,7 +350,8 @@ void main()
         glBindFramebuffer(GL_FRAMEBUFFER, GLuint(state.Framebuffer));
         glViewport(state.Viewport[0], state.Viewport[1], state.Viewport[2], state.Viewport[3]);
         glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
         m_Composite.Bind();
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_Texture);

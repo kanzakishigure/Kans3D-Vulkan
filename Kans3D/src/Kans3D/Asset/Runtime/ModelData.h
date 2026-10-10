@@ -46,6 +46,23 @@ namespace Kans
         AssetID  Texture;
     };
 
+    enum class MaterialAlphaMode : uint32_t
+    {
+        Opaque = 0,
+        Mask   = 1,
+        Blend  = 2,
+    };
+
+    // Render state belongs to the material, independently of its Shader.
+    struct MaterialRenderState
+    {
+        MaterialAlphaMode AlphaMode   = MaterialAlphaMode::Opaque;
+        float             AlphaCutoff = 0.5f;
+        bool              DoubleSided = false;
+    };
+
+    [[nodiscard]] bool IsValidMaterialRenderState(const MaterialRenderState& state);
+
     struct MaterialData
     {
         std::string                         Name;
@@ -57,6 +74,7 @@ namespace Kans
         AssetID Shader;
         // Absent in KMAT v1/v2; an explicit (possibly empty) recipe is persisted in v3.
         std::optional<MaterialBindingRecipe> Bindings;
+        MaterialRenderState                  Render;
     };
 
     [[nodiscard]] std::variant<std::monostate, AssetError> ValidateMaterialData(const MaterialData& data);

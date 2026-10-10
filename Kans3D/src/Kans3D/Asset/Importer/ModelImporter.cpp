@@ -204,6 +204,7 @@ namespace Kans
         {
             const auto&       input = source.Materials[i];
             MaterialData      data {input.Name, input.BaseColor, input.Metallic, input.Roughness, {}};
+            data.Render = input.Render;
             ProductDescriptor descriptor {result.LocalIDs.at(materialKeys[i]), AssetType::Material, {}, {}};
             descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmaterial";
             for (const auto& texture : input.Textures)
