@@ -16,7 +16,7 @@
 namespace Kans
 {
 
-    EditorLayer::EditorLayer() : m_EditorCamera(45.0f, 1920, 1080, 0.1, 1000), Layer("EditorLayer") {}
+    EditorLayer::EditorLayer() : Layer("EditorLayer") {}
     void EditorLayer::OnAttach()
     {
         PROFILE_FUCTION();
@@ -129,6 +129,13 @@ namespace Kans
             m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
             m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
             m_ViewportRenderer->PrepareEnvironment();
+            m_ViewportPanel.SetContext(m_ActiveScene, m_ActiveRenderScene, m_ViewportRenderer);
+            m_ViewportPanel.SetFileDropCallback([this](const std::filesystem::path& file) {
+                if (file.extension() == ".kans")
+                    Record(OpenScene(file));
+                else if (file.has_extension())
+                    PlaceAsset(file);
+            });
             auto configured = RefreshProductAssets();
             Record(configured);
         }
@@ -156,6 +163,7 @@ namespace Kans
             m_ActiveScene->OnRuntimeStop();
         if (m_ViewportRenderer)
         {
+            m_ViewportPanel.SetContext({}, {}, {});
             m_ViewportRenderer->SetAssetManager(nullptr);
             m_PropertiesPanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetAssetManager(nullptr);
@@ -200,38 +208,11 @@ namespace Kans
             }
         }
 
-        // resize
-        {
-            if (auto spec = m_ViewportRenderer->GetViewportSize();
-                m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f &&
-                (spec[0] != (uint32_t)m_ViewportSize.x || spec[1] != (uint32_t)m_ViewportSize.y))
-            {
-                m_ViewportRenderer->SetViewportSize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-                m_EditorCamera.setViewportSize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-                m_ActiveRenderScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-                m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-            }
-        }
-
-        // update
-        {
-            const bool rightPressed = Input::IsMouseButtonPressed(MouseButton::ButtonRight);
-            m_CameraNavigating      = m_ViewportFocused && rightPressed && (m_ViewportHovered || m_CameraNavigating);
-            if (m_CameraNavigating)
-                m_EditorCamera.onUpdate(ts);
-            else
-                m_EditorCamera.resetMotion();
-        }
-
         // updateScene
         {
             m_ActiveScene->OnUpdate(ts);
         }
-        // rendering
-        {
-            PROFILE_SCOPE("rendering")
-            m_ActiveRenderScene->OnRenderEditor(m_ViewportRenderer, ts, m_EditorCamera);
-        }
+        // The viewport panel renders the scene during the UI frame.
     }
 
     void EditorLayer::OnEvent(Event& e)

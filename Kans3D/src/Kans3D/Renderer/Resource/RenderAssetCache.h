@@ -1,6 +1,7 @@
 #pragma once
 #include <unordered_map>
 #include <glm/glm.hpp>
+#include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
@@ -16,6 +17,7 @@ namespace Kans
         Ref<VertexArray> VertexArray;
         uint32_t         IndexCount = 0;
         AssetID          Material;
+        Bounds           LocalBounds; // In mesh space.
     };
 
     // Engine PBR material parameters. Texture IDs are resolved when drawing so a
@@ -72,6 +74,9 @@ namespace Kans
         const GpuMaterial*    GetMaterial(AssetID id);
         Ref<Texture2D>        GetTexture(AssetID id);
         const GpuShader*      GetShader(AssetID id);
+        // Model-space bounds of a model's meshes; empty until the model and its
+        // meshes are uploaded.
+        Bounds GetModelBounds(AssetID model);
         // Packed parameters of a Shader material; nullptr while the material or its
         // Shader is loading or when packing failed (the error is logged).
         const GpuMaterialBindings* GetMaterialBindings(AssetID material);

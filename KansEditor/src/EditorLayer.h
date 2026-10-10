@@ -11,6 +11,7 @@
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
 #include "Panels/PropertiesPanel.h"
+#include "Panels/ViewportPanel.h"
 #include "SceneHistory.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
@@ -70,9 +71,6 @@ namespace Kans
         void RegisterPanels();
         void DrawMenuBar();
         void DrawMainToolbar();
-        void DrawViewport();
-        void DrawViewportToolbar();
-        void DrawGizmo();
         void DrawStats();
         void HandleShortcuts();
         // Records a history step once an interaction that may have edited the scene ends.
@@ -105,11 +103,6 @@ namespace Kans
         SourceAssetID m_StatusSource;
         std::string   m_StatusName;
 
-        glm::vec2 m_ViewportSize = glm::vec2(0.0f, 0.0f);
-
-        bool m_ViewportFocused  = false;
-        bool m_ViewportHovered  = false;
-        bool m_CameraNavigating = false;
 
         Ref<Scene>         m_ActiveScene;
         Ref<RenderScene>   m_ActiveRenderScene;
@@ -118,21 +111,10 @@ namespace Kans
         Entity m_CameraEntity;
         Entity m_SecondCameraEntity;
 
-        // Gizmo: ImGuizmo operation (-1 = none) and mode (0 = local, 1 = world).
-        int   m_GizmoType  = 7;
-        int   m_GizmoMode  = 0;
-        bool  m_GizmoSnap  = false;
-        float m_SnapMove   = 0.5f;
-        float m_SnapRotate = 15.0f;
-        float m_SnapScale  = 0.1f;
-        // Screen rectangle of the viewport image.
-        ImVec2 m_ViewportMin {}, m_ViewportMax {};
-
-        EditorCamera m_EditorCamera;
-
         PanelManager        m_Panels;
         HierarchyPanel      m_HierarchyPanel;
         PropertiesPanel     m_PropertiesPanel {m_HierarchyPanel};
+        ViewportPanel       m_ViewportPanel {m_HierarchyPanel};
         ContentBrowserPanel m_ContentBrowserPanel;
         ProductImportPanel  m_ProductImportPanel;
         MaterialEditorPanel m_MaterialEditorPanel;

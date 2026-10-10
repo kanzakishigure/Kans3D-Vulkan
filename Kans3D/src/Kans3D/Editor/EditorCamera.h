@@ -1,66 +1,79 @@
 #pragma once
-#include "Kans3D/Core/Events/Event.h"
-#include "Kans3D/Core/Events/MouseEvent.h"
-#include "Kans3D/Core/TimeStep.h"
+#include <utility>
+#include <glm/glm.hpp>
 #include "Kans3D/Renderer/Resource/Camera.h"
 
 namespace Kans
 {
+    // Scene view camera orbiting a focus point. Navigation functions take mouse
+    // deltas in pixels and times in seconds; the input mapping lives in the
+    // editor's viewport. Rotation is yaw (around +Y) then pitch.
     class EditorCamera : public Camera
     {
     public:
-        EditorCamera(const float degFov, const float width, const float height, const float nearP, const float farP);
+        enum class View
+        {
+            Perspective,
+            Top,
+            Bottom,
+            Front,
+            Back,
+            Right,
+            Left,
+        };
 
-        void onEvent(Event& e);
-        void onUpdate(TimeStep ts);
-        void resetMotion();
+        static constexpr float MinFlySpeed = 0.1f, MaxFlySpeed = 500.0f;
 
-        void      updateViewMatrix();
-        glm::vec3 getUpDirection();
-        glm::vec3 getRightDirection();
-        glm::vec3 getFrontDirection();
-        glm::quat getOrientation();
-        glm::vec3 calculatePosition();
+        explicit EditorCamera(float verticalFovDegrees = 45.0f, float nearClip = 0.05f, float farClip = 5000.0f);
 
-        float getCameraSpeed();
-        void  setCameraSpeed(float speed);
-        static float getMinCameraSpeed() { return MIN_SPEED; }
-        static float getMaxCameraSpeed() { return MAX_SPEED; }
-        float getRotateSpeed();
-        float getZoomSpeed();
-        bool  onMouseScroll(MouseScrolledEvent& e);
-        void  mouseZoom(float delta);
-        void  setViewportSize(uint32_t width, uint32_t height);
+        void SetViewportSize(uint32_t width, uint32_t height);
 
-        glm::vec3        getPosition() const { return m_Position; }
-        const glm::mat4& getViewMatrix() const { return m_ViewMatrix; }
-        glm::mat4        getViewProjection() const { return GetProjectionMatrix() * m_ViewMatrix; }
+        // Rotates around the focus point.
+        void Orbit(glm::vec2 delta);
+        // Rotates in place; the focus point moves with the view.
+        void Look(glm::vec2 delta);
+        // Slides the view so the point under the cursor follows it.
+        void Pan(glm::vec2 delta);
+        // Moves toward (positive) or away from the focus; pushes the focus forward
+        // when it gets too close.
+        void Dolly(float steps);
+        // Moves by `direction` (x right, y up, z forward) at the fly speed.
+        void Fly(const glm::vec3& direction, float seconds);
+        // Frames a sphere.
+        void Focus(const glm::vec3& center, float radius);
+        // Axis views are orthographic; Perspective returns to a perspective three-quarter view.
+        void SetView(View view);
+        void SetOrthographic(bool orthographic);
+        // Adopts an externally edited view matrix, keeping the focus distance.
+        void SetViewMatrix(const glm::mat4& view);
+
+        bool             IsOrthographic() const { return m_Orthographic; }
+        const glm::mat4& GetViewMatrix() const { return m_View; }
+        glm::mat4        GetViewProjection() const { return m_ProjectionMatrix * m_View; }
+        glm::vec3        GetPosition() const;
+        glm::vec3        GetFocus() const { return m_Focus; }
+        float            GetDistance() const { return m_Distance; }
+        glm::vec3        Forward() const;
+        glm::vec3        Right() const;
+        glm::vec3        Up() const;
+        float            GetFlySpeed() const { return m_FlySpeed; }
+        void             SetFlySpeed(float speed);
+        float            GetVerticalFov() const { return m_Fov; }
+        // World-space origin and unit direction of the ray through a viewport
+        // pixel (top-left origin).
+        std::pair<glm::vec3, glm::vec3> ScreenRay(glm::vec2 pixel) const;
 
     private:
-        float m_VerticalFOV;
-        float m_AspectRatio;
-        float m_NearClip;
-        float m_FarClip;
+        void UpdateView();
+        void UpdateProjection();
 
-        float m_Yaw, m_Pitch;
-        float m_YawDelta = {}, m_PitchDelta = {};
-
-        float m_Distance;
-
-        glm::mat4 m_ViewMatrix;
-        glm::vec3 m_FrontDirection;
-        glm::vec3 m_RightDirection;
-
-        glm::vec3 m_Position {0.0f, 1.0f, -5.0f};
-        glm::vec3 m_FocusPosition {};
-
-        glm::vec3 m_MoveDelta {};
-
-        glm::vec2 m_MousePos {};
-
-        uint32_t m_ViewportWidth {1920}, m_ViewportHeight {1080};
-
-        float                  m_CameraMoveSpeed {0.0015f};
-        constexpr static float MIN_SPEED {0.0001f}, MAX_SPEED {1.0f};
+        float     m_Fov, m_Near, m_Far; // Vertical field of view in radians.
+        uint32_t  m_Width = 1280, m_Height = 720;
+        bool      m_Orthographic = false;
+        glm::vec3 m_Focus {0.0f};
+        float     m_Distance = 10.0f;
+        float     m_Yaw = 0.0f, m_Pitch = 0.0f; // Radians.
+        float     m_FlySpeed = 5.0f;           // Units per second.
+        glm::mat4 m_View {1.0f};
     };
 } // namespace Kans

@@ -240,11 +240,10 @@ namespace Kans
         m_ActiveScene = std::move(scene);
         m_ActiveRenderScene->SetLogicScene(m_ActiveScene);
         m_HierarchyPanel.SetScene(m_ActiveScene);
+        m_ViewportPanel.SetContext(m_ActiveScene, m_ActiveRenderScene, m_ViewportRenderer);
         m_CameraEntity       = {};
         m_SecondCameraEntity = {};
         m_ScenePath          = std::move(path);
-        m_CameraNavigating   = false;
-        m_EditorCamera.resetMotion();
         m_ActiveScene->OnRuntimeStart();
         m_History.Reset(*m_ActiveScene);
         m_EditPending = false;

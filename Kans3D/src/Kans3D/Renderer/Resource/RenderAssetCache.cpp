@@ -44,6 +44,8 @@ namespace Kans
         array->Unbind();
 
         GpuMesh mesh;
+        for (const auto& vertex : data.Vertices)
+            mesh.LocalBounds.Expand(glm::make_vec3(vertex.Position.data()));
         mesh.VertexArray = std::move(array);
         mesh.IndexCount  = static_cast<uint32_t>(data.Indices.size());
         mesh.Material    = data.Material;
@@ -192,6 +194,16 @@ namespace Kans
     const GpuShader* RenderAssetCache::GetShader(AssetID id)
     {
         return Resolve(m_Shaders, id, [](const ShaderDataAsset& asset) { return GpuShader::Create(asset.GetData()); });
+    }
+
+    Bounds RenderAssetCache::GetModelBounds(AssetID model)
+    {
+        Bounds bounds;
+        if (const auto* instances = GetModel(model))
+            for (const auto& instance : instances->Instances)
+                if (const auto* mesh = GetMesh(instance.Mesh))
+                    bounds.Expand(mesh->LocalBounds.Transformed(instance.Transform));
+        return bounds;
     }
 
     const GpuMaterialBindings* RenderAssetCache::GetMaterialBindings(AssetID materialID)

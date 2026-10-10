@@ -57,8 +57,8 @@ namespace Kans
     void RenderScene::OnRenderEditor(Ref<SceneRenderer> renderer, TimeStep ts, const EditorCamera& camera)
     {
         SceneInfo info              = {};
-        info.sceneCamera.Position   = camera.getPosition();
-        info.sceneCamera.viewMatrix = camera.getViewMatrix();
+        info.sceneCamera.Position   = camera.GetPosition();
+        info.sceneCamera.viewMatrix = camera.GetViewMatrix();
         info.sceneCamera.camera     = camera;
         CollectLights(info);
         Render(*renderer, info);

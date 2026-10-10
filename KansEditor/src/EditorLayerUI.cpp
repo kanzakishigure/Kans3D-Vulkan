@@ -5,41 +5,20 @@
 #include <glm/gtc/type_ptr.hpp>
 #include "ImGuizmo.h"
 #include "UI/EditorIcons.h"
+#include "UI/Widgets.h"
 
 // Editor window layout: menu bar, main toolbar, dock space with the panels, and
 // the viewport with its overlay toolbar.
 
 namespace Kans
 {
+    using Widgets::ToolButton;
+    using Widgets::ToolSeparator;
+
     namespace
     {
         constexpr ImVec4 ErrorColor {0.95f, 0.38f, 0.35f, 1.0f};
         constexpr ImVec4 AccentColor {0.26f, 0.59f, 0.98f, 1.0f};
-
-        // Icon button with a tooltip; `active` highlights toggles that are on.
-        bool ToolButton(const char* icon, const char* tooltip, bool active = false, bool enabled = true)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, active ? ImVec4(0.26f, 0.59f, 0.98f, 0.45f) : ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.40f, 0.40f, 0.40f, 0.45f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.26f, 0.59f, 0.98f, 0.65f));
-            ImGui::BeginDisabled(!enabled);
-            const bool clicked = ImGui::Button(icon, {28.0f, 26.0f});
-            ImGui::EndDisabled();
-            ImGui::PopStyleColor(3);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", tooltip);
-            return clicked;
-        }
-
-        void ToolSeparator()
-        {
-            ImGui::SameLine(0, 8.0f);
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            ImGui::GetWindowDrawList()->AddLine(
-                {at.x, at.y + 4.0f}, {at.x, at.y + 22.0f}, ImGui::GetColorU32(ImGuiCol_Separator));
-            ImGui::Dummy({1.0f, 26.0f});
-            ImGui::SameLine(0, 8.0f);
-        }
 
         std::string MenuLabel(const char* icon, const char* text) { return std::string(icon) + "  " + text; }
     } // namespace
@@ -63,7 +42,7 @@ namespace Kans
         viewport.Closable  = false;
         viewport.NoPadding = true;
         viewport.Flags     = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-        m_Panels.Register(viewport, [this] { DrawViewport(); });
+        m_Panels.Register(viewport, [this] { m_ViewportPanel.Draw(); });
         m_Panels.Register(spec(PanelID::Hierarchy, "Hierarchy", ICON_FA_LIST, PanelCategory::Scene, PanelDock::Left, true),
                           [this] { m_HierarchyPanel.Draw(); });
         m_Panels.Register(
@@ -136,11 +115,8 @@ namespace Kans
         DrawSceneFileDialogs();
         ImGui::End();
 
-        // The viewport panel sets these when it is drawn.
-        m_ViewportFocused = false;
-        m_ViewportHovered = false;
         m_Panels.Draw();
-        Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportFocused || m_ViewportHovered);
+        Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportPanel.IsFocused() || m_ViewportPanel.IsHovered());
         TrackSceneEdits();
     }
 
@@ -212,19 +188,6 @@ namespace Kans
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Y, true))
                 RedoScene();
-            return;
-        }
-        // Gizmo tools while working in the viewport (not while flying the camera).
-        if ((m_ViewportHovered || m_ViewportFocused) && !m_CameraNavigating)
-        {
-            if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
-                m_GizmoType = -1;
-            if (ImGui::IsKeyPressed(ImGuiKey_W, false))
-                m_GizmoType = ImGuizmo::TRANSLATE;
-            if (ImGui::IsKeyPressed(ImGuiKey_E, false))
-                m_GizmoType = ImGuizmo::ROTATE;
-            if (ImGui::IsKeyPressed(ImGuiKey_R, false))
-                m_GizmoType = ImGuizmo::SCALE;
         }
     }
 
@@ -436,194 +399,6 @@ namespace Kans
         ImGui::PopStyleVar();
     }
 
-    // ------------------------------------------------------------------ viewport
-
-    void EditorLayer::DrawViewport()
-    {
-        m_ViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-        m_ViewportHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
-        // Use the wheel and hover state from the same ImGui frame.
-        if (m_ViewportHovered && ImGui::GetIO().MouseWheel != 0.0f)
-        {
-            MouseScrolledEvent scrollEvent(ImGui::GetIO().MouseWheelH, ImGui::GetIO().MouseWheel);
-            m_EditorCamera.onEvent(scrollEvent);
-        }
-
-        const ImVec2 size = ImGui::GetContentRegionAvail();
-        m_ViewportSize    = {size.x, size.y};
-        m_ViewportMin     = ImGui::GetCursorScreenPos();
-        m_ViewportMax     = {m_ViewportMin.x + size.x, m_ViewportMin.y + size.y};
-        const auto output = static_cast<uintptr_t>(m_ViewportRenderer->GetOutput(0));
-        ImGui::Image(reinterpret_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
-
-        // Drop scenes to open them and models to place them.
-        if (ImGui::BeginDragDropTarget())
-        {
-            if (const auto* data = ImGui::AcceptDragDropPayload("asset_payload"))
-            {
-                const std::filesystem::path file(std::string(static_cast<const char*>(data->Data), data->DataSize));
-                if (file.extension() == ".kans")
-                    Record(OpenScene(file));
-                else if (file.has_extension())
-                    PlaceAsset(file);
-            }
-            ImGui::EndDragDropTarget();
-        }
-
-        DrawGizmo();
-        DrawViewportToolbar();
-    }
-
-    void EditorLayer::DrawViewportToolbar()
-    {
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        const auto  panel    = [&](ImVec2 at, auto&& contents) {
-            // Translucent rounded background behind a group of widgets.
-            ImGui::SetCursorScreenPos(at);
-            drawList->ChannelsSplit(2);
-            drawList->ChannelsSetCurrent(1);
-            ImGui::BeginGroup();
-            contents();
-            ImGui::EndGroup();
-            drawList->ChannelsSetCurrent(0);
-            const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
-            drawList->AddRectFilled(
-                {min.x - 4.0f, min.y - 3.0f}, {max.x + 4.0f, max.y + 3.0f}, IM_COL32(18, 18, 18, 190), 6.0f);
-            drawList->ChannelsMerge();
-        };
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 4.0f));
-
-        // Left: transform tools, space and snapping.
-        panel({m_ViewportMin.x + 10.0f, m_ViewportMin.y + 8.0f}, [&] {
-            const std::pair<int, std::pair<const char*, const char*>> tools[] = {
-                {-1, {ICON_FA_POINTER, "Select (Q)"}},
-                {ImGuizmo::TRANSLATE, {ICON_FA_ARROWS_MOVE, "Move (W)"}},
-                {ImGuizmo::ROTATE, {ICON_FA_ROTATE, "Rotate (E)"}},
-                {ImGuizmo::SCALE, {ICON_FA_SCALE, "Scale (R)"}},
-            };
-            bool first = true;
-            for (const auto& [type, info] : tools)
-            {
-                if (!first)
-                    ImGui::SameLine();
-                first = false;
-                if (ToolButton(info.first, info.second, m_GizmoType == type))
-                    m_GizmoType = type;
-            }
-            ToolSeparator();
-            if (ToolButton(m_GizmoMode == ImGuizmo::LOCAL ? ICON_FA_CUBE : ICON_FA_GLOBE,
-                           m_GizmoMode == ImGuizmo::LOCAL ? "Local space (click for world)" :
-                                                            "World space (click for local)"))
-                m_GizmoMode = m_GizmoMode == ImGuizmo::LOCAL ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
-            ImGui::SameLine();
-            if (ToolButton(ICON_FA_MAGNET, "Snap (or hold Ctrl while dragging)", m_GizmoSnap))
-                m_GizmoSnap = !m_GizmoSnap;
-            ImGui::SameLine();
-            float*      step   = m_GizmoType == ImGuizmo::ROTATE ? &m_SnapRotate :
-                                 m_GizmoType == ImGuizmo::SCALE  ? &m_SnapScale :
-                                                                   &m_SnapMove;
-            const char* format = m_GizmoType == ImGuizmo::ROTATE ? "%.0f deg" : "%.2f";
-            ImGui::SetNextItemWidth(70.0f);
-            ImGui::AlignTextToFramePadding();
-            ImGui::DragFloat("##snap", step, 0.05f, 0.01f, 360.0f, format);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Snap step for the current tool");
-        });
-
-        // Right: camera speed and view options.
-        panel({m_ViewportMax.x - 236.0f, m_ViewportMin.y + 8.0f}, [&] {
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(ICON_FA_VIDEO);
-            ImGui::SameLine(0, 6.0f);
-            float speed = m_EditorCamera.getCameraSpeed();
-            ImGui::SetNextItemWidth(110.0f);
-            if (ImGui::SliderFloat("##speed",
-                                   &speed,
-                                   EditorCamera::getMinCameraSpeed(),
-                                   EditorCamera::getMaxCameraSpeed() * 0.1f,
-                                   "speed %.4f",
-                                   ImGuiSliderFlags_Logarithmic))
-                m_EditorCamera.setCameraSpeed(speed);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Camera fly speed (right mouse + WASD); the wheel also adjusts it");
-            ImGui::SameLine();
-            if (ToolButton(ICON_FA_EYE, "View options"))
-                ImGui::OpenPopup("ViewOptions");
-            if (ImGui::BeginPopup("ViewOptions"))
-            {
-                auto resource = m_ActiveRenderScene->GetRenderResource();
-                auto& state   = resource.Piplinestate;
-                ImGui::Checkbox(MenuLabel(ICON_FA_BORDER_ALL, "Grid").c_str(), &state.EnableGridShader);
-                ImGui::Checkbox(MenuLabel(ICON_FA_DRAW_POLYGON, "Outline").c_str(), &state.EnableOutline);
-                ImGui::Checkbox(MenuLabel(ICON_FA_VECTOR_SQUARE, "Stencil").c_str(), &state.EnableStencil);
-                ImGui::Checkbox(MenuLabel(ICON_FA_CROSSHAIRS, "Debug normals").c_str(), &state.EnableDebugNormal);
-                m_ActiveRenderScene->SetRenderResource(resource);
-                ImGui::EndPopup();
-            }
-        });
-        ImGui::PopStyleVar();
-    }
-
-    void EditorLayer::DrawGizmo()
-    {
-        Entity selected = m_HierarchyPanel.GetSelected();
-        if (!selected || m_GizmoType < 0)
-            return;
-        ImGuizmo::SetOrthographic(false);
-        ImGuizmo::SetDrawlist();
-        ImGuizmo::SetRect(
-            m_ViewportMin.x, m_ViewportMin.y, m_ViewportMax.x - m_ViewportMin.x, m_ViewportMax.y - m_ViewportMin.y);
-
-        const glm::mat4 cameraProjection = m_EditorCamera.GetProjectionMatrix();
-        const glm::mat4 cameraView       = m_EditorCamera.getViewMatrix();
-        // The gizmo works on the world transform; results go back to the local one.
-        glm::mat4       transform        = m_ActiveScene->GetWorldTransform(selected);
-        const bool      snap             = m_GizmoSnap || ImGui::GetIO().KeyCtrl;
-        const float     step             = m_GizmoType == ImGuizmo::ROTATE ? m_SnapRotate :
-                                           m_GizmoType == ImGuizmo::SCALE  ? m_SnapScale :
-                                                                             m_SnapMove;
-        const float snapValues[3] = {step, step, step};
-        ImGuizmo::Manipulate(glm::value_ptr(cameraView),
-                             glm::value_ptr(cameraProjection),
-                             static_cast<ImGuizmo::OPERATION>(m_GizmoType),
-                             static_cast<ImGuizmo::MODE>(m_GizmoMode),
-                             glm::value_ptr(transform),
-                             nullptr,
-                             snap ? snapValues : nullptr);
-        if (!ImGuizmo::IsUsing())
-            return;
-
-        const Entity    parent = m_ActiveScene->GetParent(selected);
-        const glm::mat4 local  = parent ? glm::inverse(m_ActiveScene->GetWorldTransform(parent)) * transform : transform;
-        glm::vec3       translation, rotation, scale;
-        Math::DecomposeTransform(local, translation, rotation, scale);
-        auto& tc = selected.GetComponent<TransformComponent>();
-        switch (m_GizmoType)
-        {
-            case ImGuizmo::TRANSLATE:
-                tc.Position = translation;
-                break;
-            case ImGuizmo::ROTATE:
-            {
-                // Map the stored rotation to [-pi, pi], the range ImGuizmo returns.
-                glm::vec3 original = tc.Rotation;
-                for (int i = 0; i < 3; ++i)
-                    original[i] = fmodf(original[i] + glm::pi<float>(), glm::two_pi<float>()) - glm::pi<float>();
-                glm::vec3 delta = rotation - original;
-                // Avoid drift from numeric precision.
-                for (int i = 0; i < 3; ++i)
-                    if (fabs(delta[i]) < 0.001f)
-                        delta[i] = 0.0f;
-                tc.Rotation += delta;
-                break;
-            }
-            case ImGuizmo::SCALE:
-                if (scale != glm::vec3(1.0f))
-                    tc.Scale = scale;
-                break;
-        }
-    }
-
     // ------------------------------------------------------------------ stats
 
     void EditorLayer::DrawStats()
@@ -632,7 +407,8 @@ namespace Kans
         if (ImGui::CollapsingHeader("Frame", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Text("%.1f FPS  (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
-            ImGui::Text("Viewport: %.0f x %.0f", m_ViewportSize.x, m_ViewportSize.y);
+            const auto viewport = m_ViewportRenderer->GetViewportSize();
+            ImGui::Text("Viewport: %u x %u", viewport[0], viewport[1]);
             ImGui::Text("UI: %d vertices, %d indices", io.MetricsRenderVertices, io.MetricsRenderIndices);
         }
         if (ImGui::CollapsingHeader("Renderer 2D", ImGuiTreeNodeFlags_DefaultOpen))
