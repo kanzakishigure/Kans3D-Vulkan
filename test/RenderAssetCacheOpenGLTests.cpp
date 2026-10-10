@@ -11,6 +11,7 @@
 #include <sstream>
 #include <map>
 #include <thread>
+#include <glm/gtc/matrix_transform.hpp>
 #include "Kans3D/Asset/Product/ContentDigest.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
@@ -538,6 +539,72 @@ void main() { color = texture(other, vec2(0)); }
                 << name << ": " << std::get<AssetError>(created).Message;
         }
     }
+
+    class SurfacePickerGL : public RenderAssetCacheGL, public testing::WithParamInterface<bool>
+    {
+    };
+
+    TEST_P(SurfacePickerGL, UnprojectsNearestDepthAtPixelCentreAndClearsPreviousHit)
+    {
+        MeshData quad;
+        for (auto [x, y] : {std::pair {-3.0f, -3.0f}, {3.0f, -3.0f}, {3.0f, 3.0f}, {-3.0f, 3.0f}})
+        {
+            MeshVertexData vertex;
+            vertex.Position = {x, y, 0};
+            quad.Vertices.push_back(vertex);
+        }
+        quad.Indices = {0, 1, 2, 2, 3, 0};
+        auto uploaded = UploadMesh(quad);
+        ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
+        const auto& mesh = std::get<GpuMesh>(uploaded);
+        const bool perspective = GetParam();
+        const glm::mat4 projection = perspective ? glm::perspective(glm::radians(90.0f), 2.0f, 1.0f, 9.0f) :
+                                                   glm::ortho(-8.0f, 8.0f, -4.0f, 4.0f, 1.0f, 9.0f);
+        const glm::mat4 viewProjection = projection * glm::translate(glm::mat4(1.0f), {-10, -20, -30});
+        const MeshDraw near {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 26}), 7};
+        const MeshDraw far {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 24}), 9};
+
+        // Picking must establish its depth state even after other render passes.
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_GREATER);
+        glDepthRange(0.25, 0.75);
+        glClearDepth(0.0);
+        EntityPicker picker;
+        const auto hit = picker.PickSurface({near, far}, viewProjection, {32, 16}, {19, 5});
+        ASSERT_EQ(hit.ID, 7u);
+        ASSERT_TRUE(hit.Position);
+        // NDC=(7/32,-5/16); at z=-4 both views span 16x8. Catches +0.5,
+        // flipped Y, viewport aspect, depth range mapping, and missing inverse view.
+        // 24-bit depth at these near/far planes gives <2e-6 world error; allow 2e-5 for matrix arithmetic.
+        EXPECT_NEAR(hit.Position->x, 11.75f, 2e-5f);
+        EXPECT_NEAR(hit.Position->y, 18.75f, 2e-5f);
+        EXPECT_NEAR(hit.Position->z, 26.0f, 2e-5f);
+        GLboolean depthMask = GL_TRUE;
+        GLint depthFunction = 0;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+        glGetIntegerv(GL_DEPTH_FUNC, &depthFunction);
+        EXPECT_EQ(depthMask, GL_FALSE);
+        EXPECT_EQ(depthFunction, GL_GREATER);
+
+        // Reusing the pixel must clear its old nearer depth.
+        const auto farther = picker.PickSurface({far}, viewProjection, {32, 16}, {19, 5});
+        ASSERT_EQ(farther.ID, 9u);
+        ASSERT_TRUE(farther.Position);
+        EXPECT_NEAR(farther.Position->x, perspective ? 12.625f : 11.75f, 2e-5f);
+        EXPECT_NEAR(farther.Position->y, perspective ? 18.125f : 18.75f, 2e-5f);
+        EXPECT_NEAR(farther.Position->z, 24.0f, 2e-5f);
+        // An uncovered pixel must lose both the previous ID and its world point.
+        const MeshDraw elsewhere {&mesh, glm::translate(glm::mat4(1.0f), {100, 20, 26}), 7};
+        const auto empty = picker.PickSurface({elsewhere}, viewProjection, {32, 16}, {19, 5});
+        EXPECT_EQ(empty.ID, 0u);
+        EXPECT_FALSE(empty.Position);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    INSTANTIATE_TEST_SUITE_P(Projections, SurfacePickerGL, testing::Values(true, false),
+                            [](const testing::TestParamInfo<bool>& info) {
+                                return info.param ? "Perspective" : "Orthographic";
+                            });
 
     // Picking reads the ID under a pixel; the outline borders a silhouette.
     TEST_F(RenderAssetCacheGL, PickerFindsMeshesAndOutlineBordersThem)

@@ -465,15 +465,42 @@ namespace Kans
 
     void SceneRenderer::EndScene()
     {
+        const glm::mat4 viewProjection =
+            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
+        std::vector<MeshDraw> previewDraws;
+        if (m_Preview)
+        {
+            const SceneViewMode viewMode = m_ViewMode;
+            const GLboolean cull = glIsEnabled(GL_CULL_FACE);
+            glDisable(GL_CULL_FACE);
+            m_ViewMode = SceneViewMode::Lit;
+            SubmitModel(m_Preview->Model, m_Preview->Transform);
+            m_ViewMode = viewMode;
+            if (cull)
+                glEnable(GL_CULL_FACE);
+            AppendModelDraws(m_Preview->Model, m_Preview->Transform, 0, previewDraws);
+            m_Preview.reset();
+        }
         if (!m_Highlight.empty())
         {
-            const glm::mat4 viewProjection =
-                m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
             m_Outline.Draw(m_Highlight, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {1.0f, 0.62f, 0.15f, 1.0f});
             m_Highlight.clear();
         }
+        m_Outline.Draw(previewDraws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {0.35f, 0.7f, 1.0f, 1.0f});
         m_FrameBuffer->Unbind();
         m_Active = false;
+    }
+
+    PickHit SceneRenderer::PickSurface(const std::vector<MeshDraw>& draws,
+                                       const glm::mat4&             viewProjection,
+                                       glm::uvec2                   pixel)
+    {
+        return m_Picker.PickSurface(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, pixel);
+    }
+
+    void SceneRenderer::SetPreview(const ProductModelComponent& model, const glm::mat4& transform)
+    {
+        m_Preview = Preview {model, transform};
     }
 
     void SceneRenderer::SetScene(RenderScene* scene)

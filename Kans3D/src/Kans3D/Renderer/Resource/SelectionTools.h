@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -14,6 +15,12 @@ namespace Kans
         const GpuMesh* Mesh = nullptr;
         glm::mat4      Transform {1.0f};
         uint32_t       ID = 0; // Non-zero.
+    };
+
+    struct PickHit
+    {
+        uint32_t                 ID = 0;
+        std::optional<glm::vec3> Position;
     };
 
     // Minimal OpenGL program compiled from GLSL source (requires a current context).
@@ -47,6 +54,11 @@ namespace Kans
                       const glm::mat4&             viewProjection,
                       glm::uvec2                   viewport,
                       glm::uvec2                   pixel);
+        // Same pixel convention as Pick; Position is empty when nothing is hit.
+        PickHit PickSurface(const std::vector<MeshDraw>& draws,
+                            const glm::mat4&             viewProjection,
+                            glm::uvec2                   viewport,
+                            glm::uvec2                   pixel);
 
     private:
         void       Resize(glm::uvec2 size);

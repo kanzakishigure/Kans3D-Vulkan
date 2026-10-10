@@ -88,11 +88,19 @@ void main()
         // Saves the state these tools change and restores it on scope exit.
         struct GlStateGuard
         {
-            GLint     Framebuffer = 0, Program = 0, Viewport[4] = {}, Scissor[4] = {};
+            GLint     Framebuffer = 0, ReadFramebuffer = 0, Program = 0, Viewport[4] = {}, Scissor[4] = {};
+            GLint     DepthFunction = GL_LESS;
+            GLboolean DepthMask = GL_TRUE;
+            GLdouble  DepthRange[2] = {}, ClearDepth = 1.0;
             GLboolean Depth = GL_FALSE, Blend = GL_FALSE, ScissorTest = GL_FALSE, Cull = GL_FALSE, Stencil = GL_FALSE;
             GlStateGuard()
             {
                 glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &Framebuffer);
+                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &ReadFramebuffer);
+                glGetIntegerv(GL_DEPTH_FUNC, &DepthFunction);
+                glGetBooleanv(GL_DEPTH_WRITEMASK, &DepthMask);
+                glGetDoublev(GL_DEPTH_RANGE, DepthRange);
+                glGetDoublev(GL_DEPTH_CLEAR_VALUE, &ClearDepth);
                 glGetIntegerv(GL_CURRENT_PROGRAM, &Program);
                 glGetIntegerv(GL_VIEWPORT, Viewport);
                 glGetIntegerv(GL_SCISSOR_BOX, Scissor);
@@ -104,7 +112,12 @@ void main()
             }
             ~GlStateGuard()
             {
-                glBindFramebuffer(GL_FRAMEBUFFER, GLuint(Framebuffer));
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(Framebuffer));
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(ReadFramebuffer));
+                glDepthFunc(GLenum(DepthFunction));
+                glDepthMask(DepthMask);
+                glDepthRange(DepthRange[0], DepthRange[1]);
+                glClearDepth(ClearDepth);
                 glUseProgram(GLuint(Program));
                 glViewport(Viewport[0], Viewport[1], Viewport[2], Viewport[3]);
                 glScissor(Scissor[0], Scissor[1], Scissor[2], Scissor[3]);
@@ -213,17 +226,29 @@ void main()
                                 glm::uvec2                   viewport,
                                 glm::uvec2                   pixel)
     {
+        return PickSurface(draws, viewProjection, viewport, pixel).ID;
+    }
+
+    PickHit EntityPicker::PickSurface(const std::vector<MeshDraw>& draws,
+                                      const glm::mat4&             viewProjection,
+                                      glm::uvec2                   viewport,
+                                      glm::uvec2                   pixel)
+    {
         if (draws.empty() || !viewport.x || !viewport.y || pixel.x >= viewport.x || pixel.y >= viewport.y)
-            return 0;
+            return {};
         GlStateGuard state;
         if (!m_Program.IsValid() && std::holds_alternative<AssetError>(m_Program.Build(PositionVertex, IdFragment)))
-            return 0;
+            return {};
         Resize(viewport);
         glBindFramebuffer(GL_FRAMEBUFFER, m_Framebuffer);
         glViewport(0, 0, GLsizei(viewport.x), GLsizei(viewport.y));
         // Only the picked pixel matters.
         glEnable(GL_SCISSOR_TEST);
         glScissor(GLint(pixel.x), GLint(pixel.y), 1, 1);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LESS);
+        glDepthRange(0.0, 1.0);
+        glClearDepth(1.0);
         const GLuint none = 0;
         glClearBufferuiv(GL_COLOR, 0, &none);
         glClear(GL_DEPTH_BUFFER_BIT);
@@ -233,10 +258,18 @@ void main()
         glDisable(GL_STENCIL_TEST);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         DrawMeshes(m_Program, draws, viewProjection);
-        GLuint id = 0;
+        PickHit hit;
         glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(GLint(pixel.x), GLint(pixel.y), 1, 1, GL_RED_INTEGER, GL_UNSIGNED_INT, &id);
-        return id;
+        glReadPixels(GLint(pixel.x), GLint(pixel.y), 1, 1, GL_RED_INTEGER, GL_UNSIGNED_INT, &hit.ID);
+        if (hit.ID)
+        {
+            GLfloat depth = 1.0f;
+            glReadPixels(GLint(pixel.x), GLint(pixel.y), 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+            const glm::vec2 ndc = (glm::vec2(pixel) + 0.5f) / glm::vec2(viewport) * 2.0f - 1.0f;
+            const glm::vec4 world = glm::inverse(viewProjection) * glm::vec4(ndc, depth * 2.0f - 1.0f, 1.0f);
+            hit.Position = glm::vec3(world) / world.w;
+        }
+        return hit;
     }
 
     // ---------------------------------------------------------------------- SelectionOutline

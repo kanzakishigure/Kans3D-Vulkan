@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <imgui.h>
 #include "Kans3D/Editor/EditorCamera.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
@@ -19,12 +20,16 @@ namespace Kans
     class ViewportPanel
     {
     public:
-        using FileDrop = std::function<void(const std::filesystem::path&)>;
+        // A dropped file and, for files dropped on the scene, where it should go.
+        using FileDrop = std::function<void(const std::filesystem::path&, std::optional<glm::vec3>)>;
+        // The published model of a dragged file (invalid when it is not one, or not imported yet).
+        using ModelResolver = std::function<AssetID(const std::filesystem::path&)>;
 
         explicit ViewportPanel(HierarchyPanel& hierarchy) : m_Hierarchy(hierarchy) {}
 
         void SetContext(Ref<Scene> scene, Ref<RenderScene> renderScene, Ref<SceneRenderer> renderer);
         void SetFileDropCallback(FileDrop callback) { m_FileDrop = std::move(callback); }
+        void SetModelResolver(ModelResolver resolver) { m_ResolveModel = std::move(resolver); }
         // While playing, the scene renders through its primary camera unless the
         // editor camera is chosen in the toolbar.
         void SetPlaying(bool playing) { m_Playing = playing; }
@@ -65,12 +70,18 @@ namespace Kans
         void DrawToolbar();
         void DrawGizmo();
         void AcceptDrop();
+        // Where a model dragged to `mouse` lands (resting on the surface under it).
+        glm::vec3 DropPosition(ImVec2 mouse, AssetID model);
 
         HierarchyPanel&    m_Hierarchy;
         Ref<Scene>         m_Scene;
         Ref<RenderScene>   m_RenderScene;
         Ref<SceneRenderer> m_Renderer;
         FileDrop           m_FileDrop;
+        ModelResolver      m_ResolveModel;
+        // The file being dragged over the viewport and its model, resolved once per drag.
+        std::filesystem::path m_DragFile;
+        AssetID               m_DragModel;
         EditorCamera       m_Camera;
 
         ImVec2     m_Min {}, m_Max {};

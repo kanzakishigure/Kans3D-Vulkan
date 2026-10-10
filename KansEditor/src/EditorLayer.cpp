@@ -129,11 +129,15 @@ namespace Kans
             m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
             m_ViewportRenderer->PrepareEnvironment();
             m_ViewportPanel.SetContext(m_ActiveScene, m_ActiveRenderScene, m_ViewportRenderer);
-            m_ViewportPanel.SetFileDropCallback([this](const std::filesystem::path& file) {
+            m_ViewportPanel.SetFileDropCallback([this](const std::filesystem::path& file, std::optional<glm::vec3> position) {
                 if (file.extension() == ".kans")
                     Record(OpenScene(file));
                 else if (file.has_extension())
-                    PlaceAsset(file);
+                    PlaceAsset(file, {}, position);
+            });
+            m_ViewportPanel.SetModelResolver([this](const std::filesystem::path& file) {
+                const auto source = file.has_extension() ? FindModelSource(file) : std::nullopt;
+                return source ? FindPublishedModel(*source) : AssetID {};
             });
             auto configured = RefreshProductAssets();
             Record(configured);

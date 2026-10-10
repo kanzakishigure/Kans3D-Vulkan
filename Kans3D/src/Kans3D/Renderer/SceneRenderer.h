@@ -73,7 +73,11 @@ namespace Kans
                                   uint32_t                     id,
                                   std::vector<MeshDraw>&       draws);
         uint32_t Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
+        PickHit  PickSurface(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
         void     SetHighlight(std::vector<MeshDraw> draws) { m_Highlight = std::move(draws); }
+        // Lit model and blue outline, consumed by the next EndScene. Not pickable.
+        void     SetPreview(const ProductModelComponent& model, const glm::mat4& transform);
+        void     ClearPreview() { m_Preview.reset(); }
         void     SetViewMode(SceneViewMode mode) { m_ViewMode = mode; }
         // Counts of the last rendered scene.
         const SceneRenderStats& GetStats() const { return m_Stats; }
@@ -122,6 +126,12 @@ namespace Kans
         EntityPicker                    m_Picker;
         SelectionOutline                m_Outline;
         std::vector<MeshDraw>           m_Highlight;
+        struct Preview
+        {
+            ProductModelComponent Model;
+            glm::mat4             Transform;
+        };
+        std::optional<Preview>          m_Preview;
         SceneViewMode                   m_ViewMode = SceneViewMode::Lit;
         SceneRenderStats                m_Stats;
         // Engine data (set 0) of Shader materials, created on first use.

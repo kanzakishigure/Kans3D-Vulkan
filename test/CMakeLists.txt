@@ -25,6 +25,7 @@ add_executable(Kans3DTests
     SceneHistoryTests.cpp
     ScenePlaySessionTests.cpp
     EditorCameraTests.cpp
+    DropPlacementTests.cpp
     EditorAssetImportServiceTests.cpp
     ModelImporterTests.cpp
     AssetRegistryTests.cpp

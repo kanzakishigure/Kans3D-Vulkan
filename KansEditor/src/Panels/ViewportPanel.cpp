@@ -1,4 +1,5 @@
 #include "ViewportPanel.h"
+#include "Kans3D/Editor/DropPlacement.h"
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -153,11 +154,58 @@ namespace Kans
     void ViewportPanel::AcceptDrop()
     {
         if (!ImGui::BeginDragDropTarget())
+        {
+            m_DragFile.clear();
             return;
-        if (const auto* data = ImGui::AcceptDragDropPayload("asset_payload"))
-            if (m_FileDrop)
-                m_FileDrop(std::filesystem::u8path(std::string(static_cast<const char*>(data->Data), size_t(data->DataSize))));
+        }
+        // Accepted every frame of the hover, so the model can be previewed where it would land.
+        const auto* data = ImGui::AcceptDragDropPayload("asset_payload",
+                                                        ImGuiDragDropFlags_AcceptBeforeDelivery |
+                                                            ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+        if (data)
+        {
+            const auto file = std::filesystem::u8path(std::string(static_cast<const char*>(data->Data), size_t(data->DataSize)));
+            if (file != m_DragFile)
+            {
+                m_DragFile  = file;
+                m_DragModel = m_ResolveModel && file.extension() != ".kans" ? m_ResolveModel(file) : AssetID {};
+            }
+            std::optional<glm::vec3> position;
+            if (file.extension() != ".kans" && !UsesSceneCamera())
+            {
+                position = DropPosition(ImGui::GetMousePos(), m_DragModel);
+                if (m_DragModel.IsValid())
+                {
+                    ProductModelComponent preview;
+                    preview.Model = m_DragModel;
+                    m_Renderer->SetPreview(preview, glm::translate(glm::mat4(1.0f), *position));
+                }
+            }
+            if (data->IsDelivery())
+            {
+                m_DragFile.clear();
+                if (m_FileDrop)
+                    m_FileDrop(file, position);
+            }
+        }
         ImGui::EndDragDropTarget();
+    }
+
+    glm::vec3 ViewportPanel::DropPosition(ImVec2 mouse, AssetID model)
+    {
+        const glm::vec2 pixel(mouse.x - m_Min.x, mouse.y - m_Min.y);
+        const auto [origin, direction] = m_Camera.ScreenRay(pixel);
+        // The surface under the cursor; the picker uses a bottom-left pixel origin.
+        std::vector<UUID> entities;
+        const auto        hit = m_Renderer->PickSurface(
+            CollectDraws(entities),
+            ViewProjection(),
+            {uint32_t(std::clamp(pixel.x, 0.0f, float(m_Size.x - 1))),
+             uint32_t(std::clamp(float(m_Size.y) - 1.0f - pixel.y, 0.0f, float(m_Size.y - 1)))});
+        Bounds bounds;
+        if (model.IsValid() && m_Renderer->GetAssetCache())
+            bounds = m_Renderer->GetAssetCache()->GetModelBounds(model);
+        return ComputeDropPosition(origin, direction, hit.Position, bounds, m_Camera.GetDistance());
     }
 
     // ---------------------------------------------------------------------- navigation

@@ -51,14 +51,18 @@ namespace Kans
         std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
         std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
         // Adds a dropped model to the scene, importing it first if needed.
-        // `parent` (may be null) receives the placed model entity.
-        void                                     PlaceAsset(const std::filesystem::path& file, Entity parent = {});
+        // `parent` (may be null) receives the placed model entity; `position`
+        // (world space) is where it goes, the parent's origin otherwise.
+        void PlaceAsset(const std::filesystem::path& file, Entity parent = {}, std::optional<glm::vec3> position = {});
+        // The source of a model file in the project, if it is one.
+        std::optional<SourceAssetID>             FindModelSource(const std::filesystem::path& file);
         void                                     PlacePendingModel();
         // Builds the source of `file` (content browser "Import" / "Reimport").
         void                                     ImportSource(const std::filesystem::path& file);
         AssetID                                  FindPublishedModel(SourceAssetID source) const;
         std::optional<SourceAssetID>             m_PendingPlacement;
         UUID                                     m_PendingPlacementParent = 0;
+        std::optional<glm::vec3>                 m_PendingPlacementPosition;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);

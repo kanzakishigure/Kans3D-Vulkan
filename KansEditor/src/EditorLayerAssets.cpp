@@ -144,15 +144,15 @@ namespace Kans
         return {};
     }
 
-    void EditorLayer::PlaceAsset(const std::filesystem::path& file, Entity parent)
+    std::optional<SourceAssetID> EditorLayer::FindModelSource(const std::filesystem::path& file)
     {
-        if (!m_AssetImports || !m_ActiveScene)
-            return;
+        if (!m_AssetImports)
+            return std::nullopt;
         auto sources = m_AssetImports->GetSources();
         if (const auto* error = std::get_if<AssetError>(&sources))
         {
             Record(*error);
-            return;
+            return std::nullopt;
         }
         std::error_code error;
         const auto      dropped = std::filesystem::weakly_canonical(file, error);
@@ -165,21 +165,34 @@ namespace Kans
             const auto selected = std::get<ImporterRegistry>(importer).Resolve(file, source.Import.Importer);
             if (std::holds_alternative<AssetError>(selected) ||
                 std::get<RegisteredImporter>(selected).Name != "ModelImporter")
-                break; // Not a model: show it in the import panel instead.
-            // Always build: it is quick when up to date and picks up edited sources.
-            m_PendingPlacement       = source.sourceAssetID;
-            m_PendingPlacementParent = parent ? parent.GetUUID() : UUID(0);
-            AssetBuildOptions options;
-            options.Target = EditorAssetTarget;
-            auto started   = m_AssetImports->Start(source.sourceAssetID, options);
-            if (const auto* failure = std::get_if<AssetError>(&started))
-            {
-                Record(*failure);
-                m_PendingPlacement.reset();
-            }
+                return std::nullopt;
+            return source.sourceAssetID;
+        }
+        return std::nullopt;
+    }
+
+    void EditorLayer::PlaceAsset(const std::filesystem::path& file, Entity parent, std::optional<glm::vec3> position)
+    {
+        if (!m_AssetImports || !m_ActiveScene)
+            return;
+        const auto source = FindModelSource(file);
+        if (!source)
+        {
+            OpenImporter(file); // Not a model: show it in the import panel instead.
             return;
         }
-        OpenImporter(file);
+        // Always build: it is quick when up to date and picks up edited sources.
+        m_PendingPlacement         = *source;
+        m_PendingPlacementParent   = parent ? parent.GetUUID() : UUID(0);
+        m_PendingPlacementPosition = position;
+        AssetBuildOptions options;
+        options.Target = EditorAssetTarget;
+        auto started   = m_AssetImports->Start(*source, options);
+        if (const auto* failure = std::get_if<AssetError>(&started))
+        {
+            Record(*failure);
+            m_PendingPlacement.reset();
+        }
     }
 
     void EditorLayer::ImportSource(const std::filesystem::path& file)
@@ -225,7 +238,15 @@ namespace Kans
         entity.AddComponent<ProductModelComponent>().Model = model;
         if (Entity parent = m_ActiveScene->GetEntityByUUID(m_PendingPlacementParent))
             m_ActiveScene->SetParent(entity, parent, {}, false);
+        if (m_PendingPlacementPosition)
+        {
+            // Keep the model's world position under the parent.
+            glm::mat4 world = m_ActiveScene->GetWorldTransform(entity);
+            world[3]        = glm::vec4(*m_PendingPlacementPosition, 1.0f);
+            m_ActiveScene->SetWorldTransform(entity, world);
+        }
         m_PendingPlacementParent = 0;
+        m_PendingPlacementPosition.reset();
         m_HierarchyPanel.SetSelected(entity);
     }
 
