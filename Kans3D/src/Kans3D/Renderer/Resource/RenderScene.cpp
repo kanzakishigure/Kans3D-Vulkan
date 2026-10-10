@@ -47,7 +47,7 @@ namespace Kans
         for (auto entity : points)
         {
             auto [light, transform]            = points.get(entity);
-            info.pointLight.Position           = transform.Position;
+            info.pointLight.Position           = glm::vec3(m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()})[3]);
             info.pointLight.Ambient_Intensity  = light.Ambient_Intensity;
             info.pointLight.Diffuse_Intensity  = light.Diffuse_Intensity;
             info.pointLight.Specular_Intensity = light.Specular_Intensity;
@@ -69,11 +69,11 @@ namespace Kans
         Entity cameraEntity = m_LogicScene->GetCameraEntity();
         if (!cameraEntity)
             return;
-        const auto& transform       = cameraEntity.GetComponent<TransformComponent>();
-        SceneInfo   info            = {};
+        const glm::mat4 world       = m_LogicScene->GetWorldTransform(cameraEntity);
+        SceneInfo       info        = {};
         info.sceneCamera.camera     = cameraEntity.GetComponent<CameraComponent>().SceneCamera;
-        info.sceneCamera.Position   = transform.Position;
-        info.sceneCamera.viewMatrix = glm::inverse(transform.GetTransform());
+        info.sceneCamera.Position   = glm::vec3(world[3]);
+        info.sceneCamera.viewMatrix = glm::inverse(world);
         CollectLights(info);
         Render(*renderer, info);
     }
@@ -92,7 +92,8 @@ namespace Kans
             for (auto entity : group)
             {
                 auto [transform, sprite] = group.get(entity);
-                Renderer2D::DrawQuad(transform.GetTransform(), sprite.Texture, sprite.Color);
+                Renderer2D::DrawQuad(
+                    m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()}), sprite.Texture, sprite.Color);
             }
             Renderer2D::EndScene();
         }
@@ -119,7 +120,7 @@ namespace Kans
         for (auto entity : view)
         {
             auto [transformCMP, model] = view.get(entity);
-            const glm::mat4 transform  = transformCMP.GetTransform();
+            const glm::mat4 transform  = m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()});
             OpenGLRenderCommand::EnableCullFace(false);
             if (state.EnableStencil)
             {
@@ -134,9 +135,8 @@ namespace Kans
                 // Draw a slightly larger silhouette where the model did not write stencil.
                 OpenGLRenderCommand::SetStencilFunc(StencilFunction::NOTEQUAL, 1, 0xff);
                 OpenGLRenderCommand::SetStencilMask(0x00);
-                TransformComponent enlarged = transformCMP;
-                enlarged.Scale *= 1.007f;
-                renderer.SubmitModelGeometry(model, enlarged.GetTransform(), "StencilShader");
+                renderer.SubmitModelGeometry(
+                    model, transform * glm::scale(glm::mat4(1.0f), glm::vec3(1.007f)), "StencilShader");
                 OpenGLRenderCommand::SetStencilMask(0xff);
                 OpenGLRenderCommand::EnableSetStencil(false);
             }

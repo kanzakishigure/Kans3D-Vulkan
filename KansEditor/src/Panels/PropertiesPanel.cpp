@@ -40,7 +40,7 @@ namespace Kans
 
     void PropertiesPanel::Draw()
     {
-        Entity entity = m_Hierarchy.getSelectEntity();
+        Entity entity = m_Hierarchy.GetSelected();
         if (!entity)
         {
             ImGui::Spacing();

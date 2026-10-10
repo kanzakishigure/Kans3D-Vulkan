@@ -65,6 +65,8 @@ namespace Kans
         m_ContentBrowserPanel.SetErrorCallback(
             [this](const std::string& message) { Record(AssetError {AssetErrorCode::InvalidArgument, message}); });
         m_ContentBrowserPanel.Bind(m_AssetImports.get());
+        m_HierarchyPanel.SetFileDropCallback(
+            [this](const std::filesystem::path& file, Entity parent) { PlaceAsset(file, parent); });
         CORE_INFO("Opened project '{}'", m_AssetImports->GetConfig().Name);
     }
 
@@ -142,7 +144,7 @@ namespace Kans
         return {};
     }
 
-    void EditorLayer::PlaceAsset(const std::filesystem::path& file)
+    void EditorLayer::PlaceAsset(const std::filesystem::path& file, Entity parent)
     {
         if (!m_AssetImports || !m_ActiveScene)
             return;
@@ -165,7 +167,8 @@ namespace Kans
                 std::get<RegisteredImporter>(selected).Name != "ModelImporter")
                 break; // Not a model: show it in the import panel instead.
             // Always build: it is quick when up to date and picks up edited sources.
-            m_PendingPlacement = source.sourceAssetID;
+            m_PendingPlacement       = source.sourceAssetID;
+            m_PendingPlacementParent = parent ? parent.GetUUID() : UUID(0);
             AssetBuildOptions options;
             options.Target = EditorAssetTarget;
             auto started   = m_AssetImports->Start(source.sourceAssetID, options);
@@ -220,7 +223,10 @@ namespace Kans
                     name = metadata.Path.GetPath().stem().u8string();
         auto entity                                        = m_ActiveScene->CreateEntity(name);
         entity.AddComponent<ProductModelComponent>().Model = model;
-        m_SceneHierachyPanel.setSelectedEntity(entity);
+        if (Entity parent = m_ActiveScene->GetEntityByUUID(m_PendingPlacementParent))
+            m_ActiveScene->SetParent(entity, parent, {}, false);
+        m_PendingPlacementParent = 0;
+        m_HierarchyPanel.SetSelected(entity);
     }
 
     std::variant<std::monostate, AssetError> EditorLayer::ActivateScene(Ref<Scene> scene, std::filesystem::path path)
@@ -233,7 +239,7 @@ namespace Kans
             m_ActiveScene->OnRuntimeStop();
         m_ActiveScene = std::move(scene);
         m_ActiveRenderScene->SetLogicScene(m_ActiveScene);
-        m_SceneHierachyPanel.setSceneContext(m_ActiveScene);
+        m_HierarchyPanel.SetScene(m_ActiveScene);
         m_CameraEntity       = {};
         m_SecondCameraEntity = {};
         m_ScenePath          = std::move(path);

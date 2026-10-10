@@ -31,6 +31,15 @@ namespace Kans
         operator std::string&() { return Tag; }
     };
 
+    // Parent/child links between entities (by UUID; 0 = no parent). Children are
+    // in display order; the Scene keeps the order of top-level entities.
+    struct RelationshipComponent
+    {
+        UUID              Parent = 0;
+        std::vector<UUID> Children;
+    };
+
+    // Transform relative to the parent entity (or the world for top-level ones).
     struct TransformComponent
     {
 

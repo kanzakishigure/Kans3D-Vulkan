@@ -2,7 +2,9 @@
 #include <array>
 #include <functional>
 #include <vector>
-#include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
+#include "Kans3D/Asset/Manager/AssetManager.h"
+#include "Kans3D/Editor/EditorAssetChoice.h"
+#include "HierarchyPanel.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/ProductModelComponent.h"
 
@@ -14,7 +16,7 @@ namespace Kans
     class PropertiesPanel
     {
     public:
-        explicit PropertiesPanel(SceneHierachyPanel& hierarchy) : m_Hierarchy(hierarchy) {}
+        explicit PropertiesPanel(HierarchyPanel& hierarchy) : m_Hierarchy(hierarchy) {}
 
         void Draw();
         void SetAssetChoices(std::vector<EditorAssetChoice> choices) { m_AssetChoices = std::move(choices); }
@@ -47,7 +49,7 @@ namespace Kans
         bool        MaterialPicker(const char* label, AssetID imported, AssetID current, AssetID& chosen);
         std::string MaterialName(AssetID material);
 
-        SceneHierachyPanel&            m_Hierarchy;
+        HierarchyPanel&                m_Hierarchy;
         std::vector<EditorAssetChoice> m_AssetChoices;
         AssetManager*                  m_Assets = nullptr;
         std::array<char, 128>          m_ComponentFilter {};

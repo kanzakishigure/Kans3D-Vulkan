@@ -103,7 +103,7 @@ namespace Kans
 
             // InitPanel
             {
-                m_SceneHierachyPanel.setSceneContext(m_ActiveScene);
+                m_HierarchyPanel.SetScene(m_ActiveScene);
             }
 
             m_ActiveScene->OnRuntimeStart();
@@ -161,7 +161,7 @@ namespace Kans
             m_ViewportRenderer.reset();
         }
         m_Assets.reset();
-        m_SceneHierachyPanel.setSceneContext({});
+        m_HierarchyPanel.SetScene({});
 
         PROFILE_FUCTION();
         CLIENT_INFO_TAG("Editor", "editor layer call detach");

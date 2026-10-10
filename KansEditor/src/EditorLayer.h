@@ -5,8 +5,9 @@
 #include <Kans3D.h>
 
 #include "Kans3D/Editor/EditorCamera.h"
-#include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
+#include "Kans3D/Editor/EditorResources.h"
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/HierarchyPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
 #include "Panels/PropertiesPanel.h"
@@ -47,12 +48,14 @@ namespace Kans
         std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
         std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
         // Adds a dropped model to the scene, importing it first if needed.
-        void                                     PlaceAsset(const std::filesystem::path& file);
+        // `parent` (may be null) receives the placed model entity.
+        void                                     PlaceAsset(const std::filesystem::path& file, Entity parent = {});
         void                                     PlacePendingModel();
         // Builds the source of `file` (content browser "Import" / "Reimport").
         void                                     ImportSource(const std::filesystem::path& file);
         AssetID                                  FindPublishedModel(SourceAssetID source) const;
         std::optional<SourceAssetID>             m_PendingPlacement;
+        UUID                                     m_PendingPlacementParent = 0;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);
@@ -120,8 +123,8 @@ namespace Kans
         EditorCamera m_EditorCamera;
 
         PanelManager        m_Panels;
-        SceneHierachyPanel  m_SceneHierachyPanel;
-        PropertiesPanel     m_PropertiesPanel {m_SceneHierachyPanel};
+        HierarchyPanel      m_HierarchyPanel;
+        PropertiesPanel     m_PropertiesPanel {m_HierarchyPanel};
         ContentBrowserPanel m_ContentBrowserPanel;
         ProductImportPanel  m_ProductImportPanel;
         MaterialEditorPanel m_MaterialEditorPanel;

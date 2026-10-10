@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "SceneSerializer.h"
 #include <cmath>
+#include <functional>
 #include <set>
 #include <yaml-cpp/yaml.h>
 #include "Kans3D/Asset/Storage/ProductFiles.h"
@@ -162,6 +163,9 @@ namespace Kans
                     "Incomplete Scene entity");
             YAML::Node node;
             node["Entity"] = uint64_t(entity.GetComponent<IDComponent>().ID);
+            // Written in hierarchy order, so children follow their parent in sibling order.
+            if (const UUID parent = entity.GetComponent<RelationshipComponent>().Parent)
+                node["Parent"] = uint64_t(parent);
             auto name      = entity.GetComponent<TagComponent>().Tag;
             Require(name.size() <= 4096 && name.find('\0') == std::string::npos, "Invalid Scene tag");
             node["TagComponent"]["Tag"] = name;
@@ -260,8 +264,17 @@ namespace Kans
                                &entity.GetComponent<ProductModelComponent>() :
                                nullptr);
             });
-            for (const auto& item : entities)
-                root["Entities"].push_back(EncodeEntity(item.second));
+            // Parents before children, siblings in order.
+            size_t                      encoded = 0;
+            std::function<void(Entity)> write   = [&](Entity entity) {
+                root["Entities"].push_back(EncodeEntity(entity));
+                ++encoded;
+                for (Entity child : m_Scene->GetChildren(entity))
+                    write(child);
+            };
+            for (Entity entity : m_Scene->GetRootEntities())
+                write(entity);
+            Require(encoded == entities.size(), "Scene hierarchy does not reach every entity");
             YAML::Emitter output;
             output.SetFloatPrecision(std::numeric_limits<float>::max_digits10);
             output << root;
@@ -322,10 +335,13 @@ namespace Kans
             std::set<uint64_t>    seen;
             SceneAllocationBudget budget;
             budget.TextBytes = candidate->GetName().size();
+            // (child, parent) links in file order, applied once every entity exists.
+            std::vector<std::pair<uint64_t, uint64_t>> parents;
             for (const auto& node : entities)
             {
                 Keys(node,
                      {"Entity",
+                      "Parent",
                       "TagComponent",
                       "TransformComponent",
                       "ProductModelComponent",
@@ -336,6 +352,8 @@ namespace Kans
                       "SpriteRendererComponent"});
                 auto id = UInt(node["Entity"]);
                 Require(id && seen.insert(id).second, "Duplicate/zero Scene identity");
+                if (node["Parent"])
+                    parents.emplace_back(id, UInt(node["Parent"]));
                 Keys(node["TagComponent"], {"Tag"});
                 Keys(node["TransformComponent"], {"Position", "Rotation", "Scale"});
                 auto tag       = Text(node["TagComponent"]["Tag"]);
@@ -420,6 +438,12 @@ namespace Kans
                     sprite.TilingFactor = Number(value["TilingFactor"]);
                     Require(sprite.TilingFactor >= 0, "Invalid Sprite tiling");
                 }
+            }
+            for (const auto& [child, parent] : parents)
+            {
+                Entity entity = candidate->GetEntityByUUID(UUID(child));
+                Entity owner  = candidate->GetEntityByUUID(UUID(parent));
+                Require(owner && candidate->SetParent(entity, owner, {}, false), "Invalid Scene entity parent");
             }
             return candidate;
         }

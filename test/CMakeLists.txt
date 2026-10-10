@@ -21,6 +21,7 @@ add_executable(Kans3DTests
     MeshProductTests.cpp
     ModelProductTests.cpp
     SceneProductModelTests.cpp
+    SceneHierarchyTests.cpp
     EditorAssetImportServiceTests.cpp
     ModelImporterTests.cpp
     AssetRegistryTests.cpp

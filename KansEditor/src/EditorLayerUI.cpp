@@ -65,7 +65,7 @@ namespace Kans
         viewport.Flags     = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
         m_Panels.Register(viewport, [this] { DrawViewport(); });
         m_Panels.Register(spec(PanelID::Hierarchy, "Hierarchy", ICON_FA_LIST, PanelCategory::Scene, PanelDock::Left, true),
-                          [this] { m_SceneHierachyPanel.onImGuiRender(); });
+                          [this] { m_HierarchyPanel.Draw(); });
         m_Panels.Register(
             spec(PanelID::Properties, "Properties", ICON_FA_SLIDERS, PanelCategory::Scene, PanelDock::Right, true),
             [this] { m_PropertiesPanel.Draw(); });
@@ -464,7 +464,7 @@ namespace Kans
 
     void EditorLayer::DrawGizmo()
     {
-        Entity selected = m_SceneHierachyPanel.getSelectEntity();
+        Entity selected = m_HierarchyPanel.GetSelected();
         if (!selected || m_GizmoType < 0)
             return;
         ImGuizmo::SetOrthographic(false);
@@ -474,7 +474,8 @@ namespace Kans
 
         const glm::mat4 cameraProjection = m_EditorCamera.GetProjectionMatrix();
         const glm::mat4 cameraView       = m_EditorCamera.getViewMatrix();
-        glm::mat4       transform        = selected.GetComponent<TransformComponent>().GetTransform();
+        // The gizmo works on the world transform; results go back to the local one.
+        glm::mat4       transform        = m_ActiveScene->GetWorldTransform(selected);
         const bool      snap             = m_GizmoSnap || ImGui::GetIO().KeyCtrl;
         const float     step             = m_GizmoType == ImGuizmo::ROTATE ? m_SnapRotate :
                                            m_GizmoType == ImGuizmo::SCALE  ? m_SnapScale :
@@ -490,8 +491,10 @@ namespace Kans
         if (!ImGuizmo::IsUsing())
             return;
 
-        glm::vec3 translation, rotation, scale;
-        Math::DecomposeTransform(transform, translation, rotation, scale);
+        const Entity    parent = m_ActiveScene->GetParent(selected);
+        const glm::mat4 local  = parent ? glm::inverse(m_ActiveScene->GetWorldTransform(parent)) * transform : transform;
+        glm::vec3       translation, rotation, scale;
+        Math::DecomposeTransform(local, translation, rotation, scale);
         auto& tc = selected.GetComponent<TransformComponent>();
         switch (m_GizmoType)
         {
