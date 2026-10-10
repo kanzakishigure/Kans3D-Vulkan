@@ -518,6 +518,60 @@ namespace Kans
         }
     }
 
+    void MaterialEditorPanel::DrawRenderState()
+    {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Rendering");
+        auto& render = m_Source.Render;
+        const struct
+        {
+            MaterialAlphaMode Mode;
+            const char*       Name;
+            const char*       Help;
+        } modes[] = {
+            {MaterialAlphaMode::Opaque, "Opaque", "Alpha is ignored."},
+            {MaterialAlphaMode::Mask, "Cutout", "Pixels with alpha below the cutoff are discarded (foliage, hair cards)."},
+            {MaterialAlphaMode::Blend,
+             "Transparent",
+             "Blended over what is behind, drawn after opaque parts from far to near (glass, fades)."},
+        };
+        const auto* current = &modes[0];
+        for (const auto& mode : modes)
+            if (mode.Mode == render.AlphaMode)
+                current = &mode;
+        if (ImGui::BeginCombo("Alpha mode", current->Name))
+        {
+            for (const auto& mode : modes)
+            {
+                if (ImGui::Selectable(mode.Name, mode.Mode == render.AlphaMode))
+                {
+                    render.AlphaMode = mode.Mode;
+                    m_Dirty          = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", mode.Help);
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s",
+                              current->Help,
+                              m_Source.Shader.IsValid() && render.AlphaMode != MaterialAlphaMode::Opaque ?
+                                  "\nCustom shaders apply it through KansAlphaClip / KansOutputAlpha "
+                                  "(#include <Kans3D/Alpha.glsl>)." :
+                                  "");
+        if (render.AlphaMode == MaterialAlphaMode::Mask &&
+            ImGui::SliderFloat("Alpha cutoff", &render.AlphaCutoff, 0.0f, 1.0f, "%.2f"))
+        {
+            render.AlphaCutoff = std::clamp(render.AlphaCutoff, 0.0f, 1.0f);
+            m_Dirty            = true;
+        }
+        if (ImGui::Checkbox("Double-sided", &render.DoubleSided))
+            m_Dirty = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Draw back faces too, lit with the flipped normal (leaves, cloth, thin planes).");
+    }
+
     void MaterialEditorPanel::Draw()
     {
         if (m_File.empty())
@@ -543,10 +597,10 @@ namespace Kans
             m_Dirty       = true;
         }
 
-        const std::string shaderName = m_Source.Shader.IsValid() ? ChoiceName(m_Source.Shader) : "Engine PBR";
+        const std::string shaderName = m_Source.Shader.IsValid() ? ChoiceName(m_Source.Shader) : "Standard";
         if (ImGui::BeginCombo("Shader", shaderName.c_str()))
         {
-            if (ImGui::Selectable("Engine PBR", !m_Source.Shader.IsValid()))
+            if (ImGui::Selectable("Standard", !m_Source.Shader.IsValid()))
             {
                 m_Source.Shader = {};
                 m_Dirty         = true;
@@ -565,6 +619,7 @@ namespace Kans
                               "that follows the material contract, e.g. assets/shaders/Toon/Toon.shaderprog.");
 
         FinishPendingTexture();
+        DrawRenderState();
         ImGui::Separator();
         if (const auto* schema = Schema())
         {

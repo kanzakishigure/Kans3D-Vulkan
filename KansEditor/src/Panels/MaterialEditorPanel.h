@@ -30,6 +30,8 @@ namespace Kans
         const MaterialSchema* Schema();
         void                  DrawParameter(const MaterialParameterInfo& parameter, const MaterialSchema& schema);
         void                  DrawTexture(const std::string& name);
+        // Alpha mode, cutoff and double-sided: how the renderer draws the material.
+        void DrawRenderState();
         // Thumbnail button for a texture (or an empty slot); shows a larger preview on hover.
         void DrawThumbnail(AssetID texture, float size);
         // Assigns a file dropped from the content browser, importing it first if needed.
