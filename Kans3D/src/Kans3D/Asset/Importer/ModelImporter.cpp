@@ -72,19 +72,33 @@ namespace Kans
     namespace
     {
         // Settings: "scale" (positive number, default 1) multiplies the model size.
-        std::variant<float, AssetError> ParseModelScale(const std::map<std::string, std::string>& settings)
+        struct ModelSettings
         {
-            float scale = 1.0f;
+            float                          Scale = 1;
+            std::map<std::string, AssetID> Materials;
+        };
+
+        std::variant<ModelSettings, AssetError> ParseModelSettings(const std::map<std::string, std::string>& settings)
+        {
+            ModelSettings parsed;
             for (const auto& [key, value] : settings)
             {
+                if (key.compare(0, 9, "material.") == 0 && key.compare(9, 9, "material:") == 0)
+                {
+                    const auto id = AssetID::FromString(value);
+                    if (!id.IsValid() || id.ToString() != value)
+                        return AssetError {AssetErrorCode::InvalidArgument, "Invalid material remap AssetID: " + value};
+                    parsed.Materials.emplace(key.substr(9), id);
+                    continue;
+                }
                 if (key != "scale")
                     return AssetError {AssetErrorCode::InvalidArgument, "Unknown model import setting: " + key};
                 char* end = nullptr;
-                scale     = std::strtof(value.c_str(), &end);
-                if (value.empty() || *end || !std::isfinite(scale) || scale <= 0.0f)
+                parsed.Scale = std::strtof(value.c_str(), &end);
+                if (value.empty() || *end || !std::isfinite(parsed.Scale) || parsed.Scale <= 0.0f)
                     return AssetError {AssetErrorCode::InvalidArgument, "Model scale must be a positive number"};
             }
-            return scale;
+            return parsed;
         }
     } // namespace
 
@@ -92,12 +106,26 @@ namespace Kans
     {
         if (!context.SourceFile.is_absolute())
             return AssetError {AssetErrorCode::InvalidArgument, "Invalid model import context"};
+        auto settings = ParseModelSettings(context.Settings);
+        if (const auto* error = std::get_if<AssetError>(&settings))
+            return *error;
         auto parsed = ParseModelCpu(context.SourceFile);
         if (const auto* error = std::get_if<AssetError>(&parsed))
             return *error;
         const auto&  model = std::get<ImportedModelData>(parsed);
         ImportInputs inputs;
         inputs.Warnings = model.Warnings;
+        std::vector<std::string> slots;
+        for (const auto& material : model.Materials)
+            slots.push_back(ObjectKey("material", material.Name));
+        MakeUnique(slots, std::vector<std::string>(slots.size()));
+        for (const auto& [slot, id] : std::get<ModelSettings>(settings).Materials)
+        {
+            if (std::find(slots.begin(), slots.end(), slot) == slots.end())
+                inputs.Warnings.push_back("Unknown material remap slot: " + slot);
+            else
+                inputs.OptionalProducts.emplace(id, AssetType::Material);
+        }
         std::set<std::filesystem::path> conflicted; // referenced with differing settings
         for (const auto& file : model.SourceFiles)
             if (file != context.SourceFile.lexically_normal())
@@ -153,7 +181,7 @@ namespace Kans
     {
         if (!context.SourceID.IsValid() || !context.SourceFile.is_absolute() || !context.StagingDirectory.is_absolute())
             return AssetError {AssetErrorCode::InvalidArgument, "Invalid model import context"};
-        auto scale = ParseModelScale(context.Settings);
+        auto scale = ParseModelSettings(context.Settings);
         if (const auto* error = std::get_if<AssetError>(&scale))
             return *error;
         std::vector<std::filesystem::path> allowedFiles {context.SourceFile};
@@ -163,8 +191,8 @@ namespace Kans
         if (const auto* error = std::get_if<AssetError>(&parsed))
             return *error;
         auto& source = std::get<ImportedModelData>(parsed);
-        if (std::get<float>(scale) != 1.0f)
-            ScaleModel(source, std::get<float>(scale));
+        if (std::get<ModelSettings>(scale).Scale != 1.0f)
+            ScaleModel(source, std::get<ModelSettings>(scale).Scale);
         std::vector<std::string> materialKeys;
         std::vector<std::string> meshKeys;
         for (const auto& material : source.Materials)
@@ -230,15 +258,33 @@ namespace Kans
             staged.push_back({std::move(descriptor), std::get<std::vector<std::byte>>(std::move(encoded))});
         }
 
+        std::set<std::string> warnedRemaps;
         for (size_t i = 0; i < source.Meshes.size(); ++i)
         {
             const auto& input    = source.Meshes[i];
             const auto  material = idFor(materialKeys.at(input.MaterialIndex));
-            MeshData    data {input.Vertices, input.Indices, material};
+            AssetID     bound    = material;
+            const auto  remap    = std::get<ModelSettings>(scale).Materials.find(materialKeys.at(input.MaterialIndex));
+            if (remap != std::get<ModelSettings>(scale).Materials.end())
+            {
+                const auto bytes = context.ProductBytes.find(remap->second);
+                if (bytes != context.ProductBytes.end())
+                {
+                    if (std::holds_alternative<MaterialData>(
+                            DecodeMaterialProduct(bytes->second.data(), bytes->second.size())))
+                        bound = remap->second;
+                    else if (warnedRemaps.insert(remap->first).second)
+                        result.Warnings.push_back("Material remap for slot " + remap->first + " (" +
+                                                  remap->second.ToString() +
+                                                  ") is not a valid Material; using embedded material");
+                }
+            }
+            MeshData    data {input.Vertices, input.Indices, bound, material};
             auto        encoded = EncodeMeshProduct(data);
             if (const auto* error = std::get_if<AssetError>(&encoded))
                 return *error;
-            ProductDescriptor descriptor {result.LocalIDs.at(meshKeys[i]), AssetType::StaticMesh, {}, {material}};
+            ProductDescriptor descriptor {result.LocalIDs.at(meshKeys[i]), AssetType::StaticMesh, {}, {bound}};
+            AddUnique(descriptor.Dependencies, material);
             descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmesh";
             staged.push_back({std::move(descriptor), std::get<std::vector<std::byte>>(std::move(encoded))});
         }

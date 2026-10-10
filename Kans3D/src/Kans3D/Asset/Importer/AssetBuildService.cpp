@@ -182,6 +182,7 @@ namespace Kans
                 return std::move(*error);
             result.Registry = std::get<Ref<const AssetRegistry>>(std::move(published));
             result.LocalIDs = std::move(output.LocalIDs);
+            result.Warnings = std::move(output.Warnings);
             return result;
         }
         catch (const std::exception& error)

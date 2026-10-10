@@ -20,10 +20,12 @@ namespace Kans
         std::vector<SceneMaterialOverride> Overrides;
 
         // The Material to draw for a part: its own override, else its material's, else its own.
-        AssetID ResolveMaterial(AssetID mesh, AssetID material) const
+        AssetID ResolveMaterial(AssetID mesh, AssetID material, AssetID authoredMaterial = {}) const
         {
             if (const auto* part = FindOverride(mesh))
                 return part->Replacement;
+            if (const auto* slot = FindOverride(authoredMaterial))
+                return slot->Replacement;
             if (const auto* slot = FindOverride(material))
                 return slot->Replacement;
             return material;

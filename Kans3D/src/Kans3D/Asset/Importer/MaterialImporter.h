@@ -7,6 +7,7 @@ namespace Kans
     class MaterialImporter final : public AssetImporterBase
     {
     public:
+        inline static constexpr const char*    RootObjectKey = "material:root";
         uint32_t                               GetVersion() const override { return 7; }
         bool                                   RequiresProductBytes() const override { return true; }
         std::variant<ImportInputs, AssetError> DiscoverInputs(const ImportContext& context) const override;

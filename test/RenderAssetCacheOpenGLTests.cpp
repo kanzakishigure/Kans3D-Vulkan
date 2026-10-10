@@ -24,6 +24,7 @@
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
+#include "Kans3D/Project/Project.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
@@ -1055,6 +1056,105 @@ void main() { color = texture(other, vec2(0)); }
         EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
+    TEST_F(RenderAssetCacheGL, ImportedRemappedModelDrawsAuthoredSlotAndPartOverrides)
+    {
+        // Catches losing the authored slot during GPU upload or ignoring it in SubmitModel.
+        namespace fs    = std::filesystem;
+        const auto root = fs::temp_directory_path() / ("kans-remap-gl-" + SourceAssetID::Generate().ToString());
+        struct Cleanup
+        {
+            fs::path Root;
+            ~Cleanup()
+            {
+                std::error_code ignored;
+                fs::remove_all(Root, ignored);
+            }
+        } cleanup {root};
+        fs::create_directories(root / "assets");
+        std::ofstream(root / "assets/model.mtl") << "newmtl Slot\nKd 1 1 1\n";
+        std::ofstream(root / "assets/model.obj") << "mtllib model.mtl\nv -1 -1 0\nv 1 -1 0\nv 1 1 0\nv -1 1 0\n"
+                                                    "o Quad\nusemtl Slot\nf 1 2 3\nf 3 4 1\n";
+        for (const auto& [name, color] : std::map<std::string, std::vector<double>> {
+                 {"bound", {1, 0, 0, 1}}, {"slot", {0, 1, 0, 1}}, {"part", {0, 0, 1, 1}}})
+        {
+            MaterialSource source;
+            source.Name                    = name;
+            source.Parameters["BaseColor"] = color;
+            std::ofstream(root / "assets" / (name + ".material")) << SerializeMaterialSource(source);
+        }
+        ProjectConfig config;
+        config.Name          = "Override GL";
+        config.RootDirectory = root;
+        auto opened          = Project::Open(config);
+        ASSERT_TRUE(std::holds_alternative<Scope<Project>>(opened));
+        auto       project     = std::get<Scope<Project>>(std::move(opened));
+        const auto modelSource = project->GetSourceAssetDatabase().FindIDByPath(AssetPath("model.obj"));
+        auto       imported    = project->BuildAsset(modelSource, {});
+        ASSERT_TRUE(std::holds_alternative<AssetBuildGraphResult>(imported));
+        const auto modelID =
+            AssetID(modelSource, std::get<AssetBuildGraphResult>(imported).Root.LocalIDs.at("model:root"));
+        std::map<std::string, AssetID> materials;
+        for (const std::string name : {"bound", "slot", "part"})
+        {
+            const auto source = project->GetSourceAssetDatabase().FindIDByPath(AssetPath(name + ".material"));
+            auto       built  = project->BuildAsset(source, {});
+            ASSERT_TRUE(std::holds_alternative<AssetBuildGraphResult>(built));
+            materials[name] = AssetID(source, std::get<AssetBuildGraphResult>(built).Root.LocalIDs.at("material:root"));
+        }
+        auto described = project->GetModelMaterialSlots(modelSource);
+        ASSERT_TRUE(std::holds_alternative<std::vector<ModelMaterialSlot>>(described));
+        const auto& slots = std::get<std::vector<ModelMaterialSlot>>(described);
+        const auto  slot =
+            std::find_if(slots.begin(), slots.end(), [](const auto& item) { return item.DisplayName == "Slot"; });
+        ASSERT_NE(slot, slots.end());
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(
+            project->SetModelMaterialRemap(modelSource, slot->Key, materials.at("bound"))));
+        ASSERT_TRUE(std::holds_alternative<AssetBuildGraphResult>(project->BuildAsset(modelSource, {})));
+        AssetID meshID;
+        for (const auto& record : project->GetRuntimeAssetRegistry()->GetAllProducts())
+            if (record.Metadata.assetID.GetSourceID() == modelSource && record.Metadata.Type == AssetType::StaticMesh)
+                meshID = record.Metadata.assetID;
+        ASSERT_TRUE(meshID.IsValid());
+        auto provider = LooseFileAssetProvider::Open(project->GetProductDirectory());
+        ASSERT_TRUE(std::holds_alternative<Ref<LooseFileAssetProvider>>(provider));
+        AssetManager assets(std::get<Ref<LooseFileAssetProvider>>(provider), project->GetRuntimeAssetRegistry());
+        auto         scene = CreateRef<Scene>();
+        RenderScene  renderScene(scene);
+        renderScene.OnViewportResize(16, 16);
+        SceneRenderer renderer(&renderScene);
+        renderer.SetAssetManager(&assets);
+        auto& cache = *renderer.GetAssetCache();
+        ASSERT_TRUE(Frames(cache, [&] {
+            return cache.GetModel(modelID) && cache.GetMesh(meshID) &&
+                   cache.GetMaterialBindings(materials.at("bound")) &&
+                   cache.GetMaterialBindings(materials.at("slot")) && cache.GetMaterialBindings(materials.at("part"));
+        }));
+        SceneInfo info {};
+        info.sceneCamera.camera     = Camera(glm::mat4(1));
+        info.sceneCamera.viewMatrix = glm::mat4(1);
+        info.sceneCamera.Position   = {0, 0, 2};
+        renderer.SetViewMode(SceneViewMode::BaseColor);
+        ProductModelComponent component;
+        component.Model = modelID;
+        const auto draw = [&] {
+            renderer.BeginScene(info);
+            renderer.SubmitModel(component, glm::mat4(1));
+            renderer.EndScene();
+            std::array<uint8_t, 16 * 16 * 4> pixels {};
+            glBindTexture(GL_TEXTURE_2D, renderer.GetOutput(0));
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            std::array<uint8_t, 4> pixel {};
+            std::copy_n(pixels.data() + (8 * 16 + 8) * 4, 4, pixel.data());
+            return pixel;
+        };
+        EXPECT_EQ(draw(), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        component.SetOverride(slot->EmbeddedMaterial, materials.at("slot"));
+        EXPECT_EQ(draw(), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        component.SetOverride(meshID, materials.at("part"));
+        EXPECT_EQ(draw(), (std::array<uint8_t, 4> {0, 0, 255, 255}));
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
     class MaterialSceneGL : public RenderAssetCacheGL
     {
     protected:
@@ -1186,6 +1286,54 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         std::vector<ProductRecord> Records;
         std::vector<AssetID>       Models, Meshes, Materials;
     };
+
+    TEST_F(MaterialSceneGL, HighlightUsesReimportedMeshAfterQueuedGpuResourceIsDestroyed)
+    {
+        const auto material = Color({0, 1, 0, 1});
+        const auto model    = Quad(material, 0, false, -1, 0);
+        Ready();
+        auto&                            cache    = *Renderer->GetAssetCache();
+        const auto                       meshID   = Meshes.back();
+        const std::weak_ptr<VertexArray> oldArray = cache.GetMesh(meshID)->VertexArray;
+
+        // The viewport queues the selection before BeginScene, while it still resolves to the left half.
+        Renderer->SetHighlight({{model, glm::mat4(1)}});
+        Renderer->BeginScene(Info);
+
+        // Republish the same mesh ID on the right half, as a model reimport does.
+        MeshData replacement;
+        replacement.Material = material;
+        for (auto [x, y] : {std::pair {0.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}})
+        {
+            MeshVertexData vertex;
+            vertex.Position = {x, y, 0};
+            replacement.Vertices.push_back(vertex);
+        }
+        replacement.Indices = {0, 1, 2, 2, 3, 0};
+        auto record         = std::find_if(
+            Records.begin(), Records.end(), [&](const auto& item) { return item.Metadata.assetID == meshID; });
+        ASSERT_NE(record, Records.end());
+        *record =
+            Store(meshID, AssetType::StaticMesh, std::get<std::vector<std::byte>>(EncodeMeshProduct(replacement)));
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
+        ASSERT_TRUE(std::holds_alternative<Ref<const MeshAsset>>(Assets->Load<MeshAsset>(meshID)));
+        Renderer->SubmitModel(model, glm::mat4(1)); // Resolves the replacement and destroys the old GpuMesh.
+        ASSERT_TRUE(oldArray.expired());            // No retained GPU ownership can hide the dangling pointer.
+        ASSERT_EQ(cache.GetMesh(meshID)->LocalBounds.Min.x, 0.0f);
+        Renderer->EndScene();
+
+        EXPECT_EQ(Pixel(6), (std::array<uint8_t, 4> {255, 158, 38, 255})); // Border of the new right half.
+        EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {31, 243, 5, 255}));  // Green material plus orange fill.
+        EXPECT_EQ(Pixel(2), (std::array<uint8_t, 4> {5, 5, 5, 255}));      // No stale left silhouette.
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+
+        // Highlights are consumed by EndScene, rather than leaking into later frames.
+        Renderer->BeginScene(Info);
+        Renderer->EndScene();
+        EXPECT_EQ(Pixel(6), (std::array<uint8_t, 4> {5, 5, 5, 255}));
+        EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {5, 5, 5, 255}));
+    }
 
     TEST_F(MaterialSceneGL, TargetAlphaIsOpaqueEvenWhenProjectShadersReturnFractionalAlpha)
     {

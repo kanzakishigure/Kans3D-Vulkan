@@ -62,6 +62,13 @@ namespace Kans
         uint64_t Triangles = 0;
     };
 
+    // Deferred model draw intent. GPU resources are resolved when the draw is consumed.
+    struct ModelDraw
+    {
+        ProductModelComponent Model;
+        glm::mat4             Transform {1.0f};
+    };
+
     class SceneRenderer : public RefCounter
     {
     public:
@@ -84,16 +91,17 @@ namespace Kans
                                  const std::string&           shaderName,
                                  ModelGeometryMode            mode = ModelGeometryMode::Default);
 
-        // Editor helpers: meshes of a model for picking/highlighting (skips parts
-        // still loading), the ID under a pixel (bottom-left origin), and draws to
-        // outline at the end of the next scene.
+        // Editor helpers: meshes of a model for immediate picking (skips parts still loading).
+        // Returned MeshDraws borrow GPU resources and are only valid until the asset cache
+        // is next updated (including BeginScene or subsequent cache requests).
         void     AppendModelDraws(const ProductModelComponent& model,
                                   const glm::mat4&             transform,
                                   uint32_t                     id,
                                   std::vector<MeshDraw>&       draws);
         uint32_t Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
         PickHit  PickSurface(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
-        void     SetHighlight(std::vector<MeshDraw> draws) { m_Highlight = std::move(draws); }
+        // Model descriptions to outline, consumed by the next EndScene. Safe to queue before BeginScene.
+        void SetHighlight(std::vector<ModelDraw> models) { m_Highlight = std::move(models); }
         // Lit model and blue outline, consumed by the next EndScene. Not pickable.
         void     SetPreview(const ProductModelComponent& model, const glm::mat4& transform);
         void     ClearPreview() { m_Preview.reset(); }
@@ -156,13 +164,8 @@ namespace Kans
         Scope<RenderAssetCache> m_AssetCache;
         EntityPicker            m_Picker;
         SelectionOutline        m_Outline;
-        std::vector<MeshDraw>   m_Highlight;
-        struct Preview
-        {
-            ProductModelComponent Model;
-            glm::mat4             Transform;
-        };
-        std::optional<Preview> m_Preview;
+        std::vector<ModelDraw>   m_Highlight;
+        std::optional<ModelDraw> m_Preview;
         SceneViewMode          m_ViewMode = SceneViewMode::Lit;
         SceneRenderStats       m_Stats;
         // Engine data (set 0) of Shader materials, created on first use.

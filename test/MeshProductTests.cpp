@@ -41,15 +41,15 @@ namespace
     {
         const auto original = Triangle();
         const auto bytes    = Encode(original);
-        ASSERT_EQ(bytes.size(), 40 + 3 * 64 + 3 * 4);
+        ASSERT_EQ(bytes.size(), 56 + 3 * 64 + 3 * 4);
         EXPECT_EQ(bytes[0], std::byte {'K'});
         EXPECT_EQ(bytes[1], std::byte {'M'});
         EXPECT_EQ(bytes[2], std::byte {'S'});
         EXPECT_EQ(bytes[3], std::byte {'H'});
         // First float is 1.0f, IEEE 754 0x3f800000, encoded little endian.
-        EXPECT_EQ(bytes[40], std::byte {0});
-        EXPECT_EQ(bytes[42], std::byte {0x80});
-        EXPECT_EQ(bytes[43], std::byte {0x3f});
+        EXPECT_EQ(bytes[56], std::byte {0});
+        EXPECT_EQ(bytes[58], std::byte {0x80});
+        EXPECT_EQ(bytes[59], std::byte {0x3f});
         auto decoded = DecodeMeshProduct(bytes.data(), bytes.size());
         ASSERT_TRUE(std::holds_alternative<MeshData>(decoded));
         const auto& mesh = std::get<MeshData>(decoded);
@@ -94,7 +94,7 @@ namespace
             EXPECT_EQ(std::get<AssetError>(decoded).Code, AssetErrorCode::InvalidData);
         }
         auto bytes = original;
-        Set32(bytes, 4, 2);
+        Set32(bytes, 4, 3);
         EXPECT_EQ(std::get<AssetError>(DecodeMeshProduct(bytes.data(), bytes.size())).Code,
                   AssetErrorCode::UnsupportedVersion);
     }
@@ -108,10 +108,10 @@ namespace
         mesh.Indices[0] = 3;
         EXPECT_TRUE(std::holds_alternative<AssetError>(EncodeMeshProduct(mesh)));
         auto bytes = Encode(Triangle());
-        Set32(bytes, 40, 0x7f800000); // +infinity
+        Set32(bytes, 56, 0x7f800000); // +infinity
         EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeMeshProduct(bytes.data(), bytes.size())));
         bytes = Encode(Triangle());
-        Set32(bytes, 40 + 3 * 64, 3);
+        Set32(bytes, 56 + 3 * 64, 3);
         EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeMeshProduct(bytes.data(), bytes.size())));
     }
 
@@ -121,6 +121,10 @@ namespace
         auto mesh     = Triangle();
         mesh.Material = AssetID(SourceAssetID::Generate(), 0);
         EXPECT_TRUE(std::holds_alternative<AssetError>(EncodeMeshProduct(mesh)));
+        mesh                  = Triangle();
+        mesh.AuthoredMaterial = AssetID(SourceAssetID::Generate(), 0);
+        EXPECT_TRUE(std::holds_alternative<AssetError>(EncodeMeshProduct(mesh)));
+        mesh.AuthoredMaterial = {};
         mesh.Material      = {};
         const auto bytes   = Encode(mesh);
         auto       decoded = DecodeMeshProduct(bytes.data(), bytes.size());

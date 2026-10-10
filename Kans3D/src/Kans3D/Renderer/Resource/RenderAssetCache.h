@@ -17,6 +17,7 @@ namespace Kans
         Ref<VertexArray> VertexArray;
         uint32_t         IndexCount = 0;
         AssetID          Material;
+        AssetID          AuthoredMaterial;
         Bounds           LocalBounds; // In mesh space.
     };
 

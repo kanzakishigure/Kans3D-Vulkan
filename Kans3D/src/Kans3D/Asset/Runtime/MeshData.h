@@ -25,6 +25,8 @@ namespace Kans
         std::vector<uint32_t>       Indices;
         // Invalid ID explicitly means no material binding.
         AssetID Material;
+        // Original embedded slot, independent of the bound/remapped material.
+        AssetID AuthoredMaterial;
     };
     [[nodiscard]] std::variant<std::monostate, AssetError> ValidateMeshData(const MeshData& mesh);
 

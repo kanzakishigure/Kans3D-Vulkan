@@ -56,6 +56,16 @@ namespace Kans
         [[nodiscard]] std::variant<std::monostate, AssetError>          DeleteSourceAsset(SourceAssetID source);
         [[nodiscard]] std::variant<std::monostate, AssetError>
         SetSourceImportConfiguration(SourceAssetID source, const SourceImportConfiguration& configuration);
+        // Owner thread, idle only; uses EditorAssetTarget. Mutations persist without
+        // starting a build: call Start(modelSource, options) afterwards.
+        [[nodiscard]] std::variant<std::vector<ModelMaterialSlot>, AssetError>
+        GetModelMaterialSlots(SourceAssetID source) const;
+        [[nodiscard]] std::variant<std::monostate, AssetError>
+        SetModelMaterialRemap(SourceAssetID source, const std::string& slot, std::optional<AssetID> material);
+        [[nodiscard]] std::variant<ModelMaterialExtractionResult, AssetError>
+        ExtractModelMaterials(SourceAssetID                   source,
+                              const std::filesystem::path&    directory,
+                              const std::vector<std::string>& slots = {});
         // The published Registry after a source deletion or refresh, consumed once.
         [[nodiscard]] std::variant<std::optional<Ref<const AssetRegistry>>, AssetError> ConsumeRuntimeRegistryChange();
         // Safe while a build runs.

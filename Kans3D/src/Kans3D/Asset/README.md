@@ -35,6 +35,34 @@ assets/x.obj + x.obj.kmeta                    AssetID
 - 尚不支持的模型内容（动画、蒙皮、变形目标、内嵌纹理、额外 UV 通道）会被跳过并
   给出警告，静态几何仍然导入（蒙皮网格使用绑定姿态）。
 
+## 模型材质 remap 与提取
+
+- 模型设置 `scale` 为正数（默认 1）。`.kmeta` 的 `settings` 可保存
+  `material.<slot key>: <Material AssetID>`；slot key 是完整稳定对象键（例如
+  `material:7:Surface`，同名槽使用独立后缀），不是名称或数组索引。清除该设置恢复内嵌材质。
+- remap 是声明的可选 Product 输入：先构建外部材质，纳入构建指纹与依赖关系。
+  缺失、非 Material、未产生指定 Product 或构建失败时警告并使用内嵌材质。
+  内嵌 Material 始终发布；KMSH v2 同时保存 bound Material 与原始槽身份，
+  场景 Mesh override 优先，其次原始槽 override，再其次 bound Material override。
+  KMSH v1 仍可读取，原始槽身份取其 Material；模型导入器版本为 11。
+- `EditorAssetImportService::GetModelMaterialSlots(source)` 返回最后发布的槽：
+  `Key`、`DisplayName`、`EmbeddedMaterial`、可选 `Remap`；尚未在 editor target
+  导入的模型返回错误，已删除槽的保留 LocalID 不会出现在列表里。
+  `SetModelMaterialRemap(source, slotKey, optionalMaterial)` 写入或清除设置。
+- `ExtractModelMaterials(source, directory, slots = {})` 提取所选槽（空列表为全部），
+  跳过已 remap 的槽。directory 相对 asset root 或为其内部的绝对目录，必须可被扫描。
+  从已发布的内嵌材质及其实际 Shader 反射读取参数、纹理 ID 与 render state，
+  用 `SerializeMaterialSource` 写入 `<ModelStem>_<MaterialName>.material`，
+  文件名清理非法字符，冲突时加数字后缀，不覆盖源文件或已有 sidecar。
+  注册每个新源及 `.kmeta` 后，一次提交全部 remap；失败保留原设置。
+  返回 `ModelMaterialExtractionResult` 的 `Created`（含文件、源 ID、Material ID）、
+  `Skipped`、`RemapsApplied` 和可选 `Error`；操作开始后的失败也报告已写文件，
+  调用者须同时检查 variant 错误与 report.Error。结构参数或未绑定纹理暂不能转换为
+  `.material` 的命名 schema，会报错而非丢失数据。
+- 上述 service API 仅允许 owner thread 且没有运行中的构建，使用 `EditorAssetTarget`。
+  修改或提取只保存配置，调用者随后 `Start(modelSource, options)` 构建；会先导入新材质。
+  修改独立 `.material` 后构建该材质即可影响所有引用它的模型。
+
 ## Product 存储（`Storage/ProductStore`）
 
 - 每次发布把某个源在某个目标下的完整 Product 集合写入新的 `generations/` 目录，

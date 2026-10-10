@@ -100,12 +100,12 @@ namespace Kans
                     return AssetError {AssetErrorCode::NotImplemented, "Material sampler requires a 2D Texture"};
                 dependencies.push_back(binding.Texture);
             }
-            auto ids = AllocateLocalIDs(context.PreviousLocalIDs, {"material:root"});
+            auto ids = AllocateLocalIDs(context.PreviousLocalIDs, {RootObjectKey});
             if (auto failure = std::get_if<AssetError>(&ids))
                 return *failure;
             ImportResult result;
             result.LocalIDs  = std::get<LocalIDMap>(std::move(ids));
-            const auto local = result.LocalIDs.at("material:root");
+            const auto local = result.LocalIDs.at(RootObjectKey);
             result.Products.push_back(
                 {local, AssetType::Material, std::to_string(local) + ".kmat", std::move(dependencies)});
             auto encoded = EncodeMaterialProduct(data);

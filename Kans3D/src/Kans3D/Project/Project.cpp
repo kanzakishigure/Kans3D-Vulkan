@@ -290,7 +290,7 @@ namespace Kans
         auto discovered      = inputs.Importer.Importer->DiscoverInputs(discovery);
         if (auto* error = std::get_if<AssetError>(&discovered))
             return AssetError {error->Code, metadata.Path.ToString() + ": " + error->Message};
-        const auto& found = std::get<ImportInputs>(discovered);
+        auto found = std::get<ImportInputs>(std::move(discovered));
 
         session.Active.insert(id);
         struct ActiveGuard
@@ -348,15 +348,33 @@ namespace Kans
                 inputs.ProductInputs.push_back(product);
         }
 
+        for (const auto& [product, type] : found.OptionalProducts)
+        {
+            auto built = BuildSource(product.GetSourceID(), session);
+            if (const auto* error = std::get_if<AssetError>(&built); error && error->Code == AssetErrorCode::Cancelled)
+                return *error;
+            const auto record = m_ProductStore->Snapshot()->Find(product, session.Options.Target);
+            if (std::holds_alternative<AssetError>(built) || !record || record->Metadata.Type != type)
+            {
+                found.Warnings.push_back("Material remap " + product.ToString() +
+                                         " is unavailable or not a Material; using embedded material");
+                continue;
+            }
+            if (std::find(inputs.ProductInputs.begin(), inputs.ProductInputs.end(), product) ==
+                inputs.ProductInputs.end())
+                inputs.ProductInputs.push_back(product);
+        }
+
         auto built = AssetBuildService::Build(
             inputs, session.Options, *m_ProductStore, m_Digests, m_Config.CacheDirectory / "ImportWork");
         if (auto* error = std::get_if<AssetError>(&built))
             return AssetError {error->Code, metadata.Path.ToString() + ": " + error->Message};
         auto& result = std::get<AssetBuildResult>(built);
-        for (const auto& warning : found.Warnings)
+        result.Warnings.insert(result.Warnings.end(), found.Warnings.begin(), found.Warnings.end());
+        for (auto& warning : result.Warnings)
         {
-            result.Warnings.push_back(metadata.Path.ToString() + ": " + warning);
-            m_AssetWarnings.push_back({AssetErrorCode::NotFound, result.Warnings.back()});
+            warning = metadata.Path.ToString() + ": " + warning;
+            m_AssetWarnings.push_back({AssetErrorCode::NotFound, warning});
         }
         if (result.LocalIDs != metadata.LocalIDs)
         {

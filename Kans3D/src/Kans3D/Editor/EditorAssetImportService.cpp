@@ -191,6 +191,36 @@ namespace Kans
         return m_Project->SetSourceImportConfiguration(source, configuration);
     }
 
+    std::variant<std::vector<ModelMaterialSlot>, AssetError>
+    EditorAssetImportService::GetModelMaterialSlots(SourceAssetID source) const
+    {
+        if (auto error = CheckIdle())
+            return *error;
+        return m_Project->GetModelMaterialSlots(source, EditorAssetTarget);
+    }
+
+    std::variant<std::monostate, AssetError>
+    EditorAssetImportService::SetModelMaterialRemap(SourceAssetID          source,
+                                                    const std::string&     slot,
+                                                    std::optional<AssetID> material)
+    {
+        if (auto error = CheckIdle())
+            return *error;
+        return m_Project->SetModelMaterialRemap(source, slot, material, EditorAssetTarget);
+    }
+
+    std::variant<ModelMaterialExtractionResult, AssetError>
+    EditorAssetImportService::ExtractModelMaterials(SourceAssetID                   source,
+                                                    const std::filesystem::path&    directory,
+                                                    const std::vector<std::string>& slots)
+    {
+        if (auto error = CheckIdle())
+            return *error;
+        auto result      = m_Project->ExtractModelMaterials(source, directory, slots, EditorAssetTarget);
+        m_RegistryChange = m_Project->GetRuntimeAssetRegistry();
+        return result;
+    }
+
     std::variant<std::optional<Ref<const AssetRegistry>>, AssetError>
     EditorAssetImportService::ConsumeRuntimeRegistryChange()
     {

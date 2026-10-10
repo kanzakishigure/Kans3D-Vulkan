@@ -47,6 +47,30 @@ namespace Kans
         std::vector<SourceAssetMetadata> Dependents;
     };
 
+    struct ModelMaterialSlot
+    {
+        std::string            Key, DisplayName;
+        AssetID                EmbeddedMaterial;
+        std::optional<AssetID> Remap;
+    };
+
+    struct ExtractedModelMaterial
+    {
+        std::string           SlotKey;
+        std::filesystem::path File;
+        SourceAssetID         Source;
+        AssetID               Material;
+    };
+
+    struct ModelMaterialExtractionResult
+    {
+        // Includes every file written, even if registration or mapping later failed.
+        std::vector<ExtractedModelMaterial> Created;
+        std::vector<std::string>            Skipped;
+        bool                                RemapsApplied = false;
+        std::optional<AssetError>           Error;
+    };
+
     // Owns a project's source database and Product store. Operations on one
     // project must be called from one thread at a time; the project directory is
     // locked against other processes while it is open.
@@ -77,6 +101,24 @@ namespace Kans
         // Writes the sidecar, then updates the database.
         [[nodiscard]] std::variant<std::monostate, AssetError>
         SetSourceImportConfiguration(SourceAssetID id, const SourceImportConfiguration& configuration);
+
+        // Slots from the last published import for target; does not parse current source content.
+        [[nodiscard]] std::variant<std::vector<ModelMaterialSlot>, AssetError>
+        GetModelMaterialSlots(SourceAssetID source, const std::string& target = "default") const;
+        // Persists settings only. Caller builds the model afterwards.
+        [[nodiscard]] std::variant<std::monostate, AssetError>
+        SetModelMaterialRemap(SourceAssetID          source,
+                              const std::string&     slot,
+                              std::optional<AssetID> material,
+                              const std::string&     target = "default");
+        // Relative directories are relative to the asset root. Empty slots selects all.
+        // All remaps commit in one sidecar write after every source is registered.
+        // Later failures return a report with Error and Created, without changing remaps.
+        [[nodiscard]] std::variant<ModelMaterialExtractionResult, AssetError>
+        ExtractModelMaterials(SourceAssetID                   source,
+                              const std::filesystem::path&    directory,
+                              const std::vector<std::string>& slots  = {},
+                              const std::string&              target = "default");
 
         // Builds the source after building every source it reads or references.
         [[nodiscard]] std::variant<AssetBuildGraphResult, AssetError> BuildAsset(SourceAssetID            id,

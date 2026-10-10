@@ -43,6 +43,8 @@ namespace Kans
         std::map<std::filesystem::path, std::map<std::string, std::string>> ProductSourceSettings;
         // Products referenced by ID (a Material's Shader and Textures).
         std::vector<AssetID> Products;
+        // Typed, optional references: unavailable inputs warn and are omitted.
+        std::map<AssetID, AssetType> OptionalProducts;
         // Problems that do not stop the import, such as a missing texture file.
         std::vector<std::string> Warnings;
     };
@@ -64,5 +66,7 @@ namespace Kans
         std::vector<ProductDescriptor> Products;
         // Complete mapping: previous entries plus newly allocated keys.
         LocalIDMap LocalIDs;
+        // Recoverable problems found while decoding inputs or emitting Products.
+        std::vector<std::string> Warnings;
     };
 } // namespace Kans

@@ -13,8 +13,8 @@ namespace Kans
     namespace
     {
         constexpr uint32_t kMagic        = 0x48534d4b; // KMSH, little endian
-        constexpr uint32_t kVersion      = 1;
-        constexpr size_t   kHeaderBytes  = 40;
+        constexpr uint32_t kVersion      = 2;
+        constexpr size_t   kHeaderBytes  = 56;
         constexpr size_t   kVertexBytes  = 64;
         constexpr size_t   kMaximumBytes = 512 * 1024 * 1024;
         static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559,
@@ -80,6 +80,8 @@ namespace Kans
         Write(bytes, static_cast<uint32_t>(indexCount));
         Write(bytes, mesh.Material.GetSourceID().GetUUID());
         Write(bytes, mesh.Material.GetLocalID());
+        Write(bytes, mesh.AuthoredMaterial.GetSourceID().GetUUID());
+        Write(bytes, mesh.AuthoredMaterial.GetLocalID());
         for (const auto& vertex : mesh.Vertices)
         {
             WriteFloats(bytes, vertex.Position);
@@ -95,12 +97,13 @@ namespace Kans
 
     std::variant<MeshData, AssetError> DecodeMeshProduct(const std::byte* bytes, size_t size)
     {
-        if (!bytes || size < kHeaderBytes || size > kMaximumBytes)
+        if (!bytes || size < 40 || size > kMaximumBytes)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product byte length"};
         const auto* cursor = bytes;
         if (Read<uint32_t>(cursor) != kMagic)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product magic"};
-        if (Read<uint32_t>(cursor) != kVersion)
+        const auto version = Read<uint32_t>(cursor);
+        if (version != 1 && version != kVersion)
             return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Mesh Product version"};
         if (Read<uint32_t>(cursor) != static_cast<uint32_t>(AssetType::StaticMesh) || Read<uint32_t>(cursor) != 0)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product type or flags"};
@@ -108,8 +111,14 @@ namespace Kans
         const auto     indexCount  = Read<uint32_t>(cursor);
         const auto     source      = Read<uint64_t>(cursor);
         const auto     local       = Read<uint64_t>(cursor);
-        const uint64_t expected    = kHeaderBytes + uint64_t(vertexCount) * kVertexBytes + uint64_t(indexCount) * 4;
-        if (!vertexCount || !indexCount || indexCount % 3 || expected != size || ((source != 0) != (local != 0)))
+        if (version == 2 && size < kHeaderBytes)
+            return AssetError {AssetErrorCode::InvalidData, "Truncated Mesh Product header"};
+        const auto     authoredSource = version == 2 ? Read<uint64_t>(cursor) : source;
+        const auto     authoredLocal  = version == 2 ? Read<uint64_t>(cursor) : local;
+        const uint64_t expected =
+            (version == 1 ? 40 : kHeaderBytes) + uint64_t(vertexCount) * kVertexBytes + uint64_t(indexCount) * 4;
+        if (!vertexCount || !indexCount || indexCount % 3 || expected != size || ((source != 0) != (local != 0)) ||
+            ((authoredSource != 0) != (authoredLocal != 0)))
             return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product counts or material identity"};
         MeshData result;
         if (source)
@@ -117,6 +126,12 @@ namespace Kans
             std::ostringstream id;
             id << std::hex << std::setw(16) << std::setfill('0') << source;
             result.Material = AssetID(SourceAssetID::FromString(id.str()), local);
+        }
+        if (authoredSource)
+        {
+            std::ostringstream id;
+            id << std::hex << std::setw(16) << std::setfill('0') << authoredSource;
+            result.AuthoredMaterial = AssetID(SourceAssetID::FromString(id.str()), authoredLocal);
         }
         result.Vertices.resize(vertexCount);
         result.Indices.resize(indexCount);

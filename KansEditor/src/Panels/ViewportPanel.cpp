@@ -42,9 +42,18 @@ namespace Kans
         Resize(size);
         if (Entity selected = m_Hierarchy.GetSelected(); selected && !UsesSceneCamera())
         {
-            // Outline the selection with its children.
-            std::vector<UUID> ignored;
-            m_Renderer->SetHighlight(CollectDraws(ignored, selected));
+            // Outline the selection with its children. Models, not meshes: the renderer
+            // resolves them after this frame's asset updates.
+            std::vector<ModelDraw>      highlights;
+            std::function<void(Entity)> collect = [&](Entity entity) {
+                if (entity.HasComponent<ProductModelComponent>())
+                    highlights.push_back(
+                        {entity.GetComponent<ProductModelComponent>(), m_Scene->GetWorldTransform(entity)});
+                for (Entity child : m_Scene->GetChildren(entity))
+                    collect(child);
+            };
+            collect(selected);
+            m_Renderer->SetHighlight(std::move(highlights));
         }
         Render();
 

@@ -138,7 +138,7 @@ namespace Kans
             if (const auto* mesh = m_AssetCache->GetMesh(instance.Mesh))
                 m_ModelDraws.push_back({instance.Mesh,
                                         transform * instance.Transform,
-                                        model.ResolveMaterial(instance.Mesh, mesh->Material),
+                                        model.ResolveMaterial(instance.Mesh, mesh->Material, mesh->AuthoredMaterial),
                                         m_ViewMode,
                                         stencil});
     }
@@ -566,15 +566,12 @@ namespace Kans
     {
         const glm::mat4 viewProjection =
             m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        std::vector<MeshDraw> previewDraws;
         if (m_Preview)
         {
             const SceneViewMode viewMode = m_ViewMode;
             m_ViewMode = SceneViewMode::Lit;
             SubmitModel(m_Preview->Model, m_Preview->Transform);
             m_ViewMode = viewMode;
-            AppendModelDraws(m_Preview->Model, m_Preview->Transform, 0, previewDraws);
-            m_Preview.reset();
         }
         {
             // One snapshot for the deferred pass, independent of the number of submissions.
@@ -590,10 +587,21 @@ namespace Kans
         m_GeometryDraws.clear();
         if (!m_Highlight.empty())
         {
-            m_Outline.Draw(m_Highlight, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {1.0f, 0.62f, 0.15f, 1.0f});
+            // Material/geometry passes may replace cached meshes. Resolve only at the outline draw.
+            std::vector<MeshDraw> draws;
+            for (const auto& model : m_Highlight)
+                AppendModelDraws(model.Model, model.Transform, 0, draws);
+            m_Outline.Draw(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {1.0f, 0.62f, 0.15f, 1.0f});
             m_Highlight.clear();
         }
-        m_Outline.Draw(previewDraws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {0.35f, 0.7f, 1.0f, 1.0f});
+        if (m_Preview)
+        {
+            // Resolve after the highlight too: collecting its models can update the cache.
+            std::vector<MeshDraw> draws;
+            AppendModelDraws(m_Preview->Model, m_Preview->Transform, 0, draws);
+            m_Outline.Draw(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {0.35f, 0.7f, 1.0f, 1.0f});
+            m_Preview.reset();
+        }
         m_FrameBuffer->Unbind();
         m_Active = false;
     }
@@ -607,7 +615,7 @@ namespace Kans
 
     void SceneRenderer::SetPreview(const ProductModelComponent& model, const glm::mat4& transform)
     {
-        m_Preview = Preview {model, transform};
+        m_Preview = ModelDraw {model, transform};
     }
 
     void SceneRenderer::SetScene(RenderScene* scene)

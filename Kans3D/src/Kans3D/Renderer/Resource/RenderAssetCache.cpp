@@ -50,6 +50,7 @@ namespace Kans
         mesh.VertexArray = std::move(array);
         mesh.IndexCount  = static_cast<uint32_t>(data.Indices.size());
         mesh.Material    = data.Material;
+        mesh.AuthoredMaterial = data.AuthoredMaterial;
         return mesh;
     }
 

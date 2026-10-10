@@ -58,6 +58,10 @@ namespace Kans
         // Shortest decimal text that reads back as the same float.
         std::string FormatNumber(double value)
         {
+            // Shader integer parameters must retain every bit, including values
+            // beyond binary32 precision. Float parameters still use short decimals.
+            if (value != 0 && value == std::floor(value) && value >= INT32_MIN && value <= UINT32_MAX)
+                return std::to_string(static_cast<int64_t>(value));
             char buffer[32];
             for (int precision = 6; precision <= 9; ++precision)
             {
