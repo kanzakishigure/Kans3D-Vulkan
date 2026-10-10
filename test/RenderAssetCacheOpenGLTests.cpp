@@ -22,6 +22,7 @@
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
+#include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "MaterialShaderTestUtilities.h"
 
 namespace
@@ -536,5 +537,59 @@ void main() { color = texture(other, vec2(0)); }
             EXPECT_TRUE(std::holds_alternative<GpuShader>(created))
                 << name << ": " << std::get<AssetError>(created).Message;
         }
+    }
+
+    // Picking reads the ID under a pixel; the outline borders a silhouette.
+    TEST_F(RenderAssetCacheGL, PickerFindsMeshesAndOutlineBordersThem)
+    {
+        constexpr int Size = 16;
+        MeshData      quad;
+        for (auto [x, y] : {std::pair {-1.0f, -1.0f}, {0.0f, -1.0f}, {0.0f, 1.0f}, {-1.0f, 1.0f}})
+        {
+            MeshVertexData vertex;
+            vertex.Position = {x, y, 0};
+            quad.Vertices.push_back(vertex);
+        }
+        quad.Indices  = {0, 1, 2, 2, 3, 0};
+        auto uploaded = UploadMesh(quad);
+        ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
+        const auto& mesh  = std::get<GpuMesh>(uploaded);
+        EXPECT_EQ(mesh.LocalBounds.Min, glm::vec3(-1, -1, 0));
+        EXPECT_EQ(mesh.LocalBounds.Max, glm::vec3(0, 1, 0));
+        const std::vector<MeshDraw> draws = {{&mesh, glm::mat4(1.0f), 7}};
+
+        EntityPicker picker;
+        EXPECT_EQ(picker.Pick(draws, glm::mat4(1.0f), {Size, Size}, {4, 8}), 7u);
+        EXPECT_EQ(picker.Pick(draws, glm::mat4(1.0f), {Size, Size}, {12, 8}), 0u);
+        EXPECT_EQ(picker.Pick({}, glm::mat4(1.0f), {Size, Size}, {4, 8}), 0u);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+
+        GLuint framebuffer = 0, color = 0;
+        glGenFramebuffers(1, &framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glGenTextures(1, &color);
+        glBindTexture(GL_TEXTURE_2D, color);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Size, Size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
+        glViewport(0, 0, Size, Size);
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+        SelectionOutline outline;
+        outline.Draw(draws, glm::mat4(1.0f), {Size, Size}, {1, 0, 0, 1}, 2.0f);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        // The outline leaves the target bound.
+        GLint bound = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &bound);
+        EXPECT_EQ(GLuint(bound), framebuffer);
+        std::array<uint8_t, Size * Size * 4> pixels {};
+        glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        const auto red = [&](int x, int y) { return pixels[(y * Size + x) * 4]; };
+        EXPECT_EQ(red(9, 8), 255);  // Border just right of the quad.
+        EXPECT_EQ(red(14, 8), 0);   // Far from it.
+        EXPECT_GT(red(4, 8), 0);    // Faint fill inside.
+        EXPECT_LT(red(4, 8), 80);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteTextures(1, &color);
+        glDeleteFramebuffers(1, &framebuffer);
     }
 } // namespace

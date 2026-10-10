@@ -427,8 +427,33 @@ namespace Kans
         OpenGLRenderCommand::Clear();
     }
 
+    void SceneRenderer::AppendModelDraws(const ProductModelComponent& model,
+                                         const glm::mat4&             transform,
+                                         uint32_t                     id,
+                                         std::vector<MeshDraw>&       draws)
+    {
+        if (!m_AssetCache)
+            return;
+        if (const ModelInstances* instances = m_AssetCache->GetModel(model.Model))
+            for (const auto& instance : instances->Instances)
+                if (const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh))
+                    draws.push_back({mesh, transform * instance.Transform, id});
+    }
+
+    uint32_t SceneRenderer::Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel)
+    {
+        return m_Picker.Pick(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, pixel);
+    }
+
     void SceneRenderer::EndScene()
     {
+        if (!m_Highlight.empty())
+        {
+            const glm::mat4 viewProjection =
+                m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
+            m_Outline.Draw(m_Highlight, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {1.0f, 0.62f, 0.15f, 1.0f});
+            m_Highlight.clear();
+        }
         m_FrameBuffer->Unbind();
         m_Active = false;
     }

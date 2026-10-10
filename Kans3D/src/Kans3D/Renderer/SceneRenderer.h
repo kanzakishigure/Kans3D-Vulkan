@@ -5,6 +5,7 @@
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
+#include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
 #include "Kans3D/Scene/ProductModelComponent.h"
 
@@ -48,6 +49,16 @@ namespace Kans
                                  const glm::mat4&             transform,
                                  const std::string&           shaderName);
 
+        // Editor helpers: meshes of a model for picking/highlighting (skips parts
+        // still loading), the ID under a pixel (bottom-left origin), and draws to
+        // outline at the end of the next scene.
+        void     AppendModelDraws(const ProductModelComponent& model,
+                                  const glm::mat4&             transform,
+                                  uint32_t                     id,
+                                  std::vector<MeshDraw>&       draws);
+        uint32_t Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
+        void     SetHighlight(std::vector<MeshDraw> draws) { m_Highlight = std::move(draws); }
+
         void                  Init();
         void                  PrepareEnvironment();
         void                  UpdateEnvironment(std::string path);
@@ -87,6 +98,9 @@ namespace Kans
         Ref<Texture2D>                  m_BrdfLUT;
         bool                            m_Active = false;
         Scope<RenderAssetCache>         m_AssetCache;
+        EntityPicker                    m_Picker;
+        SelectionOutline                m_Outline;
+        std::vector<MeshDraw>           m_Highlight;
         // Engine data (set 0) of Shader materials, created on first use.
         Scope<GpuUniformBuffer>               m_FrameUniforms;
         Scope<GpuUniformBuffer>               m_ObjectUniforms;

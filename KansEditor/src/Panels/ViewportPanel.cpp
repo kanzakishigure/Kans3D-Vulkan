@@ -38,6 +38,12 @@ namespace Kans
         m_Max             = {m_Min.x + size.x, m_Min.y + size.y};
         // Resize and render in this frame, so the image always matches the panel.
         Resize(size);
+        if (Entity selected = m_Hierarchy.GetSelected(); selected && !UsesSceneCamera())
+        {
+            // Outline the selection with its children.
+            std::vector<UUID> ignored;
+            m_Renderer->SetHighlight(CollectDraws(ignored, selected));
+        }
         Render();
 
         const auto output = static_cast<uintptr_t>(m_Renderer->GetOutput(0));
@@ -63,14 +69,61 @@ namespace Kans
         m_Scene->OnViewportResize(pixels.x, pixels.y);
     }
 
+    bool ViewportPanel::UsesSceneCamera() const
+    {
+        // Without a primary camera, play mode still shows the editor view.
+        return m_Playing && !m_UseEditorCameraInPlay && m_Scene && m_Scene->GetCameraEntity();
+    }
+
+    glm::mat4 ViewportPanel::ViewProjection() const
+    {
+        if (!UsesSceneCamera())
+            return m_Camera.GetViewProjection();
+        Entity camera = m_Scene->GetCameraEntity();
+        return camera.GetComponent<CameraComponent>().SceneCamera.GetProjectionMatrix() *
+               glm::inverse(m_Scene->GetWorldTransform(camera));
+    }
+
     void ViewportPanel::Render()
     {
         const TimeStep step(ImGui::GetIO().DeltaTime);
-        // Without a primary camera, play mode still shows the editor view.
-        if (m_Playing && !m_UseEditorCameraInPlay && m_Scene->GetCameraEntity())
+        if (UsesSceneCamera())
             m_RenderScene->OnRenderRuntime(m_Renderer, step);
         else
             m_RenderScene->OnRenderEditor(m_Renderer, step, m_Camera);
+    }
+
+    std::vector<MeshDraw> ViewportPanel::CollectDraws(std::vector<UUID>& entities, Entity root)
+    {
+        std::vector<MeshDraw>       draws;
+        std::function<void(Entity)> visit = [&](Entity entity) {
+            if (entity.HasComponent<ProductModelComponent>())
+            {
+                entities.push_back(entity.GetUUID());
+                m_Renderer->AppendModelDraws(entity.GetComponent<ProductModelComponent>(),
+                                             m_Scene->GetWorldTransform(entity),
+                                             uint32_t(entities.size()),
+                                             draws);
+            }
+            for (Entity child : m_Scene->GetChildren(entity))
+                visit(child);
+        };
+        if (root)
+            visit(root);
+        else
+            for (Entity entity : m_Scene->GetRootEntities())
+                visit(entity);
+        return draws;
+    }
+
+    void ViewportPanel::PickAt(ImVec2 mouse)
+    {
+        std::vector<UUID> entities;
+        const auto        draws = CollectDraws(entities);
+        // The framebuffer's origin is its bottom-left corner.
+        const glm::uvec2 pixel(uint32_t(mouse.x - m_Min.x), uint32_t(m_Max.y - mouse.y - 1.0f));
+        const uint32_t   id = m_Renderer->Pick(draws, ViewProjection(), pixel);
+        m_Hierarchy.SetSelected(id && id <= entities.size() ? m_Scene->GetEntityByUUID(entities[id - 1]) : Entity {});
     }
 
     void ViewportPanel::AcceptDrop()
@@ -101,6 +154,10 @@ namespace Kans
                 Input::SetCursorMode(CursorMode::Disable);
             if (m_Navigation != Navigation::None)
                 ImGui::SetWindowFocus();
+            // A plain left click selects what is under the cursor.
+            else if (!io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver() &&
+                     !ImGuizmo::IsUsing())
+                PickAt(io.MousePos);
         }
 
         switch (m_Navigation)
