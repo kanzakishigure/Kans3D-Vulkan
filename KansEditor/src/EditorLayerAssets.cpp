@@ -338,42 +338,18 @@ namespace Kans
         // Opened here, not where requested, so the popup shares this ID stack.
         if (m_SceneDialog != SceneDialog::None)
         {
-            m_SceneDialogError.clear();
-            m_ScenePathInput.fill(0);
-            const auto suggested =
-                m_ScenePath.empty() ? std::string("assets/scenes/UntitledScene.kans") : m_ScenePath.generic_u8string();
-            if (suggested.size() < m_ScenePathInput.size())
-                std::copy(suggested.begin(), suggested.end(), m_ScenePathInput.begin());
-            ImGui::OpenPopup(m_SceneDialog == SceneDialog::Open ? "Open Scene File" : "Save Scene File");
+            std::error_code error;
+            const auto      root = m_AssetImports ? m_AssetImports->GetConfig().RootDirectory : std::filesystem::current_path(error);
+            m_SceneFileDialog.Open(m_SceneDialog == SceneDialog::Open ? SceneFileDialog::Mode::Open : SceneFileDialog::Mode::Save,
+                                   root,
+                                   m_ScenePath.empty() ? root / "assets" / "scenes" : m_ScenePath);
             m_SceneDialog = SceneDialog::None;
         }
-        for (bool opening : {true, false})
-        {
-            if (!ImGui::BeginPopupModal(
-                    opening ? "Open Scene File" : "Save Scene File", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-                continue;
-            ImGui::SetNextItemWidth(420.0f);
-            if (ImGui::IsWindowAppearing())
-                ImGui::SetKeyboardFocusHere();
-            const bool submit = ImGui::InputText("Scene path",
-                                                 m_ScenePathInput.data(),
-                                                 m_ScenePathInput.size(),
-                                                 ImGuiInputTextFlags_EnterReturnsTrue);
-            if (!m_SceneDialogError.empty())
-                ImGui::TextColored({0.95f, 0.38f, 0.35f, 1.0f}, "%s", m_SceneDialogError.c_str());
-            if (ImGui::Button(opening ? "Open" : "Save") || submit)
-            {
-                const auto path   = std::filesystem::u8path(m_ScenePathInput.data());
-                auto       result = opening ? OpenScene(path) : SaveScene(path);
-                if (const auto* error = std::get_if<AssetError>(&result))
-                    m_SceneDialogError = error->Message;
-                else
-                    ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
-                ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
+        m_SceneFileDialog.Draw([this](const std::filesystem::path& file) -> std::optional<std::string> {
+            auto result = m_SceneFileDialog.GetMode() == SceneFileDialog::Mode::Open ? OpenScene(file) : SaveScene(file);
+            if (const auto* error = std::get_if<AssetError>(&result))
+                return error->Message;
+            return std::nullopt;
+        });
     }
 } // namespace Kans

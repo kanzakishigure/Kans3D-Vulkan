@@ -13,6 +13,7 @@
 #include "Panels/PropertiesPanel.h"
 #include "Panels/ViewportPanel.h"
 #include "SceneHistory.h"
+#include "UI/SceneFileDialog.h"
 #include "Kans3D/Scene/ScenePlaySession.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
@@ -99,8 +100,7 @@ namespace Kans
         };
         SceneDialog            m_SceneDialog = SceneDialog::None;
         std::filesystem::path  m_ScenePath;
-        std::array<char, 1024> m_ScenePathInput {};
-        std::string            m_SceneDialogError;
+        SceneFileDialog        m_SceneFileDialog;
         // Last editor error, shown in the main toolbar until dismissed.
         std::string m_SceneFileError;
 
