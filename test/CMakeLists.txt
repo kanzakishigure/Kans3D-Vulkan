@@ -33,7 +33,6 @@ add_executable(Kans3DTests
     MaterialBindingsTests.cpp
     MaterialSourceTests.cpp
     TextureImporterTests.cpp
-    ContentBrowserLayoutTests.cpp
     ImporterRegistryTests.cpp
     ImportFingerprintTests.cpp
     ProjectBuildTests.cpp
@@ -46,7 +45,10 @@ add_executable(Kans3DTests
     AssetScannerTests.cpp
     SourceAssetDatabaseSerializerTests.cpp
     ProjectTests.cpp
+    ContentBrowserTests.cpp
     ../KansEditor/src/EditorAssetCachePath.cpp
+    ../KansEditor/src/Panels/ContentBrowser/BrowserModel.cpp
+    ../KansEditor/src/Panels/ContentBrowser/AssetFileOperations.cpp
 )
 target_link_libraries(Kans3DTests PRIVATE Kans3D GTest::gtest_main)
 target_compile_features(Kans3DTests PRIVATE cxx_std_17)

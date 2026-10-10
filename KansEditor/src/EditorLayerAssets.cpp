@@ -59,6 +59,12 @@ namespace Kans
         });
         m_ContentBrowserPanel.SetCreateMaterialCallback(
             [this](const std::filesystem::path& directory) { CreateMaterial(directory); });
+        m_ContentBrowserPanel.SetImportCallback([this](const std::filesystem::path& path) { ImportSource(path); });
+        m_ContentBrowserPanel.SetImportSettingsCallback(
+            [this](const std::filesystem::path& path) { OpenImporter(path); });
+        m_ContentBrowserPanel.SetErrorCallback(
+            [this](const std::string& message) { Record(AssetError {AssetErrorCode::InvalidArgument, message}); });
+        m_ContentBrowserPanel.Bind(m_AssetImports.get());
         CORE_INFO("Opened project '{}'", m_AssetImports->GetConfig().Name);
     }
 
@@ -171,6 +177,30 @@ namespace Kans
             return;
         }
         OpenImporter(file);
+    }
+
+    void EditorLayer::ImportSource(const std::filesystem::path& file)
+    {
+        if (!m_AssetImports)
+            return;
+        auto sources = m_AssetImports->GetSources();
+        if (const auto* error = std::get_if<AssetError>(&sources))
+        {
+            Record(*error);
+            return;
+        }
+        std::error_code error;
+        const auto      target = std::filesystem::weakly_canonical(file, error);
+        const auto&     root   = m_AssetImports->GetConfig().AssetDirectory;
+        for (const auto& source : std::get<std::vector<SourceAssetMetadata>>(sources))
+            if (source.Exists && std::filesystem::weakly_canonical(root / source.Path.GetPath(), error) == target)
+            {
+                AssetBuildOptions options;
+                options.Target = EditorAssetTarget;
+                Record(m_AssetImports->Start(source.sourceAssetID, options));
+                return;
+            }
+        Record(AssetError {AssetErrorCode::NotFound, file.filename().u8string() + " is not a project asset"});
     }
 
     void EditorLayer::PlacePendingModel()

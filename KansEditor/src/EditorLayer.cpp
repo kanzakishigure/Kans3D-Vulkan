@@ -24,6 +24,7 @@ namespace Kans
         m_Console.Attach();
         RegisterPanels();
         m_Panels.InstallSettingsHandler();
+        m_ContentBrowserPanel.InstallSettingsHandler();
 
         OpenProject();
 
@@ -135,8 +136,13 @@ namespace Kans
     void EditorLayer::OnDetach()
     {
         m_Panels.UninstallSettingsHandler();
+        m_ContentBrowserPanel.UninstallSettingsHandler();
+        m_ContentBrowserPanel.Bind(nullptr);
         m_ContentBrowserPanel.SetOpenFileCallback({});
         m_ContentBrowserPanel.SetCreateMaterialCallback({});
+        m_ContentBrowserPanel.SetImportCallback({});
+        m_ContentBrowserPanel.SetImportSettingsCallback({});
+        m_ContentBrowserPanel.SetErrorCallback({});
         m_ProductImportPanel.Bind(nullptr);
         m_MaterialEditorPanel.Bind(nullptr);
         if (m_AssetImports)

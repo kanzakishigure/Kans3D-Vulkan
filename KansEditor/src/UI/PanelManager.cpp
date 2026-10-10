@@ -145,49 +145,17 @@ namespace Kans
 
     void PanelManager::InstallSettingsHandler()
     {
-        ImGuiSettingsHandler handler;
-        handler.TypeName   = "KansPanels";
-        handler.TypeHash   = ImHashStr("KansPanels");
-        handler.UserData   = this;
-        handler.ReadOpenFn = [](ImGuiContext*, ImGuiSettingsHandler*, const char* name) -> void* {
-            return std::strcmp(name, "Open") == 0 ? reinterpret_cast<void*>(1) : nullptr;
-        };
-        handler.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, void*, const char* line) {
-            auto*       self  = static_cast<PanelManager*>(handler->UserData);
-            const char* split = std::strchr(line, '=');
-            if (!split)
-                return;
-            const std::string id(line, split);
-            const bool        open = std::strcmp(split + 1, "1") == 0;
-            self->m_SavedOpen[id]  = open;
-            if (auto* panel = self->Find(id); panel && panel->Spec.Closable)
-                panel->Open = open;
-        };
-        handler.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler, ImGuiTextBuffer* buffer) {
-            auto* self = static_cast<PanelManager*>(handler->UserData);
-            buffer->appendf("[%s][Open]\n", handler->TypeName);
-            for (const auto& panel : self->m_Panels)
-                buffer->appendf("%s=%d\n", panel.Spec.ID.c_str(), panel.Open ? 1 : 0);
-            buffer->append("\n");
-        };
-        ImGui::GetCurrentContext()->SettingsHandlers.push_back(handler);
-        m_HandlerInstalled = true;
-    }
-
-    void PanelManager::UninstallSettingsHandler()
-    {
-        ImGuiContext* context = ImGui::GetCurrentContext();
-        if (!m_HandlerInstalled || !context)
-            return;
-        m_HandlerInstalled = false;
-        if (context->SettingsLoaded && ImGui::GetIO().IniFilename)
-            ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
-        auto& handlers = context->SettingsHandlers;
-        for (int i = 0; i < handlers.Size; ++i)
-            if (handlers[i].UserData == this)
-            {
-                handlers.erase(handlers.Data + i);
-                break;
-            }
+        m_Settings.Install(
+            "KansPanels",
+            [this](const char* id, const char* value) {
+                const bool open  = std::strcmp(value, "1") == 0;
+                m_SavedOpen[id] = open;
+                if (auto* panel = Find(id); panel && panel->Spec.Closable)
+                    panel->Open = open;
+            },
+            [this](ImGuiTextBuffer& buffer) {
+                for (const auto& panel : m_Panels)
+                    buffer.appendf("%s=%d\n", panel.Spec.ID.c_str(), panel.Open ? 1 : 0);
+            });
     }
 } // namespace Kans

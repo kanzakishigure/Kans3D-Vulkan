@@ -48,6 +48,8 @@ namespace Kans
         // Adds a dropped model to the scene, importing it first if needed.
         void                                     PlaceAsset(const std::filesystem::path& file);
         void                                     PlacePendingModel();
+        // Builds the source of `file` (content browser "Import" / "Reimport").
+        void                                     ImportSource(const std::filesystem::path& file);
         AssetID                                  FindPublishedModel(SourceAssetID source) const;
         std::optional<SourceAssetID>             m_PendingPlacement;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);

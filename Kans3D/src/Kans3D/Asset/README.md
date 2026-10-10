@@ -91,6 +91,10 @@ assets/x.obj + x.obj.kmeta                    AssetID
   Registry。
 - 把模型文件拖到视口会创建带 Model 组件的实体（必要时先导入）；属性面板可选择
   Model 或拖入源文件，并设置材质替换。
+- 内容浏览器（`KansEditor/src/Panels/ContentBrowser*`）：重命名、移动（拖到文件夹）、
+  复制/剪切/粘贴、复制副本、删除都经过项目，源资产随 `.kmeta` 一起移动，ID 不变；
+  复制得到新 ID 并沿用原导入设置；删除前列出引用它的资产。卡片显示导入状态，
+  预览栏显示 Source ID、导入器、产物和引用关系。
 - 内容浏览器右键「Create Material」新建材质，双击 `.material` 打开材质编辑器：
   选择 Shader（或引擎 PBR）、编辑参数与纹理，保存后自动导入并在场景中生效。
 

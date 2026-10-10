@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <imgui.h>
+#include "IniSection.h"
 
 namespace Kans
 {
@@ -62,13 +63,10 @@ namespace Kans
         void Draw();
         void DrawWindowMenu();
 
-        // Registers the imgui.ini handler that saves which panels are open. Call
-        // once before the first frame.
+        // Saves which panels are open in imgui.ini. Install before the first
+        // frame; detach before the panels are destroyed.
         void InstallSettingsHandler();
-        // Saves imgui.ini and removes the handler; the ImGui context outlives the
-        // editor layer and saves again when it is destroyed.
-        void UninstallSettingsHandler();
-        ~PanelManager() { UninstallSettingsHandler(); }
+        void UninstallSettingsHandler() { m_Settings.Detach(); }
 
     private:
         struct Panel
@@ -84,7 +82,7 @@ namespace Kans
 
         std::vector<Panel>                    m_Panels;
         std::unordered_map<std::string, bool> m_SavedOpen; // From imgui.ini, applied on registration.
-        bool                                  m_ResetLayout      = false;
-        bool                                  m_HandlerInstalled = false;
+        bool                                  m_ResetLayout = false;
+        IniSection                            m_Settings;
     };
 } // namespace Kans
