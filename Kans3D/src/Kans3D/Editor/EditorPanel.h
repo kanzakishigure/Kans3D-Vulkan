@@ -8,7 +8,8 @@ namespace Kans
     public:
         virtual ~EditorPanel() = default;
 
-        virtual void onImGuiRender(bool isOpen) = 0;
+        // Draws the panel contents inside the window the editor opened for it.
+        virtual void onImGuiRender() = 0;
 
         virtual void onEvent(Event& e) {}
         virtual void onProjectChanged() {}

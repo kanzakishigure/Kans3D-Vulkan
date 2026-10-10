@@ -9,8 +9,9 @@ namespace Kans
     public:
         // Non-owning; editor disconnects before destroying the controller.
         void Bind(EditorAssetImportService* service);
-        void Open() { m_Open = true; }
+        // Selects the source of `path`; the editor opens the window.
         void OpenWithFile(const std::filesystem::path& path);
+        // Contents of the window the editor's panel manager opened.
         void Draw();
 
     private:
@@ -19,7 +20,6 @@ namespace Kans
         void                                   DrawDeletion();
         void                                   Record(const std::variant<std::monostate, AssetError>& result);
         EditorAssetImportService*              m_Service = nullptr;
-        bool                                   m_Open    = false;
         bool                                   m_Force   = false;
         SourceAssetID                          m_Selected;
         std::vector<SourceAssetMetadata>       m_Sources;

@@ -16,10 +16,13 @@ namespace Kans
         void SetAssetManager(AssetManager* assets) { m_Assets = assets; }
         void SetAssetChoices(std::vector<EditorAssetChoice> choices) { m_Choices = std::move(choices); }
 
+        // Loads a material for editing; the editor opens the window.
         void Open(const std::filesystem::path& file);
-        // Creates a new engine PBR material in `directory` and opens it.
+        // Creates a new engine PBR material in `directory` and loads it.
         void Create(const std::filesystem::path& directory);
+        // Contents of the window the editor's panel manager opened.
         void Draw();
+        bool IsDirty() const { return m_Dirty; }
 
     private:
         // Schema of the selected Shader; nullptr while it loads or if it is invalid.
@@ -39,7 +42,6 @@ namespace Kans
         AssetManager*                  m_Assets  = nullptr;
         std::vector<EditorAssetChoice> m_Choices;
 
-        bool                  m_Open  = false;
         bool                  m_Dirty = false;
         std::filesystem::path m_File;
         MaterialSource        m_Source;

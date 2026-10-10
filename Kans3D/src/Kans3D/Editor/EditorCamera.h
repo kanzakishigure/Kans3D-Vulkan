@@ -23,6 +23,9 @@ namespace Kans
         glm::vec3 calculatePosition();
 
         float getCameraSpeed();
+        void  setCameraSpeed(float speed);
+        static float getMinCameraSpeed() { return MIN_SPEED; }
+        static float getMaxCameraSpeed() { return MAX_SPEED; }
         float getRotateSpeed();
         float getZoomSpeed();
         bool  onMouseScroll(MouseScrolledEvent& e);

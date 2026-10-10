@@ -50,17 +50,15 @@ namespace Kans
         m_ContentBrowserPanel.SetOpenFileCallback([this](const std::filesystem::path& path) {
             if (path.extension() == ".kans")
             {
-                auto opened = OpenScene(path);
-                if (const auto* error = std::get_if<AssetError>(&opened))
-                    m_SceneFileError = error->Message;
+                Record(OpenScene(path));
             }
             else if (path.extension() == ".material")
-                m_MaterialEditorPanel.Open(path);
+                OpenMaterial(path);
             else
-                m_ProductImportPanel.OpenWithFile(path);
+                OpenImporter(path);
         });
         m_ContentBrowserPanel.SetCreateMaterialCallback(
-            [this](const std::filesystem::path& directory) { m_MaterialEditorPanel.Create(directory); });
+            [this](const std::filesystem::path& directory) { CreateMaterial(directory); });
         CORE_INFO("Opened project '{}'", m_AssetImports->GetConfig().Name);
     }
 
@@ -145,7 +143,7 @@ namespace Kans
         auto sources = m_AssetImports->GetSources();
         if (const auto* error = std::get_if<AssetError>(&sources))
         {
-            m_SceneFileError = error->Message;
+            Record(*error);
             return;
         }
         std::error_code error;
@@ -167,12 +165,12 @@ namespace Kans
             auto started   = m_AssetImports->Start(source.sourceAssetID, options);
             if (const auto* failure = std::get_if<AssetError>(&started))
             {
-                m_SceneFileError = failure->Message;
+                Record(*failure);
                 m_PendingPlacement.reset();
             }
             return;
         }
-        m_ProductImportPanel.OpenWithFile(file);
+        OpenImporter(file);
     }
 
     void EditorLayer::PlacePendingModel()
@@ -257,65 +255,62 @@ namespace Kans
         return std::monostate {};
     }
 
-    void EditorLayer::DrawSceneFileMenu()
+    void EditorLayer::Record(const std::variant<std::monostate, AssetError>& result)
     {
-        auto record = [this](const std::variant<std::monostate, AssetError>& result) {
-            m_SceneFileError.clear();
-            if (const auto* error = std::get_if<AssetError>(&result))
-            {
-                m_SceneFileError = error->Message;
-                CORE_ERROR("Scene operation: {}", error->Message);
-            }
-        };
-        bool open = false, save = false;
-        if (ImGui::BeginMenu("File"))
+        if (const auto* error = std::get_if<AssetError>(&result))
         {
-            if (ImGui::MenuItem("New Scene"))
-                record(NewScene());
-            open = ImGui::MenuItem("Open Scene...");
-            if (ImGui::MenuItem("Save Scene"))
-            {
-                if (m_ScenePath.empty())
-                    save = true;
-                else
-                    record(SaveScene(m_ScenePath));
-            }
-            save = ImGui::MenuItem("Save Scene As...") || save;
-            if (ImGui::MenuItem("Refresh Published Products"))
-                record(RefreshProductAssets());
-            if (ImGui::MenuItem("Product Import..."))
-                m_ProductImportPanel.Open();
-            if (!m_SceneFileError.empty())
-                ImGui::TextWrapped("%s", m_SceneFileError.c_str());
-            ImGui::EndMenu();
+            m_SceneFileError = error->Message;
+            CORE_ERROR("Editor: {}", error->Message);
         }
-        if (open || save)
+    }
+
+    void EditorLayer::SaveCurrentScene()
+    {
+        if (m_ScenePath.empty())
+            m_SceneDialog = SceneDialog::Save;
+        else
+            Record(SaveScene(m_ScenePath));
+    }
+
+    void EditorLayer::DrawSceneFileDialogs()
+    {
+        // Opened here, not where requested, so the popup shares this ID stack.
+        if (m_SceneDialog != SceneDialog::None)
         {
-            m_SceneFileError.clear();
+            m_SceneDialogError.clear();
             m_ScenePathInput.fill(0);
             const auto suggested =
                 m_ScenePath.empty() ? std::string("assets/scenes/UntitledScene.kans") : m_ScenePath.generic_u8string();
             if (suggested.size() < m_ScenePathInput.size())
                 std::copy(suggested.begin(), suggested.end(), m_ScenePathInput.begin());
-            ImGui::OpenPopup(open ? "Open Scene File" : "Save Scene File");
+            ImGui::OpenPopup(m_SceneDialog == SceneDialog::Open ? "Open Scene File" : "Save Scene File");
+            m_SceneDialog = SceneDialog::None;
         }
         for (bool opening : {true, false})
         {
             if (!ImGui::BeginPopupModal(
                     opening ? "Open Scene File" : "Save Scene File", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
                 continue;
-            ImGui::InputText("Scene path", m_ScenePathInput.data(), m_ScenePathInput.size());
-            if (!m_SceneFileError.empty())
-                ImGui::TextWrapped("%s", m_SceneFileError.c_str());
-            if (ImGui::Button(opening ? "Open" : "Save"))
+            ImGui::SetNextItemWidth(420.0f);
+            if (ImGui::IsWindowAppearing())
+                ImGui::SetKeyboardFocusHere();
+            const bool submit = ImGui::InputText("Scene path",
+                                                 m_ScenePathInput.data(),
+                                                 m_ScenePathInput.size(),
+                                                 ImGuiInputTextFlags_EnterReturnsTrue);
+            if (!m_SceneDialogError.empty())
+                ImGui::TextColored({0.95f, 0.38f, 0.35f, 1.0f}, "%s", m_SceneDialogError.c_str());
+            if (ImGui::Button(opening ? "Open" : "Save") || submit)
             {
-                const auto path = std::filesystem::u8path(m_ScenePathInput.data());
-                record(opening ? OpenScene(path) : SaveScene(path));
-                if (m_SceneFileError.empty())
+                const auto path   = std::filesystem::u8path(m_ScenePathInput.data());
+                auto       result = opening ? OpenScene(path) : SaveScene(path);
+                if (const auto* error = std::get_if<AssetError>(&result))
+                    m_SceneDialogError = error->Message;
+                else
                     ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
+            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }

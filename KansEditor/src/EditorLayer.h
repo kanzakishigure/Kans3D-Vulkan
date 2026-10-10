@@ -9,8 +9,23 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
+#include "UI/ConsolePanel.h"
+#include "UI/PanelManager.h"
 namespace Kans
 {
+    // Identities of the editor panels (see PanelManager).
+    namespace PanelID
+    {
+        inline constexpr const char* Viewport       = "Viewport";
+        inline constexpr const char* Hierarchy      = "Hierarchy";
+        inline constexpr const char* Properties     = "Properties";
+        inline constexpr const char* ContentBrowser = "ContentBrowser";
+        inline constexpr const char* Console        = "Console";
+        inline constexpr const char* Stats          = "Stats";
+        inline constexpr const char* AssetImporter  = "AssetImporter";
+        inline constexpr const char* MaterialEditor = "MaterialEditor";
+    } // namespace PanelID
+
     class EditorLayer : public Kans::Layer
     {
 
@@ -25,9 +40,8 @@ namespace Kans
         void         OnEvent(Kans::Event& e) override;
         virtual void OnImGuiRender() override;
 
-        bool OnKeyPressedEvent(KeyPressedEvent& e);
-
     private:
+        // ---- Assets and scenes (EditorLayerAssets.cpp) ----
         void                                     OpenProject();
         std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
         std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
@@ -40,19 +54,48 @@ namespace Kans
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);
         std::variant<std::monostate, AssetError> SaveScene(const std::filesystem::path& path);
-        void                                     DrawSceneFileMenu();
-        std::filesystem::path                    m_ScenePath;
-        std::array<char, 1024>                   m_ScenePathInput {};
-        std::string                              m_SceneFileError;
-        Scope<EditorAssetImportService>          m_AssetImports;
-        Scope<AssetManager>                      m_Assets;
+        // Logs an error and shows it in the main toolbar.
+        void Record(const std::variant<std::monostate, AssetError>& result);
+        void SaveCurrentScene();
+        void DrawSceneFileDialogs();
+
+        // ---- UI (EditorLayerUI.cpp) ----
+        void RegisterPanels();
+        void DrawMenuBar();
+        void DrawMainToolbar();
+        void DrawViewport();
+        void DrawViewportToolbar();
+        void DrawGizmo();
+        void DrawStats();
+        void HandleShortcuts();
+        void OpenImporter(const std::filesystem::path& file);
+        void OpenMaterial(const std::filesystem::path& file);
+        void CreateMaterial(const std::filesystem::path& directory);
+
+        enum class SceneDialog
+        {
+            None,
+            Open,
+            Save
+        };
+        SceneDialog            m_SceneDialog = SceneDialog::None;
+        std::filesystem::path  m_ScenePath;
+        std::array<char, 1024> m_ScenePathInput {};
+        std::string            m_SceneDialogError;
+        // Last editor error, shown in the main toolbar until dismissed.
+        std::string m_SceneFileError;
+
+        Scope<EditorAssetImportService> m_AssetImports;
+        Scope<AssetManager>             m_Assets;
+        // Name of the source being imported, for the toolbar status.
+        SourceAssetID m_StatusSource;
+        std::string   m_StatusName;
 
         glm::vec2 m_ViewportSize = glm::vec2(0.0f, 0.0f);
 
         bool m_ViewportFocused  = false;
         bool m_ViewportHovered  = false;
         bool m_CameraNavigating = false;
-        bool Switchcamera       = false;
 
         Ref<Scene>         m_ActiveScene;
         Ref<RenderScene>   m_ActiveRenderScene;
@@ -61,18 +104,24 @@ namespace Kans
         Entity m_CameraEntity;
         Entity m_SecondCameraEntity;
 
-        // Gizmo
-        int m_GizmoType = 7; // -1 = no gizmo
-        int m_GizmoMode = 0; // 0 = local
+        // Gizmo: ImGuizmo operation (-1 = none) and mode (0 = local, 1 = world).
+        int   m_GizmoType  = 7;
+        int   m_GizmoMode  = 0;
+        bool  m_GizmoSnap  = false;
+        float m_SnapMove   = 0.5f;
+        float m_SnapRotate = 15.0f;
+        float m_SnapScale  = 0.1f;
+        // Screen rectangle of the viewport image.
+        ImVec2 m_ViewportMin {}, m_ViewportMax {};
 
         EditorCamera m_EditorCamera;
-        // We Should Have PanelManger or such things
-        // HierachyPanel
-        SceneHierachyPanel m_SceneHierachyPanel;
-        // ContentBrowserPanel
+
+        PanelManager        m_Panels;
+        SceneHierachyPanel  m_SceneHierachyPanel;
         ContentBrowserPanel m_ContentBrowserPanel;
         ProductImportPanel  m_ProductImportPanel;
         MaterialEditorPanel m_MaterialEditorPanel;
+        ConsolePanel        m_Console;
     };
 
 } // namespace Kans

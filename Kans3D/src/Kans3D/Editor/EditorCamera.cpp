@@ -162,6 +162,8 @@ namespace Kans
 
     float EditorCamera::getCameraSpeed() { return glm::clamp(m_CameraMoveSpeed, MIN_SPEED, MAX_SPEED); }
 
+    void EditorCamera::setCameraSpeed(float speed) { m_CameraMoveSpeed = glm::clamp(speed, MIN_SPEED, MAX_SPEED); }
+
     float EditorCamera::getRotateSpeed() { return 0.3f; }
 
     float EditorCamera::getZoomSpeed()

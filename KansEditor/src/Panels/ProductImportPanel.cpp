@@ -58,7 +58,6 @@ namespace Kans
 
     void ProductImportPanel::OpenWithFile(const std::filesystem::path& path)
     {
-        m_Open = true;
         if (!m_Service)
             return;
         std::error_code error;
@@ -121,24 +120,15 @@ namespace Kans
 
     void ProductImportPanel::Draw()
     {
-        if (!m_Open)
-            return;
-        if (!ImGui::Begin("Product Import", &m_Open))
-        {
-            ImGui::End();
-            return;
-        }
         if (!m_Service)
         {
             ImGui::TextUnformatted("Project is unavailable.");
-            ImGui::End();
             return;
         }
         auto result = m_Service->GetSnapshot();
         if (const auto* error = std::get_if<AssetError>(&result))
         {
             ImGui::TextWrapped("%s", error->Message.c_str());
-            ImGui::End();
             return;
         }
         const auto& status = std::get<EditorAssetImportSnapshot>(result);
@@ -300,7 +290,6 @@ namespace Kans
         }
         if (!m_Error.empty())
             ImGui::TextWrapped("%s", m_Error.c_str());
-        ImGui::End();
     }
 
     void ProductImportPanel::DrawDeletion()

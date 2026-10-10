@@ -40,10 +40,27 @@ namespace Kans
         // Set the default font
         {
 
+            // Font Awesome (solid) icons are merged into each text font when present.
+            static const ImWchar  iconRanges[] = {0xe000, 0xf8ff, 0};
+            std::filesystem::path iconPath = KansFileSystem::GetFontsFolder() / "FontAwesome/fa-solid-900.ttf";
+            std::error_code       missing;
+            const bool            icons     = std::filesystem::exists(iconPath, missing);
+            const auto            mergeIcons = [&] {
+                if (!icons)
+                    return;
+                ImFontConfig config;
+                config.MergeMode        = true;
+                config.PixelSnapH       = true;
+                config.GlyphMinAdvanceX = 16.0f;
+                io.Fonts->AddFontFromFileTTF(iconPath.generic_string().c_str(), 14.0f, &config, iconRanges);
+            };
+
             std::filesystem::path Dfontpath = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Regular.ttf";
             io.FontDefault                  = io.Fonts->AddFontFromFileTTF(Dfontpath.generic_string().c_str(), 16.0f);
-            std::filesystem::path fontpath  = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Bold.ttf";
+            mergeIcons();
+            std::filesystem::path fontpath = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Bold.ttf";
             io.Fonts->AddFontFromFileTTF(fontpath.generic_string().c_str(), 16.0f);
+            mergeIcons();
         }
 
         // Setup Dear ImGui style

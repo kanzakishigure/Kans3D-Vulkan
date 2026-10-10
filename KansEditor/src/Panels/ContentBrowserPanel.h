@@ -24,13 +24,17 @@ namespace Kans
 
     public:
         ContentBrowserPanel();
-        virtual void onImGuiRender(bool isOpen) override;
+        virtual void onImGuiRender() override;
 
         static ContentBrowserPanel* Get() { return s_Instance; }
         void                        SetOpenFileCallback(std::function<void(const std::filesystem::path&)> callback)
         {
             m_OpenFile = std::move(callback);
         }
+
+        const std::filesystem::path& GetCurrentDirectory() const { return m_CurrentPath; }
+        // Re-reads the current directory on the next frame.
+        void Refresh() { NeedRefresh = true; }
 
         // Called with the current directory from the grid's context menu.
         void SetCreateMaterialCallback(std::function<void(const std::filesystem::path&)> callback)

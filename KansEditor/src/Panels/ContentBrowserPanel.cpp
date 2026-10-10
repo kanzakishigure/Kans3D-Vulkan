@@ -260,14 +260,8 @@ namespace Kans
     }
 
     // ------------------------------------------------------------------
-    void ContentBrowserPanel::onImGuiRender(bool isOpen)
+    void ContentBrowserPanel::onImGuiRender()
     {
-        ImGuiWindowFlags windowFlags =
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-        const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-        ImGui::SetNextWindowSizeConstraints({std::min(700.0f, displaySize.x * 0.9f), displaySize.y * 0.20f},
-                                            {FLT_MAX, FLT_MAX});
-        ImGui::Begin("ContentBrowser", nullptr, windowFlags);
         const ImVec2 viewportSize = ImGui::GetWindowViewport()->Size;
 
         // ---- Background colors for  panels ----
@@ -774,7 +768,6 @@ namespace Kans
 
         ImGui::PopStyleColor(1); // TableBorderStrong
         ImGui::PopStyleVar(1);   // FrameBorderSize
-        ImGui::End();
     }
 
 } // namespace Kans

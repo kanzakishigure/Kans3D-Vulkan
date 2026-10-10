@@ -1,0 +1,45 @@
+#pragma once
+// Font Awesome 6 Free (solid) glyphs, merged into the ImGui fonts by ImGuiLayer.
+// UTF-8 encoded; codepoints from https://fontawesome.com/icons.
+
+#define ICON_FA_FILE                   "\xef\x85\x9b" // U+F15B
+#define ICON_FA_FOLDER_OPEN            "\xef\x81\xbc" // U+F07C
+#define ICON_FA_FLOPPY_DISK            "\xef\x83\x87" // U+F0C7
+#define ICON_FA_FILE_IMPORT            "\xef\x95\xaf" // U+F56F
+#define ICON_FA_ARROWS_MOVE            "\xef\x81\x87" // U+F047
+#define ICON_FA_ROTATE                 "\xef\x8b\xb1" // U+F2F1
+#define ICON_FA_SCALE                  "\xef\x90\xa4" // U+F424
+#define ICON_FA_POINTER                "\xef\x89\x85" // U+F245
+#define ICON_FA_GLOBE                  "\xef\x82\xac" // U+F0AC
+#define ICON_FA_CUBE                   "\xef\x86\xb2" // U+F1B2
+#define ICON_FA_GRID                   "\xef\x80\x8a" // U+F00A
+#define ICON_FA_VIDEO                  "\xef\x80\xbd" // U+F03D
+#define ICON_FA_EYE                    "\xef\x81\xae" // U+F06E
+#define ICON_FA_GEAR                   "\xef\x80\x93" // U+F013
+#define ICON_FA_TERMINAL               "\xef\x84\xa0" // U+F120
+#define ICON_FA_CHART_LINE             "\xef\x88\x81" // U+F201
+#define ICON_FA_FOLDER_TREE            "\xef\xa0\x82" // U+F802
+#define ICON_FA_LIST                   "\xef\x80\xba" // U+F03A
+#define ICON_FA_SLIDERS                "\xef\x87\x9e" // U+F1DE
+#define ICON_FA_PALETTE                "\xef\x94\xbf" // U+F53F
+#define ICON_FA_DOWNLOAD               "\xef\x80\x99" // U+F019
+#define ICON_FA_XMARK                  "\xef\x80\x8d" // U+F00D
+#define ICON_FA_TRASH                  "\xef\x87\xb8" // U+F1F8
+#define ICON_FA_MAGNIFYING_GLASS       "\xef\x80\x82" // U+F002
+#define ICON_FA_CIRCLE_INFO            "\xef\x81\x9a" // U+F05A
+#define ICON_FA_TRIANGLE_EXCLAMATION   "\xef\x81\xb1" // U+F071
+#define ICON_FA_CIRCLE_XMARK           "\xef\x81\x97" // U+F057
+#define ICON_FA_BUG                    "\xef\x86\x88" // U+F188
+#define ICON_FA_ROTATE_RIGHT           "\xef\x8b\xb9" // U+F2F9
+#define ICON_FA_PLUS                   "\xef\x81\xa7" // U+F067
+#define ICON_FA_DRAW_POLYGON           "\xef\x97\xae" // U+F5EE
+#define ICON_FA_LAYER_GROUP            "\xef\x97\xbd" // U+F5FD
+#define ICON_FA_VECTOR_SQUARE          "\xef\x97\x8b" // U+F5CB
+#define ICON_FA_CROSSHAIRS             "\xef\x81\x9b" // U+F05B
+#define ICON_FA_BORDER_ALL             "\xef\xa1\x8c" // U+F84C
+#define ICON_FA_MAGNET                 "\xef\x81\xb6" // U+F076
+#define ICON_FA_COPY                   "\xef\x83\x85" // U+F0C5
+#define ICON_FA_BROOM                  "\xef\x94\x9a" // U+F51A
+#define ICON_FA_WINDOW_RESTORE         "\xef\x8b\x92" // U+F2D2
+#define ICON_FA_SPINNER                "\xef\x84\x90" // U+F110
+#define ICON_FA_CIRCLE_CHECK           "\xef\x81\x98" // U+F058

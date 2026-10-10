@@ -20,7 +20,10 @@ namespace Kans
     public:
         SceneHierachyPanel() = default;
 
-        virtual void onImGuiRender(bool isOpen) override;
+        // Entity list.
+        virtual void onImGuiRender() override;
+        // Components of the selected entity.
+        void drawProperties();
         virtual void setSceneContext(const Ref<Scene>& context) override
         {
             m_SelectionContext = {};

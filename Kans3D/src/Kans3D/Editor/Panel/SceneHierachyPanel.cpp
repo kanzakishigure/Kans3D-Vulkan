@@ -15,11 +15,11 @@
 
 namespace Kans
 {
-    void SceneHierachyPanel::onImGuiRender(bool isOpen)
+    void SceneHierachyPanel::onImGuiRender()
     {
-
+        if (!m_Context)
+            return;
         {
-            ImGui::Begin("SceneHierachyPanel:");
             m_Context->m_Registry.each([&](auto entityID) {
                 Entity entity = {entityID, m_Context.get()};
                 drawEntityNode(entity);
@@ -37,11 +37,12 @@ namespace Kans
 
                 ImGui::EndPopup();
             }
-            ImGui::End();
         }
+    }
 
+    void SceneHierachyPanel::drawProperties()
+    {
         {
-            ImGui::Begin("Properties");
             if (m_SelectionContext)
             {
 
@@ -78,8 +79,8 @@ namespace Kans
                     ImGui::EndPopup();
                 }
             }
-
-            ImGui::End();
+            else
+                ImGui::TextDisabled("Select an entity to edit its components.");
         }
     }
 

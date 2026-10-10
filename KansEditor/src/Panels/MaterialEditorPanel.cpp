@@ -40,7 +40,6 @@ namespace Kans
 
     void MaterialEditorPanel::Open(const std::filesystem::path& file)
     {
-        m_Open   = true;
         m_Dirty  = false;
         m_File   = file;
         m_Source = {};
@@ -76,7 +75,6 @@ namespace Kans
         source.Name = file.stem().u8string();
         if (auto error = WriteText(file, SerializeMaterialSource(source)))
         {
-            m_Open   = true;
             m_Status = error->Message;
             return;
         }
@@ -522,11 +520,12 @@ namespace Kans
 
     void MaterialEditorPanel::Draw()
     {
-        if (!m_Open)
-            return;
-        if (!ImGui::Begin("Material Editor", &m_Open))
+        if (m_File.empty())
         {
-            ImGui::End();
+            ImGui::TextWrapped("Double-click a .material file in the content browser, or right-click a folder "
+                               "there and choose Create Material.");
+            if (!m_Status.empty())
+                ImGui::TextWrapped("%s", m_Status.c_str());
             return;
         }
         ImGui::TextUnformatted(m_File.filename().u8string().c_str());
@@ -606,6 +605,5 @@ namespace Kans
         }
         if (!m_Status.empty())
             ImGui::TextWrapped("%s", m_Status.c_str());
-        ImGui::End();
     }
 } // namespace Kans
