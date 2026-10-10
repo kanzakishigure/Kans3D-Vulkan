@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "MaterialShaderInterface.h"
 #include <map>
+#include <set>
 
 namespace Kans
 {
@@ -266,5 +267,32 @@ vec4 KansToneMap(vec3 color)
         for (auto& entry : merged)
             result.push_back(std::move(entry.second));
         return result;
+    }
+    std::variant<std::monostate, AssetError>
+    ValidateMaterialParameterGroups(const std::vector<MaterialParameterGroup>& groups,
+                                    const std::vector<ShaderStageReflection>&  reflection)
+    {
+        std::set<std::string> names, used, groupNames;
+        for (const auto& resource : MaterialShaderResources(reflection))
+            if (resource.Kind == ShaderBindingKind::CombinedImageSampler)
+                names.insert(resource.Name);
+            else
+                for (const auto& member : resource.Members)
+                    if (member.Type != ShaderUniformType::Struct)
+                        names.insert(member.Name);
+        if (groups.size() > 4096)
+            return AssetError {AssetErrorCode::InvalidData, "Too many Shader groups"};
+        for (const auto& group : groups)
+        {
+            if (group.Name.empty() || group.Name.size() > 256 || group.Members.empty() || group.Members.size() > 4096 ||
+                !groupNames.insert(group.Name).second || group.Name.front() == ' ' || group.Name.back() == ' ' ||
+                std::any_of(group.Name.begin(), group.Name.end(), [](unsigned char c) { return c < 32 || c == 127; }))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate Shader group name"};
+            for (const auto& member : group.Members)
+                if (!names.count(member) || !used.insert(member).second)
+                    return AssetError {AssetErrorCode::InvalidData,
+                                       "Unknown or repeated Shader group member '" + member + "'"};
+        }
+        return std::monostate {};
     }
 } // namespace Kans

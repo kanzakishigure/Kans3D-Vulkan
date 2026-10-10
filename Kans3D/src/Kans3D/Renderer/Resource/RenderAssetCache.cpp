@@ -1,6 +1,8 @@
 #include "kspch.h"
 #include "RenderAssetCache.h"
 #include <glad/glad.h>
+#include <type_traits>
+#include <unordered_set>
 #include <glm/gtc/type_ptr.hpp>
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
@@ -132,6 +134,16 @@ namespace Kans
                 status.Error = std::move(*error);
             else
             {
+                if constexpr (std::is_same_v<Resource, GpuShader>)
+                {
+                    if (entry.Value)
+                        m_RetiredShaders.emplace_back(std::move(entry.Value));
+                }
+                else if constexpr (std::is_same_v<Resource, Ref<Texture2D>>)
+                {
+                    if (entry.Value)
+                        m_RetiredTextures.emplace_back(std::move(entry.Value));
+                }
                 entry.Value = CreateScope<Resource>(std::get<Resource>(std::move(built)));
                 entry.ReportedError.reset();
             }
@@ -238,7 +250,8 @@ namespace Kans
         {
             entry.Material = materialSource;
             entry.Shader   = shaderSource;
-            entry.Value.reset();
+            if (entry.Value)
+                m_RetiredBindings.emplace_back(std::move(entry.Value));
             MaterialData data = materialSource ? materialSource->GetData() : MaterialData {};
             if (standard)
             {
@@ -269,14 +282,22 @@ namespace Kans
         return entry.Value.get();
     }
 
-    void RenderAssetCache::BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings)
+    bool RenderAssetCache::BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings)
     {
+        bool complete = true;
         for (const auto& [binding, unit] : shader.MaterialSamplerUnits())
         {
             Ref<Texture2D> texture;
             for (const auto& [textureBinding, id] : bindings.Textures)
-                if (textureBinding == binding)
+                if (textureBinding == binding && id.IsValid())
+                {
+                    const auto status = m_Assets.Request<TextureAsset>(id);
                     texture = GetTexture(id);
+                    const auto& entry = m_Textures.at(id);
+                    // A failed replacement upload may retain the previous GPU texture.
+                    complete &=
+                        status.IsReady() && bool(texture) && !entry.ReportedError && entry.Source == status.Asset;
+                }
             if (!texture)
             {
                 const auto role     = shader.MaterialSamplerFallbacks().at(binding);
@@ -298,6 +319,7 @@ namespace Kans
                     if (auto* error = std::get_if<AssetError>(&uploaded))
                     {
                         CORE_ERROR("Material fallback texture: {}", error->Message);
+                        complete = false;
                         continue;
                     }
                     fallback = std::get<Ref<Texture2D>>(std::move(uploaded));
@@ -306,10 +328,86 @@ namespace Kans
             }
             texture->Bind(unit);
         }
+        return complete;
+    }
+
+    void RenderAssetCache::ReleaseRetiredResources()
+    {
+        // Deleting restored textures/buffers would unbind them from the caller.
+        // Retain only objects still in use, so hidden viewports cannot accumulate edits.
+        if (!m_RetiredShaders.empty())
+        {
+            GLint program;
+            glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+            for (auto it = m_RetiredShaders.begin(); it != m_RetiredShaders.end();)
+                it = (*it)->GetRendererID() == uint32_t(program) ? std::next(it) : m_RetiredShaders.erase(it);
+        }
+        if (!m_RetiredTextures.empty())
+        {
+            std::unordered_set<uint32_t> bound;
+            GLint                        active, count, texture;
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+            glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
+            for (GLint unit = 0; unit < count; ++unit)
+            {
+                glActiveTexture(GL_TEXTURE0 + unit);
+                glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+                bound.insert(uint32_t(texture));
+            }
+            glActiveTexture(active);
+            for (auto it = m_RetiredTextures.begin(); it != m_RetiredTextures.end();)
+                it = bound.count((**it)->GetRenererID()) ? std::next(it) : m_RetiredTextures.erase(it);
+        }
+        if (!m_RetiredBindings.empty())
+        {
+            std::unordered_set<uint32_t> bound;
+            GLint                        buffer, count;
+            // A caller can bind a cache UBO to other buffer targets too.
+            for (auto target : {GL_ARRAY_BUFFER_BINDING,
+                                GL_ELEMENT_ARRAY_BUFFER_BINDING,
+                                GL_UNIFORM_BUFFER_BINDING,
+                                GL_PIXEL_PACK_BUFFER_BINDING,
+                                GL_PIXEL_UNPACK_BUFFER_BINDING,
+                                GL_COPY_READ_BUFFER_BINDING,
+                                GL_COPY_WRITE_BUFFER_BINDING,
+                                GL_DRAW_INDIRECT_BUFFER_BINDING,
+                                GL_DISPATCH_INDIRECT_BUFFER_BINDING,
+                                GL_SHADER_STORAGE_BUFFER_BINDING,
+                                GL_ATOMIC_COUNTER_BUFFER_BINDING,
+                                GL_TRANSFORM_FEEDBACK_BUFFER_BINDING,
+                                GL_TEXTURE_BUFFER_BINDING})
+            {
+                glGetIntegerv(target, &buffer);
+                bound.insert(uint32_t(buffer));
+            }
+            for (const auto& [target, limit] :
+                 {std::pair {GL_UNIFORM_BUFFER_BINDING, GL_MAX_UNIFORM_BUFFER_BINDINGS},
+                  std::pair {GL_SHADER_STORAGE_BUFFER_BINDING, GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS},
+                  std::pair {GL_ATOMIC_COUNTER_BUFFER_BINDING, GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS},
+                  std::pair {GL_TRANSFORM_FEEDBACK_BUFFER_BINDING, GL_MAX_TRANSFORM_FEEDBACK_BUFFERS}})
+            {
+                glGetIntegerv(limit, &count);
+                for (GLint point = 0; point < count; ++point)
+                {
+                    glGetIntegeri_v(target, point, &buffer);
+                    bound.insert(uint32_t(buffer));
+                }
+            }
+            for (auto it = m_RetiredBindings.begin(); it != m_RetiredBindings.end();)
+            {
+                const bool used = std::any_of((*it)->Blocks.begin(), (*it)->Blocks.end(), [&](const auto& block) {
+                    return bound.count(block.second.GetRendererID()) != 0;
+                });
+                it              = used ? std::next(it) : m_RetiredBindings.erase(it);
+            }
+        }
     }
 
     void RenderAssetCache::BeginFrame(uint64_t unusedFrames)
     {
+        m_RetiredShaders.clear();
+        m_RetiredTextures.clear();
+        m_RetiredBindings.clear();
         ++m_Frame;
         auto evict = [&](auto& entries) {
             for (auto it = entries.begin(); it != entries.end();)
@@ -326,6 +424,9 @@ namespace Kans
 
     void RenderAssetCache::Clear()
     {
+        m_RetiredShaders.clear();
+        m_RetiredTextures.clear();
+        m_RetiredBindings.clear();
         m_Models.clear();
         m_Meshes.clear();
         m_Materials.clear();

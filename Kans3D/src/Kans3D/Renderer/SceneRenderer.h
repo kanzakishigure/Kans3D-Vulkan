@@ -122,7 +122,12 @@ namespace Kans
         void SubmitSkybox(Ref<TextureCube> skybox);
 
         uint32_t               GetOutput(uint32_t index) const;
-        const Environment&     GetEnvironment() { return m_Environment; }
+        const Environment&     GetEnvironment() const { return m_Environment; }
+        const Ref<Texture2D>&  GetBrdfLUT() const { return m_BrdfLUT; }
+        float                  GetElapsedTime() const
+        {
+            return std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
+        }
         const Ref<TextureCube> GetSkybox() { return m_SkyBox; }
 
     private:

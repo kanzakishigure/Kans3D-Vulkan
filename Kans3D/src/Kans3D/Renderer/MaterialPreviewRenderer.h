@@ -1,0 +1,69 @@
+#pragma once
+#include "Kans3D/Renderer/Resource/RenderAssetCache.h"
+#include "Kans3D/Renderer/Resource/SelectionTools.h"
+
+namespace Kans
+{
+    class SceneRenderer;
+    enum class MaterialPreviewShape
+    {
+        Sphere,
+        Cube,
+        Plane
+    };
+    struct MaterialPreviewOptions
+    {
+        glm::uvec2           Size {256, 256};
+        MaterialPreviewShape Shape = MaterialPreviewShape::Sphere;
+        // Object rotation in radians: yaw about +Y, then pitch about +X.
+        glm::vec2 Rotation {0.0f};
+    };
+    struct MaterialPreviewResult
+    {
+        uint32_t Texture  = 0;
+        bool     Complete = false;
+    };
+    struct MaterialThumbnail
+    {
+        glm::uvec2 Size {};
+        // RGBA8, tightly packed, top row first; alpha is always 255.
+        std::vector<uint8_t> Pixels;
+    };
+
+    // Render thread only, with the scene's GL context current, including destruction.
+    // SceneRenderer must outlive this instance. Does not begin/end a scene/cache frame.
+    // Inputs are borrowed only during the call. GPU cache resources are resolved at draw time.
+    class MaterialPreviewRenderer
+    {
+    public:
+        explicit MaterialPreviewRenderer(SceneRenderer& scene) : m_Scene(scene) {}
+        ~MaterialPreviewRenderer();
+        MaterialPreviewRenderer(const MaterialPreviewRenderer&)            = delete;
+        MaterialPreviewRenderer& operator=(const MaterialPreviewRenderer&) = delete;
+
+        // nullptr selects Standard. Requires scene.SetAssetManager, even for resolved inputs.
+        // Texture belongs to this instance, valid until its next Render/RenderThumbnail or destruction.
+        // Complete means every assigned asset and GPU upload was ready.
+        // Unassigned samplers use declared fallbacks and are complete; unavailable assigned assets are not.
+        MaterialPreviewResult
+        Render(const MaterialData& material, const ShaderData* shader, const MaterialPreviewOptions& options = {});
+        MaterialPreviewResult Render(AssetID material, const MaterialPreviewOptions& options = {});
+        // No image while material/shader/assigned textures are missing, loading or failed.
+        std::optional<MaterialThumbnail> RenderThumbnail(AssetID material, const MaterialPreviewOptions& options = {});
+
+    private:
+        MaterialPreviewResult                 Draw(const GpuShader&              shader,
+                                                   const GpuMaterialBindings&    bindings,
+                                                   const MaterialPreviewOptions& options,
+                                                   bool                          complete);
+        bool                                  Resize(glm::uvec2 size);
+        SceneRenderer&                        m_Scene;
+        glm::uvec2                            m_Size {};
+        uint32_t                              m_Framebuffer = 0, m_Color = 0, m_Depth = 0, m_EmptyArray = 0;
+        std::array<std::optional<GpuMesh>, 3> m_Shapes;
+        GlProgram                             m_Checker;
+        Scope<GpuUniformBuffer>               m_Frame, m_Object;
+        std::optional<ShaderData>             m_ShaderSource;
+        Scope<GpuShader>                      m_Shader;
+    };
+} // namespace Kans

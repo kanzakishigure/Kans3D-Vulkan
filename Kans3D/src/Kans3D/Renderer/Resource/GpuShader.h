@@ -18,6 +18,7 @@ namespace Kans
 
         void Update(const void* data, size_t bytes);
         void Bind(uint32_t point) const;
+        uint32_t GetRendererID() const { return m_ID; }
 
     private:
         uint32_t m_ID = 0;
@@ -48,6 +49,7 @@ namespace Kans
         GpuShader& operator=(const GpuShader&) = delete;
 
         void Bind() const;
+        uint32_t GetRendererID() const { return m_Program; }
 
         // Set-1 binding to GL uniform block point / texture unit.
         const std::map<uint32_t, uint32_t>& MaterialBlockPoints() const { return m_BlockPoints; }

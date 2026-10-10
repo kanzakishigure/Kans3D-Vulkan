@@ -37,6 +37,12 @@ texture NormalMap = normal
 texture MetallicRoughnessMap = white
 texture OcclusionMap = white
 texture EmissiveMap = white
+group Surface = BaseColor BaseColorMap Metallic Roughness MetallicRoughnessMap
+group Normal = NormalMap NormalStrength
+group Occlusion = OcclusionMap OcclusionStrength
+group Emission = EmissiveColor EmissiveIntensity EmissiveMap
+group UV = UVTiling UVOffset
+group Advanced = VertexColorStrength
 )";
             auto              compiled = CompileEmbeddedShaderProgram(manifest,
                                                                       {{"Standard.vert", R"(#version 450

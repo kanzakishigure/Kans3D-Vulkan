@@ -112,6 +112,12 @@ namespace Kans
     };
     using ShaderTextureFallbacks = std::map<std::string, ShaderTextureFallback>;
 
+    struct MaterialParameterGroup
+    {
+        std::string              Name;
+        std::vector<std::string> Members;
+    };
+
     struct ShaderData
     {
         ShaderProgramCode       Code;
@@ -120,6 +126,7 @@ namespace Kans
         // Derived from validated bytecode, never trusted caller-supplied metadata.
         std::vector<ShaderStageReflection> Reflection;
         ShaderTextureFallbacks             TextureFallbacks;
+        std::vector<MaterialParameterGroup> Groups;
     };
     std::variant<std::vector<ShaderStageReflection>, AssetError> InspectShaderProgram(const ShaderProgramCode& code);
     class ShaderDataAsset                                        final : public Asset

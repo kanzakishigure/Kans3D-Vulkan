@@ -171,6 +171,10 @@ namespace Kans
                 auto fallbacks        = ParseShaderProgramTextureFallbacks(*primary);
                 if (auto* error = std::get_if<AssetError>(&fallbacks))
                     return std::move(*error);
+                auto groups = ParseShaderProgramGroups(*primary);
+                if (auto* error = std::get_if<AssetError>(&groups))
+                    return *error;
+                shader.Groups           = std::get<std::vector<MaterialParameterGroup>>(std::move(groups));
                 shader.TextureFallbacks = std::get<ShaderTextureFallbacks>(std::move(fallbacks));
                 for (const auto& stage : std::get<std::vector<ShaderStageSource>>(parsed))
                     modules.emplace_back(
@@ -231,8 +235,8 @@ namespace Kans
         if (auto* error = std::get_if<AssetError>(&compiled))
             return *error;
         const auto& shader = std::get<ShaderData>(compiled);
-        auto        encoded =
-            EncodeShaderProduct(shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks);
+        auto        encoded = EncodeShaderProduct(
+            shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks, shader.Groups);
         if (auto* error = std::get_if<AssetError>(&encoded))
             return *error;
         const auto& bytes = std::get<std::vector<std::byte>>(encoded);
@@ -266,7 +270,7 @@ namespace Kans
                 return std::move(*error);
             const auto& shader  = std::get<ShaderData>(compiled);
             auto        encoded = EncodeShaderProduct(
-                shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks);
+                shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks, shader.Groups);
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return std::move(*error);
             auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, {"shader:root"});

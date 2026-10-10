@@ -15,3 +15,7 @@ hint ShadowThreshold = range 0 1
 hint ShadowSoftness = range 0 0.5
 hint RimPower = range 0.1 16
 hint RampBlend = range 0 1
+
+group Surface = BaseColor u_Albedo
+group Shadows = ShadowColor ShadowThreshold ShadowSoftness RampBlend u_Ramp
+group Rim = RimColor RimPower

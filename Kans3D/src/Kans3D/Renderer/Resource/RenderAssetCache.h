@@ -60,6 +60,10 @@ namespace Kans
         // Evicts resources not used for `unusedFrames` frames.
         void BeginFrame(uint64_t unusedFrames = 600);
         void Clear();
+        // Call after restoring caller GL state. Bound retired objects stay alive until
+        // a later release or BeginFrame; unbound replacements are freed immediately.
+        // Requires the render thread and its current GL context. Does not advance the frame.
+        void ReleaseRetiredResources();
 
         const ModelInstances* GetModel(AssetID id);
         const GpuMesh*        GetMesh(AssetID id);
@@ -72,7 +76,8 @@ namespace Kans
         // Packed material parameters, using Standard for missing/pending/failed
         // custom Shaders. `standard` forces Standard for viewport debug views.
         const GpuMaterialBindings* GetMaterialBindings(AssetID material, bool standard = false);
-        void                       BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings);
+        // Returns false if an assigned texture is not ready (fallbacks still bind).
+        bool BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings);
 
         AssetManager& GetAssetManager() { return m_Assets; }
 
@@ -111,6 +116,11 @@ namespace Kans
         std::unordered_map<AssetID, Entry<ShaderDataAsset, GpuShader>>     m_Shaders;
         std::unordered_map<AssetID, BindingsEntry>                         m_Bindings;
         std::unordered_map<AssetID, BindingsEntry>                         m_StandardBindings;
+        // Keep replaced programs, textures and UBOs alive through GL state restoration.
+        // Preview completion releases unbound objects; BeginFrame/Clear releases all.
+        std::vector<Scope<GpuShader>>           m_RetiredShaders;
+        std::vector<Scope<Ref<Texture2D>>>      m_RetiredTextures;
+        std::vector<Scope<GpuMaterialBindings>> m_RetiredBindings;
     };
 
     // Uploads CPU mesh data to an indexed vertex array (requires a current GL context).

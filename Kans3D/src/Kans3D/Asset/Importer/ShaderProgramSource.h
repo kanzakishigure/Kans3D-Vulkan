@@ -22,6 +22,9 @@ namespace Kans
     [[nodiscard]] std::variant<ShaderParameterDefaults, AssetError>
     ParseShaderProgramDefaults(const std::string& text);
     [[nodiscard]] std::variant<ShaderParameterHints, AssetError> ParseShaderProgramHints(const std::string& text);
+    // group <Group Name> = <member> <member> ... (ordered, unique members).
+    [[nodiscard]] std::variant<std::vector<MaterialParameterGroup>, AssetError>
+    ParseShaderProgramGroups(const std::string& text);
     // texture <sampler name> = white | black | normal (white when omitted).
     [[nodiscard]] std::variant<ShaderTextureFallbacks, AssetError>
     ParseShaderProgramTextureFallbacks(const std::string& text);

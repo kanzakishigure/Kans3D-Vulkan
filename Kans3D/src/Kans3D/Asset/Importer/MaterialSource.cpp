@@ -280,6 +280,11 @@ namespace Kans
                 if (std::find(schema.Textures.begin(), schema.Textures.end(), name) == schema.Textures.end() ||
                     uint32_t(role) > uint32_t(ShaderTextureFallback::Normal))
                     return Invalid("Shader texture fallback '" + name + "' does not name a material sampler");
+            auto groups = ValidateMaterialParameterGroups(shader->Groups,
+                                                          std::get<std::vector<ShaderStageReflection>>(reflection));
+            if (auto* error = std::get_if<AssetError>(&groups))
+                return *error;
+            schema.Groups = shader->Groups;
             return schema;
         }
         catch (const std::exception& error)

@@ -25,6 +25,7 @@
 #include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Project/Project.h"
+#include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
@@ -1979,5 +1980,726 @@ void main() { o_Color = vec4(1); }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDeleteTextures(1, &color);
         glDeleteFramebuffers(1, &framebuffer);
+    }
+    class MaterialPreviewGL : public MaterialSceneGL
+    {
+    protected:
+        MaterialPreviewOptions Options {{64, 64}, MaterialPreviewShape::Plane, {0, 0}};
+        MaterialData           Resolve(const MaterialSource& source, const ShaderData* shader = nullptr)
+        {
+            auto result = ResolveMaterialSource(source, shader);
+            if (auto* error = std::get_if<AssetError>(&result))
+                throw std::runtime_error(error->Message);
+            return std::get<MaterialData>(std::move(result));
+        }
+        std::array<uint8_t, 4> PreviewPixel(uint32_t texture, int x = 32, int y = 32)
+        {
+            std::vector<uint8_t> image(size_t(Options.Size.x) * Options.Size.y * 4);
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+            std::array<uint8_t, 4> pixel;
+            std::copy_n(image.data() + (y * Options.Size.x + x) * 4, 4, pixel.data());
+            return pixel;
+        }
+        MaterialSource Tint(std::vector<double> color)
+        {
+            MaterialSource source;
+            source.Shader             = ShaderID;
+            source.Parameters["Tint"] = std::move(color);
+            return source;
+        }
+    };
+
+    TEST_F(MaterialPreviewGL, UnsavedValuesAndShaderChangesReachPixelsInLitMode)
+    {
+        MaterialPreviewRenderer preview(*Renderer);
+        Renderer->SetViewMode(SceneViewMode::Normals);
+        auto source = Tint({1, 0, 0, 1});
+        auto first  = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        ASSERT_TRUE(first.Complete);
+        EXPECT_EQ(PreviewPixel(first.Texture), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        source.Parameters["Tint"] = {0, 1, 0, 1};
+        auto second               = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(second.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        // ShaderData may be reloaded at the same address; pointer identity is not a cache key.
+        Custom.Code               = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+#include <Kans3D/Engine.glsl>
+layout(set=1,binding=0,std140) uniform Parameters { vec4 Tint; } p;
+layout(location=0) out vec4 color;
+void main() { color = vec4(p.Tint.bgr + vec3(u_Frame.DebugView), 1); }
+)");
+        source.Parameters["Tint"] = {1, 0, 0, 1};
+        auto changed              = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(changed.Texture), (std::array<uint8_t, 4> {0, 0, 255, 255}));
+    }
+    TEST_F(MaterialPreviewGL, BlendCompositesOverBothCheckerColorsAndKeepsOpaqueAlpha)
+    {
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    source = Tint({1, 0, 0, 0.5});
+        source.Render.AlphaMode        = MaterialAlphaMode::Blend;
+        auto result                    = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        ASSERT_TRUE(result.Complete);
+        // 50% red over checker .22 and .32, without changing its alpha.
+        auto dark = PreviewPixel(result.Texture), light = PreviewPixel(result.Texture, 24, 32);
+        EXPECT_NEAR(dark[0], 156, 1);
+        EXPECT_NEAR(dark[1], 28, 1);
+        EXPECT_NEAR(dark[2], 28, 1);
+        EXPECT_NEAR(light[0], 168, 1);
+        EXPECT_NEAR(light[1], 41, 1);
+        EXPECT_NEAR(light[2], 41, 1);
+        EXPECT_EQ(dark[3], 255);
+        EXPECT_EQ(light[3], 255);
+    }
+    TEST_F(MaterialPreviewGL, MaskCutoffChangesCoverageAndRetainsEquality)
+    {
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    source = Tint({1, 0, 0, 0.5});
+        source.Render.AlphaMode        = MaterialAlphaMode::Mask;
+        source.Render.AlphaCutoff      = 0.6f;
+        auto clipped                   = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(clipped.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        source.Render.AlphaCutoff = 0.5f;
+        auto equality             = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(equality.Texture), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+    }
+    TEST_F(MaterialPreviewGL, YawPitchAndDoubleSidedControlPlaneVisibility)
+    {
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    source = Tint({0, 1, 0, 1});
+        Options.Rotation.x             = glm::radians(90.0f);
+        auto edge                      = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(edge.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        Options.Rotation = {0, glm::radians(90.0f)};
+        edge             = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(edge.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        Options.Rotation = {glm::radians(180.0f), 0};
+        auto back        = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(back.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        source.Render.DoubleSided = true;
+        back                      = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(back.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+    }
+    TEST_F(MaterialPreviewGL, ProceduralTangentsMapNormalAlongIncreasingTextureV)
+    {
+        // A normal map pointing along +V detects zero tangents and wrong sphere handedness.
+        ShaderData shader;
+        shader.Code = CompileTestMaterialShader(R"(#version 450
+#include <Kans3D/Engine.glsl>
+#include <Kans3D/VertexInput.glsl>
+layout(location=0) out vec3 N;
+layout(location=1) out vec4 T;
+void main() { N=a_Normal; T=a_Tangent;
+    gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Position,1); }
+)",
+                                                R"(#version 450
+layout(location=0) in vec3 N;
+layout(location=1) in vec4 T;
+layout(set=1,binding=0) uniform sampler2D NormalMap;
+layout(location=0) out vec4 color;
+void main() {
+    vec3 n=normalize(N), t=normalize(T.xyz-n*dot(n,T.xyz));
+    vec3 mapped=texture(NormalMap,vec2(0.5)).xyz*2-1;
+    color=vec4((mat3(t,cross(n,t)*T.w,n)*mapped)*0.5+0.5,1);
+}
+)");
+        TextureData normal;
+        normal.Width = normal.Height = 1;
+        normal.Format                = TexturePixelFormat::RGBA32Float;
+        normal.Usage                 = TextureUsage::Data;
+        const std::array<float, 4> pixel {0.5, 1, 0.5, 1};
+        normal.Mips = {{std::vector<std::byte>(sizeof(pixel))}};
+        std::memcpy(normal.Mips[0].Pixels.data(), pixel.data(), sizeof(pixel));
+        auto texture = Add(AssetType::Texture, EncodeTextureProduct(normal));
+        ASSERT_TRUE(Frames(*Renderer->GetAssetCache(),
+                           [&] { return Renderer->GetAssetCache()->GetTexture(texture) != nullptr; }));
+        MaterialSource source;
+        source.Shader                = ShaderID;
+        source.Textures["NormalMap"] = texture;
+        MaterialPreviewRenderer preview(*Renderer);
+        for (auto shape : {MaterialPreviewShape::Plane, MaterialPreviewShape::Cube, MaterialPreviewShape::Sphere})
+        {
+            Options.Shape = shape;
+            // Inspect a side face too: its tangent cannot be the vertex default +X.
+            Options.Rotation.x = shape == MaterialPreviewShape::Cube ? glm::radians(90.0f) : 0.0f;
+            auto result        = preview.Render(Resolve(source, &shader), &shader, Options);
+            ASSERT_TRUE(result.Complete);
+            auto value = PreviewPixel(result.Texture);
+            EXPECT_NEAR(value[0], 128, 1);
+            EXPECT_NEAR(value[1], shape == MaterialPreviewShape::Sphere ? 0 : 255, 1);
+            // At center+half a pixel, sphere y ~= .016, hence B.z ~= .016 -> encoded 130.
+            EXPECT_NEAR(value[2], shape == MaterialPreviewShape::Sphere ? 130 : 128, 1);
+        }
+    }
+    TEST_F(MaterialPreviewGL, StandardRemainsLitAndUsesSceneIrradianceChanges)
+    {
+        MaterialPreviewRenderer preview(*Renderer);
+        Renderer->SetViewMode(SceneViewMode::Normals);
+        TextureSpecification spec;
+        spec.Width = spec.Height = 1;
+        spec.Format              = RHI_FORMAT_R16G16B16A16_SFLOAT;
+        spec.Minf = spec.Maxf = RHIFilter::RHI_FILTER_NEAREST;
+        auto& environment     = const_cast<Environment&>(Renderer->GetEnvironment());
+        // Replace the scene map between calls, as UpdateEnvironment would; previews must not retain it.
+        auto map = [&](glm::vec4 color) {
+            auto cube = TextureCube::Create(spec);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, cube->GetRenererID());
+            for (int face = 0; face < 6; ++face)
+                glTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, 0, 0, 1, 1, GL_RGBA, GL_FLOAT, &color[0]);
+            return cube;
+        };
+        MaterialSource source;
+        source.Parameters         = {{"BaseColor", {0.25, 0.25, 0.25, 1}}, {"Roughness", {1}}};
+        auto material             = Resolve(source);
+        environment.IrradianceMap = map({4, 0, 0, 1});
+        auto red                  = preview.Render(material, nullptr, Options);
+        auto redPixel             = PreviewPixel(red.Texture);
+        environment.IrradianceMap = map({0, 4, 0, 1});
+        auto green                = preview.Render(material, nullptr, Options);
+        auto greenPixel           = PreviewPixel(green.Texture);
+        // At the front-facing center, kD=.96 and diffuse=.25*4=.1e1:
+        // Key light adds about .0453; Reinhard+gamma(.96+.0453)=.7306,
+        // Reinhard+gamma(.0453)=.2399. Debug normals or missing IBL cannot match these.
+        EXPECT_NEAR(redPixel[0], 186, 1);
+        EXPECT_NEAR(redPixel[1], 61, 1);
+        EXPECT_NEAR(redPixel[2], 61, 1);
+        EXPECT_NEAR(greenPixel[1], 186, 1);
+        EXPECT_NEAR(greenPixel[0], 61, 1);
+        EXPECT_NEAR(greenPixel[2], 61, 1);
+        EXPECT_EQ(redPixel[3], 255);
+        EXPECT_EQ(greenPixel[3], 255);
+    }
+    TEST_F(MaterialPreviewGL, FailedCustomShaderFallsBackWithRenderStateAndIncompleteResult)
+    {
+        MaterialPreviewRenderer preview(*Renderer);
+        ShaderData              broken;
+        broken.Code               = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(location=1) out vec4 wrongOutput;
+void main() { wrongOutput=vec4(1); }
+)");
+        auto source               = Tint({1, 0, 0, 1});
+        source.Render.DoubleSided = true;
+        Options.Rotation.x        = glm::radians(180.0f);
+        auto result               = preview.Render(Resolve(source, &Custom), &broken, Options);
+        EXPECT_FALSE(result.Complete);
+        auto pixel = PreviewPixel(result.Texture);
+        // Standard fallback on the back of the plane must still draw because double-sided survived.
+        EXPECT_GT(pixel[0], 56);
+        EXPECT_EQ(pixel[0], pixel[1]);
+        EXPECT_EQ(pixel[1], pixel[2]);
+        EXPECT_EQ(pixel[3], 255);
+    }
+    TEST_F(MaterialPreviewGL, ThumbnailWaitsForTextureThenReadsTopRowFirstAfterReimport)
+    {
+        ShaderData shader;
+        shader.Code          = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(location=0) in vec2 v_UV;
+layout(set=1,binding=0) uniform sampler2D image;
+layout(location=0) out vec4 color;
+void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
+)");
+        auto        shaderID = Add(AssetType::Shader, EncodeShaderProduct(shader.Code));
+        TextureData texture;
+        texture.Width = texture.Height = 1;
+        texture.Usage                  = TextureUsage::Data;
+        texture.Mips                   = {{{std::byte {255}, std::byte {0}, std::byte {0}, std::byte {255}}}};
+        auto           textureID       = Add(AssetType::Texture, EncodeTextureProduct(texture));
+        MaterialSource source;
+        source.Shader            = shaderID;
+        source.Textures["image"] = textureID;
+        auto data                = Resolve(source, &shader);
+        auto materialID          = Add(AssetType::Material, EncodeMaterialProduct(data));
+        ASSERT_TRUE(std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(materialID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(shaderID)));
+        Provider->SetClosed(true);
+        MaterialPreviewRenderer preview(*Renderer);
+        // Material/shader are loaded, but the assigned texture is blocked on the worker.
+        EXPECT_FALSE(preview.Render(materialID, Options).Complete);
+        EXPECT_FALSE(preview.RenderThumbnail(materialID, Options).has_value());
+        Provider->SetClosed(false);
+        ASSERT_TRUE(Frames(*Renderer->GetAssetCache(),
+                           [&] { return Renderer->GetAssetCache()->GetTexture(textureID) != nullptr; }));
+        auto thumbnail = preview.RenderThumbnail(materialID, Options);
+        ASSERT_TRUE(thumbnail.has_value());
+        auto at = [&](const MaterialThumbnail& image, int y) { return image.Pixels[(y * 64 + 32) * 4 + 1]; };
+        // Plane +V points upward; the first rows of the image must contain larger V.
+        EXPECT_GT(at(*thumbnail, 20), 190);
+        EXPECT_LT(at(*thumbnail, 44), 65);
+        EXPECT_EQ(thumbnail->Pixels[(32 * 64 + 32) * 4], 255);
+        texture.Mips[0].Pixels[0] = std::byte {0};
+        for (auto& record : Records)
+            if (record.Metadata.assetID == textureID)
+                record = Store(
+                    textureID, AssetType::Texture, std::get<std::vector<std::byte>>(EncodeTextureProduct(texture)));
+        Provider->SetClosed(true);
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
+        EXPECT_FALSE(preview.RenderThumbnail(materialID, Options).has_value());
+        Provider->SetClosed(false);
+        ASSERT_TRUE(Frames(*Renderer->GetAssetCache(), [&] {
+            auto status = Assets->Request<TextureAsset>(textureID);
+            return status.IsReady() && Renderer->GetAssetCache()->GetTexture(textureID) != nullptr;
+        }));
+        thumbnail = preview.RenderThumbnail(materialID, Options);
+        ASSERT_TRUE(thumbnail.has_value());
+        EXPECT_EQ(thumbnail->Pixels[(32 * 64 + 32) * 4], 0);
+        EXPECT_EQ(thumbnail->Pixels[(32 * 64 + 32) * 4 + 3], 255);
+    }
+    TEST_F(MaterialPreviewGL, RestoresHostileImGuiStateIncludingBindingsAndBufferRanges)
+    {
+        MaterialPreviewRenderer preview(*Renderer);
+        GlProgram               program;
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(
+            program.Build("#version 430 core\nvoid main(){gl_Position=vec4(0);}",
+                          "#version 430 core\nlayout(location=0) out vec4 c;void main(){c=vec4(1);}")));
+        GLuint array, buffer, textures[2], sampler, framebuffer, renderbuffer;
+        glGenVertexArrays(1, &array);
+        glGenBuffers(1, &buffer);
+        glGenTextures(2, textures);
+        glGenSamplers(1, &sampler);
+        glGenFramebuffers(1, &framebuffer);
+        glGenRenderbuffers(1, &renderbuffer);
+        glBindVertexArray(array);
+        glBindBuffer(GL_UNIFORM_BUFFER, buffer);
+        glBufferData(GL_UNIFORM_BUFFER, 4096, nullptr, GL_STATIC_DRAW);
+        GLint alignment = 0;
+        glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
+        for (GLuint point : {0u, 1u, 2u, 11u})
+            glBindBufferRange(GL_UNIFORM_BUFFER, point, buffer, alignment, 256);
+        std::array<uint8_t, 256> untouched;
+        untouched.fill(0xa5);
+        glBufferSubData(GL_UNIFORM_BUFFER, alignment, 256, untouched.data());
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, buffer);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, textures[0]);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, textures[1]);
+        glBindSampler(0, sampler);
+        glBindSampler(3, sampler);
+        glActiveTexture(GL_TEXTURE9);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+        program.Bind();
+        glViewport(3, 5, 19, 23);
+        glScissor(1, 2, 3, 4);
+        glEnable(GL_SCISSOR_TEST);
+        glEnable(GL_STENCIL_TEST);
+        glEnable(GL_CULL_FACE);
+        glEnable(GL_FRAMEBUFFER_SRGB);
+        glEnable(GL_RASTERIZER_DISCARD);
+        glEnable(GL_COLOR_LOGIC_OP);
+        glEnable(GL_CLIP_DISTANCE0);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glEnable(GL_PRIMITIVE_RESTART);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_GREATER);
+        glDepthMask(GL_FALSE);
+        glDepthRange(.2, .7);
+        glCullFace(GL_FRONT);
+        glFrontFace(GL_CW);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glEnablei(GL_BLEND, 0);
+        glBlendFuncSeparatei(0, GL_ONE, GL_ZERO, GL_DST_ALPHA, GL_SRC_ALPHA);
+        glBlendEquationSeparatei(0, GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_SUBTRACT);
+        glColorMaski(0, GL_FALSE, GL_TRUE, GL_FALSE, GL_FALSE);
+        glPixelStorei(GL_PACK_ALIGNMENT, 8);
+        glPixelStorei(GL_PACK_ROW_LENGTH, 17);
+        glPixelStorei(GL_PACK_SKIP_ROWS, 2);
+        glPixelStorei(GL_PACK_SKIP_PIXELS, 3);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 19);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS, 4);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 5);
+        const auto snapshot = [&] {
+            std::vector<GLint64> values;
+            for (auto name : {GL_DRAW_FRAMEBUFFER_BINDING,
+                              GL_READ_FRAMEBUFFER_BINDING,
+                              GL_CURRENT_PROGRAM,
+                              GL_VERTEX_ARRAY_BINDING,
+                              GL_ARRAY_BUFFER_BINDING,
+                              GL_UNIFORM_BUFFER_BINDING,
+                              GL_RENDERBUFFER_BINDING,
+                              GL_ACTIVE_TEXTURE,
+                              GL_DEPTH_FUNC,
+                              GL_CULL_FACE_MODE,
+                              GL_FRONT_FACE,
+                              GL_PIXEL_PACK_BUFFER_BINDING,
+                              GL_PIXEL_UNPACK_BUFFER_BINDING,
+                              GL_PACK_ALIGNMENT,
+                              GL_PACK_ROW_LENGTH,
+                              GL_PACK_SKIP_ROWS,
+                              GL_PACK_SKIP_PIXELS,
+                              GL_UNPACK_ALIGNMENT,
+                              GL_UNPACK_ROW_LENGTH,
+                              GL_UNPACK_SKIP_ROWS,
+                              GL_UNPACK_SKIP_PIXELS})
+            {
+                GLint v;
+                glGetIntegerv(name, &v);
+                values.push_back(v);
+            }
+            for (auto name : {GL_VIEWPORT, GL_SCISSOR_BOX, GL_COLOR_WRITEMASK})
+            {
+                GLint v[4];
+                glGetIntegerv(name, v);
+                values.insert(values.end(), v, v + 4);
+            }
+            GLint polygon[2];
+            glGetIntegerv(GL_POLYGON_MODE, polygon);
+            values.insert(values.end(), polygon, polygon + 2);
+            for (auto name : {GL_DEPTH_WRITEMASK,
+                              GL_BLEND_SRC_RGB,
+                              GL_BLEND_DST_RGB,
+                              GL_BLEND_SRC_ALPHA,
+                              GL_BLEND_DST_ALPHA,
+                              GL_BLEND_EQUATION_RGB,
+                              GL_BLEND_EQUATION_ALPHA})
+            {
+                GLint v;
+                glGetIntegerv(name, &v);
+                values.push_back(v);
+            }
+            for (auto cap : {GL_DEPTH_TEST,
+                             GL_BLEND,
+                             GL_SCISSOR_TEST,
+                             GL_STENCIL_TEST,
+                             GL_CULL_FACE,
+                             GL_FRAMEBUFFER_SRGB,
+                             GL_RASTERIZER_DISCARD,
+                             GL_COLOR_LOGIC_OP,
+                             GL_CLIP_DISTANCE0,
+                             GL_POLYGON_OFFSET_FILL,
+                             GL_PRIMITIVE_RESTART})
+                values.push_back(glIsEnabled(cap));
+            GLdouble range[2];
+            glGetDoublev(GL_DEPTH_RANGE, range);
+            for (double v : range)
+                values.push_back(GLint64(v * 1000000));
+            GLint active;
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+            for (GLuint unit = 0; unit < 16; ++unit)
+            {
+                glActiveTexture(GL_TEXTURE0 + unit);
+                for (auto name : {GL_TEXTURE_BINDING_2D, GL_TEXTURE_BINDING_CUBE_MAP})
+                {
+                    GLint v;
+                    glGetIntegerv(name, &v);
+                    values.push_back(v);
+                }
+                GLint v;
+                glGetIntegeri_v(GL_SAMPLER_BINDING, unit, &v);
+                values.push_back(v);
+            }
+            glActiveTexture(active);
+            for (GLuint point : {0u, 1u, 2u, 11u})
+            {
+                GLint v;
+                glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, point, &v);
+                values.push_back(v);
+                for (auto name : {GL_UNIFORM_BUFFER_START, GL_UNIFORM_BUFFER_SIZE})
+                {
+                    GLint64 r;
+                    glGetInteger64i_v(name, point, &r);
+                    values.push_back(r);
+                }
+            }
+            return values;
+        };
+        const auto before = snapshot();
+        auto       source = Tint({1, 0, 0, 1});
+        // First render exercises allocation/uploads, second exercises resize and thumbnail readback.
+        auto result = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(snapshot(), before);
+        auto id = Material(source);
+        ASSERT_TRUE(std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(id)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(ShaderID)));
+        auto thumbnailOptions = Options;
+        thumbnailOptions.Size = {32, 48};
+        EXPECT_TRUE(preview.RenderThumbnail(id, thumbnailOptions).has_value());
+        EXPECT_EQ(snapshot(), before);
+        // Engine frame/object data held by the caller must also remain byte-for-byte intact.
+        std::array<uint8_t, 256> after;
+        glGetBufferSubData(GL_UNIFORM_BUFFER, alignment, 256, after.data());
+        EXPECT_EQ(after, untouched);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        for (auto name : {GL_PACK_ROW_LENGTH, GL_PACK_SKIP_ROWS, GL_PACK_SKIP_PIXELS})
+            glPixelStorei(name, 0);
+        // Re-render after hostile state so a missing Prepare() cannot pass just by restoring state.
+        result = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        glUseProgram(0);
+        glBindVertexArray(0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteVertexArrays(1, &array);
+        glDeleteBuffers(1, &buffer);
+        glDeleteTextures(2, textures);
+        glDeleteSamplers(1, &sampler);
+        glDeleteFramebuffers(1, &framebuffer);
+        glDeleteRenderbuffers(1, &renderbuffer);
+    }
+    TEST_F(MaterialPreviewGL, PreviewBetweenSceneSubmissionAndDrawPreservesQueueModeAndStats)
+    {
+        auto model = Quad(Color({1, 0, 0, 1}));
+        Ready();
+        Renderer->SetViewMode(SceneViewMode::Normals);
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(model, glm::mat4(1));
+        const auto              stats = Renderer->GetStats();
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    source = Tint({0, 1, 0, 1});
+        auto                    result = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, stats.DrawCalls);
+        Renderer->EndScene();
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
+        EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {128, 128, 255, 255}));
+    }
+    TEST_F(MaterialPreviewGL, PublishedShaderReloadAndCacheEvictionDoNotRetainGpuPointers)
+    {
+        const auto material = Color({1, 0, 0, 1});
+        Ready();
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    initial = preview.RenderThumbnail(material, Options);
+        ASSERT_TRUE(initial.has_value());
+        EXPECT_EQ(initial->Pixels[(32 * 64 + 32) * 4], 255);
+        auto replacement = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(set=1,binding=0,std140) uniform Parameters { vec4 Tint; } p;
+layout(location=0) out vec4 color;
+void main() { color=vec4(p.Tint.brg,1); }
+)");
+        for (auto& record : Records)
+            if (record.Metadata.assetID == ShaderID)
+                record = Store(
+                    ShaderID, AssetType::Shader, std::get<std::vector<std::byte>>(EncodeShaderProduct(replacement)));
+        Provider->SetClosed(true);
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
+        // The old program must not count as complete while a replacement layout is pending.
+        EXPECT_FALSE(preview.RenderThumbnail(material, Options).has_value());
+        Renderer->GetAssetCache()->BeginFrame(0);
+        Provider->SetClosed(false);
+        ASSERT_TRUE(Frames(*Renderer->GetAssetCache(),
+                           [&] { return Renderer->GetAssetCache()->GetShader(ShaderID) != nullptr; }));
+        auto changed = preview.RenderThumbnail(material, Options);
+        ASSERT_TRUE(changed.has_value());
+        EXPECT_EQ(changed->Pixels[(32 * 64 + 32) * 4], 0);
+        EXPECT_EQ(changed->Pixels[(32 * 64 + 32) * 4 + 1], 255);
+        EXPECT_EQ(changed->Pixels[(32 * 64 + 32) * 4 + 2], 0);
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+    TEST_F(MaterialPreviewGL, CustomOpaqueOutputAlphaCannotMakeThePreviewTransparent)
+    {
+        // Project shaders may emit arbitrary alpha even in opaque mode; the editor image must stay opaque.
+        ShaderData shader;
+        shader.Code = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(location=0) out vec4 color;
+void main() { color=vec4(0,0,1,0.125); }
+)");
+        MaterialSource source;
+        source.Shader = ShaderID;
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    result = preview.Render(Resolve(source, &shader), &shader, Options);
+        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {0, 0, 255, 255}));
+    }
+    TEST_F(MaterialPreviewGL, ThumbnailRejectsFailedTextureUploadDespiteAnOlderGpuTexture)
+    {
+        ShaderData shader;
+        shader.Code          = CompileTestMaterialShader();
+        auto        shaderID = Add(AssetType::Shader, EncodeShaderProduct(shader.Code));
+        TextureData texture;
+        texture.Width = texture.Height = 1;
+        texture.Usage                  = TextureUsage::Data;
+        texture.Mips                   = {{{std::byte {255}, std::byte {0}, std::byte {0}, std::byte {255}}}};
+        auto           textureID       = Add(AssetType::Texture, EncodeTextureProduct(texture));
+        MaterialSource source;
+        source.Shader               = shaderID;
+        source.Parameters           = {{"Tint", {1, 1, 1, 1}}, {"Strength", {1}}};
+        source.Textures["u_Albedo"] = textureID;
+        auto materialID             = Add(AssetType::Material, EncodeMaterialProduct(Resolve(source, &shader)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(materialID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(shaderID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    initial = preview.RenderThumbnail(materialID, Options);
+        ASSERT_TRUE(initial.has_value());
+        EXPECT_EQ(initial->Pixels[(32 * 64 + 32) * 4], 255);
+        // A valid array Product is CPU-ready but unsupported by the 2D GPU uploader.
+        // Resolve keeps the old red texture; its existence must not mark the new version complete.
+        texture.Kind   = TextureKind::Array2D;
+        texture.Layers = 2;
+        texture.Mips[0].Pixels.resize(8, std::byte {255});
+        for (auto& record : Records)
+            if (record.Metadata.assetID == textureID)
+                record = Store(
+                    textureID, AssetType::Texture, std::get<std::vector<std::byte>>(EncodeTextureProduct(texture)));
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
+        ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
+        EXPECT_FALSE(preview.RenderThumbnail(materialID, Options).has_value());
+        EXPECT_FALSE(preview.Render(materialID, Options).Complete);
+    }
+    TEST_F(MaterialPreviewGL, PreviewReplacementsAreReleasedWithoutBeginFrame)
+    {
+        ShaderData shader;
+        shader.Code          = CompileTestMaterialShader();
+        auto        shaderID = Add(AssetType::Shader, EncodeShaderProduct(shader.Code));
+        TextureData texture;
+        texture.Width = texture.Height = 1;
+        texture.Usage                  = TextureUsage::Data;
+        texture.Mips                   = {{{std::byte {255}, std::byte {0}, std::byte {0}, std::byte {255}}}};
+        auto           textureID       = Add(AssetType::Texture, EncodeTextureProduct(texture));
+        MaterialSource source;
+        source.Shader               = shaderID;
+        source.Parameters           = {{"Tint", {1, 1, 1, 1}}, {"Strength", {1}}};
+        source.Textures["u_Albedo"] = textureID;
+        auto materialID             = Add(AssetType::Material, EncodeMaterialProduct(Resolve(source, &shader)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(materialID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(shaderID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
+        auto&                   cache = *Renderer->GetAssetCache();
+        MaterialPreviewRenderer preview(*Renderer);
+        ASSERT_TRUE(preview.Render(materialID, Options).Complete);
+        // A hidden viewport never calls BeginFrame. Each render entry point must
+        // release unbound replaced objects, including after nested thumbnail guards.
+        for (int path = 0; path < 3; ++path)
+        {
+            SCOPED_TRACE(path);
+            const auto oldProgram = cache.GetShader(shaderID)->GetRendererID();
+            const auto oldBuffer  = cache.GetMaterialBindings(materialID)->Blocks.front().second.GetRendererID();
+            const auto oldTexture = cache.GetTexture(textureID)->GetRenererID();
+            source.Parameters["Strength"] = {0.5f + 0.1f * path};
+            shader.Code            = CompileTestMaterialShader(TestMaterialVertex,
+                                                               R"(#version 450
+layout(set=1,binding=0,std140) uniform Parameters { vec4 Tint; float Strength; int Steps; vec2 Offsets[2]; } p;
+layout(set=1,binding=1) uniform sampler2D u_Albedo;
+layout(location=0) in vec2 v_UV;
+layout(location=0) out vec4 color;
+void main() { color=p.Tint*p.Strength*texture(u_Albedo,v_UV)*vec4(1, )" +
+                                                                   std::to_string(0.9f - 0.1f * path) + ", 1, 1); }\n");
+            texture.Mips[0].Pixels = {std::byte {0}, std::byte(255 - 50 * path), std::byte {0}, std::byte {255}};
+            for (auto& record : Records)
+            {
+                const auto id = record.Metadata.assetID;
+                if (id == shaderID)
+                    record = Store(
+                        id, AssetType::Shader, std::get<std::vector<std::byte>>(EncodeShaderProduct(shader.Code)));
+                if (id == textureID)
+                    record =
+                        Store(id, AssetType::Texture, std::get<std::vector<std::byte>>(EncodeTextureProduct(texture)));
+                if (id == materialID)
+                    record = Store(id,
+                                   AssetType::Material,
+                                   std::get<std::vector<std::byte>>(EncodeMaterialProduct(Resolve(source, &shader))));
+            }
+            ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
+            ASSERT_TRUE(
+                std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(materialID)));
+            ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(shaderID)));
+            ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
+            if (path == 0)
+                ASSERT_TRUE(preview.Render(materialID, Options).Complete);
+            else if (path == 1)
+                ASSERT_TRUE(preview.RenderThumbnail(materialID, Options).has_value());
+            else
+                ASSERT_TRUE(preview.Render(Resolve(source, &shader), &shader, Options).Complete);
+            EXPECT_FALSE(glIsTexture(oldTexture));
+            // Resolved previews own their program/UBOs; only published previews
+            // replace the cache's shader and material bindings.
+            if (path < 2)
+            {
+                EXPECT_FALSE(glIsProgram(oldProgram));
+                EXPECT_FALSE(glIsBuffer(oldBuffer));
+            }
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        }
+    }
+    TEST_F(MaterialPreviewGL, ReimportPreservesPreviouslyBoundProgramsTexturesAndUniformBuffersUntilNextFrame)
+    {
+        ShaderData shader;
+        shader.Code          = CompileTestMaterialShader();
+        auto        shaderID = Add(AssetType::Shader, EncodeShaderProduct(shader.Code));
+        TextureData texture;
+        texture.Width = texture.Height = 1;
+        texture.Usage                  = TextureUsage::Data;
+        texture.Mips                   = {{{std::byte {255}, std::byte {0}, std::byte {0}, std::byte {255}}}};
+        auto           textureID       = Add(AssetType::Texture, EncodeTextureProduct(texture));
+        MaterialSource source;
+        source.Shader               = shaderID;
+        source.Parameters           = {{"Tint", {1, 1, 1, 1}}, {"Strength", {1}}};
+        source.Textures["u_Albedo"] = textureID;
+        auto materialID             = Add(AssetType::Material, EncodeMaterialProduct(Resolve(source, &shader)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(materialID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(shaderID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
+        auto& cache = *Renderer->GetAssetCache();
+        // A preceding scene draw can leave these cache-owned objects bound without holding a CPU Ref.
+        const auto* oldBindings = cache.GetMaterialBindings(materialID);
+        ASSERT_NE(oldBindings, nullptr);
+        const auto* oldShader = cache.GetShader(shaderID);
+        ASSERT_NE(oldShader, nullptr);
+        oldShader->Bind();
+        for (const auto& [binding, buffer] : oldBindings->Blocks)
+            buffer.Bind(oldShader->MaterialBlockPoints().at(binding));
+        ASSERT_TRUE(cache.BindMaterialTextures(*oldShader, *oldBindings));
+        GLint program, ubo, image;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &ubo);
+        glActiveTexture(GL_TEXTURE3);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &image);
+        std::array<float, 4> oldTint;
+        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+        glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(oldTint), oldTint.data());
+        shader.Code               = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
+layout(set=1,binding=0,std140) uniform Parameters { vec4 Tint; float Strength; int Steps; vec2 Offsets[2]; } p;
+layout(set=1,binding=1) uniform sampler2D u_Albedo;
+layout(location=0) in vec2 v_UV;
+layout(location=0) out vec4 color;
+void main() { color=(p.Tint*p.Strength*texture(u_Albedo,v_UV)).bgra; }
+)");
+        source.Parameters["Tint"] = {0, 1, 0, 1};
+        texture.Mips[0].Pixels    = {std::byte {0}, std::byte {255}, std::byte {0}, std::byte {255}};
+        for (auto& record : Records)
+        {
+            auto id = record.Metadata.assetID;
+            if (id == shaderID)
+                record =
+                    Store(id, AssetType::Shader, std::get<std::vector<std::byte>>(EncodeShaderProduct(shader.Code)));
+            if (id == textureID)
+                record = Store(id, AssetType::Texture, std::get<std::vector<std::byte>>(EncodeTextureProduct(texture)));
+            if (id == materialID)
+                record = Store(id,
+                               AssetType::Material,
+                               std::get<std::vector<std::byte>>(EncodeMaterialProduct(Resolve(source, &shader))));
+        }
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
+        ASSERT_TRUE(std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(materialID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(shaderID)));
+        ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
+        MaterialPreviewRenderer preview(*Renderer);
+        auto                    result = preview.Render(materialID, Options);
+        ASSERT_TRUE(result.Complete);
+        GLint restored;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &restored);
+        EXPECT_EQ(restored, program);
+        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &restored);
+        EXPECT_EQ(restored, ubo);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &restored);
+        EXPECT_EQ(restored, image);
+        EXPECT_TRUE(glIsTexture(image));
+        EXPECT_TRUE(glIsProgram(program));
+        EXPECT_TRUE(glIsBuffer(ubo));
+        std::array<float, 4> restoredTint;
+        glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(restoredTint), restoredTint.data());
+        EXPECT_EQ(restoredTint, oldTint);
+        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        glUseProgram(0);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 2, 0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        cache.BeginFrame();
+        // Deferral must be bounded; holding every replaced object forever leaks on each edit/reimport.
+        EXPECT_FALSE(glIsProgram(program));
+        EXPECT_FALSE(glIsTexture(image));
+        EXPECT_FALSE(glIsBuffer(ubo));
     }
 } // namespace

@@ -59,6 +59,10 @@ namespace Kans
     [[nodiscard]] std::variant<std::monostate, AssetError>
     ValidateMaterialShaderInterface(const std::vector<ShaderStageReflection>& reflection);
 
+    [[nodiscard]] std::variant<std::monostate, AssetError>
+    ValidateMaterialParameterGroups(const std::vector<MaterialParameterGroup>& groups,
+                                    const std::vector<ShaderStageReflection>&  reflection);
+
     // Material-set descriptors of a validated program, merged across stages and
     // ordered by binding.
     [[nodiscard]] std::vector<ShaderResourceBinding>

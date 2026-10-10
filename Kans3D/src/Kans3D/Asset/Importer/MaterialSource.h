@@ -48,6 +48,8 @@ namespace Kans
         // Values used for parameters a source does not set (declared by the Shader's
         // .shaderprog `default` lines); other parameters are zero.
         std::map<std::string, std::vector<double>> Defaults;
+        // Ordered declarations; Parameters/Textures also retain ungrouped members.
+        std::vector<MaterialParameterGroup> Groups;
     };
 
     [[nodiscard]] std::variant<MaterialSource, AssetError> ParseMaterialSource(const std::byte* bytes, size_t size);

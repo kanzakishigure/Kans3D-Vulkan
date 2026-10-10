@@ -28,7 +28,7 @@ namespace Kans
         while (next())
         {
             if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0 || line.rfind("hint ", 0) == 0 ||
-                line.rfind("texture ", 0) == 0)
+                line.rfind("texture ", 0) == 0 || line.rfind("group ", 0) == 0)
                 continue;
             const auto split = line.find('=');
             if (split == std::string::npos)
@@ -153,6 +153,46 @@ namespace Kans
                            role == "normal" ? ShaderTextureFallback::Normal :
                            role == "black"  ? ShaderTextureFallback::Black :
                                               ShaderTextureFallback::White);
+        }
+        return result;
+    }
+    std::variant<std::vector<MaterialParameterGroup>, AssetError> ParseShaderProgramGroups(const std::string& text)
+    {
+        if (text.size() > 65536 || text.find('\0') != std::string::npos)
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Shader program text budget"};
+        std::vector<MaterialParameterGroup> result;
+        std::set<std::string>               names, members;
+        std::istringstream                  lines(text);
+        std::string                         line;
+        while (std::getline(lines, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.rfind("group ", 0) != 0)
+                continue;
+            const auto split = line.find('=');
+            if (split == std::string::npos)
+                return AssetError {AssetErrorCode::InvalidData, "Shader group requires '='"};
+            auto       name  = line.substr(6, split - 6);
+            const auto first = name.find_first_not_of(" \t"), last = name.find_last_not_of(" \t");
+            if (first == std::string::npos)
+                return AssetError {AssetErrorCode::InvalidData, "Shader group requires a name"};
+            name = name.substr(first, last - first + 1);
+            if (name.size() > 256 || !names.insert(name).second ||
+                std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32 || c == 127; }))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate Shader group name"};
+            MaterialParameterGroup group {name, {}};
+            std::istringstream     input(line.substr(split + 1));
+            std::string            member;
+            while (input >> member)
+            {
+                if (member.size() > 256 || !members.insert(member).second)
+                    return AssetError {AssetErrorCode::InvalidData, "Repeated Shader group member '" + member + "'"};
+                group.Members.push_back(member);
+            }
+            if (group.Members.empty())
+                return AssetError {AssetErrorCode::InvalidData, "Shader group requires members"};
+            result.push_back(std::move(group));
         }
         return result;
     }

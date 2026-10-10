@@ -2,12 +2,13 @@
 #include "ShaderProduct.h"
 #include <cmath>
 #include <cstring>
+#include "Kans3D/Asset/Runtime/MaterialShaderInterface.h"
 namespace Kans
 {
     namespace
     {
-        // v2 defaults, v3 hints, v4 sampler fallbacks. Readers retain v1-v3.
-        constexpr uint32_t Magic = 0x4448534b, Version = 4, TargetVulkan12 = 1;
+        // v2 defaults, v3 hints, v4 sampler fallbacks, v5 ordered groups. Readers retain v1-v4.
+        constexpr uint32_t Magic = 0x4448534b, Version = 5, TargetVulkan12 = 1;
         constexpr size_t   MaximumDefaults = 4096, MaximumDefaultValues = 4096;
         constexpr size_t   MaximumBytes = 16 * 1024 * 1024;
         void               Write(std::vector<std::byte>& bytes, uint32_t word)
@@ -50,10 +51,12 @@ namespace Kans
                     (hint.Type == ShaderParameterHint::Kind::Range && hint.Min < hint.Max));
         }
     } // namespace
-    std::variant<std::vector<std::byte>, AssetError> EncodeShaderProduct(const ShaderProgramCode&       code,
-                                                                         const ShaderParameterDefaults& defaults,
-                                                                         const ShaderParameterHints&    hints,
-                                                                         const ShaderTextureFallbacks&  fallbacks)
+    std::variant<std::vector<std::byte>, AssetError>
+    EncodeShaderProduct(const ShaderProgramCode&                   code,
+                        const ShaderParameterDefaults&             defaults,
+                        const ShaderParameterHints&                hints,
+                        const ShaderTextureFallbacks&              fallbacks,
+                        const std::vector<MaterialParameterGroup>& groups)
     {
         if (hints.size() > MaximumDefaults)
             return AssetError {AssetErrorCode::InvalidArgument, "Too many Shader parameter hints"};
@@ -119,6 +122,25 @@ namespace Kans
             for (auto c : name)
                 bytes.push_back(static_cast<std::byte>(c));
         }
+        auto validGroups =
+            ValidateMaterialParameterGroups(groups, std::get<std::vector<ShaderStageReflection>>(inspected));
+        if (auto* error = std::get_if<AssetError>(&validGroups))
+            return *error;
+        const auto writeString = [&](const std::string& text) {
+            Write(bytes, uint32_t(text.size()));
+            for (auto c : text)
+                bytes.push_back(static_cast<std::byte>(c));
+        };
+        Write(bytes, uint32_t(groups.size()));
+        for (const auto& group : groups)
+        {
+            writeString(group.Name);
+            Write(bytes, uint32_t(group.Members.size()));
+            for (const auto& member : group.Members)
+                writeString(member);
+        }
+        if (bytes.size() > MaximumBytes)
+            return AssetError {AssetErrorCode::InvalidArgument, "Shader Product exceeds byte budget"};
         return bytes;
     }
     std::variant<ShaderData, AssetError> DecodeShaderProduct(const std::byte* bytes, size_t size)
@@ -227,12 +249,51 @@ namespace Kans
                     return AssetError {AssetErrorCode::InvalidData, "Invalid Shader texture fallback"};
             }
         }
+        if (version >= 5)
+        {
+            const auto remaining  = [&] { return size - size_t(cursor - bytes); };
+            const auto readString = [&](std::string& text) {
+                if (remaining() < 4)
+                    return false;
+                const auto length = Read(cursor);
+                if (!length || length > 256 || length > remaining())
+                    return false;
+                text.assign(reinterpret_cast<const char*>(cursor), length);
+                cursor += length;
+                return true;
+            };
+            if (remaining() < 4)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Shader groups"};
+            const auto count = Read(cursor);
+            if (count > 4096)
+                return AssetError {AssetErrorCode::InvalidData, "Too many Shader groups"};
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                MaterialParameterGroup group;
+                if (!readString(group.Name) || remaining() < 4)
+                    return AssetError {AssetErrorCode::InvalidData, "Truncated Shader group"};
+                const auto members = Read(cursor);
+                if (!members || members > 4096)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader group members"};
+                for (uint32_t j = 0; j < members; ++j)
+                {
+                    std::string member;
+                    if (!readString(member))
+                        return AssetError {AssetErrorCode::InvalidData, "Truncated Shader group member"};
+                    group.Members.push_back(std::move(member));
+                }
+                result.Groups.push_back(std::move(group));
+            }
+        }
         if (size_t(cursor - bytes) != size)
             return AssetError {AssetErrorCode::InvalidData, "Trailing Shader Product bytes"};
         auto reflected = InspectShaderProgram(result.Code);
         if (auto* error = std::get_if<AssetError>(&reflected))
             return *error;
         result.Reflection = std::get<std::vector<ShaderStageReflection>>(std::move(reflected));
+        auto validGroups  = ValidateMaterialParameterGroups(result.Groups, result.Reflection);
+        if (auto* error = std::get_if<AssetError>(&validGroups))
+            return *error;
         return result;
     }
 } // namespace Kans
