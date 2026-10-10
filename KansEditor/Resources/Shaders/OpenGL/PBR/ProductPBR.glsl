@@ -55,6 +55,8 @@ uniform sampler2D U_OcclusionTexture;
 uniform sampler2D U_EmissiveTexture;
 uniform int       U_HasNormalTexture;
 uniform int       U_HasEmissiveTexture;
+// Editor view: 0 lit, 1 base color, 2 world normals.
+uniform int       U_DebugView;
 
 vec3 GetNormal()
 {
@@ -147,4 +149,8 @@ void main()
     color     = pow(color, vec3(1.0 / 2.2));
     // Opaque pipeline: texture alpha is often a mask, not coverage.
     FragColor = vec4(color, 1.0);
+    if (U_DebugView == 1)
+        FragColor = vec4(pow(albedo, vec3(1.0 / 2.2)), 1.0);
+    else if (U_DebugView == 2)
+        FragColor = vec4(N * 0.5 + 0.5, 1.0);
 }

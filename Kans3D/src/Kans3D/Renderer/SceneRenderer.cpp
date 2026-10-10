@@ -1,4 +1,5 @@
 #include "kspch.h"
+#include <glad/glad.h>
 #include "Kans3D/Renderer/SceneRenderer.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/Renderer/Renderer.h"
@@ -32,6 +33,14 @@ namespace Kans
         geometry->Unbind();
     }
 
+    void SceneRenderer::DrawMesh(const GpuMesh& mesh)
+    {
+        mesh.VertexArray->Bind();
+        OpenGLRenderCommand::DrawIndexed(mesh.VertexArray);
+        ++m_Stats.DrawCalls;
+        m_Stats.Triangles += mesh.IndexCount / 3;
+    }
+
     void SceneRenderer::SetAssetManager(AssetManager* assets)
     {
         m_AssetCache = assets ? CreateScope<RenderAssetCache>(*assets) : nullptr;
@@ -51,6 +60,13 @@ namespace Kans
                                   m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() *
                                       m_SceneInfo.sceneCamera.viewMatrix);
         shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
+        shader->UploadUniformInt("U_DebugView",
+                                 m_ViewMode == SceneViewMode::BaseColor ? 1 :
+                                 m_ViewMode == SceneViewMode::Normals   ? 2 :
+                                                                          0);
+        const bool wireframe = m_ViewMode == SceneViewMode::Wireframe;
+        if (wireframe)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         for (int i = 0; i < 4; ++i)
         {
             shader->UploadUniform3Float("lightPositions[" + std::to_string(i) + "]", m_SceneInfo.pointLight.Position);
@@ -90,7 +106,9 @@ namespace Kans
             const GpuMaterial* material   = materialID.IsValid() ? m_AssetCache->GetMaterial(materialID) : nullptr;
             // Shader materials draw with their own program; until it is ready (or if
             // it fails) the part is shaded with the default material.
-            if (material && material->Shader.IsValid())
+            // Debug views shade every part with the engine PBR shader.
+            const bool debugView = m_ViewMode == SceneViewMode::BaseColor || m_ViewMode == SceneViewMode::Normals;
+            if (material && material->Shader.IsValid() && !debugView)
             {
                 if (m_AssetCache->GetMaterialBindings(materialID))
                 {
@@ -110,11 +128,12 @@ namespace Kans
             bindOrWhite(material->MetallicRoughnessTexture, 2);
             bindOrWhite(material->OcclusionTexture, 3);
             shader->UploadUniformInt("U_HasEmissiveTexture", bindOrWhite(material->EmissiveTexture, 4));
-            mesh->VertexArray->Bind();
-            OpenGLRenderCommand::DrawIndexed(mesh->VertexArray);
+            DrawMesh(*mesh);
         }
         if (!shaderDraws.empty())
             DrawShaderMaterials(shaderDraws);
+        if (wireframe)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     void SceneRenderer::DrawShaderMaterials(const std::vector<ShaderDraw>& draws)
@@ -166,8 +185,7 @@ namespace Kans
                         texture = m_AssetCache->GetTexture(id);
                 (texture ? texture : white)->Bind(unit);
             }
-            draw.Mesh->VertexArray->Bind();
-            OpenGLRenderCommand::DrawIndexed(draw.Mesh->VertexArray);
+            DrawMesh(*draw.Mesh);
         }
     }
 
@@ -191,8 +209,7 @@ namespace Kans
             if (const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh))
             {
                 shader->UploadUniformMat4("U_Transform", transform * instance.Transform);
-                mesh->VertexArray->Bind();
-                OpenGLRenderCommand::DrawIndexed(mesh->VertexArray);
+                DrawMesh(*mesh);
             }
     }
 
@@ -418,6 +435,7 @@ namespace Kans
         CORE_ASSERT(m_RenderScene, "Render a invalid Scene with nullptr handle");
         m_Active    = true;
         m_SceneInfo = info;
+        m_Stats     = {};
         if (m_AssetCache)
             m_AssetCache->BeginFrame();
         m_FrameBuffer->Bind();

@@ -54,6 +54,12 @@ namespace Kans
         std::vector<MeshDraw> CollectDraws(std::vector<UUID>& entities, Entity root = {});
         void                  PickAt(ImVec2 mouse);
         void Render();
+        // Icons for lights and cameras, camera frustums and light directions.
+        void DrawSceneOverlays();
+        void DrawViewCube();
+        void DrawStatsOverlay();
+        // Projects a world point to the screen; false when behind the camera.
+        bool ToScreen(const glm::vec3& point, ImVec2& screen) const;
         void HandleNavigation();
         void HandleShortcuts();
         void DrawToolbar();
@@ -72,6 +78,12 @@ namespace Kans
         bool       m_Hovered = false, m_Focused = false, m_ImageHovered = false;
         Navigation m_Navigation = Navigation::None;
         bool       m_Playing = false, m_UseEditorCameraInPlay = false;
+
+        SceneViewMode m_ViewMode  = SceneViewMode::Lit;
+        bool          m_ShowIcons = true, m_ShowStats = false;
+        // Clickable overlay icons of this frame, and the view cube's area.
+        std::vector<std::pair<ImVec2, UUID>> m_Icons;
+        ImVec2                               m_CubeMin {}, m_CubeMax {};
 
         // Gizmo: ImGuizmo operation (-1 = none) and mode (0 = local, 1 = world).
         int   m_GizmoType  = 7;

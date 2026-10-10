@@ -29,6 +29,22 @@ namespace Kans
     };
 
     class Scene;
+
+    // How the editor viewport shades models.
+    enum class SceneViewMode
+    {
+        Lit,
+        BaseColor,
+        Normals,
+        Wireframe,
+    };
+
+    struct SceneRenderStats
+    {
+        uint32_t DrawCalls = 0;
+        uint64_t Triangles = 0;
+    };
+
     class SceneRenderer : public RefCounter
     {
     public:
@@ -58,6 +74,9 @@ namespace Kans
                                   std::vector<MeshDraw>&       draws);
         uint32_t Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
         void     SetHighlight(std::vector<MeshDraw> draws) { m_Highlight = std::move(draws); }
+        void     SetViewMode(SceneViewMode mode) { m_ViewMode = mode; }
+        // Counts of the last rendered scene.
+        const SceneRenderStats& GetStats() const { return m_Stats; }
 
         void                  Init();
         void                  PrepareEnvironment();
@@ -77,6 +96,8 @@ namespace Kans
 
     private:
         void DrawGeometry(const Ref<VertexArray>& geometry);
+        // Draws a mesh and counts it in the stats.
+        void DrawMesh(const GpuMesh& mesh);
         struct ShaderDraw
         {
             const GpuMesh* Mesh;
@@ -101,6 +122,8 @@ namespace Kans
         EntityPicker                    m_Picker;
         SelectionOutline                m_Outline;
         std::vector<MeshDraw>           m_Highlight;
+        SceneViewMode                   m_ViewMode = SceneViewMode::Lit;
+        SceneRenderStats                m_Stats;
         // Engine data (set 0) of Shader materials, created on first use.
         Scope<GpuUniformBuffer>               m_FrameUniforms;
         Scope<GpuUniformBuffer>               m_ObjectUniforms;

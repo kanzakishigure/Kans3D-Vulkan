@@ -1,5 +1,6 @@
 #include "ViewportPanel.h"
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui_internal.h>
 #include "ImGuizmo.h"
@@ -50,8 +51,11 @@ namespace Kans
         ImGui::Image(reinterpret_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
         m_ImageHovered = ImGui::IsItemHovered();
         AcceptDrop();
+        DrawSceneOverlays();
         DrawGizmo();
         DrawToolbar();
+        DrawViewCube();
+        DrawStatsOverlay();
         // After the overlays, so clicks on their widgets do not navigate.
         HandleNavigation();
         HandleShortcuts();
@@ -87,6 +91,7 @@ namespace Kans
     void ViewportPanel::Render()
     {
         const TimeStep step(ImGui::GetIO().DeltaTime);
+        m_Renderer->SetViewMode(UsesSceneCamera() ? SceneViewMode::Lit : m_ViewMode);
         if (UsesSceneCamera())
             m_RenderScene->OnRenderRuntime(m_Renderer, step);
         else
@@ -118,6 +123,20 @@ namespace Kans
 
     void ViewportPanel::PickAt(ImVec2 mouse)
     {
+        // Overlay icons (lights, cameras) take precedence over meshes.
+        float best = 14.0f * 14.0f;
+        UUID  icon = 0;
+        for (const auto& [center, id] : m_Icons)
+        {
+            const float dx = center.x - mouse.x, dy = center.y - mouse.y;
+            if (dx * dx + dy * dy < best)
+                best = dx * dx + dy * dy, icon = id;
+        }
+        if (icon)
+        {
+            m_Hierarchy.SetSelected(m_Scene->GetEntityByUUID(icon));
+            return;
+        }
         std::vector<UUID> entities;
         const auto        draws = CollectDraws(entities);
         // The framebuffer's origin is its bottom-left corner.
@@ -141,7 +160,8 @@ namespace Kans
     void ViewportPanel::HandleNavigation()
     {
         const ImGuiIO& io        = ImGui::GetIO();
-        const bool     overImage = m_ImageHovered && !ImGui::IsAnyItemHovered();
+        const bool     overCube  = ImGui::IsMouseHoveringRect(m_CubeMin, m_CubeMax, false);
+        const bool     overImage = m_ImageHovered && !ImGui::IsAnyItemHovered() && !overCube;
         if (m_Navigation == Navigation::None && overImage)
         {
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
@@ -240,6 +260,124 @@ namespace Kans
         };
         visit(selected);
         m_Camera.Focus(bounds.Center(), std::max(bounds.Radius(), 0.5f));
+    }
+
+    // ---------------------------------------------------------------------- overlays
+
+    bool ViewportPanel::ToScreen(const glm::vec3& point, ImVec2& screen) const
+    {
+        const glm::vec4 clip = ViewProjection() * glm::vec4(point, 1.0f);
+        if (clip.w <= 1e-4f)
+            return false;
+        const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        screen = {m_Min.x + (ndc.x * 0.5f + 0.5f) * (m_Max.x - m_Min.x),
+                  m_Min.y + (0.5f - ndc.y * 0.5f) * (m_Max.y - m_Min.y)};
+        return true;
+    }
+
+    void ViewportPanel::DrawSceneOverlays()
+    {
+        m_Icons.clear();
+        if (!m_ShowIcons || UsesSceneCamera())
+            return;
+        ImDrawList*  draw     = ImGui::GetWindowDrawList();
+        const UUID   selected = m_Hierarchy.GetSelected() ? m_Hierarchy.GetSelected().GetUUID() : UUID(0);
+        const ImU32  line     = IM_COL32(230, 230, 230, 170);
+        const ImU32  accent   = IM_COL32(255, 160, 40, 255);
+        const auto   segment  = [&](const glm::vec3& a, const glm::vec3& b, ImU32 color) {
+            ImVec2 sa, sb;
+            if (ToScreen(a, sa) && ToScreen(b, sb))
+                draw->AddLine(sa, sb, color, 1.5f);
+        };
+        draw->PushClipRect(m_Min, m_Max, true);
+        std::function<void(Entity)> visit = [&](Entity entity) {
+            for (Entity child : m_Scene->GetChildren(entity))
+                visit(child);
+            const char* icon = entity.HasComponent<CameraComponent>()     ? ICON_FA_VIDEO :
+                               entity.HasComponent<DirLightComponent>()   ? ICON_FA_SUN :
+                               entity.HasComponent<PointLightComponent>() ? ICON_FA_LIGHTBULB :
+                                                                            nullptr;
+            if (!icon)
+                return;
+            const glm::mat4 world  = m_Scene->GetWorldTransform(entity);
+            const glm::vec3 origin = glm::vec3(world[3]);
+            const bool      chosen = entity.GetUUID() == selected;
+            const ImU32     color  = chosen ? accent : line;
+            if (entity.HasComponent<CameraComponent>())
+            {
+                // Frustum to a short display distance.
+                auto&           camera = entity.GetComponent<CameraComponent>().SceneCamera;
+                const float     aspect = std::max(camera.GetAspectRatio(), 0.01f);
+                const glm::mat4 projection =
+                    camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective ?
+                        glm::perspective(glm::radians(camera.GetPerspectiveVerticalFOV()), aspect, 0.1f, 2.0f) :
+                        glm::ortho(-camera.GetOrthographicSize() * aspect * 0.5f,
+                                   camera.GetOrthographicSize() * aspect * 0.5f,
+                                   -camera.GetOrthographicSize() * 0.5f,
+                                   camera.GetOrthographicSize() * 0.5f,
+                                   0.0f,
+                                   2.0f);
+                const glm::mat4 inverse = world * glm::inverse(projection);
+                glm::vec3       corners[8];
+                for (int i = 0; i < 8; ++i)
+                {
+                    const glm::vec4 point = inverse * glm::vec4((i & 1) ? 1 : -1, (i & 2) ? 1 : -1, (i & 4) ? 1 : -1, 1);
+                    corners[i]            = glm::vec3(point) / point.w;
+                }
+                const int edges[12][2] = {{0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7},
+                                          {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+                for (const auto& edge : edges)
+                    segment(corners[edge[0]], corners[edge[1]], color);
+            }
+            if (entity.HasComponent<DirLightComponent>())
+            {
+                // The light's direction, rotated with the entity.
+                glm::vec3 direction = entity.GetComponent<DirLightComponent>().Direction;
+                direction = glm::length(direction) > 1e-4f ? glm::normalize(glm::mat3(world) * direction) : glm::vec3(0, -1, 0);
+                segment(origin, origin + direction * 1.5f, color);
+            }
+            ImVec2 center;
+            if (!ToScreen(origin, center))
+                return;
+            draw->AddCircleFilled(center, 12.0f, chosen ? IM_COL32(90, 55, 10, 230) : IM_COL32(25, 25, 25, 200));
+            draw->AddCircle(center, 12.0f, color, 0, 1.5f);
+            const ImVec2 size = ImGui::CalcTextSize(icon);
+            draw->AddText({center.x - size.x * 0.5f, center.y - size.y * 0.5f}, color, icon);
+            m_Icons.emplace_back(center, entity.GetUUID());
+        };
+        for (Entity entity : m_Scene->GetRootEntities())
+            visit(entity);
+        draw->PopClipRect();
+    }
+
+    void ViewportPanel::DrawViewCube()
+    {
+        m_CubeMin = m_CubeMax = {};
+        if (UsesSceneCamera())
+            return;
+        const ImVec2 size(96.0f, 96.0f);
+        const ImVec2 position(m_Max.x - size.x - 10.0f, m_Min.y + 46.0f);
+        m_CubeMin = position;
+        m_CubeMax = {position.x + size.x, position.y + size.y};
+        glm::mat4 view = m_Camera.GetViewMatrix();
+        ImGuizmo::SetDrawlist();
+        ImGuizmo::ViewManipulate(glm::value_ptr(view), m_Camera.GetDistance(), position, size, IM_COL32(0, 0, 0, 0));
+        if (view != m_Camera.GetViewMatrix())
+            m_Camera.SetViewMatrix(view);
+    }
+
+    void ViewportPanel::DrawStatsOverlay()
+    {
+        if (!m_ShowStats)
+            return;
+        const auto&    stats = m_Renderer->GetStats();
+        const ImGuiIO& io    = ImGui::GetIO();
+        OverlayGroup({m_Min.x + 10.0f, m_Max.y - 86.0f}, [&] {
+            ImGui::Text("%.0f FPS  %.2f ms", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+            ImGui::Text("%u x %u", m_Size.x, m_Size.y);
+            ImGui::Text("%u draw calls", stats.DrawCalls);
+            ImGui::Text("%llu triangles", static_cast<unsigned long long>(stats.Triangles));
+        });
     }
 
     // ---------------------------------------------------------------------- gizmo and toolbar
@@ -386,9 +524,20 @@ namespace Kans
                 ImGui::OpenPopup("##ViewOptions");
             if (ImGui::BeginPopup("##ViewOptions"))
             {
+                ImGui::TextDisabled("Display");
+                const std::pair<SceneViewMode, const char*> modes[] = {{SceneViewMode::Lit, "Lit"},
+                                                                       {SceneViewMode::BaseColor, "Base color"},
+                                                                       {SceneViewMode::Normals, "Normals"},
+                                                                       {SceneViewMode::Wireframe, "Wireframe"}};
+                for (const auto& [mode, name] : modes)
+                    if (ImGui::RadioButton(name, m_ViewMode == mode))
+                        m_ViewMode = mode;
+                ImGui::Separator();
                 auto  resource = m_RenderScene->GetRenderResource();
                 auto& state    = resource.Piplinestate;
                 const auto label = [](const char* icon, const char* text) { return std::string(icon) + "  " + text; };
+                ImGui::Checkbox(label(ICON_FA_LIGHTBULB, "Light and camera icons").c_str(), &m_ShowIcons);
+                ImGui::Checkbox(label(ICON_FA_CHART_LINE, "Statistics").c_str(), &m_ShowStats);
                 ImGui::Checkbox(label(ICON_FA_BORDER_ALL, "Grid").c_str(), &state.EnableGridShader);
                 ImGui::Checkbox(label(ICON_FA_DRAW_POLYGON, "Outline (all models)").c_str(), &state.EnableOutline);
                 ImGui::Checkbox(label(ICON_FA_VECTOR_SQUARE, "Stencil (all models)").c_str(), &state.EnableStencil);
