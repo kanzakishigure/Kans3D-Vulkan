@@ -22,6 +22,7 @@ add_executable(Kans3DTests
     ModelProductTests.cpp
     SceneProductModelTests.cpp
     SceneHierarchyTests.cpp
+    SceneHistoryTests.cpp
     EditorAssetImportServiceTests.cpp
     ModelImporterTests.cpp
     AssetRegistryTests.cpp
@@ -50,6 +51,7 @@ add_executable(Kans3DTests
     ../KansEditor/src/EditorAssetCachePath.cpp
     ../KansEditor/src/Panels/ContentBrowser/BrowserModel.cpp
     ../KansEditor/src/Panels/ContentBrowser/AssetFileOperations.cpp
+    ../KansEditor/src/SceneHistory.cpp
 )
 target_link_libraries(Kans3DTests PRIVATE Kans3D GTest::gtest_main)
 target_compile_features(Kans3DTests PRIVATE cxx_std_17)

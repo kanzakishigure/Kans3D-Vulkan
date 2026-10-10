@@ -65,3 +65,6 @@
 #define ICON_FA_SUN                    "\xef\x86\x85" // U+F185
 #define ICON_FA_LIGHTBULB              "\xef\x83\xab" // U+F0EB
 #define ICON_FA_CODE                   "\xef\x84\xa1" // U+F121
+#define ICON_FA_UNDO                   "\xef\x83\xa2" // U+F0E2
+#define ICON_FA_REDO                   "\xef\x80\x9e" // U+F01E
+#define ICON_FA_CLOCK_ROTATE_LEFT      "\xef\x87\x9a" // U+F1DA

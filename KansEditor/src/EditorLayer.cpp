@@ -107,6 +107,7 @@ namespace Kans
             }
 
             m_ActiveScene->OnRuntimeStart();
+            m_History.Reset(*m_ActiveScene);
         }
 
         // post Init Renderer pipeline
@@ -195,6 +196,7 @@ namespace Kans
                 // Dependencies can be published even when the root build fails.
                 Record(RefreshProductAssets());
                 PlacePendingModel();
+                m_History.Record(*m_ActiveScene);
             }
         }
 

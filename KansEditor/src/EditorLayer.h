@@ -11,6 +11,7 @@
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
 #include "Panels/PropertiesPanel.h"
+#include "SceneHistory.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
 namespace Kans
@@ -74,6 +75,10 @@ namespace Kans
         void DrawGizmo();
         void DrawStats();
         void HandleShortcuts();
+        // Records a history step once an interaction that may have edited the scene ends.
+        void TrackSceneEdits();
+        void UndoScene(int steps = 1);
+        void RedoScene(int steps = 1);
         void OpenImporter(const std::filesystem::path& file);
         void OpenMaterial(const std::filesystem::path& file);
         void CreateMaterial(const std::filesystem::path& directory);
@@ -90,6 +95,9 @@ namespace Kans
         std::string            m_SceneDialogError;
         // Last editor error, shown in the main toolbar until dismissed.
         std::string m_SceneFileError;
+
+        SceneHistory m_History;
+        bool         m_EditPending = false;
 
         Scope<EditorAssetImportService> m_AssetImports;
         Scope<AssetManager>             m_Assets;

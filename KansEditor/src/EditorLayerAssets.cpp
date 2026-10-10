@@ -246,6 +246,8 @@ namespace Kans
         m_CameraNavigating   = false;
         m_EditorCamera.resetMotion();
         m_ActiveScene->OnRuntimeStart();
+        m_History.Reset(*m_ActiveScene);
+        m_EditPending = false;
         return std::monostate {};
     }
 
@@ -288,6 +290,7 @@ namespace Kans
         if (const auto* error = std::get_if<AssetError>(&saved))
             return *error;
         m_ScenePath = std::move(fullPath);
+        m_History.MarkSaved();
         return std::monostate {};
     }
 

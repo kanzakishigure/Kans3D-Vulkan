@@ -141,6 +141,46 @@ namespace Kans
         m_ViewportHovered = false;
         m_Panels.Draw();
         Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportFocused || m_ViewportHovered);
+        TrackSceneEdits();
+    }
+
+    void EditorLayer::TrackSceneEdits()
+    {
+        if (!m_ActiveScene)
+            return;
+        // Edits come from user input; record once the interaction has ended
+        // (drags released, text fields left, gizmo let go), so one drag is one step.
+        const ImGuiIO& io = ImGui::GetIO();
+        for (int button = 0; button < IM_ARRAYSIZE(io.MouseReleased); ++button)
+            m_EditPending |= io.MouseReleased[button];
+        for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END && !m_EditPending; ++key)
+            m_EditPending |= ImGui::IsKeyReleased(ImGuiKey(key));
+        if (m_EditPending && !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing() && !ImGui::IsAnyMouseDown())
+        {
+            m_History.Record(*m_ActiveScene);
+            m_EditPending = false;
+        }
+    }
+
+    void EditorLayer::UndoScene(int steps)
+    {
+        if (!m_ActiveScene)
+            return;
+        // Pending changes become a step first, so they can be undone too.
+        m_History.Record(*m_ActiveScene);
+        m_EditPending = false;
+        for (int i = 0; i < steps && m_History.Undo(*m_ActiveScene); ++i)
+            ;
+    }
+
+    void EditorLayer::RedoScene(int steps)
+    {
+        if (!m_ActiveScene)
+            return;
+        m_History.Record(*m_ActiveScene);
+        m_EditPending = false;
+        for (int i = 0; i < steps && m_History.Redo(*m_ActiveScene); ++i)
+            ;
     }
 
     void EditorLayer::HandleShortcuts()
@@ -163,6 +203,15 @@ namespace Kans
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Space, false))
                 m_Panels.Toggle(PanelID::ContentBrowser);
+            if (ImGui::IsKeyPressed(ImGuiKey_Z, true))
+            {
+                if (io.KeyShift)
+                    RedoScene();
+                else
+                    UndoScene();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Y, true))
+                RedoScene();
             return;
         }
         // Gizmo tools while working in the viewport (not while flying the camera).
@@ -198,6 +247,45 @@ namespace Kans
             ImGui::Separator();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_XMARK, "Exit").c_str()))
                 Application::Get().Close();
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Edit"))
+        {
+            const auto undo = m_History.UndoLabels();
+            const auto redo = m_History.RedoLabels();
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_UNDO, undo.empty() ? "Undo" : ("Undo " + undo.front()).c_str()).c_str(),
+                                "Ctrl+Z",
+                                false,
+                                !undo.empty()))
+                UndoScene();
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_REDO, redo.empty() ? "Redo" : ("Redo " + redo.front()).c_str()).c_str(),
+                                "Ctrl+Y",
+                                false,
+                                !redo.empty()))
+                RedoScene();
+            ImGui::Separator();
+            // Jump several steps at once.
+            if (ImGui::BeginMenu(MenuLabel(ICON_FA_CLOCK_ROTATE_LEFT, "History").c_str(), !undo.empty() || !redo.empty()))
+            {
+                for (size_t i = redo.size(); i-- > 0;)
+                {
+                    ImGui::PushID(int(1000 + i));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                    if (ImGui::MenuItem(redo[i].c_str()))
+                        RedoScene(int(i + 1));
+                    ImGui::PopStyleColor();
+                    ImGui::PopID();
+                }
+                ImGui::MenuItem(ICON_FA_CHECK "  Current state", nullptr, true, false);
+                for (size_t i = 0; i < undo.size(); ++i)
+                {
+                    ImGui::PushID(int(i));
+                    if (ImGui::MenuItem(undo[i].c_str()))
+                        UndoScene(int(i + 1));
+                    ImGui::PopID();
+                }
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Assets"))
@@ -240,6 +328,18 @@ namespace Kans
         if (ToolButton(ICON_FA_FLOPPY_DISK, "Save scene (Ctrl+S)"))
             SaveCurrentScene();
         ToolSeparator();
+        {
+            const auto undo = m_History.UndoLabels();
+            const auto redo = m_History.RedoLabels();
+            const auto undoTip = undo.empty() ? std::string("Nothing to undo") : "Undo " + undo.front() + " (Ctrl+Z)";
+            const auto redoTip = redo.empty() ? std::string("Nothing to redo") : "Redo " + redo.front() + " (Ctrl+Y)";
+            if (ToolButton(ICON_FA_UNDO, undoTip.c_str(), false, !undo.empty()))
+                UndoScene();
+            ImGui::SameLine();
+            if (ToolButton(ICON_FA_REDO, redoTip.c_str(), false, !redo.empty()))
+                RedoScene();
+        }
+        ToolSeparator();
         // Assets
         if (ToolButton(ICON_FA_FILE_IMPORT, "Asset importer", m_Panels.IsOpen(PanelID::AssetImporter)))
             m_Panels.Toggle(PanelID::AssetImporter);
@@ -280,6 +380,8 @@ namespace Kans
         // Right side: scene name, import status and the last error.
         std::string status = ICON_FA_CUBE "  " + (m_ScenePath.empty() ? std::string("Untitled scene") :
                                                                          m_ScenePath.filename().u8string());
+        if (m_History.IsModified())
+            status += " *";
         bool importing = false;
         if (m_AssetImports)
             if (auto snapshot = m_AssetImports->GetSnapshot();

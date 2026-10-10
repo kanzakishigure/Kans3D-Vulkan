@@ -10,6 +10,7 @@ namespace Kans
     class RenderScene;
     class SceneRenderer;
     class Entity;
+    struct SceneSnapshot;
 
     using EntityMap = std::unordered_map<UUID, Entity>;
 
@@ -49,6 +50,11 @@ namespace Kans
         void SetWorldTransform(Entity entity, const glm::mat4& world);
         // Copies the entity with its children (new IDs), placed right after it.
         Entity DuplicateEntity(Entity entity);
+
+        // ---- undo/redo (SceneSnapshot.h) ----
+        SceneSnapshot Capture() const;
+        // Replaces every entity with the snapshot's; UUIDs are preserved.
+        void Restore(const SceneSnapshot& snapshot);
 
         void OnRuntimeStart();
         void OnRuntimeStop();
