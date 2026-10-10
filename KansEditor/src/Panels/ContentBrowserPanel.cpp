@@ -9,6 +9,7 @@
 #include "Kans3D/Editor/EditorResources.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "UI/EditorIcons.h"
+#include "UI/PropertyGrid.h"
 
 namespace Kans
 {
@@ -1092,7 +1093,9 @@ namespace Kans
             if (auto texture = m_Thumbnails.Get(path, entry.Modified, 512))
             {
                 const float w = float(texture->GetWidth()), h = float(texture->GetHeight());
-                const float scale = std::min(width / w, 260.0f / h);
+                // Leave room for the details below in short panels.
+                const float limit = std::clamp(ImGui::GetContentRegionAvail().y * 0.4f, 64.0f, 260.0f);
+                const float scale = std::min(width / w, limit / h);
                 ImGui::Image(reinterpret_cast<ImTextureID>(uintptr_t(texture->GetRenererID())),
                              {w * scale, h * scale},
                              {0, 1},
@@ -1116,24 +1119,14 @@ namespace Kans
         }
 
         ImGui::Spacing();
-        if (ImGui::CollapsingHeader("Details", ImGuiTreeNodeFlags_DefaultOpen) &&
-            ImGui::BeginTable("##Details", 2, ImGuiTableFlags_SizingFixedFit))
+        if (ImGui::CollapsingHeader("Details", ImGuiTreeNodeFlags_DefaultOpen) && PropertyGrid::Begin("##Details", 72.0f))
         {
-            const auto row = [](const char* key, const std::string& value) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextDisabled("%s", key);
-                ImGui::TableSetColumnIndex(1);
-                ImGui::PushTextWrapPos(0.0f);
-                ImGui::TextUnformatted(value.c_str());
-                ImGui::PopTextWrapPos();
-            };
             if (!entry.Directory)
-                row("Size", FormatSize(entry.Size));
-            row("Modified", FormatTime(entry.Modified));
+                PropertyGrid::Text("Size", FormatSize(entry.Size));
+            PropertyGrid::Text("Modified", FormatTime(entry.Modified));
             const auto folder = path.parent_path().lexically_relative(m_Root).generic_u8string();
-            row("Folder", folder == "." ? m_Root.filename().u8string() : folder);
-            ImGui::EndTable();
+            PropertyGrid::Text("Folder", folder == "." ? m_Root.filename().u8string() : folder);
+            PropertyGrid::End();
         }
 
         const auto* status = entry.Directory ? nullptr : StatusOf(path);
@@ -1142,53 +1135,63 @@ namespace Kans
         if (!ImGui::CollapsingHeader("Asset", ImGuiTreeNodeFlags_DefaultOpen))
             return;
         const auto& source = status->Source;
-        ImGui::TextDisabled("Source ID");
-        ImGui::SameLine();
-        ImGui::TextUnformatted(source.sourceAssetID.ToString().c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton(ICON_FA_COPY "##id"))
-            ImGui::SetClipboardText(source.sourceAssetID.ToString().c_str());
-        if (CanImport(path))
+        if (PropertyGrid::Begin("##Asset", 72.0f))
         {
-            const auto importer = Importers().Resolve(path, source.Import.Importer);
-            ImGui::TextDisabled("Importer");
+            PropertyGrid::Row("Source ID");
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(source.sourceAssetID.ToString().c_str());
             ImGui::SameLine();
-            ImGui::TextUnformatted(std::holds_alternative<RegisteredImporter>(importer) ?
-                                       std::get<RegisteredImporter>(importer).Name.c_str() :
-                                       "(invalid)");
-            for (const auto& [key, value] : source.Import.Settings)
-                ImGui::BulletText("%s = %s", key.c_str(), value.c_str());
-        }
-        if (status->Products)
-        {
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ImportedColor),
-                               ICON_FA_CHECK " Imported, %zu products",
-                               status->Products);
-            if (m_Registry && ImGui::TreeNode("Products"))
+            if (ImGui::SmallButton(ICON_FA_COPY "##id"))
+                ImGui::SetClipboardText(source.sourceAssetID.ToString().c_str());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Copy the source ID");
+            if (CanImport(path))
             {
-                for (const auto& record : m_Registry->GetAllProducts())
-                    if (record.Target == EditorAssetTarget &&
-                        record.Metadata.assetID.GetSourceID() == source.sourceAssetID)
-                        ImGui::BulletText("%s  #%llu",
-                                          ProductTypeName(record.Metadata.Type),
-                                          static_cast<unsigned long long>(record.Metadata.assetID.GetLocalID()));
-                ImGui::TreePop();
+                const auto importer = Importers().Resolve(path, source.Import.Importer);
+                PropertyGrid::Text("Importer",
+                                   std::holds_alternative<RegisteredImporter>(importer) ?
+                                       std::get<RegisteredImporter>(importer).Name :
+                                       std::string("(invalid)"));
+                std::string settings;
+                for (const auto& [key, value] : source.Import.Settings)
+                    settings += (settings.empty() ? "" : "\n") + key + " = " + value;
+                PropertyGrid::Text("Settings", settings.empty() ? "Defaults" : settings, settings.empty());
+                PropertyGrid::Row("Status");
+                ImGui::AlignTextToFramePadding();
+                if (status->Products)
+                    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ImportedColor),
+                                       ICON_FA_CHECK " Imported (%zu)",
+                                       status->Products);
+                else
+                    ImGui::TextDisabled("Not imported");
             }
+            PropertyGrid::End();
         }
-        else if (CanImport(path))
-            ImGui::TextDisabled("Not imported");
+        if (status->Products && m_Registry && ImGui::TreeNode("Products"))
+        {
+            for (const auto& record : m_Registry->GetAllProducts())
+                if (record.Target == EditorAssetTarget &&
+                    record.Metadata.assetID.GetSourceID() == source.sourceAssetID)
+                    ImGui::BulletText("%s  #%llu",
+                                      ProductTypeName(record.Metadata.Type),
+                                      static_cast<unsigned long long>(record.Metadata.assetID.GetLocalID()));
+            ImGui::TreePop();
+        }
         if (CanImport(path))
         {
-            if (ImGui::Button(status->Products ? ICON_FA_ROTATE_RIGHT " Reimport" : ICON_FA_DOWNLOAD " Import") &&
+            const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+            if (ImGui::Button(status->Products ? ICON_FA_ROTATE_RIGHT " Reimport" : ICON_FA_DOWNLOAD " Import",
+                              {half, 0.0f}) &&
                 m_Import)
                 m_Import(path);
             ImGui::SameLine();
-            if (ImGui::Button(ICON_FA_GEAR " Settings") && m_ImportSettings)
+            if (ImGui::Button(ICON_FA_GEAR " Settings", {half, 0.0f}) && m_ImportSettings)
                 m_ImportSettings(path);
         }
+        ImGui::Spacing();
         if (!m_Dependents)
         {
-            if (ImGui::SmallButton("Find assets that reference this") && m_Service)
+            if (ImGui::Button(ICON_FA_MAGNIFYING_GLASS " Find references", {-FLT_MIN, 0.0f}) && m_Service)
             {
                 auto plan = m_Service->PlanSourceAssetDeletion(source.sourceAssetID);
                 if (auto* value = std::get_if<SourceAssetDeletionPlan>(&plan))

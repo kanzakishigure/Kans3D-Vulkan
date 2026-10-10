@@ -68,7 +68,7 @@ namespace Kans
                           [this] { m_SceneHierachyPanel.onImGuiRender(); });
         m_Panels.Register(
             spec(PanelID::Properties, "Properties", ICON_FA_SLIDERS, PanelCategory::Scene, PanelDock::Right, true),
-            [this] { m_SceneHierachyPanel.drawProperties(); });
+            [this] { m_PropertiesPanel.Draw(); });
 
         auto browser     = spec(PanelID::ContentBrowser, "Content Browser", ICON_FA_FOLDER_TREE, PanelCategory::Assets,
                             PanelDock::Bottom, true);

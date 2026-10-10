@@ -76,7 +76,7 @@ namespace Kans
             snapshot = m_AssetImports->GetRuntimeAssetRegistry();
         auto choices = CollectAssetChoices(*snapshot);
         m_MaterialEditorPanel.SetAssetChoices(choices);
-        m_SceneHierachyPanel.setAssetChoices(std::move(choices));
+        m_PropertiesPanel.SetAssetChoices(std::move(choices));
         if (m_Assets)
         {
             auto changed = m_Assets->SetRegistry(std::move(snapshot));
@@ -92,7 +92,7 @@ namespace Kans
         m_Assets    = CreateScope<AssetManager>(
             std::get<Ref<LooseFileAssetProvider>>(std::move(provider)), std::move(snapshot), std::move(spec));
         m_ViewportRenderer->SetAssetManager(m_Assets.get());
-        m_SceneHierachyPanel.setAssetManager(m_Assets.get());
+        m_PropertiesPanel.SetAssetManager(m_Assets.get());
         m_MaterialEditorPanel.SetAssetManager(m_Assets.get());
         return std::monostate {};
     }

@@ -9,6 +9,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
+#include "Panels/PropertiesPanel.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
 namespace Kans
@@ -120,6 +121,7 @@ namespace Kans
 
         PanelManager        m_Panels;
         SceneHierachyPanel  m_SceneHierachyPanel;
+        PropertiesPanel     m_PropertiesPanel {m_SceneHierachyPanel};
         ContentBrowserPanel m_ContentBrowserPanel;
         ProductImportPanel  m_ProductImportPanel;
         MaterialEditorPanel m_MaterialEditorPanel;

@@ -62,3 +62,6 @@
 #define ICON_FA_FILE_LINES             "\xef\x85\x9c" // U+F15C
 #define ICON_FA_CHECK                  "\xef\x80\x8c" // U+F00C
 #define ICON_FA_HOUSE                  "\xef\x80\x95" // U+F015
+#define ICON_FA_SUN                    "\xef\x86\x85" // U+F185
+#define ICON_FA_LIGHTBULB              "\xef\x83\xab" // U+F0EB
+#define ICON_FA_CODE                   "\xef\x84\xa1" // U+F121
