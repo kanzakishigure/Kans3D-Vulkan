@@ -814,6 +814,8 @@ namespace Kans
         Ref<Texture2D> texture = entry.Directory ? EditorResources::FolderIcon : nullptr;
         if (!entry.Directory && Browser::ThumbnailCache::Supports(entry.Path))
             texture = m_Thumbnails.Get(entry.Path, entry.Modified, max.x - min.x <= 32.0f ? 64u : 192u);
+        else if (!entry.Directory && m_MaterialThumbnail && entry.Path.extension() == ".material")
+            texture = m_MaterialThumbnail(entry.Path, 128);
         if (!texture)
             texture = entry.Directory ? EditorResources::FolderIcon : EditorResources::GetFileIcon(entry.Path);
         if (!texture)
@@ -1088,9 +1090,14 @@ namespace Kans
 
         // Visual preview.
         const float width = ImGui::GetContentRegionAvail().x;
+        Ref<Texture2D> visual;
         if (!entry.Directory && Browser::ThumbnailCache::Supports(path))
+            visual = m_Thumbnails.Get(path, entry.Modified, 512);
+        else if (!entry.Directory && m_MaterialThumbnail && path.extension() == ".material")
+            visual = m_MaterialThumbnail(path, 256);
+        if (visual)
         {
-            if (auto texture = m_Thumbnails.Get(path, entry.Modified, 512))
+            if (auto texture = visual)
             {
                 const float w = float(texture->GetWidth()), h = float(texture->GetHeight());
                 // Leave room for the details below in short panels.

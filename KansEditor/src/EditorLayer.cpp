@@ -128,6 +128,12 @@ namespace Kans
             m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
             m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
             m_ViewportRenderer->PrepareEnvironment();
+            // Material previews share the scene's environment and asset cache.
+            m_MaterialPreview   = CreateScope<MaterialPreviewRenderer>(*m_ViewportRenderer);
+            m_ThumbnailRenderer = CreateScope<MaterialPreviewRenderer>(*m_ViewportRenderer);
+            m_MaterialEditorPanel.SetPreviewRenderer(m_MaterialPreview.get());
+            m_ContentBrowserPanel.SetMaterialThumbnailProvider(
+                [this](const std::filesystem::path& file, uint32_t size) { return MaterialThumbnail(file, size); });
             m_ViewportPanel.SetContext(m_ActiveScene, m_ActiveRenderScene, m_ViewportRenderer);
             m_ViewportPanel.SetFileDropCallback([this](const std::filesystem::path& file, std::optional<glm::vec3> position) {
                 if (file.extension() == ".kans")
@@ -171,6 +177,11 @@ namespace Kans
             m_ViewportRenderer->SetAssetManager(nullptr);
             m_PropertiesPanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetAssetManager(nullptr);
+            m_MaterialEditorPanel.SetPreviewRenderer(nullptr);
+            m_ContentBrowserPanel.SetMaterialThumbnailProvider({});
+            m_MaterialThumbnails.clear();
+            m_MaterialPreview.reset();
+            m_ThumbnailRenderer.reset();
             m_ViewportRenderer.reset();
         }
         m_Assets.reset();

@@ -91,6 +91,7 @@ namespace Kans
     void EditorLayer::OnImGuiRender()
     {
         PROFILE_FUCTION();
+        m_ThumbnailBudget = 2; // Material thumbnails rendered per frame.
         HandleShortcuts();
 
         // Full-window host for the menu bar, the main toolbar and the dock space.
@@ -171,13 +172,15 @@ namespace Kans
         const ImGuiIO& io = ImGui::GetIO();
         if (io.WantTextInput)
             return;
+        // The material editor has its own undo, redo and save while it has focus.
+        const bool material = m_MaterialEditorPanel.HasFocus();
         if (io.KeyCtrl)
         {
             if (ImGui::IsKeyPressed(ImGuiKey_N, false))
                 Record(NewScene());
             if (ImGui::IsKeyPressed(ImGuiKey_O, false))
                 m_SceneDialog = SceneDialog::Open;
-            if (ImGui::IsKeyPressed(ImGuiKey_S, false))
+            if (!material && ImGui::IsKeyPressed(ImGuiKey_S, false))
             {
                 if (io.KeyShift)
                     m_SceneDialog = SceneDialog::Save;
@@ -186,14 +189,14 @@ namespace Kans
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Space, false))
                 m_Panels.Toggle(PanelID::ContentBrowser);
-            if (ImGui::IsKeyPressed(ImGuiKey_Z, true))
+            if (!material && ImGui::IsKeyPressed(ImGuiKey_Z, true))
             {
                 if (io.KeyShift)
                     RedoScene();
                 else
                     UndoScene();
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_Y, true))
+            if (!material && ImGui::IsKeyPressed(ImGuiKey_Y, true))
                 RedoScene();
             if (ImGui::IsKeyPressed(ImGuiKey_P, false))
             {

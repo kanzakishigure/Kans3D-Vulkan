@@ -14,6 +14,7 @@
 #include "Panels/ViewportPanel.h"
 #include "SceneHistory.h"
 #include "UI/SceneFileDialog.h"
+#include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Scene/ScenePlaySession.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
@@ -63,6 +64,19 @@ namespace Kans
         // Writes a model's embedded materials to editable .material files next to it
         // (in a Materials folder), makes the model use them and rebuilds it.
         void                                     ExtractMaterials(const std::filesystem::path& file);
+        // Content-browser thumbnail of a .material file: rendered a few per frame,
+        // re-rendered when the material is rebuilt. Null until ready.
+        Ref<Texture2D> MaterialThumbnail(const std::filesystem::path& file, uint32_t size);
+        struct MaterialThumbnailEntry
+        {
+            AssetID                      Material;
+            Ref<const MaterialDataAsset> Rendered;
+            Ref<Texture2D>               Texture;
+            uint32_t                     Size = 0;
+        };
+        std::unordered_map<std::string, MaterialThumbnailEntry> m_MaterialThumbnails;
+        int                                                     m_ThumbnailBudget = 0;
+        Scope<MaterialPreviewRenderer>                          m_MaterialPreview, m_ThumbnailRenderer;
         AssetID                                  FindPublishedModel(SourceAssetID source) const;
         std::optional<SourceAssetID>             m_PendingPlacement;
         UUID                                     m_PendingPlacementParent = 0;

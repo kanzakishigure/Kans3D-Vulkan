@@ -234,6 +234,62 @@ namespace Kans
         OpenImporter(file); // Shows the slots and the build result.
     }
 
+    Ref<Texture2D> EditorLayer::MaterialThumbnail(const std::filesystem::path& file, uint32_t size)
+    {
+        if (!m_AssetImports || !m_Assets || !m_ThumbnailRenderer)
+            return nullptr;
+        std::error_code error;
+        const auto      key   = std::filesystem::weakly_canonical(file, error).u8string();
+        auto&           entry = m_MaterialThumbnails[key];
+        if (!entry.Material.IsValid())
+        {
+            if (m_ThumbnailBudget <= 0)
+                return entry.Texture;
+            --m_ThumbnailBudget; // Finding the source walks the source list.
+            auto sources = m_AssetImports->GetSources();
+            if (const auto* list = std::get_if<std::vector<SourceAssetMetadata>>(&sources))
+                for (const auto& source : *list)
+                    if (std::filesystem::weakly_canonical(
+                            m_AssetImports->GetConfig().AssetDirectory / source.Path.GetPath(), error)
+                            .u8string() == key)
+                        for (const auto& product : m_AssetImports->GetRuntimeAssetRegistry()->GetAllProducts())
+                            if (product.Metadata.assetID.GetSourceID() == source.sourceAssetID &&
+                                product.Metadata.Type == AssetType::Material && product.Target == EditorAssetTarget)
+                                entry.Material = product.Metadata.assetID;
+            if (!entry.Material.IsValid())
+                return nullptr; // Not imported yet; looked up again after the next import.
+        }
+        // Re-render when the material is rebuilt (a new asset) or a larger image is wanted.
+        const auto status = m_Assets->Request<MaterialDataAsset>(entry.Material);
+        if (status.IsReady() && (status.Asset != entry.Rendered || size > entry.Size) && m_ThumbnailBudget > 0)
+        {
+            --m_ThumbnailBudget;
+            MaterialPreviewOptions options;
+            options.Size = {size, size};
+            if (auto image = m_ThumbnailRenderer->RenderThumbnail(entry.Material, options))
+            {
+                TextureData data;
+                data.Width      = image->Size.x;
+                data.Height     = image->Size.y;
+                data.Format     = TexturePixelFormat::RGBA8;
+                data.ColorSpace = TextureColorSpace::Linear; // Already display-ready.
+                std::vector<std::byte> pixels(image->Pixels.size());
+                std::memcpy(pixels.data(), image->Pixels.data(), pixels.size());
+                data.Mips = {{std::move(pixels)}};
+                if (auto uploaded = Texture2D::CreateFromProduct(data);
+                    std::holds_alternative<Ref<Texture2D>>(uploaded))
+                {
+                    entry.Texture  = std::get<Ref<Texture2D>>(uploaded);
+                    entry.Rendered = status.Asset;
+                    entry.Size     = size;
+                }
+            }
+        }
+        if (status.Error)
+            entry.Material = {}; // Deleted or unpublished: find it again.
+        return entry.Texture;
+    }
+
     void EditorLayer::ImportSource(const std::filesystem::path& file)
     {
         if (!m_AssetImports)

@@ -1,8 +1,10 @@
 #include "MaterialEditorPanel.h"
 #include <fstream>
+#include <set>
 #include <imgui.h>
 #include "Kans3D/Asset/Importer/ImporterRegistry.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 
 namespace Kans
 {
@@ -59,6 +61,62 @@ namespace Kans
             m_Status = error->Message + " (saving replaces the file)";
         else
             m_Source = std::get<MaterialSource>(std::move(parsed));
+        ResetHistory();
+    }
+
+    void MaterialEditorPanel::ResetHistory()
+    {
+        m_UndoStack.clear();
+        m_RedoStack.clear();
+        m_CommittedText = SerializeMaterialSource(m_Source);
+        m_SavedText     = m_CommittedText;
+        m_Dirty         = false;
+    }
+
+    void MaterialEditorPanel::TrackEdits()
+    {
+        if (ImGui::IsAnyItemActive())
+            return;
+        const auto text = SerializeMaterialSource(m_Source);
+        if (text != m_CommittedText)
+        {
+            m_UndoStack.push_back(std::move(m_CommittedText));
+            if (m_UndoStack.size() > MaxHistory)
+                m_UndoStack.erase(m_UndoStack.begin());
+            m_RedoStack.clear();
+            m_CommittedText = text;
+        }
+        m_Dirty = m_CommittedText != m_SavedText;
+    }
+
+    void MaterialEditorPanel::Undo()
+    {
+        TrackEdits(); // A pending edit becomes a step first.
+        if (m_UndoStack.empty())
+            return;
+        m_RedoStack.push_back(std::move(m_CommittedText));
+        m_CommittedText = std::move(m_UndoStack.back());
+        m_UndoStack.pop_back();
+        auto parsed = ParseMaterialSource(reinterpret_cast<const std::byte*>(m_CommittedText.data()),
+                                          m_CommittedText.size());
+        if (auto* source = std::get_if<MaterialSource>(&parsed))
+            m_Source = std::move(*source);
+        m_Dirty = m_CommittedText != m_SavedText;
+    }
+
+    void MaterialEditorPanel::Redo()
+    {
+        TrackEdits();
+        if (m_RedoStack.empty())
+            return;
+        m_UndoStack.push_back(std::move(m_CommittedText));
+        m_CommittedText = std::move(m_RedoStack.back());
+        m_RedoStack.pop_back();
+        auto parsed = ParseMaterialSource(reinterpret_cast<const std::byte*>(m_CommittedText.data()),
+                                          m_CommittedText.size());
+        if (auto* source = std::get_if<MaterialSource>(&parsed))
+            m_Source = std::move(*source);
+        m_Dirty = m_CommittedText != m_SavedText;
     }
 
     void MaterialEditorPanel::Create(const std::filesystem::path& directory)
@@ -93,7 +151,7 @@ namespace Kans
 
     const MaterialSchema* MaterialEditorPanel::Schema()
     {
-        if (!m_Source.Shader.IsValid())
+        if (IsStandardShader(m_Source.Shader))
         {
             if (!m_Schema || m_SchemaShader)
             {
@@ -481,7 +539,8 @@ namespace Kans
             m_Status = error->Message;
             return;
         }
-        m_Dirty = false;
+        m_SavedText = SerializeMaterialSource(m_Source);
+        m_Dirty     = m_SavedText != m_CommittedText;
         if (!m_Service)
             return;
         const auto findSource = [&]() -> std::optional<SourceAssetID> {
@@ -516,6 +575,155 @@ namespace Kans
             m_Status   = "Building...";
             m_Building = true;
         }
+    }
+
+    void MaterialEditorPanel::DrawParameters(const MaterialSchema& schema)
+    {
+        if (schema.Parameters.empty() && schema.Textures.empty())
+        {
+            ImGui::TextDisabled("This shader has no material parameters.");
+            return;
+        }
+        const auto drawMember = [&](const std::string& name) {
+            for (const auto& parameter : schema.Parameters)
+                if (parameter.Name == name)
+                {
+                    DrawParameter(parameter, schema);
+                    return;
+                }
+            if (std::find(schema.Textures.begin(), schema.Textures.end(), name) != schema.Textures.end())
+                DrawTexture(name);
+        };
+        std::set<std::string> grouped;
+        for (const auto& group : schema.Groups)
+        {
+            for (const auto& member : group.Members)
+                grouped.insert(member);
+            ImGui::PushID(group.Name.c_str());
+            if (ImGui::CollapsingHeader(group.Name.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+                for (const auto& member : group.Members)
+                    drawMember(member);
+            ImGui::PopID();
+        }
+        // Whatever the Shader does not group: all of it for shaders without groups.
+        std::vector<std::string> rest;
+        for (const auto& parameter : schema.Parameters)
+            if (!grouped.count(parameter.Name))
+                rest.push_back(parameter.Name);
+        const size_t parameters = rest.size();
+        for (const auto& texture : schema.Textures)
+            if (!grouped.count(texture))
+                rest.push_back(texture);
+        if (rest.empty())
+            return;
+        if (!schema.Groups.empty() && !ImGui::CollapsingHeader("Other", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+        for (size_t i = 0; i < rest.size(); ++i)
+        {
+            if (i == parameters && schema.Groups.empty())
+            {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Textures");
+            }
+            drawMember(rest[i]);
+        }
+    }
+
+    void MaterialEditorPanel::DrawPreview()
+    {
+        if (!m_Preview)
+            return;
+        const float side = std::floor(std::clamp(ImGui::GetContentRegionAvail().x, 64.0f, 256.0f));
+        // Re-render when the edited source, the view or the Shader asset changes, and
+        // until every texture has loaded.
+        const auto key = SerializeMaterialSource(m_Source) + "|" + std::to_string(int(m_PreviewShape)) + "|" +
+                         std::to_string(m_PreviewRotation.x) + "|" + std::to_string(m_PreviewRotation.y) + "|" +
+                         std::to_string(side) + "|" + std::to_string(uintptr_t(m_SchemaShader.get()));
+        if (key != m_PreviewKey || !m_PreviewComplete)
+        {
+            const ShaderData* shader = nullptr;
+            bool              ready  = true;
+            if (!IsStandardShader(m_Source.Shader))
+            {
+                ready  = m_SchemaShader && m_Schema;
+                shader = ready ? &m_SchemaShader->GetData() : nullptr;
+            }
+            if (ready)
+            {
+                auto resolved = ResolveMaterialSource(m_Source, shader);
+                if (const auto* error = std::get_if<AssetError>(&resolved))
+                {
+                    m_PreviewError    = error->Message;
+                    m_PreviewComplete = true; // Nothing to wait for until the source changes.
+                }
+                else
+                {
+                    MaterialPreviewOptions options;
+                    options.Size      = {uint32_t(side), uint32_t(side)};
+                    options.Shape     = m_PreviewShape;
+                    options.Rotation  = m_PreviewRotation;
+                    const auto result = m_Preview->Render(std::get<MaterialData>(resolved), shader, options);
+                    m_PreviewTexture  = result.Texture;
+                    m_PreviewComplete = result.Complete || !result.Texture;
+                    m_PreviewError.clear();
+                }
+                m_PreviewKey = key;
+            }
+        }
+
+        // Centered square; dragging it rotates the shape.
+        const float  indent = (ImGui::GetContentRegionAvail().x - side) * 0.5f;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(indent, 0.0f));
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##Preview", {side, side});
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
+        {
+            const ImVec2 delta = ImGui::GetIO().MouseDelta;
+            m_PreviewRotation.x += delta.x * 0.01f;
+            m_PreviewRotation.y = std::clamp(m_PreviewRotation.y + delta.y * 0.01f, -1.5f, 1.5f);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Drag to rotate. Shows unsaved changes.");
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        if (m_PreviewTexture)
+            draw->AddImage(reinterpret_cast<ImTextureID>(uintptr_t(m_PreviewTexture)),
+                           at,
+                           {at.x + side, at.y + side},
+                           {0, 1},
+                           {1, 0});
+        else
+            draw->AddRectFilled(at, {at.x + side, at.y + side}, IM_COL32(40, 40, 40, 255));
+        if (!m_PreviewError.empty() || !m_PreviewComplete)
+        {
+            const char* note = m_PreviewError.empty() ? "Loading..." : "Preview unavailable";
+            draw->AddText({at.x + 6.0f, at.y + 4.0f}, IM_COL32(230, 230, 230, 200), note);
+        }
+        if (!m_PreviewError.empty() && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", m_PreviewError.c_str());
+
+        // Shape choice under the image.
+        const struct
+        {
+            MaterialPreviewShape Shape;
+            const char*          Name;
+        } shapes[] = {{MaterialPreviewShape::Sphere, "Sphere"},
+                      {MaterialPreviewShape::Cube, "Cube"},
+                      {MaterialPreviewShape::Plane, "Plane"}};
+        const float width = (side - 2.0f * ImGui::GetStyle().ItemSpacing.x) / 3.0f;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(indent, 0.0f));
+        for (const auto& shape : shapes)
+        {
+            if (shape.Shape != shapes[0].Shape)
+                ImGui::SameLine();
+            const bool active = m_PreviewShape == shape.Shape;
+            if (active)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            if (ImGui::Button(shape.Name, {width, 0.0f}))
+                m_PreviewShape = shape.Shape;
+            if (active)
+                ImGui::PopStyleColor();
+        }
+        ImGui::Spacing();
     }
 
     void MaterialEditorPanel::DrawRenderState()
@@ -556,7 +764,7 @@ namespace Kans
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s%s",
                               current->Help,
-                              m_Source.Shader.IsValid() && render.AlphaMode != MaterialAlphaMode::Opaque ?
+                              !IsStandardShader(m_Source.Shader) && render.AlphaMode != MaterialAlphaMode::Opaque ?
                                   "\nCustom shaders apply it through KansAlphaClip / KansOutputAlpha "
                                   "(#include <Kans3D/Alpha.glsl>)." :
                                   "");
@@ -597,10 +805,10 @@ namespace Kans
             m_Dirty       = true;
         }
 
-        const std::string shaderName = m_Source.Shader.IsValid() ? ChoiceName(m_Source.Shader) : "Standard";
+        const std::string shaderName = !IsStandardShader(m_Source.Shader) ? ChoiceName(m_Source.Shader) : "Standard";
         if (ImGui::BeginCombo("Shader", shaderName.c_str()))
         {
-            if (ImGui::Selectable("Standard", !m_Source.Shader.IsValid()))
+            if (ImGui::Selectable("Standard", IsStandardShader(m_Source.Shader)))
             {
                 m_Source.Shader = {};
                 m_Dirty         = true;
@@ -619,26 +827,42 @@ namespace Kans
                               "that follows the material contract, e.g. assets/shaders/Toon/Toon.shaderprog.");
 
         FinishPendingTexture();
+        const auto* schema = Schema();
+        DrawPreview();
         DrawRenderState();
         ImGui::Separator();
-        if (const auto* schema = Schema())
-        {
-            if (schema->Parameters.empty() && schema->Textures.empty())
-                ImGui::TextDisabled("This shader has no material parameters.");
-            for (const auto& parameter : schema->Parameters)
-                DrawParameter(parameter, *schema);
-            if (!schema->Textures.empty())
-            {
-                ImGui::Spacing();
-                ImGui::TextDisabled("Textures");
-                for (const auto& texture : schema->Textures)
-                    DrawTexture(texture);
-            }
-        }
+        if (schema)
+            DrawParameters(*schema);
         else
             ImGui::TextWrapped("%s", m_SchemaError.c_str());
 
         ImGui::Separator();
+        TrackEdits();
+        m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        const ImGuiIO& io = ImGui::GetIO();
+        if (m_Focused && io.KeyCtrl && !io.WantTextInput)
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_Z, true))
+                io.KeyShift ? Redo() : Undo();
+            else if (ImGui::IsKeyPressed(ImGuiKey_Y, true))
+                Redo();
+            else if (ImGui::IsKeyPressed(ImGuiKey_S, false))
+                Save();
+        }
+        ImGui::BeginDisabled(m_UndoStack.empty());
+        if (ImGui::Button("Undo"))
+            Undo();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Undo material edit (Ctrl+Z)");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_RedoStack.empty());
+        if (ImGui::Button("Redo"))
+            Redo();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Redo material edit (Ctrl+Y)");
+        ImGui::SameLine();
         if (ImGui::Button("Save"))
             Save();
         ImGui::SameLine();

@@ -3,6 +3,7 @@
 #include "Kans3D/Editor/EditorAssetImportService.h"
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Editor/EditorAssetChoice.h"
+#include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 
 namespace Kans
@@ -16,6 +17,12 @@ namespace Kans
         void Bind(EditorAssetImportService* service) { m_Service = service; }
         void SetAssetManager(AssetManager* assets) { m_Assets = assets; }
         void SetAssetChoices(std::vector<EditorAssetChoice> choices) { m_Choices = std::move(choices); }
+        // Renders the live preview; owned by the editor, may be null.
+        void SetPreviewRenderer(MaterialPreviewRenderer* preview)
+        {
+            m_Preview = preview;
+            m_PreviewKey.clear();
+        }
 
         // Loads a material for editing; the editor opens the window.
         void Open(const std::filesystem::path& file);
@@ -24,11 +31,18 @@ namespace Kans
         // Contents of the window the editor's panel manager opened.
         void Draw();
         bool IsDirty() const { return m_Dirty; }
+        // True while the editor window has focus: Ctrl+Z / Ctrl+Y undo material edits
+        // instead of scene edits.
+        bool HasFocus() const { return m_Focused; }
 
     private:
         // Schema of the selected Shader; nullptr while it loads or if it is invalid.
         const MaterialSchema* Schema();
         void                  DrawParameter(const MaterialParameterInfo& parameter, const MaterialSchema& schema);
+        // Parameters and textures, in the groups the Shader declares.
+        void DrawParameters(const MaterialSchema& schema);
+        // The edited (unsaved) material on a shape; drag to rotate.
+        void DrawPreview();
         void                  DrawTexture(const std::string& name);
         // Alpha mode, cutoff and double-sided: how the renderer draws the material.
         void DrawRenderState();
@@ -39,6 +53,12 @@ namespace Kans
         void FinishPendingTexture();
         void SetTexture(const std::string& slot, AssetID texture);
         void                  Save();
+        // Undo history of the edited source, as serialized snapshots. An edit is
+        // recorded once the interaction that made it ends (one drag, one step).
+        void TrackEdits();
+        void Undo();
+        void Redo();
+        void ResetHistory();
         std::string           ChoiceName(AssetID id) const;
 
         EditorAssetImportService*      m_Service = nullptr;
@@ -46,6 +66,10 @@ namespace Kans
         std::vector<EditorAssetChoice> m_Choices;
 
         bool                  m_Dirty = false;
+        bool                  m_Focused = false;
+        std::string           m_SavedText, m_CommittedText;
+        std::vector<std::string> m_UndoStack, m_RedoStack;
+        static constexpr size_t  MaxHistory = 100;
         std::filesystem::path m_File;
         MaterialSource        m_Source;
         std::string           m_Status;
@@ -61,6 +85,15 @@ namespace Kans
         // Texture slot waiting for a dropped source to finish importing.
         std::optional<std::pair<std::string, SourceAssetID>> m_PendingTexture;
         std::string                                          m_TextureFilter;
+
+        // Live preview: re-rendered when the source, view or shader changes, or while incomplete.
+        MaterialPreviewRenderer* m_Preview = nullptr;
+        MaterialPreviewShape     m_PreviewShape = MaterialPreviewShape::Sphere;
+        glm::vec2                m_PreviewRotation {0.6f, 0.3f};
+        std::string              m_PreviewKey;
+        uint32_t                 m_PreviewTexture  = 0;
+        bool                     m_PreviewComplete = false;
+        std::string              m_PreviewError;
 
         // Schema cache, keyed by the Shader asset it was built from.
         Ref<const ShaderDataAsset>    m_SchemaShader;

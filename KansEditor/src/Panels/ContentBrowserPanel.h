@@ -35,6 +35,13 @@ namespace Kans
         void SetImportCallback(PathCallback callback) { m_Import = std::move(callback); }
         // "Import Settings..." of a source file.
         void SetImportSettingsCallback(PathCallback callback) { m_ImportSettings = std::move(callback); }
+        // Thumbnail of a .material file (null while it renders); set by the editor.
+        using MaterialThumbnailProvider =
+            std::function<Ref<Texture2D>(const std::filesystem::path&, uint32_t size)>;
+        void SetMaterialThumbnailProvider(MaterialThumbnailProvider provider)
+        {
+            m_MaterialThumbnail = std::move(provider);
+        }
         // "Extract Materials" of an imported model.
         void SetExtractMaterialsCallback(PathCallback callback) { m_ExtractMaterials = std::move(callback); }
         void SetErrorCallback(std::function<void(const std::string&)> callback) { m_ReportError = std::move(callback); }
@@ -107,6 +114,7 @@ namespace Kans
 
         // ---- callbacks and services ----
         PathCallback m_OpenFile, m_CreateMaterial, m_Import, m_ImportSettings, m_ExtractMaterials;
+        MaterialThumbnailProvider m_MaterialThumbnail;
         std::function<void(const std::string&)> m_ReportError;
         EditorAssetImportService*                m_Service = nullptr;
         Browser::AssetFileOperations             m_Operations;
