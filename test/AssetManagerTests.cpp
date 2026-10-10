@@ -3,12 +3,15 @@
 #include <map>
 #include <thread>
 #include <gtest/gtest.h>
+#include "Kans3D/Asset/Importer/MaterialSource.h"
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Asset/Product/ContentDigest.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
+#include "Kans3D/Asset/Runtime/MaterialShaderInterface.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 
 namespace
 {
@@ -155,6 +158,24 @@ namespace
         }
         static float FirstX(const Ref<const MeshAsset>& mesh) { return mesh->GetData().Vertices[0].Position[0]; }
     };
+
+    TEST_F(AssetManagerTest, BuiltinStandardLoadsWithoutRegistryOrProviderProduct)
+    {
+        // Explicit Standard IDs must work in CPU editor requests without a project Shader file.
+        AssetManager manager(Provider, Registry({}));
+        const auto   loaded = manager.Load<ShaderDataAsset>(StandardShaderID());
+        ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(loaded));
+        const auto& asset = std::get<Ref<const ShaderDataAsset>>(loaded);
+        EXPECT_EQ(asset->assetID, StandardShaderID());
+        EXPECT_EQ(Provider->Count(), 0u);
+        MaterialSource source;
+        source.Shader                       = StandardShaderID();
+        source.Parameters["NormalStrength"] = {0.5};
+        EXPECT_TRUE(std::holds_alternative<MaterialData>(ResolveMaterialSource(source, &asset->GetData())));
+        EXPECT_TRUE(
+            std::holds_alternative<std::monostate>(ValidateMaterialShaderInterface(asset->GetData().Reflection)));
+        EXPECT_TRUE(std::holds_alternative<AssetError>(manager.Load<MeshAsset>(StandardShaderID())));
+    }
 
     TEST_F(AssetManagerTest, LoadDecodesOnceAndReturnsSharedAsset)
     {

@@ -36,9 +36,11 @@ namespace Kans
         // The point light's diffuse intensity, for non-PBR (e.g. toon) shading.
         glm::vec4 LightDiffuse[EngineLightCount] {};
         float     Time = 0.0f;
-        float     Padding[3] {};
+        float     DebugView = 0.0f; // 0 lit, 1 base color, 2 world normals.
+        float     Padding[2] {};
     };
     static_assert(sizeof(EngineFrameUniforms) == 288, "KansFrame std140 layout");
+    static_assert(offsetof(EngineFrameUniforms, DebugView) == 276, "KansFrame debug uses existing tail padding");
 
     struct EngineObjectUniforms
     {

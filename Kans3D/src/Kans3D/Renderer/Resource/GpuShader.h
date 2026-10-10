@@ -53,9 +53,12 @@ namespace Kans
         const std::map<uint32_t, uint32_t>& MaterialBlockPoints() const { return m_BlockPoints; }
         const std::map<uint32_t, uint32_t>& MaterialSamplerUnits() const { return m_SamplerUnits; }
 
+        const std::map<uint32_t, ShaderTextureFallback>& MaterialSamplerFallbacks() const { return m_SamplerFallbacks; }
+
     private:
         GpuShader() = default;
 
+        std::map<uint32_t, ShaderTextureFallback> m_SamplerFallbacks;
         uint32_t                     m_Program = 0;
         std::map<uint32_t, uint32_t> m_BlockPoints;
         std::map<uint32_t, uint32_t> m_SamplerUnits;

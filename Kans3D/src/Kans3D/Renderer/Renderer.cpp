@@ -153,11 +153,6 @@ namespace Kans
                 brdfShader->SetShaderBuffer({});
                 s_GlobalRendererResource->m_ShaderLibrary->Add(brdfShader);
             }
-            {
-                auto productPBR = Shader::Create(shaderpath + "PBR/ProductPBR.glsl");
-                productPBR->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(productPBR);
-            }
         }
     }
 

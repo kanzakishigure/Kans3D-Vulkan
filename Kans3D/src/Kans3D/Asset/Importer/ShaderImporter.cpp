@@ -24,6 +24,8 @@ namespace Kans
         public:
             ShaderInputs(const ImportContext& context, bool discover) : m_Context(context), m_Discover(discover) {}
 
+            void Add(const std::string& name, const std::string& text) { m_Texts.emplace(name, text); }
+
             // Returns the text for a relative name, or nullptr if unavailable.
             const std::string* Find(const std::string& name)
             {
@@ -166,6 +168,10 @@ namespace Kans
                 if (auto* error = std::get_if<AssetError>(&hints))
                     return std::move(*error);
                 shader.ParameterHints = std::get<ShaderParameterHints>(std::move(hints));
+                auto fallbacks        = ParseShaderProgramTextureFallbacks(*primary);
+                if (auto* error = std::get_if<AssetError>(&fallbacks))
+                    return std::move(*error);
+                shader.TextureFallbacks = std::get<ShaderTextureFallbacks>(std::move(fallbacks));
                 for (const auto& stage : std::get<std::vector<ShaderStageSource>>(parsed))
                     modules.emplace_back(
                         stage.Stage, (fs::u8path(primaryName).parent_path() / stage.Path.GetPath()).generic_u8string());
@@ -211,6 +217,28 @@ namespace Kans
         }
     } // namespace
 
+    std::variant<ShaderData, AssetError> CompileEmbeddedShaderProgram(const std::string& manifest,
+                                                                      const std::map<std::string, std::string>& stages)
+    {
+        ImportContext context;
+        context.AssetRoot  = "/__kans_engine__";
+        context.SourceFile = context.AssetRoot / "Standard.shaderprog";
+        ShaderInputs inputs(context, false);
+        inputs.Add("Standard.shaderprog", manifest);
+        for (const auto& [name, source] : stages)
+            inputs.Add(name, source);
+        auto compiled = CompileShader(context, inputs);
+        if (auto* error = std::get_if<AssetError>(&compiled))
+            return *error;
+        const auto& shader = std::get<ShaderData>(compiled);
+        auto        encoded =
+            EncodeShaderProduct(shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks);
+        if (auto* error = std::get_if<AssetError>(&encoded))
+            return *error;
+        const auto& bytes = std::get<std::vector<std::byte>>(encoded);
+        return DecodeShaderProduct(bytes.data(), bytes.size());
+    }
+
     std::variant<ImportInputs, AssetError> ShaderImporter::DiscoverInputs(const ImportContext& context) const
     {
         if (!ValidContext(context))
@@ -237,7 +265,8 @@ namespace Kans
             if (auto* error = std::get_if<AssetError>(&compiled))
                 return std::move(*error);
             const auto& shader  = std::get<ShaderData>(compiled);
-            auto        encoded = EncodeShaderProduct(shader.Code, shader.ParameterDefaults, shader.ParameterHints);
+            auto        encoded = EncodeShaderProduct(
+                shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks);
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return std::move(*error);
             auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, {"shader:root"});

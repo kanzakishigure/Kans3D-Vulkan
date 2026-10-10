@@ -27,7 +27,7 @@ Linux 额外运行 `GL43ExtensionPath`，使用 Mesa 软件驱动并设置
 （含 fork 后强制退出的发布中断）、Project 构建/移动/删除、AssetManager 与导入器。
 
 `OpenGLTextureTests` 还包含 `RenderAssetCacheGL`：网格上传、异步加载后的 GPU 资源
-复用与替换，以及用 `ProductPBR.glsl` 离屏绘制并回读像素。
+复用与替换，以及用内嵌 Standard Shader 离屏绘制并回读像素（法线、切线手性、UV、自发光、PBR 和调试视图）。
 
 在 Linux 上 CTest 以 `LIBGL_ALWAYS_SOFTWARE=1`、`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe`
 串行运行全部 OpenGL 测试；在硬件驱动上并行运行 GL 测试曾导致 GPU 挂起。

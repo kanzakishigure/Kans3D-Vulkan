@@ -5,6 +5,7 @@
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Product/ShaderProduct.h"
 #include "Kans3D/Asset/Product/TextureProduct.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
 
 namespace Kans
@@ -28,7 +29,7 @@ namespace Kans
             return std::move(*failure);
         const auto&  source = std::get<MaterialSource>(parsed);
         ImportInputs inputs;
-        if (source.Shader.IsValid())
+        if (!IsStandardShader(source.Shader))
             inputs.Products.push_back(source.Shader);
         for (const auto& texture : source.Textures)
             if (std::find(inputs.Products.begin(), inputs.Products.end(), texture.second) == inputs.Products.end())
@@ -61,7 +62,7 @@ namespace Kans
                 return found == context.ProductBytes.end() ? nullptr : &found->second;
             };
             std::optional<ShaderData> shader;
-            if (source.Shader.IsValid())
+            if (!IsStandardShader(source.Shader))
             {
                 const auto* shaderBytes = decoded(source.Shader);
                 if (!shaderBytes)
@@ -83,7 +84,7 @@ namespace Kans
                 for (const auto& binding : data.Textures)
                     sampled.insert(binding.Texture);
             std::vector<AssetID> dependencies;
-            if (data.Shader.IsValid())
+            if (!IsStandardShader(data.Shader))
                 dependencies.push_back(data.Shader);
             for (const auto& binding : data.Textures)
             {

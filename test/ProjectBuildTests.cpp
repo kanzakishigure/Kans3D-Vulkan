@@ -1,12 +1,13 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <yaml-cpp/yaml.h>
-#include "MaterialShaderTestUtilities.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "Kans3D/Asset/Storage/AssetProvider.h"
 #include "Kans3D/Project/Project.h"
 #include "AssetTestUtilities.h"
+#include "MaterialShaderTestUtilities.h"
 
 namespace
 {
@@ -186,6 +187,27 @@ namespace
         for (const auto& record : Owner->GetRuntimeAssetRegistry()->GetAllProducts())
             after.insert(record.Metadata.assetID);
         EXPECT_EQ(after, before);
+    }
+
+    TEST_F(ProjectBuildTest, EmptyShaderPublishesStandardWithoutInventingProjectDependency)
+    {
+        // Treating Standard as a project Product makes source builds fail at dependency discovery/publication.
+        Write("surface.material", "magic: KansMaterial\nversion: 2\nshader: ''\nparameters: {metallic: 0.7}\n");
+        Open();
+        const auto built = Build("surface.material");
+        EXPECT_TRUE(built.Dependencies.empty());
+        const auto products = Owner->GetRuntimeAssetRegistry()->GetAllProducts();
+        ASSERT_EQ(products.size(), 1u);
+        EXPECT_TRUE(products[0].Metadata.Dependencies.empty());
+        auto provider = LooseFileAssetProvider::Open(Owner->GetProductDirectory());
+        ASSERT_TRUE(std::holds_alternative<Ref<LooseFileAssetProvider>>(provider));
+        auto read = std::get<Ref<LooseFileAssetProvider>>(provider)->Read(products[0]);
+        ASSERT_TRUE(std::holds_alternative<std::vector<std::byte>>(read));
+        const auto& bytes   = std::get<std::vector<std::byte>>(read);
+        const auto  decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+        EXPECT_EQ(std::get<MaterialData>(decoded).Shader, StandardShaderID());
+        EXPECT_TRUE(std::get<MaterialData>(decoded).Bindings);
     }
 
     TEST_F(ProjectBuildTest, MaterialReferencesBuildTheirProducersFirst)

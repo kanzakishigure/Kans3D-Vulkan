@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "AssetManager.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 
 namespace Kans
 {
@@ -40,6 +41,19 @@ namespace Kans
 
     std::variant<Ref<const Asset>, AssetError> AssetManager::ReadAndDecode(AssetID id, AssetType type) const
     {
+        if (id == StandardShaderID())
+        {
+            if (type != AssetType::Shader)
+                return AssetError {AssetErrorCode::InvalidArgument, "Standard is a Shader asset"};
+            try
+            {
+                return Ref<const Asset>(GetStandardShaderAsset());
+            }
+            catch (const std::exception& error)
+            {
+                return AssetError {AssetErrorCode::InvalidData, error.what()};
+            }
+        }
         Ref<const AssetRegistry> registry = GetRegistry();
         const auto               record   = registry->Find(id, m_Target);
         if (!record)

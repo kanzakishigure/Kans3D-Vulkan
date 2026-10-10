@@ -21,6 +21,7 @@ layout(set = 0, binding = 0, std140) uniform KansFrame
     vec4  LightColors[KANS_LIGHT_COUNT];  // PBR radiance
     vec4  LightDiffuse[KANS_LIGHT_COUNT]; // diffuse intensity for non-PBR shading
     float Time;
+    float DebugView;
 } u_Frame;
 layout(set = 0, binding = 1, std140) uniform KansObject
 {
@@ -133,7 +134,8 @@ vec4 KansToneMap(vec3 color)
                   {"LightPositions", 80, 4, 1, EngineLightCount},
                   {"LightColors", 144, 4, 1, EngineLightCount},
                   {"LightDiffuse", 208, 4, 1, EngineLightCount},
-                  {"Time", 272, 1, 1, 1}}},
+                  {"Time", 272, 1, 1, 1},
+                  {"DebugView", 276, 1, 1, 1}}},
                 {ShaderBindingKind::UniformBuffer,
                  ShaderImageDimension::Texture2D,
                  sizeof(EngineObjectUniforms),
@@ -150,6 +152,9 @@ vec4 KansToneMap(vec3 color)
             return AssetError {AssetErrorCode::InvalidData, "Material Shader contract: " + message};
         }
 
+        // Published shaders before DebugView contain only the original KansFrame members.
+        constexpr size_t LegacyFrameMemberCount = 6;
+
         std::optional<AssetError> CheckEngineBinding(const ShaderResourceBinding& binding)
         {
             if (binding.Binding >= EngineBindingCount)
@@ -157,12 +162,13 @@ vec4 KansToneMap(vec3 color)
                                 " is not engine data; declare engine data with #include <Kans3D/Engine.glsl>");
             const auto& expected = Expected(static_cast<EngineBinding>(binding.Binding));
             // Block sizes are reflected without tail padding; members pin the layout.
-            bool matches = binding.Kind == expected.Kind && binding.Count == 1 &&
-                           binding.BlockBytes <= expected.BlockBytes &&
-                           (binding.Kind != ShaderBindingKind::CombinedImageSampler ||
-                            binding.Dimension == expected.Dimension) &&
-                           binding.Members.size() == expected.Members.size();
-            for (size_t i = 0; matches && i < expected.Members.size(); ++i)
+            bool matches =
+                binding.Kind == expected.Kind && binding.Count == 1 && binding.BlockBytes <= expected.BlockBytes &&
+                (binding.Kind != ShaderBindingKind::CombinedImageSampler || binding.Dimension == expected.Dimension) &&
+                (binding.Members.size() == expected.Members.size() ||
+                 (binding.Binding == uint32_t(EngineBinding::Frame) &&
+                  binding.Members.size() == LegacyFrameMemberCount));
+            for (size_t i = 0; matches && i < binding.Members.size(); ++i)
             {
                 const auto& member = binding.Members[i];
                 const auto& want   = expected.Members[i];

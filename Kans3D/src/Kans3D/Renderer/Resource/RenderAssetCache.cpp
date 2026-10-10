@@ -2,8 +2,9 @@
 #include "RenderAssetCache.h"
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
-#include "Kans3D/Platform/OpenGL/OpenGLBuffer.h"
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
+#include "Kans3D/Platform/OpenGL/OpenGLBuffer.h"
 #include "Kans3D/Platform/OpenGL/OpenGLVertexArray.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 
@@ -91,30 +92,7 @@ namespace Kans
     GpuMaterial MakeGpuMaterial(const MaterialData& data)
     {
         GpuMaterial material;
-        material.BaseColor = glm::make_vec4(data.BaseColor.data());
-        material.Metallic  = data.Metallic;
-        material.Roughness = data.Roughness;
-        if (data.Bindings)
-            material.Shader = data.Shader;
-        // The first texture for each slot wins; preferred semantics are listed first.
-        using S   = MaterialTextureSemantic;
-        auto pick = [&](AssetID& slot, std::initializer_list<S> semantics) {
-            for (S semantic : semantics)
-                for (const auto& binding : data.Textures)
-                    if (binding.Semantic == static_cast<uint32_t>(semantic) && binding.UVChannel == 0 &&
-                        binding.Texture.IsValid())
-                    {
-                        slot = binding.Texture;
-                        return;
-                    }
-        };
-        pick(material.AlbedoTexture, {S::BaseColor, S::Diffuse});
-        // OBJ files commonly store normal maps as bump (Height) maps.
-        pick(material.NormalTexture, {S::Normal, S::NormalCamera, S::Height});
-        // Assimp 5 reports the glTF metallic-roughness texture as Unknown.
-        pick(material.MetallicRoughnessTexture, {S::MetallicRoughness, S::Unknown, S::DiffuseRoughness});
-        pick(material.OcclusionTexture, {S::AmbientOcclusion, S::Lightmap});
-        pick(material.EmissiveTexture, {S::EmissionColor, S::Emissive});
+        material.Shader = IsStandardShader(data.Shader) || !data.Bindings ? StandardShaderID() : data.Shader;
         return material;
     }
 
@@ -127,6 +105,7 @@ namespace Kans
         if (auto* error = std::get_if<AssetError>(&packed))
             return std::move(*error);
         GpuMaterialBindings bindings;
+        bindings.Shader = material.Shader;
         for (const auto& block : std::get<std::vector<MaterialUniformBlock>>(packed))
             bindings.Blocks.emplace_back(block.Binding, GpuUniformBuffer(block.Bytes.size(), block.Bytes.data()));
         for (const auto& texture : material.Bindings->Textures)
@@ -193,7 +172,30 @@ namespace Kans
 
     const GpuShader* RenderAssetCache::GetShader(AssetID id)
     {
-        return Resolve(m_Shaders, id, [](const ShaderDataAsset& asset) { return GpuShader::Create(asset.GetData()); });
+        if (IsStandardShader(id))
+        {
+            auto& entry         = m_Shaders[StandardShaderID()];
+            entry.LastUsedFrame = m_Frame;
+            if (!entry.Source)
+                entry.Source = GetStandardShaderAsset();
+            if (!entry.Value && !entry.ReportedError)
+            {
+                auto built = GpuShader::Create(entry.Source->GetData());
+                if (auto* error = std::get_if<AssetError>(&built))
+                {
+                    entry.ReportedError = *error;
+                    CORE_ERROR("Standard Shader: {}", error->Message);
+                }
+                else
+                    entry.Value = CreateScope<GpuShader>(std::get<GpuShader>(std::move(built)));
+            }
+            return entry.Value.get();
+        }
+        const auto  status = m_Assets.Request<ShaderDataAsset>(id);
+        const auto* shader =
+            Resolve(m_Shaders, id, [](const ShaderDataAsset& asset) { return GpuShader::Create(asset.GetData()); });
+        // Shader failures must not expose an older program with a newer CPU layout.
+        return status.IsReady() && !m_Shaders.at(id).ReportedError ? shader : nullptr;
     }
 
     Bounds RenderAssetCache::GetModelBounds(AssetID model)
@@ -206,27 +208,98 @@ namespace Kans
         return bounds;
     }
 
-    const GpuMaterialBindings* RenderAssetCache::GetMaterialBindings(AssetID materialID)
+    const GpuMaterialBindings* RenderAssetCache::GetMaterialBindings(AssetID materialID, bool standard)
     {
-        const GpuMaterial* material = GetMaterial(materialID);
-        if (!material || !material->Shader.IsValid() || !GetShader(material->Shader))
+        const auto*                  material = GetMaterial(materialID);
+        Ref<const MaterialDataAsset> materialSource;
+        if (material)
+            materialSource = m_Materials.at(materialID).Source;
+        if (material && !standard && !IsStandardShader(material->Shader) && GetShader(material->Shader))
+            if (const auto* bindings =
+                    ResolveBindings(materialID, materialSource, m_Shaders.at(material->Shader).Source, false))
+                return bindings;
+        if (!GetShader(StandardShaderID()))
             return nullptr;
-        const auto& materialSource = m_Materials.at(materialID).Source;
-        const auto& shaderSource   = m_Shaders.at(material->Shader).Source;
-        auto&       entry          = m_Bindings[materialID];
-        entry.LastUsedFrame        = m_Frame;
+        return ResolveBindings(materialID, materialSource, GetStandardShaderAsset(), true);
+    }
+
+    const GpuMaterialBindings* RenderAssetCache::ResolveBindings(AssetID                      materialID,
+                                                                 Ref<const MaterialDataAsset> materialSource,
+                                                                 Ref<const ShaderDataAsset>   shaderSource,
+                                                                 bool                         standard)
+    {
+        auto& entry         = (standard ? m_StandardBindings : m_Bindings)[materialID];
+        entry.LastUsedFrame = m_Frame;
+        // A null Value with unchanged sources is a cached packing failure. The
+        // separate Standard entry cannot erase that failure or its source identity.
         if (entry.Material != materialSource || entry.Shader != shaderSource)
         {
             entry.Material = materialSource;
             entry.Shader   = shaderSource;
             entry.Value.reset();
-            auto built = MakeGpuMaterialBindings(materialSource->GetData(), shaderSource->GetData());
+            MaterialData data = materialSource ? materialSource->GetData() : MaterialData {};
+            if (standard)
+            {
+                // A custom recipe addresses another layout. Use the default Standard
+                // material in debug views and while that Shader is unavailable.
+                if (!IsStandardShader(data.Shader) && data.Bindings)
+                    data = MaterialData {};
+                auto resolved = ResolveStandardMaterial(data);
+                if (auto* error = std::get_if<AssetError>(&resolved))
+                {
+                    CORE_ERROR("Material {}: {}", materialID.ToString(), error->Message);
+                    return nullptr;
+                }
+                data = std::get<MaterialData>(std::move(resolved));
+            }
+            auto built = MakeGpuMaterialBindings(data, shaderSource->GetData());
             if (auto* error = std::get_if<AssetError>(&built))
+            {
                 CORE_ERROR("Material {}: {}", materialID.ToString(), error->Message);
+            }
             else
                 entry.Value = CreateScope<GpuMaterialBindings>(std::get<GpuMaterialBindings>(std::move(built)));
         }
         return entry.Value.get();
+    }
+
+    void RenderAssetCache::BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings)
+    {
+        for (const auto& [binding, unit] : shader.MaterialSamplerUnits())
+        {
+            Ref<Texture2D> texture;
+            for (const auto& [textureBinding, id] : bindings.Textures)
+                if (textureBinding == binding)
+                    texture = GetTexture(id);
+            if (!texture)
+            {
+                const auto role     = shader.MaterialSamplerFallbacks().at(binding);
+                auto&      fallback = m_FallbackTextures[size_t(role)];
+                if (!fallback)
+                {
+                    // Float data represents the flat normal exactly (0.5, 0.5, 1).
+                    const std::array<float, 4> pixel =
+                        role == ShaderTextureFallback::Normal ? std::array<float, 4> {0.5f, 0.5f, 1, 1} :
+                        role == ShaderTextureFallback::Black  ? std::array<float, 4> {0, 0, 0, 1} :
+                                                                std::array<float, 4> {1, 1, 1, 1};
+                    TextureData image;
+                    image.Width = image.Height = 1;
+                    image.Format               = TexturePixelFormat::RGBA32Float;
+                    image.Usage                = TextureUsage::Data;
+                    image.Mips.push_back({std::vector<std::byte>(sizeof(pixel))});
+                    std::memcpy(image.Mips[0].Pixels.data(), pixel.data(), sizeof(pixel));
+                    auto uploaded = Texture2D::CreateFromProduct(image);
+                    if (auto* error = std::get_if<AssetError>(&uploaded))
+                    {
+                        CORE_ERROR("Material fallback texture: {}", error->Message);
+                        continue;
+                    }
+                    fallback = std::get<Ref<Texture2D>>(std::move(uploaded));
+                }
+                texture = fallback;
+            }
+            texture->Bind(unit);
+        }
     }
 
     void RenderAssetCache::BeginFrame(uint64_t unusedFrames)
@@ -242,6 +315,7 @@ namespace Kans
         evict(m_Textures);
         evict(m_Shaders);
         evict(m_Bindings);
+        evict(m_StandardBindings);
     }
 
     void RenderAssetCache::Clear()
@@ -252,5 +326,7 @@ namespace Kans
         m_Textures.clear();
         m_Shaders.clear();
         m_Bindings.clear();
+        m_StandardBindings.clear();
+        m_FallbackTextures = {};
     }
 } // namespace Kans

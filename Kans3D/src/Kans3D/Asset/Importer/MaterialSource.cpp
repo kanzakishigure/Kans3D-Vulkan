@@ -8,6 +8,7 @@
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Asset/Runtime/MaterialShaderInterface.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 
 namespace Kans
 {
@@ -66,27 +67,32 @@ namespace Kans
             return buffer;
         }
 
-        // Engine PBR material: parameters, texture slots and their semantics.
-        const std::pair<const char*, MaterialTextureSemantic> PbrTextures[] = {
-            {"base_color", MaterialTextureSemantic::BaseColor},
-            {"normal", MaterialTextureSemantic::Normal},
-            {"metallic_roughness", MaterialTextureSemantic::MetallicRoughness},
-            {"occlusion", MaterialTextureSemantic::AmbientOcclusion},
-            {"emissive", MaterialTextureSemantic::EmissionColor},
-        };
-
-        MaterialSchema PbrSchema()
+        MaterialSource CanonicalSource(MaterialSource source)
         {
-            MaterialSchema schema;
-            const ShaderParameterHint color {ShaderParameterHint::Kind::Color};
-            const ShaderParameterHint unit {ShaderParameterHint::Kind::Range, 0, 1};
-            schema.Parameters = {{"base_color", ShaderUniformType::Float, 4, 1, 1, color},
-                                 {"metallic", ShaderUniformType::Float, 1, 1, 1, unit},
-                                 {"roughness", ShaderUniformType::Float, 1, 1, 1, unit}};
-            for (const auto& texture : PbrTextures)
-                schema.Textures.push_back(texture.first);
-            schema.Defaults = {{"base_color", {1, 1, 1, 1}}, {"metallic", {0}}, {"roughness", {1}}};
-            return schema;
+            if (!IsStandardShader(source.Shader))
+                return source;
+            const auto migrate = [](auto& values, const char* oldName, const char* newName) {
+                auto node = values.extract(oldName);
+                if (!node.empty())
+                {
+                    if (values.count(newName))
+                        throw std::runtime_error(std::string("both legacy and Standard names supplied: ") + newName);
+                    node.key() = newName;
+                    values.insert(std::move(node));
+                }
+            };
+            migrate(source.Parameters, "base_color", "BaseColor");
+            migrate(source.Parameters, "metallic", "Metallic");
+            migrate(source.Parameters, "roughness", "Roughness");
+            // Old emissive textures emitted without a factor.
+            if (source.Textures.count("emissive") && !source.Parameters.count("EmissiveColor"))
+                source.Parameters["EmissiveColor"] = {1, 1, 1};
+            migrate(source.Textures, "base_color", "BaseColorMap");
+            migrate(source.Textures, "normal", "NormalMap");
+            migrate(source.Textures, "metallic_roughness", "MetallicRoughnessMap");
+            migrate(source.Textures, "occlusion", "OcclusionMap");
+            migrate(source.Textures, "emissive", "EmissiveMap");
+            return source;
         }
 
         std::variant<std::vector<ShaderStageReflection>, AssetError> MaterialReflection(const ShaderData& shader)
@@ -163,7 +169,7 @@ namespace Kans
                         return Invalid("invalid texture entry '" + name + "'");
                 }
             }
-            return source;
+            return CanonicalSource(std::move(source));
         }
         catch (const std::exception& error)
         {
@@ -171,8 +177,9 @@ namespace Kans
         }
     }
 
-    std::string SerializeMaterialSource(const MaterialSource& source)
+    std::string SerializeMaterialSource(const MaterialSource& input)
     {
+        const auto    source = CanonicalSource(input);
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "magic" << YAML::Value << "KansMaterial";
@@ -206,7 +213,7 @@ namespace Kans
     std::variant<MaterialSchema, AssetError> DescribeMaterial(const ShaderData* shader)
     {
         if (!shader)
-            return PbrSchema();
+            shader = &GetStandardShader();
         try
         {
             auto reflection = MaterialReflection(*shader);
@@ -261,6 +268,10 @@ namespace Kans
                     return Invalid("Shader hint '" + name + "': range does not apply to a bool");
                 found->Hint = hint;
             }
+            for (const auto& [name, role] : shader->TextureFallbacks)
+                if (std::find(schema.Textures.begin(), schema.Textures.end(), name) == schema.Textures.end() ||
+                    uint32_t(role) > uint32_t(ShaderTextureFallback::Normal))
+                    return Invalid("Shader texture fallback '" + name + "' does not name a material sampler");
             return schema;
         }
         catch (const std::exception& error)
@@ -269,10 +280,23 @@ namespace Kans
         }
     }
 
-    std::variant<MaterialData, AssetError> ResolveMaterialSource(const MaterialSource& source, const ShaderData* shader)
+    std::variant<MaterialData, AssetError> ResolveMaterialSource(const MaterialSource& input, const ShaderData* shader)
     {
-        if (source.Shader.IsValid() != (shader != nullptr))
+        MaterialSource source;
+        try
+        {
+            source = CanonicalSource(input);
+        }
+        catch (const std::exception& error)
+        {
+            return Invalid(error.what());
+        }
+        const bool standard = IsStandardShader(source.Shader);
+        if ((!standard && !shader) || (!source.Shader.IsValid() && shader && shader != &GetStandardShader() &&
+                                       shader != &GetStandardShaderAsset()->GetData()))
             return AssetError {AssetErrorCode::InvalidArgument, "Material source and Shader do not match"};
+        if (standard)
+            shader = &GetStandardShader();
         auto described = DescribeMaterial(shader);
         if (auto* error = std::get_if<AssetError>(&described))
             return std::move(*error);
@@ -310,23 +334,18 @@ namespace Kans
 
         MaterialData data;
         data.Name = source.Name;
-        if (!shader)
+        if (standard)
         {
-            const auto value = [&](const char* name) { return parameters.at(name); };
-            const auto color = value("base_color");
+            const auto& color = parameters.at("BaseColor");
             for (size_t i = 0; i < 4; ++i)
                 data.BaseColor[i] = static_cast<float>(color[i]);
-            data.Metallic  = static_cast<float>(value("metallic")[0]);
-            data.Roughness = static_cast<float>(value("roughness")[0]);
-            for (const auto& [name, semantic] : PbrTextures)
-                if (const auto found = source.Textures.find(name); found != source.Textures.end())
-                    data.Textures.push_back({static_cast<uint32_t>(semantic), 0, found->second});
-            return data;
+            data.Metallic  = static_cast<float>(parameters.at("Metallic")[0]);
+            data.Roughness = static_cast<float>(parameters.at("Roughness")[0]);
         }
 
         try
         {
-            data.Shader    = source.Shader;
+            data.Shader     = standard ? StandardShaderID() : source.Shader;
             data.Bindings  = MaterialBindingRecipe {};
             auto& recipe   = *data.Bindings;
             auto  inspected = MaterialReflection(*shader);
@@ -340,9 +359,18 @@ namespace Kans
                     const auto found = source.Textures.find(resource.Name);
                     if (found == source.Textures.end())
                         continue;
-                    // Shader-bound textures have no engine role.
-                    data.Textures.push_back(
-                        {static_cast<uint32_t>(MaterialTextureSemantic::Unknown), 0, found->second});
+                    uint32_t semantic = uint32_t(MaterialTextureSemantic::Unknown);
+                    if (standard)
+                    {
+                        const std::map<std::string, MaterialTextureSemantic> roles = {
+                            {"BaseColorMap", MaterialTextureSemantic::BaseColor},
+                            {"NormalMap", MaterialTextureSemantic::Normal},
+                            {"MetallicRoughnessMap", MaterialTextureSemantic::MetallicRoughness},
+                            {"OcclusionMap", MaterialTextureSemantic::AmbientOcclusion},
+                            {"EmissiveMap", MaterialTextureSemantic::EmissionColor}};
+                        semantic = uint32_t(roles.at(resource.Name));
+                    }
+                    data.Textures.push_back({semantic, 0, found->second});
                     recipe.Textures.push_back({MaterialDescriptorSet,
                                                resource.Binding,
                                                0,

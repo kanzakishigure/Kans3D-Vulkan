@@ -73,8 +73,14 @@ namespace Kans
         if (auto* error = std::get_if<AssetError>(&contract))
             return std::move(*error);
 
+        const auto resources = MaterialShaderResources(reflection);
+        for (const auto& [name, role] : data.TextureFallbacks)
+            if (std::none_of(resources.begin(), resources.end(), [&](const auto& resource) {
+                    return resource.Kind == ShaderBindingKind::CombinedImageSampler && resource.Name == name;
+                }))
+                return Failure("texture fallback '" + name + "' does not name a material sampler");
         GpuShader shader;
-        for (const auto& resource : MaterialShaderResources(reflection))
+        for (const auto& resource : resources)
         {
             if (resource.Count != 1)
                 return Failure("descriptor arrays are not supported ('" + resource.Name + "')");
@@ -82,8 +88,15 @@ namespace Kans
                 shader.m_BlockPoints.emplace(resource.Binding,
                                              FirstMaterialBlockPoint + uint32_t(shader.m_BlockPoints.size()));
             else
+            {
+                const auto found = data.TextureFallbacks.find(resource.Name);
+                const auto role  = found == data.TextureFallbacks.end() ? ShaderTextureFallback::White : found->second;
+                if (uint32_t(role) > uint32_t(ShaderTextureFallback::Normal))
+                    return Failure("invalid texture fallback");
+                shader.m_SamplerFallbacks.emplace(resource.Binding, role);
                 shader.m_SamplerUnits.emplace(resource.Binding,
                                               FirstMaterialUnit + uint32_t(shader.m_SamplerUnits.size()));
+            }
         }
         // Guaranteed minimums of GL 4.3 per stage.
         if (shader.m_BlockPoints.size() > 10 || FirstMaterialUnit + shader.m_SamplerUnits.size() > 16)
@@ -173,15 +186,15 @@ namespace Kans
     }
 
     GpuShader::GpuShader(GpuShader&& other) noexcept :
-        m_Program(std::exchange(other.m_Program, 0)),
-        m_BlockPoints(std::move(other.m_BlockPoints)),
-        m_SamplerUnits(std::move(other.m_SamplerUnits))
+        m_SamplerFallbacks(std::move(other.m_SamplerFallbacks)), m_Program(std::exchange(other.m_Program, 0)),
+        m_BlockPoints(std::move(other.m_BlockPoints)), m_SamplerUnits(std::move(other.m_SamplerUnits))
     {
     }
 
     GpuShader& GpuShader::operator=(GpuShader&& other) noexcept
     {
         std::swap(m_Program, other.m_Program);
+        std::swap(m_SamplerFallbacks, other.m_SamplerFallbacks);
         std::swap(m_BlockPoints, other.m_BlockPoints);
         std::swap(m_SamplerUnits, other.m_SamplerUnits);
         return *this;

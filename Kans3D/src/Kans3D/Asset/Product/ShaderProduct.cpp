@@ -6,8 +6,8 @@ namespace Kans
 {
     namespace
     {
-        // Version 2 appends parameter defaults, version 3 also parameter hints.
-        constexpr uint32_t Magic = 0x4448534b, Version = 3, TargetVulkan12 = 1;
+        // v2 defaults, v3 hints, v4 sampler fallbacks. Readers retain v1-v3.
+        constexpr uint32_t Magic = 0x4448534b, Version = 4, TargetVulkan12 = 1;
         constexpr size_t   MaximumDefaults = 4096, MaximumDefaultValues = 4096;
         constexpr size_t   MaximumBytes = 16 * 1024 * 1024;
         void               Write(std::vector<std::byte>& bytes, uint32_t word)
@@ -52,7 +52,8 @@ namespace Kans
     } // namespace
     std::variant<std::vector<std::byte>, AssetError> EncodeShaderProduct(const ShaderProgramCode&       code,
                                                                          const ShaderParameterDefaults& defaults,
-                                                                         const ShaderParameterHints&    hints)
+                                                                         const ShaderParameterHints&    hints,
+                                                                         const ShaderTextureFallbacks&  fallbacks)
     {
         if (hints.size() > MaximumDefaults)
             return AssetError {AssetErrorCode::InvalidArgument, "Too many Shader parameter hints"};
@@ -105,6 +106,19 @@ namespace Kans
             WriteDouble(bytes, hint.Min);
             WriteDouble(bytes, hint.Max);
         }
+        if (fallbacks.size() > MaximumDefaults)
+            return AssetError {AssetErrorCode::InvalidArgument, "Too many Shader texture fallbacks"};
+        for (const auto& [name, role] : fallbacks)
+            if (!ValidDefault(name, {0}) || uint32_t(role) > uint32_t(ShaderTextureFallback::Normal))
+                return AssetError {AssetErrorCode::InvalidArgument, "Invalid Shader texture fallback"};
+        Write(bytes, uint32_t(fallbacks.size()));
+        for (const auto& [name, role] : fallbacks)
+        {
+            Write(bytes, uint32_t(name.size()));
+            Write(bytes, uint32_t(role));
+            for (auto c : name)
+                bytes.push_back(static_cast<std::byte>(c));
+        }
         return bytes;
     }
     std::variant<ShaderData, AssetError> DecodeShaderProduct(const std::byte* bytes, size_t size)
@@ -115,7 +129,7 @@ namespace Kans
         if (Read(cursor) != Magic)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Shader Product magic"};
         const auto version = Read(cursor);
-        if (version != 1 && version != Version)
+        if (version < 1 || version > Version)
             return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Shader Product version"};
         if (Read(cursor) != uint32_t(AssetType::Shader) || Read(cursor) != TargetVulkan12)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Shader Product type/target"};
@@ -189,6 +203,28 @@ namespace Kans
                 hint.Max  = ReadDouble(cursor);
                 if (!ValidHint(name, hint) || !result.ParameterHints.emplace(name, hint).second)
                     return AssetError {AssetErrorCode::InvalidData, "Invalid Shader parameter hint"};
+            }
+        }
+        if (version >= 4)
+        {
+            const auto remaining = [&] { return size - size_t(cursor - bytes); };
+            if (remaining() < 4)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Shader texture fallbacks"};
+            const auto count = Read(cursor);
+            if (count > MaximumDefaults)
+                return AssetError {AssetErrorCode::InvalidData, "Too many Shader texture fallbacks"};
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                if (remaining() < 8)
+                    return AssetError {AssetErrorCode::InvalidData, "Truncated Shader texture fallback"};
+                const auto length = Read(cursor), role = Read(cursor);
+                if (!length || length > 256 || length > remaining() || role > uint32_t(ShaderTextureFallback::Normal))
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader texture fallback"};
+                std::string name(reinterpret_cast<const char*>(cursor), length);
+                cursor += length;
+                if (!ValidDefault(name, {0}) ||
+                    !result.TextureFallbacks.emplace(name, ShaderTextureFallback(role)).second)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader texture fallback"};
             }
         }
         if (size_t(cursor - bytes) != size)

@@ -1,10 +1,14 @@
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <sstream>
 #include <gtest/gtest.h>
 #include "Kans3D/Asset/Importer/MaterialSource.h"
 #include "Kans3D/Asset/Importer/ShaderProgramSource.h"
+#include "Kans3D/Asset/Product/ModelProduct.h"
+#include "Kans3D/Asset/Product/ShaderProduct.h"
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "MaterialShaderTestUtilities.h"
 
 namespace
@@ -100,7 +104,7 @@ namespace
 
         auto pbr = DescribeMaterial(nullptr);
         ASSERT_TRUE(std::holds_alternative<MaterialSchema>(pbr));
-        EXPECT_EQ(std::get<MaterialSchema>(pbr).Parameters.size(), 3u);
+        EXPECT_EQ(std::get<MaterialSchema>(pbr).Parameters.size(), 10u);
         EXPECT_EQ(std::get<MaterialSchema>(pbr).Textures.size(), 5u);
     }
 
@@ -162,7 +166,7 @@ namespace
         EXPECT_TRUE(std::holds_alternative<AssetError>(ResolveMaterialSource(MaterialSource {}, &Shader)));
     }
 
-    TEST_F(MaterialSourceTest, PbrMaterialMapsNamedParametersAndTextureSlots)
+    TEST_F(MaterialSourceTest, LegacyNamesResolveToReflectedStandardBindings)
     {
         MaterialSource source;
         source.Name                    = "Metal";
@@ -171,8 +175,12 @@ namespace
         auto resolved                  = ResolveMaterialSource(source, nullptr);
         ASSERT_TRUE(std::holds_alternative<MaterialData>(resolved)) << std::get<AssetError>(resolved).Message;
         const auto& data = std::get<MaterialData>(resolved);
-        EXPECT_FALSE(data.Shader.IsValid());
-        EXPECT_FALSE(data.Bindings);
+        EXPECT_EQ(data.Shader, StandardShaderID());
+        ASSERT_TRUE(data.Bindings);
+        const auto packed = PackMaterialUniforms(data, GetStandardShader().Code, *data.Bindings);
+        ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+        // Legacy metallic must reach the actual Standard UBO, not just the compatibility field.
+        EXPECT_FLOAT_EQ(FloatAt(std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes, 16), 0.75f);
         EXPECT_EQ(data.Metallic, 0.75f);
         EXPECT_EQ(data.Roughness, 1.0f);
         EXPECT_EQ(data.BaseColor, (std::array<float, 4> {1, 1, 1, 1}));
@@ -271,4 +279,145 @@ namespace
             EXPECT_TRUE(std::holds_alternative<MaterialData>(resolved)) << std::get<AssetError>(resolved).Message;
         }
     }
+    TEST_F(MaterialSourceTest, StandardSchemaAndRecipeExposeRealUniformLayoutWithoutGraphics)
+    {
+        // A hard-coded legacy schema would hide these fields or pack them into the wrong shader.
+        const auto described = DescribeMaterial(nullptr);
+        ASSERT_TRUE(std::holds_alternative<MaterialSchema>(described));
+        const auto&    schema = std::get<MaterialSchema>(described);
+        MaterialSource source;
+        source.Parameters   = {{"EmissiveColor", {0.2, 0.4, 0.6}},
+                               {"EmissiveIntensity", {3}},
+                               {"NormalStrength", {0.25}},
+                               {"OcclusionStrength", {0.75}},
+                               {"UVTiling", {2, 4}},
+                               {"UVOffset", {0.125, 0.375}},
+                               {"VertexColorStrength", {0.625}}};
+        const auto resolved = ResolveMaterialSource(source, nullptr);
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(resolved));
+        const auto& data = std::get<MaterialData>(resolved);
+        ASSERT_EQ(data.Shader, StandardShaderID());
+        ASSERT_TRUE(data.Bindings);
+        const auto packed = PackMaterialUniforms(data, GetStandardShader().Code, *data.Bindings);
+        ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+        const auto& bytes = std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes;
+        // Hand-derived std140 offsets, including the vec3 alignment after two floats.
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 32), 0.2f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 40), 0.6f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 44), 3);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 48), 0.25f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 52), 0.75f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 56), 2);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 60), 4);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 64), 0.125f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 68), 0.375f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 72), 0.625f);
+        const auto parameter = [&](const char* name) -> const MaterialParameterInfo& {
+            return *std::find_if(schema.Parameters.begin(), schema.Parameters.end(), [&](const auto& item) {
+                return item.Name == name;
+            });
+        };
+        ASSERT_TRUE(std::any_of(schema.Parameters.begin(), schema.Parameters.end(), [](const auto& item) {
+            return item.Name == "EmissiveColor" && item.Components == 3 && item.Hint &&
+                   item.Hint->Type == ShaderParameterHint::Kind::Color;
+        }));
+        EXPECT_EQ(parameter("OcclusionStrength").Hint->Type, ShaderParameterHint::Kind::Range);
+        EXPECT_EQ(parameter("OcclusionStrength").Hint->Min, 0);
+        EXPECT_EQ(parameter("OcclusionStrength").Hint->Max, 1);
+    }
+
+    TEST_F(MaterialSourceTest, LegacySourceNamesMigrateOnReadAndWriteButCustomNamesStayLiteral)
+    {
+        // Losing the alias migration rejects existing material files or silently loses texture slots.
+        const auto source =
+            ParseOk("magic: KansMaterial\nversion: 2\nshader: ''\nparameters:\n"
+                    "  base_color: [0.2, 0.4, 0.6, 1]\n  metallic: 0.7\n  roughness: 0.3\n"
+                    "textures:\n  base_color: " +
+                    TextureID.ToString() + "\n  normal: " + TextureID.ToString() +
+                    "\n  metallic_roughness: " + TextureID.ToString() + "\n  occlusion: " + TextureID.ToString() +
+                    "\n  emissive: " + TextureID.ToString() + "\n");
+        EXPECT_EQ(source.Parameters.at("BaseColor"), (std::vector<double> {0.2, 0.4, 0.6, 1}));
+        EXPECT_EQ(source.Parameters.at("Metallic"), (std::vector<double> {0.7}));
+        const auto text = SerializeMaterialSource(source);
+        EXPECT_EQ(text.find("base_color:"), std::string::npos);
+        EXPECT_NE(text.find("BaseColorMap:"), std::string::npos);
+        const auto resolved = ResolveMaterialSource(source, nullptr);
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(resolved));
+        const auto& data = std::get<MaterialData>(resolved);
+        ASSERT_EQ(data.Bindings->Textures.size(), 5u);
+        for (size_t i = 0; i < 5; ++i)
+        {
+            EXPECT_EQ(data.Bindings->Textures[i].Binding, i + 1);
+            EXPECT_EQ(data.Textures[data.Bindings->Textures[i].TextureIndex].Texture, TextureID);
+        }
+        // Canonical and legacy spellings together are ambiguous, so reject rather than overwrite.
+        MaterialSource duplicate           = source;
+        duplicate.Parameters["base_color"] = {1, 1, 1, 1};
+        EXPECT_TRUE(std::holds_alternative<AssetError>(ResolveMaterialSource(duplicate, nullptr)));
+        MaterialSource custom;
+        custom.Shader                   = ShaderID;
+        custom.Parameters["base_color"] = {0.3};
+        EXPECT_NE(SerializeMaterialSource(custom).find("base_color:"), std::string::npos);
+    }
+
+    TEST_F(MaterialSourceTest, ShaderTextureDeclarationsSurviveCodecAndRejectUnknownSamplerNames)
+    {
+        // A dropped fallback declaration makes a custom normal sampler bind white after publication.
+        const auto parsed = ParseShaderProgramTextureFallbacks("texture u_Albedo = normal\n");
+        ASSERT_TRUE(std::holds_alternative<ShaderTextureFallbacks>(parsed));
+        Shader.TextureFallbacks = std::get<ShaderTextureFallbacks>(parsed);
+        const auto encoded      = EncodeShaderProduct(Shader.Code, {}, {}, Shader.TextureFallbacks);
+        ASSERT_TRUE(std::holds_alternative<std::vector<std::byte>>(encoded));
+        const auto& bytes   = std::get<std::vector<std::byte>>(encoded);
+        const auto  decoded = DecodeShaderProduct(bytes.data(), bytes.size());
+        ASSERT_TRUE(std::holds_alternative<ShaderData>(decoded));
+        EXPECT_EQ(std::get<ShaderData>(decoded).TextureFallbacks.at("u_Albedo"), ShaderTextureFallback::Normal);
+        Shader.TextureFallbacks = {{"Typo", ShaderTextureFallback::Black}};
+        EXPECT_TRUE(std::holds_alternative<AssetError>(DescribeMaterial(&Shader)));
+        for (const char* bad : {"texture A = purple",
+                                "texture A = white extra",
+                                "texture = normal",
+                                "texture A = white\ntexture A = black"})
+            EXPECT_TRUE(std::holds_alternative<AssetError>(ParseShaderProgramTextureFallbacks(bad))) << bad;
+    }
+
+    TEST_F(MaterialSourceTest, PublishedFrameWithoutDebugMemberStillValidates)
+    {
+        // Published custom SPIR-V uses the old KansFrame, even after engine includes change.
+        auto       engine = *FindEngineShaderInclude("Kans3D/Engine.glsl");
+        const auto member = engine.find("    float DebugView;\n");
+        ASSERT_NE(member, std::string::npos);
+        engine.erase(member, std::strlen("    float DebugView;\n"));
+        std::string vertex = TestMaterialVertex;
+        vertex.replace(
+            vertex.find("#include <Kans3D/Engine.glsl>"), std::strlen("#include <Kans3D/Engine.glsl>"), engine);
+        const auto old       = CompileTestMaterialShader(vertex);
+        const auto reflected = InspectShaderProgram(old);
+        ASSERT_TRUE(std::holds_alternative<std::vector<ShaderStageReflection>>(reflected));
+        EXPECT_TRUE(std::holds_alternative<std::monostate>(
+            ValidateMaterialShaderInterface(std::get<std::vector<ShaderStageReflection>>(reflected))));
+    }
+
+    TEST_F(MaterialSourceTest, PublishedLegacyKmatResolvesItsFactorsAndDiffuseFallbackToStandard)
+    {
+        // KMAT v1 has neither Shader nor recipe; it must retain its factors when adapted at draw time.
+        const std::string yaml    = "magic: KMAT\nversion: 1\nname: old\nbase_color: [0.25, 0.5, 1, 1]\n"
+                                    "metallic: 0.75\nroughness: 0.4\ntextures: [{semantic: 1, uv: 0, asset: '" +
+                                    TextureID.ToString() + "'}]\n";
+        auto              decoded = DecodeMaterialProduct(reinterpret_cast<const std::byte*>(yaml.data()), yaml.size());
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+        auto standard = ResolveStandardMaterial(std::get<MaterialData>(decoded));
+        ASSERT_TRUE(std::holds_alternative<MaterialData>(standard));
+        const auto& data = std::get<MaterialData>(standard);
+        ASSERT_EQ(data.Shader, StandardShaderID());
+        EXPECT_EQ(data.Bindings->Textures.at(0).Binding, 1u);
+        EXPECT_EQ(data.Textures.at(0).Texture, TextureID);
+        auto packed = PackMaterialUniforms(data, GetStandardShader().Code, *data.Bindings);
+        ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+        const auto& bytes = std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes;
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 0), 0.25f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 16), 0.75f);
+        EXPECT_FLOAT_EQ(FloatAt(bytes, 20), 0.4f);
+    }
+
 } // namespace

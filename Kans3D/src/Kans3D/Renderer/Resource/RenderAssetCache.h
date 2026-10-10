@@ -20,25 +20,15 @@ namespace Kans
         Bounds           LocalBounds; // In mesh space.
     };
 
-    // Engine PBR material parameters. Texture IDs are resolved when drawing so a
-    // material is usable before (or without) its textures. A material with a
-    // Shader is drawn with that Shader and its GpuMaterialBindings instead.
     struct GpuMaterial
     {
-        AssetID   Shader;
-        glm::vec4 BaseColor {1.0f};
-        float     Metallic  = 0.0f;
-        float     Roughness = 1.0f;
-        AssetID   AlbedoTexture;
-        AssetID   NormalTexture;
-        AssetID   MetallicRoughnessTexture;
-        AssetID   OcclusionTexture;
-        AssetID   EmissiveTexture;
+        AssetID Shader;
     };
 
     // Material data packed for its Shader: set-1 uniform blocks and textures.
     struct GpuMaterialBindings
     {
+        AssetID Shader; // Actual program, including Standard while a custom Shader is unavailable.
         std::vector<std::pair<uint32_t, GpuUniformBuffer>> Blocks;
         std::vector<std::pair<uint32_t, AssetID>>          Textures;
     };
@@ -77,9 +67,10 @@ namespace Kans
         // Model-space bounds of a model's meshes; empty until the model and its
         // meshes are uploaded.
         Bounds GetModelBounds(AssetID model);
-        // Packed parameters of a Shader material; nullptr while the material or its
-        // Shader is loading or when packing failed (the error is logged).
-        const GpuMaterialBindings* GetMaterialBindings(AssetID material);
+        // Packed material parameters, using Standard for missing/pending/failed
+        // custom Shaders. `standard` forces Standard for viewport debug views.
+        const GpuMaterialBindings* GetMaterialBindings(AssetID material, bool standard = false);
+        void                       BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings);
 
         AssetManager& GetAssetManager() { return m_Assets; }
 
@@ -103,6 +94,12 @@ namespace Kans
             uint64_t                      LastUsedFrame = 0;
         };
 
+        const GpuMaterialBindings* ResolveBindings(AssetID                      materialID,
+                                                   Ref<const MaterialDataAsset> materialSource,
+                                                   Ref<const ShaderDataAsset>   shaderSource,
+                                                   bool                         standard);
+
+        std::array<Ref<Texture2D>, 3>                                      m_FallbackTextures;
         AssetManager&                                                      m_Assets;
         uint64_t                                                           m_Frame = 0;
         std::unordered_map<AssetID, Entry<ModelAsset, ModelInstances>>     m_Models;
@@ -111,6 +108,7 @@ namespace Kans
         std::unordered_map<AssetID, Entry<TextureAsset, Ref<Texture2D>>>   m_Textures;
         std::unordered_map<AssetID, Entry<ShaderDataAsset, GpuShader>>     m_Shaders;
         std::unordered_map<AssetID, BindingsEntry>                         m_Bindings;
+        std::unordered_map<AssetID, BindingsEntry>                         m_StandardBindings;
     };
 
     // Uploads CPU mesh data to an indexed vertex array (requires a current GL context).

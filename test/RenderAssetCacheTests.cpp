@@ -1,5 +1,6 @@
 #include <cmath>
 #include <gtest/gtest.h>
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 
 namespace
@@ -67,27 +68,30 @@ namespace
                                {17, 0, occlusion},
                                {4, 0, emissive},
                                {16, 1, secondUV}};
-        const auto material = MakeGpuMaterial(data);
-        EXPECT_EQ(material.BaseColor, glm::vec4(0.5f, 0.25f, 1, 0.75f));
-        EXPECT_FLOAT_EQ(material.Metallic, 0.3f);
-        EXPECT_FLOAT_EQ(material.Roughness, 0.6f);
-        EXPECT_EQ(material.AlbedoTexture, baseColor);
-        EXPECT_EQ(material.NormalTexture, normal);
-        EXPECT_EQ(material.MetallicRoughnessTexture, metallicRoughness);
-        EXPECT_EQ(material.OcclusionTexture, occlusion);
-        EXPECT_EQ(material.EmissiveTexture, emissive);
+        const auto textures = [](const MaterialData& input) {
+            auto resolved = ResolveStandardMaterial(input);
+            EXPECT_TRUE(std::holds_alternative<MaterialData>(resolved));
+            std::map<uint32_t, AssetID> byBinding;
+            if (const auto* material = std::get_if<MaterialData>(&resolved))
+                for (const auto& assignment : material->Bindings->Textures)
+                    byBinding.emplace(assignment.Binding, material->Textures[assignment.TextureIndex].Texture);
+            return byBinding;
+        };
+        auto slots = textures(data);
+        EXPECT_EQ(slots.at(1), baseColor);
+        EXPECT_EQ(slots.at(2), normal);
+        EXPECT_EQ(slots.at(3), metallicRoughness);
+        EXPECT_EQ(slots.at(4), occlusion);
+        EXPECT_EQ(slots.at(5), emissive);
 
-        // OBJ-style materials: diffuse and bump only; non-zero UV channels are ignored.
-        data.Textures     = {{1, 0, diffuse}, {5, 0, bump}, {16, 1, secondUV}};
-        const auto legacy = MakeGpuMaterial(data);
-        EXPECT_EQ(legacy.AlbedoTexture, diffuse);
-        EXPECT_EQ(legacy.NormalTexture, bump);
-        EXPECT_FALSE(legacy.MetallicRoughnessTexture.IsValid());
-        EXPECT_FALSE(legacy.OcclusionTexture.IsValid());
-        EXPECT_FALSE(legacy.EmissiveTexture.IsValid());
-
+        // OBJ diffuse/bump must reach the same samplers; unsupported UV sets stay unbound.
+        data.Textures = {{1, 0, diffuse}, {5, 0, bump}, {16, 1, secondUV}};
+        slots         = textures(data);
+        EXPECT_EQ(slots.at(1), diffuse);
+        EXPECT_EQ(slots.at(2), bump);
+        EXPECT_EQ(slots.size(), 2u);
         // Assimp 5 reports glTF metallic-roughness as Unknown.
         data.Textures = {{18, 0, metallicRoughness}};
-        EXPECT_EQ(MakeGpuMaterial(data).MetallicRoughnessTexture, metallicRoughness);
+        EXPECT_EQ(textures(data).at(3), metallicRoughness);
     }
 } // namespace

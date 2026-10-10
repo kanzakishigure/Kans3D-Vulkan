@@ -219,6 +219,9 @@ namespace Kans
             if (material->Get(AI_MATKEY_BASE_COLOR, color) != AI_SUCCESS)
                 material->Get(AI_MATKEY_COLOR_DIFFUSE, color);
             data.BaseColor = {color.r, color.g, color.b, color.a};
+            aiColor3D emissive(0, 0, 0);
+            material->Get(AI_MATKEY_COLOR_EMISSIVE, emissive);
+            data.EmissiveColor = {emissive.r, emissive.g, emissive.b};
             int shading    = 0;
             material->Get(AI_MATKEY_SHADING_MODEL, shading);
             if (shading == aiShadingMode_PBR_BRDF)
@@ -239,7 +242,9 @@ namespace Kans
             const bool gltfAlpha = material->Get("$mat.gltf.alphaMode", 0, 0, alphaMode) == AI_SUCCESS;
             data.Opaque          = opacity >= 1.0f && (!gltfAlpha || std::string(alphaMode.C_Str()) == "OPAQUE");
             if (!std::all_of(data.BaseColor.begin(), data.BaseColor.end(), [](float v) { return std::isfinite(v); }) ||
-                !std::isfinite(data.Metallic) || !std::isfinite(data.Roughness))
+                !std::isfinite(data.Metallic) || !std::isfinite(data.Roughness) ||
+                !std::all_of(
+                    data.EmissiveColor.begin(), data.EmissiveColor.end(), [](float v) { return std::isfinite(v); }))
                 return AssetError {AssetErrorCode::InvalidData, "Model material contains non-finite data"};
             for (uint32_t type = 1; type <= static_cast<uint32_t>(AI_TEXTURE_TYPE_MAX); ++type)
             {

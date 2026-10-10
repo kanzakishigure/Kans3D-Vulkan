@@ -55,9 +55,8 @@ namespace Kans
         void              SetAssetManager(AssetManager* assets);
         RenderAssetCache* GetAssetCache() { return m_AssetCache.get(); }
 
-        // Draws a Model asset. Parts use the engine PBR shader unless their material
-        // has its own Shader. Parts that are still loading are skipped; missing
-        // textures fall back to material factors (or white for Shader materials).
+        // Draws each part through its material Shader. Empty, pending or failed
+        // Shaders use engine Standard; samplers use Shader-declared fallbacks.
         void SubmitModel(const ProductModelComponent& model, const glm::mat4& transform);
         // Draws model geometry with a shader from the library that takes
         // U_ViewProjection, U_Transform and U_ViewPos (outline, stencil, debug).

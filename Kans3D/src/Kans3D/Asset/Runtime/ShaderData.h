@@ -104,6 +104,14 @@ namespace Kans
     };
     using ShaderParameterHints = std::map<std::string, ShaderParameterHint>;
 
+    enum class ShaderTextureFallback : uint32_t
+    {
+        White  = 0,
+        Black  = 1,
+        Normal = 2,
+    };
+    using ShaderTextureFallbacks = std::map<std::string, ShaderTextureFallback>;
+
     struct ShaderData
     {
         ShaderProgramCode       Code;
@@ -111,6 +119,7 @@ namespace Kans
         ShaderParameterHints    ParameterHints;
         // Derived from validated bytecode, never trusted caller-supplied metadata.
         std::vector<ShaderStageReflection> Reflection;
+        ShaderTextureFallbacks             TextureFallbacks;
     };
     std::variant<std::vector<ShaderStageReflection>, AssetError> InspectShaderProgram(const ShaderProgramCode& code);
     class ShaderDataAsset                                        final : public Asset

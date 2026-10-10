@@ -27,7 +27,8 @@ namespace Kans
         std::set<ShaderProductStage>   stages;
         while (next())
         {
-            if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0 || line.rfind("hint ", 0) == 0)
+            if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0 || line.rfind("hint ", 0) == 0 ||
+                line.rfind("texture ", 0) == 0)
                 continue;
             const auto split = line.find('=');
             if (split == std::string::npos)
@@ -125,6 +126,33 @@ namespace Kans
                                    "Shader hint '" + key + "' must be toggle, color or range <min> <max>"};
             if ((input >> extra) || key.size() > 256 || !result.emplace(key, hint).second)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate Shader hint '" + key + "'"};
+        }
+        return result;
+    }
+    std::variant<ShaderTextureFallbacks, AssetError> ParseShaderProgramTextureFallbacks(const std::string& text)
+    {
+        if (text.size() > 65536 || text.find('\0') != std::string::npos)
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Shader program text budget"};
+        ShaderTextureFallbacks result;
+        std::istringstream     lines(text);
+        std::string            line;
+        while (std::getline(lines, line))
+        {
+            if (line.rfind("texture ", 0) != 0)
+                continue;
+            const auto         split = line.find('=');
+            std::istringstream name(line.substr(8, split == std::string::npos ? std::string::npos : split - 8));
+            std::istringstream value(split == std::string::npos ? "" : line.substr(split + 1));
+            std::string        key, role, extra;
+            if (split == std::string::npos || !(name >> key) || (name >> extra) || !(value >> role) ||
+                (value >> extra) || key.size() > 256 || result.count(key) ||
+                (role != "white" && role != "black" && role != "normal"))
+                return AssetError {AssetErrorCode::InvalidData,
+                                   "Shader texture must be 'texture <name> = white | black | normal'"};
+            result.emplace(key,
+                           role == "normal" ? ShaderTextureFallback::Normal :
+                           role == "black"  ? ShaderTextureFallback::Black :
+                                              ShaderTextureFallback::White);
         }
         return result;
     }

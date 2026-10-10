@@ -318,8 +318,14 @@ namespace
     TEST_F(ShaderImporterTest, ProgramDefaultsAreStoredInTheProduct)
     {
         Program();
+        Text(Context.AssetRoot / "test.frag",
+             "#version 450\nlayout(location=0) in vec2 uv;layout(location=0) out vec4 color;"
+             "layout(set=1,binding=1) uniform sampler2D NormalMap;"
+             "layout(set=1,binding=0) uniform Parameters { float Strength; } p;"
+             "void main(){color=texture(NormalMap,uv)*p.Strength;}");
         Text(Context.SourceFile,
-             "KansShaderProgram 1\nfragment=test.frag\nvertex=test.vert\ndefault Strength = 0.5\n");
+             "KansShaderProgram 1\nfragment=test.frag\nvertex=test.vert\ndefault Strength = 0.5\ntexture NormalMap = "
+             "normal\n");
         const auto imported = Import();
         ASSERT_EQ(imported.Products.size(), 1u);
         auto bytes = ReadProductFile(Context.StagingDirectory / imported.Products[0].StagedFile);
@@ -329,6 +335,8 @@ namespace
         ASSERT_TRUE(std::holds_alternative<ShaderData>(decoded));
         EXPECT_EQ(std::get<ShaderData>(decoded).ParameterDefaults,
                   (ShaderParameterDefaults {{"Strength", {0.5}}}));
+        // Import must carry fallback metadata into the published Product, not just parse the manifest.
+        EXPECT_EQ(std::get<ShaderData>(decoded).TextureFallbacks.at("NormalMap"), ShaderTextureFallback::Normal);
     }
     TEST_F(ShaderImporterTest, ProgramMissingStageAndInterfaceFailureLeaveStageEmpty)
     {

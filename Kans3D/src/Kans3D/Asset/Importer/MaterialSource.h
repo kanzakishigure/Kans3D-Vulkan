@@ -10,14 +10,13 @@ namespace Kans
     //   magic: KansMaterial
     //   version: 2
     //   name: Toon
-    //   shader: <Shader AssetID>   # empty: engine PBR
+    //   shader: <Shader AssetID>   # empty: engine Standard
     //   parameters: {Tint: [1, 0.8, 0.8, 1], Steps: 3}
     //   textures: {u_Albedo: <Texture AssetID>}
     //
-    // With a Shader, parameter names are members of its set-1 uniform blocks and
-    // texture names are its set-1 samplers. Without one, the engine PBR material
-    // takes base_color, metallic and roughness, and the textures base_color,
-    // normal, metallic_roughness, occlusion and emissive.
+    // Parameter names are set-1 uniform members; textures name set-1 samplers.
+    // An empty Shader selects the embedded Standard Shader. Legacy PBR spellings
+    // are accepted on input and canonical Standard names are written on save.
     struct MaterialSource
     {
         std::string Name;
@@ -52,7 +51,7 @@ namespace Kans
     [[nodiscard]] std::variant<MaterialSource, AssetError> ParseMaterialSource(const std::byte* bytes, size_t size);
     [[nodiscard]] std::string                             SerializeMaterialSource(const MaterialSource& source);
 
-    // Schema of the engine PBR material (shader == nullptr) or of a material Shader.
+    // Reflected schema of the engine Standard Shader (shader == nullptr) or of a material Shader.
     // Struct members of material uniform blocks are not exposed and stay zero.
     [[nodiscard]] std::variant<MaterialSchema, AssetError> DescribeMaterial(const ShaderData* shader);
 

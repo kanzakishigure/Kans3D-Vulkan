@@ -53,7 +53,7 @@ namespace Kans
         float                               Metallic  = 0;
         float                               Roughness = 1;
         std::vector<MaterialTextureBinding> Textures;
-        // Optional for legacy/model-imported materials; explicit rendering materials persist a Shader Product identity.
+        // Empty in old Products; resolves to the reserved engine Standard Shader.
         AssetID Shader;
         // Absent in KMAT v1/v2; an explicit (possibly empty) recipe is persisted in v3.
         std::optional<MaterialBindingRecipe> Bindings;

@@ -37,6 +37,7 @@ namespace Kans
         // False when the source marks the material as transparent or alpha tested.
         bool                                  Opaque = true;
         std::vector<ImportedTextureReference> Textures;
+        std::array<float, 3>                  EmissiveColor {0, 0, 0};
     };
 
     struct ImportedNodeData

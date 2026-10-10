@@ -57,24 +57,35 @@ assets/x.obj + x.obj.kmeta                    AssetID
 
 - `RenderAssetCache` 在渲染线程把 CPU 资源转换为 GPU 网格、材质和纹理；新版本
   加载完成前继续使用旧资源；长时间未使用的资源会被释放。
-- `ProductModelComponent` 只保存 Model 的 AssetID 和材质替换。没有 Shader 的材质
-  使用 `ProductPBR.glsl` 绘制（场景光源 + IBL），有 Shader 的材质用其自身程序绘制；
-  均可叠加描边、模板和法线调试。
+- `ProductModelComponent` 只保存 Model 的 AssetID 和材质替换。所有材质都通过
+  SPIR-V 材质 Shader 路径绘制；Shader 未指定、加载中或失败时使用引擎 Standard。
+  均可叠加描边、模板、拾取和调试视图；调试视图用 Standard 绘制。
 
 ## 材质与材质 Shader（`Importer/MaterialSource`、`Runtime/MaterialShaderInterface`）
 
-- `.material` 源文件（YAML v2）按名字填写参数和纹理：`shader` 为空时是引擎 PBR
-  材质（`base_color`、`metallic`、`roughness`，纹理槽 `base_color`、`normal`、
-  `metallic_roughness`、`occlusion`、`emissive`）；指定 Shader 时，参数是其 set 1
-  uniform block 的成员，纹理是其 set 1 的 sampler2D。导入时根据 Shader 反射解析
-  成按索引的绑定配方并写入 KMAT。未填写的参数取 Shader 声明的默认值（`.shaderprog`
-  中的 `default <名字> = <数值...>` 行，存入 Shader Product），没有默认值则为 0；
-  未指定的 sampler 读白色。`.shaderprog` 还可用 `hint <名字> = toggle | color |
-  range <min> <max>` 声明材质编辑器中的控件（uniform block 里的 bool 编译后是 uint，
-  需要 `toggle` 才显示为勾选框）。
+- 材质只有一个模型：Shader + 命名参数 + 命名纹理。`.material`（YAML v2）的
+  `shader` 为空时选择引擎内嵌 Standard（保留 ID `ffffffffffffffff:0000000000000001`），
+  无需项目文件。Standard 和项目 Shader 使用同一编译、SPIR-V 反射、约定校验及
+  GL 交叉编译流程；`DescribeMaterial(nullptr)` 在 CPU 上提供其真实反射 schema、默认值和 hint。
+- 参数是 set 1 uniform block 的成员，纹理是 set 1 sampler2D；导入后写入 KMAT v3
+  绑定配方。Standard 提供 `BaseColor`、`Metallic`、`Roughness`、`EmissiveColor`、
+  `EmissiveIntensity`、`NormalStrength`、`OcclusionStrength`、`UVTiling`、`UVOffset`、`VertexColorStrength`，
+  以及 `BaseColorMap`、`NormalMap`、`MetallicRoughnessMap`（G 粗糙度 / B 金属度）、
+  `OcclusionMap`（R）、`EmissiveMap`。UV 先缩放再偏移；法线使用顶点切线及其手性，
+  切线退化时使用导数 TBN。自发光颜色乘强度，有贴图时再乘贴图。
+- `.shaderprog` 用 `default <名字> = <数值...>` 和 `hint <名字> = toggle | color |
+  range <min> <max>` 声明默认值和编辑控件；未声明的参数为 0。用
+  `texture <sampler名字> = white | black | normal` 声明未指定或未加载纹理的替代值
+  （存入 KSHD v4；未声明时为白色）。Standard 的法线替代值为精确平面法线，
+  其余（含自发光贴图）为白色。Standard 默认自发光颜色为 0，不增加光照。
+  `VertexColorStrength` 默认 0，保持旧模型外观；设为 1 时使用顶点颜色。
+- 模型材质映射为 Standard，包含 Assimp 的自发光因子；有自发光贴图且导入因子为黑色时使用白色因子。旧 `.material` 的
+  `base_color`、`metallic`、`roughness` 和旧纹理槽名在读取时迁移，保存使用新名字。
+  KMAT v1–v3 和 KSHD v1–v3 仍可读取；旧无配方材质在渲染缓存中转换为 Standard。
+  导入器版本升级后项目会自动重导入，不把内建 Shader 当作项目依赖。
 - 材质 Shader 是 `.shaderprog`（顶点 + 片元，Vulkan GLSL 450）：set 0 是引擎数据，
   用 `#include <Kans3D/Engine.glsl>` 声明（`u_Frame`：ViewProjection、相机位置、
-  4 个点光源的位置、PBR 辐射度 `LightColors` 与漫反射强度 `LightDiffuse`、Time；`u_Object`：Transform、NormalMatrix；IBL 的
+  4 个点光源的位置、PBR 辐射度 `LightColors` 与漫反射强度 `LightDiffuse`、Time、DebugView；`u_Object`：Transform、NormalMatrix；IBL 的
   `u_IrradianceMap`、`u_PrefilterMap`、`u_BrdfLUT`）；顶点输入用
   `<Kans3D/VertexInput.glsl>`；`<Kans3D/Lighting.glsl>` 提供引擎 PBR 光照
   `KansShadePbr` 与 `KansToneMap`。片元在 location 0 输出 vec4。不符合约定的
@@ -96,7 +107,7 @@ assets/x.obj + x.obj.kmeta                    AssetID
   复制得到新 ID 并沿用原导入设置；删除前列出引用它的资产。卡片显示导入状态，
   预览栏显示 Source ID、导入器、产物和引用关系。
 - 内容浏览器右键「Create Material」新建材质，双击 `.material` 打开材质编辑器：
-  选择 Shader（或引擎 PBR）、编辑参数与纹理，保存后自动导入并在场景中生效。
+  选择 Shader（或引擎 Standard）、编辑参数与纹理，保存后自动导入并在场景中生效。
 
 ## 尚未实现
 

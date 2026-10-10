@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <future>
 #include <iterator>
@@ -11,7 +12,9 @@
 #include "Kans3D/Asset/Loader/Loader.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
+#include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 
 namespace
 {
@@ -199,6 +202,88 @@ namespace
                 found = true;
             }
         EXPECT_TRUE(found);
+    }
+
+    TEST_F(ModelImporterTest, EmissiveFactorAndDiffuseTextureReachStandardRecipe)
+    {
+        // Assimp's Ke must survive import, and legacy OBJ map_Kd must bind Standard BaseColorMap.
+        Write(Workspace / "model.mtl", "newmtl Surface\nKd 0.2 0.4 0.6\nKe 0.25 0.5 0.75\nmap_Kd texture.png\n");
+        Write(Context.SourceFile, "mtllib model.mtl\no Body\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Surface\nf 1 2 3\n");
+        Write(Workspace / "texture.png", "resolved by build coordinator");
+        ResolveExternalInputs();
+        auto imported = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(imported));
+        bool found = false;
+        for (const auto& product : std::get<ImportResult>(imported).Products)
+        {
+            if (product.Type != AssetType::Material)
+                continue;
+            const auto bytes   = Read(product);
+            auto       decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+            ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+            const auto& data = std::get<MaterialData>(decoded);
+            if (data.Name != "Surface")
+                continue;
+            found = true;
+            EXPECT_EQ(data.Shader, StandardShaderID());
+            ASSERT_TRUE(data.Bindings);
+            EXPECT_EQ(data.Bindings->Textures.at(0).Binding, 1u);
+            EXPECT_EQ(data.Textures.at(0).Texture, Context.ProductsBySource.at(Workspace / "texture.png"));
+            auto packed = PackMaterialUniforms(data, GetStandardShader().Code, *data.Bindings);
+            ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+            const auto& block = std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes;
+            for (size_t channel = 0; channel < 3; ++channel)
+            {
+                float value = 0;
+                std::memcpy(&value, block.data() + 32 + channel * 4, 4);
+                EXPECT_FLOAT_EQ(value, (channel + 1) * 0.25f);
+            }
+        }
+        EXPECT_TRUE(found);
+    }
+
+    TEST_F(ModelImporterTest, BlackImportedEmissiveFactorPreservesEmissiveTexture)
+    {
+        // OBJ/FBX black Ke with an emissive map must not suppress the texture's previously visible emission.
+        Write(Workspace / "model.mtl",
+              "newmtl Surface\nKe 0 0 0\nmap_Ke emission.png\n"
+              "newmtl Tinted\nKe 0.25 0.5 0.75\nmap_Ke emission.png\n");
+        Write(Context.SourceFile,
+              "mtllib model.mtl\no Body\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Surface\nf 1 2 3\n"
+              "o TintedBody\nusemtl Tinted\nf 1 3 2\n");
+        Write(Workspace / "emission.png", "resolved by build coordinator");
+        ResolveExternalInputs();
+        auto imported = ModelImporter().Import(Context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(imported));
+        std::set<std::string> found;
+        for (const auto& product : std::get<ImportResult>(imported).Products)
+        {
+            if (product.Type != AssetType::Material)
+                continue;
+            const auto bytes   = Read(product);
+            auto       decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+            ASSERT_TRUE(std::holds_alternative<MaterialData>(decoded));
+            const auto& data = std::get<MaterialData>(decoded);
+            if (data.Name != "Surface" && data.Name != "Tinted")
+                continue;
+            found.insert(data.Name);
+            ASSERT_TRUE(data.Bindings);
+            ASSERT_EQ(data.Bindings->Textures.size(), 1u);
+            EXPECT_EQ(data.Bindings->Textures[0].Binding, 5u);
+            EXPECT_EQ(data.Textures.at(data.Bindings->Textures[0].TextureIndex).Texture,
+                      Context.ProductsBySource.at(Workspace / "emission.png"));
+            auto packed = PackMaterialUniforms(data, GetStandardShader().Code, *data.Bindings);
+            ASSERT_TRUE(std::holds_alternative<std::vector<MaterialUniformBlock>>(packed));
+            const auto& block = std::get<std::vector<MaterialUniformBlock>>(packed).at(0).Bytes;
+            for (size_t channel = 0; channel < 3; ++channel)
+            {
+                float value = 0;
+                std::memcpy(&value, block.data() + 32 + channel * 4, 4);
+                // Nonblack factors must still modulate a texture instead of being replaced with white.
+                EXPECT_FLOAT_EQ(value, data.Name == "Surface" ? 1 : (channel + 1) * 0.25f);
+            }
+        }
+        EXPECT_EQ(found, (std::set<std::string> {"Surface", "Tinted"}));
     }
 
     TEST_F(ModelImporterTest, NonemptyStagingAndUnknownSettingsFailWithoutOverwritingFiles)

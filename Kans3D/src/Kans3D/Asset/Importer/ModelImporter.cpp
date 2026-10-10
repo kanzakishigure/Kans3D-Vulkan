@@ -3,6 +3,7 @@
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "ImportedModelData.h"
 
 #include <algorithm>
@@ -218,6 +219,10 @@ namespace Kans
                 data.Textures.push_back({texture.Semantic, texture.UVChannel, found->second});
                 AddUnique(descriptor.Dependencies, found->second);
             }
+            auto standard = ResolveStandardMaterial(data, input.EmissiveColor);
+            if (auto* error = std::get_if<AssetError>(&standard))
+                return *error;
+            data         = std::get<MaterialData>(std::move(standard));
             auto encoded = EncodeMaterialProduct(data);
             if (const auto* error = std::get_if<AssetError>(&encoded))
                 return *error;
