@@ -60,6 +60,9 @@ namespace Kans
         void                                     PlacePendingModel();
         // Builds the source of `file` (content browser "Import" / "Reimport").
         void                                     ImportSource(const std::filesystem::path& file);
+        // Writes a model's embedded materials to editable .material files next to it
+        // (in a Materials folder), makes the model use them and rebuilds it.
+        void                                     ExtractMaterials(const std::filesystem::path& file);
         AssetID                                  FindPublishedModel(SourceAssetID source) const;
         std::optional<SourceAssetID>             m_PendingPlacement;
         UUID                                     m_PendingPlacementParent = 0;

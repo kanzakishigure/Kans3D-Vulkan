@@ -153,6 +153,7 @@ namespace Kans
         m_ContentBrowserPanel.SetCreateMaterialCallback({});
         m_ContentBrowserPanel.SetImportCallback({});
         m_ContentBrowserPanel.SetImportSettingsCallback({});
+        m_ContentBrowserPanel.SetExtractMaterialsCallback({});
         m_ContentBrowserPanel.SetErrorCallback({});
         m_ProductImportPanel.Bind(nullptr);
         m_MaterialEditorPanel.Bind(nullptr);

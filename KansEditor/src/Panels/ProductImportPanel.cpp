@@ -54,6 +54,194 @@ namespace Kans
         m_NewKey.clear();
         m_NewValue.clear();
         m_MoveDestination = source.Path.ToString();
+        m_SlotsStale      = true;
+        m_ExtractReport.clear();
+        // Extracted materials go next to the model by default.
+        m_ExtractDirectory = (source.Path.GetPath().parent_path() / "Materials").generic_u8string();
+    }
+
+    void ProductImportPanel::LoadSlots()
+    {
+        m_SlotsStale = false;
+        m_Slots.reset();
+        m_SlotsError.clear();
+        if (!m_Selected.IsValid())
+            return;
+        // Extraction registers new .material sources; list them without changing the selection.
+        if (auto sources = m_Service->GetSources(); std::holds_alternative<std::vector<SourceAssetMetadata>>(sources))
+        {
+            m_Sources = std::get<std::vector<SourceAssetMetadata>>(std::move(sources));
+            std::sort(m_Sources.begin(), m_Sources.end(), [](const auto& a, const auto& b) {
+                return a.Path.ToString() < b.Path.ToString();
+            });
+        }
+        auto slots = m_Service->GetModelMaterialSlots(m_Selected);
+        if (const auto* error = std::get_if<AssetError>(&slots))
+            m_SlotsError = error->Message;
+        else
+            m_Slots = std::get<std::vector<ModelMaterialSlot>>(std::move(slots));
+    }
+
+    void ProductImportPanel::Rebuild()
+    {
+        AssetBuildOptions options;
+        options.Target = EditorAssetTarget;
+        Record(m_Service->Start(m_Selected, std::move(options)));
+    }
+
+    void ProductImportPanel::DrawModelMaterials(bool busy)
+    {
+        // Slots change after builds and selection changes; never query while building.
+        if (m_WasBusy && !busy)
+            m_SlotsStale = true;
+        m_WasBusy = busy;
+        if (!busy && m_SlotsStale)
+            LoadSlots();
+        if (!m_Slots)
+            return; // Not a model, or not imported yet (the reason is in m_SlotsError).
+        if (!ImGui::TreeNodeEx("Materials", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+        if (m_Slots->empty())
+            ImGui::TextDisabled("This model has no materials.");
+
+        // Project materials a slot can use: published Material Products of .material sources.
+        std::vector<std::pair<AssetID, std::string>> choices;
+        const auto                                   registry = m_Service->GetRuntimeAssetRegistry();
+        const auto&                                  products = registry->GetAllProducts();
+        for (const auto& source : m_Sources)
+        {
+            if (source.Missing || source.Path.GetPath().extension() != ".material")
+                continue;
+            for (const auto& product : products)
+                if (product.Metadata.assetID.GetSourceID() == source.sourceAssetID &&
+                    product.Metadata.Type == AssetType::Material && product.Target == EditorAssetTarget)
+                    choices.emplace_back(product.Metadata.assetID, source.Path.GetPath().filename().u8string());
+        }
+        const auto nameOf = [&](AssetID id) {
+            for (const auto& [choice, name] : choices)
+                if (choice == id)
+                    return name;
+            // A remap to a source that is not published (yet): name it by its file.
+            for (const auto& source : m_Sources)
+                if (source.sourceAssetID == id.GetSourceID())
+                    return source.Path.GetPath().filename().u8string() + (source.Missing ? " (missing)" : " (not built)");
+            return id.ToString() + " (unavailable)";
+        };
+
+        if (ImGui::BeginTable("##Slots", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV))
+        {
+            ImGui::TableSetupColumn("Slot", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("Material", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+            ImGui::TableSetupColumn("##Extract", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableHeadersRow();
+            for (const auto& slot : *m_Slots)
+            {
+                ImGui::PushID(slot.Key.c_str());
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(slot.DisplayName.c_str());
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::BeginDisabled(busy);
+                const std::string current = slot.Remap ? nameOf(*slot.Remap) : "Embedded";
+                if (ImGui::BeginCombo("##material", current.c_str(), ImGuiComboFlags_HeightLarge))
+                {
+                    std::optional<std::optional<AssetID>> picked;
+                    if (ImGui::Selectable("Embedded", !slot.Remap))
+                        picked = std::optional<AssetID> {};
+                    if (!choices.empty())
+                        ImGui::Separator();
+                    for (const auto& [id, name] : choices)
+                        if (ImGui::Selectable(name.c_str(), slot.Remap == id))
+                            picked = id;
+                    ImGui::EndCombo();
+                    if (picked && *picked != slot.Remap)
+                    {
+                        Record(m_Service->SetModelMaterialRemap(m_Selected, slot.Key, *picked));
+                        if (m_Error.empty())
+                            Rebuild();
+                        m_SlotsStale = true;
+                    }
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    std::string path;
+                    for (const auto& source : m_Sources)
+                        if (slot.Remap && source.sourceAssetID == slot.Remap->GetSourceID())
+                            path = source.Path.ToString() + "\n";
+                    ImGui::SetTooltip("%s%s",
+                                      path.c_str(),
+                                      slot.Remap ? "Every use of this model draws this material." :
+                                                   "The material imported with the model (read-only).");
+                }
+                ImGui::TableNextColumn();
+                ImGui::BeginDisabled(slot.Remap.has_value());
+                const bool extract = ImGui::SmallButton("Extract");
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(slot.Remap ? "Already uses a project material." :
+                                                   "Write this material to an editable .material file and use it.");
+                ImGui::EndDisabled();
+                ImGui::PopID();
+                if (extract)
+                {
+                    m_ExtractReport.clear();
+                    const auto key    = slot.Key;
+                    auto       result = m_Service->ExtractModelMaterials(
+                        m_Selected, std::filesystem::u8path(m_ExtractDirectory), {key});
+                    if (const auto* error = std::get_if<AssetError>(&result))
+                        m_Error = error->Message;
+                    else
+                    {
+                        const auto& value = std::get<ModelMaterialExtractionResult>(result);
+                        for (const auto& created : value.Created)
+                            m_ExtractReport.push_back("Created " + created.File.filename().u8string());
+                        m_Error = value.Error ? value.Error->Message : std::string();
+                        if (value.RemapsApplied && !value.Created.empty())
+                            Rebuild();
+                    }
+                    m_SlotsStale = true;
+                    break; // The slot list is reloaded next frame.
+                }
+            }
+            ImGui::EndTable();
+        }
+
+        ImGui::BeginDisabled(busy);
+        ImGui::SetNextItemWidth(-120.0f);
+        ImGui::InputText("##ExtractDirectory", &m_ExtractDirectory);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Folder for extracted materials, relative to the asset directory.");
+        ImGui::SameLine();
+        const bool remaining =
+            std::any_of(m_Slots->begin(), m_Slots->end(), [](const auto& slot) { return !slot.Remap; });
+        ImGui::BeginDisabled(!remaining);
+        if (ImGui::Button("Extract all", {-FLT_MIN, 0.0f}))
+        {
+            m_ExtractReport.clear();
+            auto result = m_Service->ExtractModelMaterials(m_Selected, std::filesystem::u8path(m_ExtractDirectory));
+            if (const auto* error = std::get_if<AssetError>(&result))
+                m_Error = error->Message;
+            else
+            {
+                const auto& value = std::get<ModelMaterialExtractionResult>(result);
+                for (const auto& created : value.Created)
+                    m_ExtractReport.push_back("Created " + created.File.filename().u8string());
+                if (!value.Skipped.empty())
+                    m_ExtractReport.push_back(std::to_string(value.Skipped.size()) +
+                                              " slot(s) already use project materials");
+                m_Error = value.Error ? value.Error->Message : std::string();
+                if (value.RemapsApplied && !value.Created.empty())
+                    Rebuild();
+            }
+            m_SlotsStale = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        for (const auto& line : m_ExtractReport)
+            ImGui::TextDisabled("%s", line.c_str());
+        ImGui::TreePop();
     }
 
     void ProductImportPanel::OpenWithFile(const std::filesystem::path& path)
@@ -200,6 +388,9 @@ namespace Kans
             ImGui::EndCombo();
         }
         ImGui::Checkbox("Force rebuild", &m_Force);
+        ImGui::EndDisabled();
+        DrawModelMaterials(busy);
+        ImGui::BeginDisabled(busy);
         if (m_Selected.IsValid() && ImGui::TreeNode("Source import configuration"))
         {
             ImGui::InputText("Importer (empty = default)", &m_Configuration.Importer);

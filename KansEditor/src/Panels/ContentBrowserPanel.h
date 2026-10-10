@@ -35,6 +35,8 @@ namespace Kans
         void SetImportCallback(PathCallback callback) { m_Import = std::move(callback); }
         // "Import Settings..." of a source file.
         void SetImportSettingsCallback(PathCallback callback) { m_ImportSettings = std::move(callback); }
+        // "Extract Materials" of an imported model.
+        void SetExtractMaterialsCallback(PathCallback callback) { m_ExtractMaterials = std::move(callback); }
         void SetErrorCallback(std::function<void(const std::string&)> callback) { m_ReportError = std::move(callback); }
 
         const std::filesystem::path& GetCurrentDirectory() const { return m_Current; }
@@ -104,7 +106,7 @@ namespace Kans
         void SelectAfterChange(const std::vector<std::filesystem::path>& paths);
 
         // ---- callbacks and services ----
-        PathCallback                             m_OpenFile, m_CreateMaterial, m_Import, m_ImportSettings;
+        PathCallback m_OpenFile, m_CreateMaterial, m_Import, m_ImportSettings, m_ExtractMaterials;
         std::function<void(const std::string&)> m_ReportError;
         EditorAssetImportService*                m_Service = nullptr;
         Browser::AssetFileOperations             m_Operations;

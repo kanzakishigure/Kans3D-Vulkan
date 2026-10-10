@@ -347,9 +347,11 @@ namespace Kans
         }
 
         // A part is one Mesh Product of the model, named after the node using it.
+        // `Slot` is the model's own material for the part; `Material` is what the
+        // model draws by default (the slot, or a material remapped on import).
         struct Part
         {
-            AssetID     Mesh, Material;
+            AssetID     Mesh, Slot, Material;
             std::string Name;
         };
         std::vector<Part>    parts;
@@ -360,14 +362,20 @@ namespace Kans
                 const AssetID mesh = node.Meshes[i];
                 if (std::any_of(parts.begin(), parts.end(), [&](const Part& part) { return part.Mesh == mesh; }))
                     continue;
-                Part part {mesh, {}, node.Name.empty() ? "Part " + std::to_string(parts.size()) : node.Name};
+                Part part {mesh, {}, {}, node.Name.empty() ? "Part " + std::to_string(parts.size()) : node.Name};
                 if (node.Meshes.size() > 1)
                     part.Name += " (" + std::to_string(i + 1) + ")";
                 const auto loaded = m_Assets->Request<MeshAsset>(mesh);
                 if (loaded.IsReady())
+                {
                     part.Material = loaded.Asset->GetData().Material;
-                if (part.Material.IsValid() && std::find(slots.begin(), slots.end(), part.Material) == slots.end())
-                    slots.push_back(part.Material);
+                    part.Slot     = loaded.Asset->GetData().AuthoredMaterial;
+                    if (!part.Slot.IsValid())
+                        part.Slot = part.Material;
+                }
+                if (part.Slot.IsValid() &&
+                    std::none_of(parts.begin(), parts.end(), [&](const Part& other) { return other.Slot == part.Slot; }))
+                    slots.push_back(part.Slot);
                 parts.push_back(std::move(part));
             }
 
@@ -380,7 +388,7 @@ namespace Kans
                 {
                     ImGui::PushID(part.Mesh.ToString().c_str());
                     AssetID    chosen;
-                    const auto current = component.ResolveMaterial(part.Mesh, part.Material);
+                    const auto current = component.ResolveMaterial(part.Mesh, part.Material, part.Slot);
                     if (MaterialPicker(part.Name.c_str(), part.Material, current, chosen))
                         component.SetOverride(part.Mesh, chosen);
                     ImGui::PopID();
@@ -397,10 +405,15 @@ namespace Kans
                 for (AssetID slot : slots)
                 {
                     ImGui::PushID(slot.ToString().c_str());
+                    // Slot overrides are keyed by the model's own material, so they survive remapping.
+                    AssetID bound = slot;
+                    for (const auto& part : parts)
+                        if (part.Slot == slot)
+                            bound = part.Material;
                     AssetID     chosen;
                     const auto* overridden = component.FindOverride(slot);
                     const auto  name       = MaterialName(slot);
-                    if (MaterialPicker(name.c_str(), slot, overridden ? overridden->Replacement : slot, chosen))
+                    if (MaterialPicker(name.c_str(), bound, overridden ? overridden->Replacement : bound, chosen))
                         component.SetOverride(slot, chosen);
                     ImGui::PopID();
                 }

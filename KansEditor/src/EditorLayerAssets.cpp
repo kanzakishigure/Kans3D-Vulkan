@@ -62,6 +62,8 @@ namespace Kans
         m_ContentBrowserPanel.SetImportCallback([this](const std::filesystem::path& path) { ImportSource(path); });
         m_ContentBrowserPanel.SetImportSettingsCallback(
             [this](const std::filesystem::path& path) { OpenImporter(path); });
+        m_ContentBrowserPanel.SetExtractMaterialsCallback(
+            [this](const std::filesystem::path& path) { ExtractMaterials(path); });
         m_ContentBrowserPanel.SetErrorCallback(
             [this](const std::string& message) { Record(AssetError {AssetErrorCode::InvalidArgument, message}); });
         m_ContentBrowserPanel.Bind(m_AssetImports.get());
@@ -193,6 +195,43 @@ namespace Kans
             Record(*failure);
             m_PendingPlacement.reset();
         }
+    }
+
+    void EditorLayer::ExtractMaterials(const std::filesystem::path& file)
+    {
+        const auto source = FindModelSource(file);
+        if (!source)
+        {
+            Record(AssetError {AssetErrorCode::InvalidArgument, "Not a model source: " + file.filename().u8string()});
+            return;
+        }
+        std::error_code error;
+        const auto      folder =
+            std::filesystem::weakly_canonical(file, error).parent_path().lexically_relative(
+                std::filesystem::weakly_canonical(m_AssetImports->GetConfig().AssetDirectory, error)) /
+            "Materials";
+        auto result = m_AssetImports->ExtractModelMaterials(*source, folder);
+        if (const auto* failure = std::get_if<AssetError>(&result))
+        {
+            Record(*failure);
+            return;
+        }
+        const auto& extracted = std::get<ModelMaterialExtractionResult>(result);
+        for (const auto& created : extracted.Created)
+            CLIENT_INFO_TAG("Editor", "Extracted material {}", created.File.u8string());
+        if (extracted.Error)
+            Record(*extracted.Error);
+        else if (extracted.Created.empty())
+            Record(AssetError {AssetErrorCode::InvalidArgument, "Every material of this model already uses a project material"});
+        if (extracted.RemapsApplied && !extracted.Created.empty())
+        {
+            AssetBuildOptions options;
+            options.Target = EditorAssetTarget;
+            if (auto started = m_AssetImports->Start(*source, options); std::holds_alternative<AssetError>(started))
+                Record(std::get<AssetError>(started));
+        }
+        m_ContentBrowserPanel.Refresh();
+        OpenImporter(file); // Shows the slots and the build result.
     }
 
     void EditorLayer::ImportSource(const std::filesystem::path& file)
