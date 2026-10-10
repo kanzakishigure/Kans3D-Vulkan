@@ -13,6 +13,7 @@
 #include "Panels/PropertiesPanel.h"
 #include "Panels/ViewportPanel.h"
 #include "SceneHistory.h"
+#include "Kans3D/Scene/ScenePlaySession.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
 namespace Kans
@@ -76,6 +77,11 @@ namespace Kans
         // Records a history step once an interaction that may have edited the scene ends.
         void TrackSceneEdits();
         void UndoScene(int steps = 1);
+        // Play mode: the scene runs from a snapshot that Stop restores.
+        void StartPlay();
+        void StopPlay();
+        void TogglePause();
+        void DrawPlayControls();
         void RedoScene(int steps = 1);
         void OpenImporter(const std::filesystem::path& file);
         void OpenMaterial(const std::filesystem::path& file);
@@ -94,7 +100,8 @@ namespace Kans
         // Last editor error, shown in the main toolbar until dismissed.
         std::string m_SceneFileError;
 
-        SceneHistory m_History;
+        SceneHistory     m_History;
+        ScenePlaySession m_Play;
         bool         m_EditPending = false;
 
         Scope<EditorAssetImportService> m_AssetImports;

@@ -70,6 +70,7 @@ namespace Kans
         // Removes the entity from its parent's children or the root order.
         void Detach(Entity entity);
         Entity CopyEntity(Entity source, Entity parent, Entity before);
+        void DestroyNativeScriptInstances();
 
     private:
         entt::registry m_Registry;

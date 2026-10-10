@@ -235,8 +235,9 @@ namespace Kans
             return AssetError {AssetErrorCode::InvalidArgument, "Scene/renderer unavailable"};
         const auto viewport = m_ViewportRenderer->GetViewportSize();
         scene->OnViewportResize(std::max(1u, viewport[0]), std::max(1u, viewport[1]));
+        // Leaving a playing scene drops its runtime state; the edit-time state is not kept.
         if (m_ActiveScene)
-            m_ActiveScene->OnRuntimeStop();
+            m_Play.Discard(*m_ActiveScene);
         m_ActiveScene = std::move(scene);
         m_ActiveRenderScene->SetLogicScene(m_ActiveScene);
         m_HierarchyPanel.SetScene(m_ActiveScene);
@@ -244,7 +245,6 @@ namespace Kans
         m_CameraEntity       = {};
         m_SecondCameraEntity = {};
         m_ScenePath          = std::move(path);
-        m_ActiveScene->OnRuntimeStart();
         m_History.Reset(*m_ActiveScene);
         m_EditPending = false;
         return std::monostate {};
@@ -281,6 +281,8 @@ namespace Kans
 
     std::variant<std::monostate, AssetError> EditorLayer::SaveScene(const std::filesystem::path& path)
     {
+        if (m_Play.IsActive())
+            return AssetError {AssetErrorCode::InvalidArgument, "Stop play mode before saving the scene"};
         auto resolved = SceneFilePath(m_AssetImports.get(), path);
         if (const auto* error = std::get_if<AssetError>(&resolved))
             return *error;

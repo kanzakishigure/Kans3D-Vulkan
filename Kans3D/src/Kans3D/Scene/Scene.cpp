@@ -239,7 +239,23 @@ namespace Kans
         }
     }
 
-    void Scene::OnRuntimeStop() { ScriptEngine::OnRuntimeEnd(); }
+    void Scene::DestroyNativeScriptInstances()
+    {
+        m_Registry.view<NativeScriptComponent>().each([](auto& nsc) {
+            if (nsc.Instance)
+            {
+                nsc.Instance->OnDestory();
+                nsc.DestoryInstanceFunction(&nsc);
+                nsc.Instance = nullptr;
+            }
+        });
+    }
+
+    void Scene::OnRuntimeStop()
+    {
+        DestroyNativeScriptInstances();
+        ScriptEngine::OnRuntimeEnd();
+    }
 
     Kans::Entity Scene::GetCameraEntity()
     {

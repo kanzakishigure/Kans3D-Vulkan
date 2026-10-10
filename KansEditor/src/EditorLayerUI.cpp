@@ -115,6 +115,7 @@ namespace Kans
         DrawSceneFileDialogs();
         ImGui::End();
 
+        m_ViewportPanel.SetPlaying(m_Play.IsActive());
         m_Panels.Draw();
         Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportPanel.IsFocused() || m_ViewportPanel.IsHovered());
         TrackSceneEdits();
@@ -124,6 +125,12 @@ namespace Kans
     {
         if (!m_ActiveScene)
             return;
+        // Changes made while playing are discarded on stop, not recorded.
+        if (m_Play.IsActive())
+        {
+            m_EditPending = false;
+            return;
+        }
         // Edits come from user input; record once the interaction has ended
         // (drags released, text fields left, gizmo let go), so one drag is one step.
         const ImGuiIO& io = ImGui::GetIO();
@@ -140,7 +147,7 @@ namespace Kans
 
     void EditorLayer::UndoScene(int steps)
     {
-        if (!m_ActiveScene)
+        if (!m_ActiveScene || m_Play.IsActive())
             return;
         // Pending changes become a step first, so they can be undone too.
         m_History.Record(*m_ActiveScene);
@@ -151,7 +158,7 @@ namespace Kans
 
     void EditorLayer::RedoScene(int steps)
     {
-        if (!m_ActiveScene)
+        if (!m_ActiveScene || m_Play.IsActive())
             return;
         m_History.Record(*m_ActiveScene);
         m_EditPending = false;
@@ -188,7 +195,73 @@ namespace Kans
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Y, true))
                 RedoScene();
+            if (ImGui::IsKeyPressed(ImGuiKey_P, false))
+            {
+                if (io.KeyShift)
+                    TogglePause();
+                else if (m_Play.IsActive())
+                    StopPlay();
+                else
+                    StartPlay();
+            }
         }
+    }
+
+    // ------------------------------------------------------------------ play mode
+
+    void EditorLayer::StartPlay()
+    {
+        if (!m_ActiveScene)
+            return;
+        if (!m_Play.IsActive())
+        {
+            // Pending edits become a step first; play itself is not recorded.
+            m_History.Record(*m_ActiveScene);
+            m_EditPending = false;
+        }
+        m_Play.Play(*m_ActiveScene);
+    }
+
+    void EditorLayer::StopPlay()
+    {
+        if (!m_ActiveScene || !m_Play.IsActive())
+            return;
+        // Restoring keeps UUIDs, so the selection can be found again.
+        const UUID selected = m_HierarchyPanel.GetSelected() ? m_HierarchyPanel.GetSelected().GetUUID() : UUID(0);
+        m_Play.Stop(*m_ActiveScene);
+        m_HierarchyPanel.SetSelected(selected ? m_ActiveScene->GetEntityByUUID(selected) : Entity {});
+    }
+
+    void EditorLayer::TogglePause()
+    {
+        if (!m_ActiveScene || !m_Play.IsActive())
+            return;
+        if (m_Play.GetState() == ScenePlaySession::State::Paused)
+            m_Play.Play(*m_ActiveScene);
+        else
+            m_Play.Pause();
+    }
+
+    void EditorLayer::DrawPlayControls()
+    {
+        using State         = ScenePlaySession::State;
+        const State   state = m_Play.GetState();
+        // Centered in the toolbar.
+        const float width = 3.0f * 30.0f + 4.0f;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - width) * 0.5f));
+        if (state == State::Edit)
+        {
+            if (ToolButton(ICON_FA_PLAY, "Play (Ctrl+P)"))
+                StartPlay();
+        }
+        else if (ToolButton(ICON_FA_STOP, "Stop and restore the scene (Ctrl+P)", true))
+            StopPlay();
+        ImGui::SameLine();
+        if (ToolButton(ICON_FA_PAUSE, "Pause (Ctrl+Shift+P)", state == State::Paused, state != State::Edit))
+            TogglePause();
+        ImGui::SameLine();
+        if (ToolButton(ICON_FA_FORWARD_STEP, "Advance one frame", false, state == State::Paused))
+            m_Play.Step();
     }
 
     // ------------------------------------------------------------------ menu bar and main toolbar
@@ -203,9 +276,9 @@ namespace Kans
                 Record(NewScene());
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FOLDER_OPEN, "Open Scene...").c_str(), "Ctrl+O"))
                 m_SceneDialog = SceneDialog::Open;
-            if (ImGui::MenuItem(MenuLabel(ICON_FA_FLOPPY_DISK, "Save Scene").c_str(), "Ctrl+S"))
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_FLOPPY_DISK, "Save Scene").c_str(), "Ctrl+S", false, !m_Play.IsActive()))
                 SaveCurrentScene();
-            if (ImGui::MenuItem(MenuLabel(ICON_FA_FLOPPY_DISK, "Save Scene As...").c_str(), "Ctrl+Shift+S"))
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_FLOPPY_DISK, "Save Scene As...").c_str(), "Ctrl+Shift+S", false, !m_Play.IsActive()))
                 m_SceneDialog = SceneDialog::Save;
             ImGui::Separator();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_XMARK, "Exit").c_str()))
@@ -219,16 +292,17 @@ namespace Kans
             if (ImGui::MenuItem(MenuLabel(ICON_FA_UNDO, undo.empty() ? "Undo" : ("Undo " + undo.front()).c_str()).c_str(),
                                 "Ctrl+Z",
                                 false,
-                                !undo.empty()))
+                                !undo.empty() && !m_Play.IsActive()))
                 UndoScene();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_REDO, redo.empty() ? "Redo" : ("Redo " + redo.front()).c_str()).c_str(),
                                 "Ctrl+Y",
                                 false,
-                                !redo.empty()))
+                                !redo.empty() && !m_Play.IsActive()))
                 RedoScene();
             ImGui::Separator();
             // Jump several steps at once.
-            if (ImGui::BeginMenu(MenuLabel(ICON_FA_CLOCK_ROTATE_LEFT, "History").c_str(), !undo.empty() || !redo.empty()))
+            if (ImGui::BeginMenu(MenuLabel(ICON_FA_CLOCK_ROTATE_LEFT, "History").c_str(),
+                                 (!undo.empty() || !redo.empty()) && !m_Play.IsActive()))
             {
                 for (size_t i = redo.size(); i-- > 0;)
                 {
@@ -251,7 +325,29 @@ namespace Kans
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Assets"))
+        if (ImGui::BeginMenu("Play"))
+        {
+            const bool active = m_Play.IsActive();
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_PLAY, active ? "Resume" : "Play").c_str(),
+                                active ? nullptr : "Ctrl+P",
+                                false,
+                                !active || m_Play.GetState() == ScenePlaySession::State::Paused))
+                StartPlay();
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_PAUSE, "Pause").c_str(),
+                                "Ctrl+Shift+P",
+                                false,
+                                m_Play.GetState() == ScenePlaySession::State::Playing))
+                m_Play.Pause();
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_FORWARD_STEP, "Step Frame").c_str(),
+                                nullptr,
+                                false,
+                                m_Play.GetState() == ScenePlaySession::State::Paused))
+                m_Play.Step();
+            if (ImGui::MenuItem(MenuLabel(ICON_FA_STOP, "Stop").c_str(), active ? "Ctrl+P" : nullptr, false, active))
+                StopPlay();
+            ImGui::EndMenu();
+        }
+                if (ImGui::BeginMenu("Assets"))
         {
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FILE_IMPORT, "Asset Importer").c_str()))
                 m_Panels.Open(PanelID::AssetImporter);
@@ -288,7 +384,7 @@ namespace Kans
         if (ToolButton(ICON_FA_FOLDER_OPEN, "Open scene (Ctrl+O)"))
             m_SceneDialog = SceneDialog::Open;
         ImGui::SameLine();
-        if (ToolButton(ICON_FA_FLOPPY_DISK, "Save scene (Ctrl+S)"))
+        if (ToolButton(ICON_FA_FLOPPY_DISK, "Save scene (Ctrl+S)", false, !m_Play.IsActive()))
             SaveCurrentScene();
         ToolSeparator();
         {
@@ -296,10 +392,11 @@ namespace Kans
             const auto redo = m_History.RedoLabels();
             const auto undoTip = undo.empty() ? std::string("Nothing to undo") : "Undo " + undo.front() + " (Ctrl+Z)";
             const auto redoTip = redo.empty() ? std::string("Nothing to redo") : "Redo " + redo.front() + " (Ctrl+Y)";
-            if (ToolButton(ICON_FA_UNDO, undoTip.c_str(), false, !undo.empty()))
+            const bool editing = !m_Play.IsActive();
+            if (ToolButton(ICON_FA_UNDO, undoTip.c_str(), false, editing && !undo.empty()))
                 UndoScene();
             ImGui::SameLine();
-            if (ToolButton(ICON_FA_REDO, redoTip.c_str(), false, !redo.empty()))
+            if (ToolButton(ICON_FA_REDO, redoTip.c_str(), false, editing && !redo.empty()))
                 RedoScene();
         }
         ToolSeparator();
@@ -339,12 +436,23 @@ namespace Kans
         ImGui::SameLine();
         if (ToolButton(ICON_FA_CHART_LINE, "Stats and render settings", m_Panels.IsOpen(PanelID::Stats)))
             m_Panels.Toggle(PanelID::Stats);
+        DrawPlayControls();
 
         // Right side: scene name, import status and the last error.
         std::string status = ICON_FA_CUBE "  " + (m_ScenePath.empty() ? std::string("Untitled scene") :
                                                                          m_ScenePath.filename().u8string());
         if (m_History.IsModified())
             status += " *";
+        if (m_Play.IsActive())
+        {
+            char clock[64];
+            std::snprintf(clock,
+                          sizeof(clock),
+                          "  |  %s %.1f s",
+                          m_Play.GetState() == ScenePlaySession::State::Paused ? "Paused" : "Playing",
+                          m_Play.GetPlayTime());
+            status += clock;
+        }
         bool importing = false;
         if (m_AssetImports)
             if (auto snapshot = m_AssetImports->GetSnapshot();

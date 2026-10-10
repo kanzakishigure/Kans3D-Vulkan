@@ -23,6 +23,7 @@ add_executable(Kans3DTests
     SceneProductModelTests.cpp
     SceneHierarchyTests.cpp
     SceneHistoryTests.cpp
+    ScenePlaySessionTests.cpp
     EditorCameraTests.cpp
     EditorAssetImportServiceTests.cpp
     ModelImporterTests.cpp

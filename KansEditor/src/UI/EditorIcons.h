@@ -68,3 +68,7 @@
 #define ICON_FA_UNDO                   "\xef\x83\xa2" // U+F0E2
 #define ICON_FA_REDO                   "\xef\x80\x9e" // U+F01E
 #define ICON_FA_CLOCK_ROTATE_LEFT      "\xef\x87\x9a" // U+F1DA
+#define ICON_FA_PLAY                   "\xef\x81\x8b" // U+F04B
+#define ICON_FA_PAUSE                  "\xef\x81\x8c" // U+F04C
+#define ICON_FA_STOP                   "\xef\x81\x8d" // U+F04D
+#define ICON_FA_FORWARD_STEP           "\xef\x81\x91" // U+F051

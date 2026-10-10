@@ -106,7 +106,6 @@ namespace Kans
                 m_HierarchyPanel.SetScene(m_ActiveScene);
             }
 
-            m_ActiveScene->OnRuntimeStart();
             m_History.Reset(*m_ActiveScene);
         }
 
@@ -160,7 +159,7 @@ namespace Kans
                 CORE_ERROR("Project import shutdown: {}", error->Message);
         }
         if (m_ActiveScene)
-            m_ActiveScene->OnRuntimeStop();
+            m_Play.Discard(*m_ActiveScene);
         if (m_ViewportRenderer)
         {
             m_ViewportPanel.SetContext({}, {}, {});
@@ -204,14 +203,13 @@ namespace Kans
                 // Dependencies can be published even when the root build fails.
                 Record(RefreshProductAssets());
                 PlacePendingModel();
-                m_History.Record(*m_ActiveScene);
+                if (!m_Play.IsActive())
+                    m_History.Record(*m_ActiveScene);
             }
         }
 
-        // updateScene
-        {
-            m_ActiveScene->OnUpdate(ts);
-        }
+        // The scene only runs in play mode.
+        m_Play.Update(*m_ActiveScene, ts);
         // The viewport panel renders the scene during the UI frame.
     }
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include "Entity.h"
 #include "Scene.h"
+#include "Kans3D/Script/ScriptEngine.h"
 
 namespace Kans
 {
@@ -124,6 +125,9 @@ namespace Kans
 
     void Scene::Restore(const SceneSnapshot& snapshot)
     {
+        DestroyNativeScriptInstances();
+        if (ScriptEngine::IsInitialized() && ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnRuntimeEnd();
         m_Registry.clear();
         m_EntityMap.clear();
         m_RootOrder.clear();

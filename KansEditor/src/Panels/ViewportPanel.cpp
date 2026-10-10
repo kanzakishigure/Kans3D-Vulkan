@@ -50,6 +50,11 @@ namespace Kans
         const auto output = static_cast<uintptr_t>(m_Renderer->GetOutput(0));
         ImGui::Image(reinterpret_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
         m_ImageHovered = ImGui::IsItemHovered();
+        if (m_Playing)
+        {
+            // A colored frame marks play mode; changes made now are discarded on stop.
+            ImGui::GetWindowDrawList()->AddRect(m_Min, m_Max, IM_COL32(60, 170, 255, 255), 0.0f, 0, 3.0f);
+        }
         AcceptDrop();
         DrawSceneOverlays();
         DrawGizmo();
