@@ -376,6 +376,82 @@ namespace
         EXPECT_EQ(Parse(Root / "gamma.png", explicitSpace).ColorSpace, TextureColorSpace::Linear);
     }
 
+    TEST_F(TextureImporterTest, RoundedSrgbChromaticitiesDecodeAsSrgbWithoutChangingPixels)
+    {
+        // Common encoders round/truncate these nominal sRGB/D65 values by one
+        // cHRM unit. Exact comparison used to reject this otherwise valid PNG.
+        Bytes chromaticities;
+        for (uint32_t value : {31269u, 32899u, 63999u, 33001u, 30000u, 60000u, 15000u, 5999u})
+            Big(chromaticities, value);
+        const auto result = ParseTextureSource(Write("rounded.png", ColorPNG("cHRM", chromaticities)));
+        ASSERT_TRUE(std::holds_alternative<TextureData>(result));
+        const auto& texture = std::get<TextureData>(result);
+        EXPECT_EQ(texture.ColorSpace, TextureColorSpace::SRGB);
+        EXPECT_EQ(texture.Width, 2u);
+        EXPECT_EQ(texture.Height, 2u);
+        ASSERT_EQ(texture.Mips.size(), 2u);
+        Bytes expected;
+        Append(expected, {255, 0, 0, 128, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255});
+        EXPECT_EQ(texture.Mips[0].Pixels, expected);
+    }
+
+    TEST_F(TextureImporterTest, ChromaticityToleranceIncludesBothOneUnitBoundariesForEveryCoordinate)
+    {
+        // Catches one-sided/unsigned comparisons and tolerating only primaries
+        // while still comparing the D65 white point exactly.
+        const std::array<uint32_t, 8> standard {31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000};
+        for (size_t coordinate = 0; coordinate < standard.size(); ++coordinate)
+            for (int delta : {-1, 1})
+            {
+                SCOPED_TRACE(::testing::Message() << "coordinate " << coordinate << ", delta " << delta);
+                Bytes chromaticities;
+                for (size_t i = 0; i < standard.size(); ++i)
+                    Big(chromaticities, uint32_t(int(standard[i]) + (i == coordinate ? delta : 0)));
+                const auto name   = "boundary-" + std::to_string(coordinate) + "-" + std::to_string(delta) + ".png";
+                const auto result = ParseTextureSource(Write(name.c_str(), ColorPNG("cHRM", chromaticities)));
+                ASSERT_TRUE(std::holds_alternative<TextureData>(result));
+                EXPECT_EQ(std::get<TextureData>(result).ColorSpace, TextureColorSpace::SRGB);
+            }
+    }
+
+    TEST_F(TextureImporterTest, ChromaticityToleranceRejectsBeyondOneUnitForEveryCoordinate)
+    {
+        // Catches an overly broad tolerance or accidentally skipping any one of
+        // the eight coordinates, including white point and blue y.
+        const std::array<uint32_t, 8> standard {31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000};
+        for (size_t coordinate = 0; coordinate < standard.size(); ++coordinate)
+            for (int delta : {-2, 2})
+            {
+                SCOPED_TRACE(::testing::Message() << "coordinate " << coordinate << ", delta " << delta);
+                Bytes chromaticities;
+                for (size_t i = 0; i < standard.size(); ++i)
+                    Big(chromaticities, uint32_t(int(standard[i]) + (i == coordinate ? delta : 0)));
+                const auto name   = "outside-" + std::to_string(coordinate) + "-" + std::to_string(delta) + ".png";
+                const auto result = ParseTextureSource(Write(name.c_str(), ColorPNG("cHRM", chromaticities)));
+                ASSERT_TRUE(std::holds_alternative<AssetError>(result));
+                EXPECT_EQ(std::get<AssetError>(result).Code, AssetErrorCode::NotImplemented);
+                EXPECT_EQ(std::get<AssetError>(result).Message, "Non-sRGB PNG primaries are not supported");
+            }
+    }
+
+    TEST_F(TextureImporterTest, DisplayP3AndAdobeRgbChromaticitiesRemainUnsupported)
+    {
+        unsigned fixture = 0;
+        for (const auto& primaries : std::vector<std::array<uint32_t, 8>> {
+                 {31270, 32900, 68000, 32000, 26500, 69000, 15000, 6000},  // Display P3
+                 {31270, 32900, 64000, 33000, 21000, 71000, 15000, 6000}}) // Adobe RGB (1998)
+        {
+            Bytes chromaticities;
+            for (uint32_t value : primaries)
+                Big(chromaticities, value);
+            const auto name   = "wide-" + std::to_string(fixture++) + ".png";
+            const auto result = ParseTextureSource(Write(name.c_str(), ColorPNG("cHRM", chromaticities)));
+            ASSERT_TRUE(std::holds_alternative<AssetError>(result));
+            EXPECT_EQ(std::get<AssetError>(result).Code, AssetErrorCode::NotImplemented);
+            EXPECT_EQ(std::get<AssetError>(result).Message, "Non-sRGB PNG primaries are not supported");
+        }
+    }
+
     TEST_F(TextureImporterTest, MissingEmptyCorruptAndOversizedInputsDoNotCreateProducts)
     {
         EXPECT_EQ(std::get<AssetError>(ParseTextureSource(Root / "missing.png")).Code, AssetErrorCode::NotFound);

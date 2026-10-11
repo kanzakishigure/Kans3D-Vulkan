@@ -172,7 +172,10 @@ namespace Kans
                     conflicted.insert(path);
                 }
                 if (first)
+                {
+                    inputs.OptionalProductSources.insert(path);
                     inputs.ProductSources.push_back(std::move(path));
+                }
             }
         return inputs;
     }
@@ -242,9 +245,11 @@ namespace Kans
                     continue; // Reported as a warning by DiscoverInputs.
                 const auto& path  = std::get<std::filesystem::path>(resolved);
                 const auto  found = context.ProductsBySource.find(path);
-                if (found == context.ProductsBySource.end() || !found->second.IsValid())
+                if (found == context.ProductsBySource.end())
                     return AssetError {AssetErrorCode::NotFound,
                                        "Unresolved model texture Product: " + path.u8string()};
+                if (!found->second.IsValid())
+                    continue; // Optional texture build failure; the coordinator warned.
                 data.Textures.push_back({texture.Semantic, texture.UVChannel, found->second});
                 AddUnique(descriptor.Dependencies, found->second);
             }

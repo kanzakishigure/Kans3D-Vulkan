@@ -100,6 +100,66 @@ namespace
             Write("model.mtl", "newmtl Surface\nmap_Kd diffuse.tga\nmap_Bump normal.tga\n");
             Write("model.obj", "mtllib model.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\no Body\nusemtl Surface\nf 1 2 3\n");
         }
+        void TwoMaterialModel()
+        {
+            TexturedModel();
+            Write("healthy.tga", Tga(10, 200, 10));
+            Write("model.mtl",
+                  "newmtl Surface\nmap_Kd diffuse.tga\nmap_Bump normal.tga\n"
+                  "newmtl Healthy\nmap_Kd healthy.tga\n");
+            Write("model.obj",
+                  "mtllib model.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\n"
+                  "o Body\nusemtl Surface\nf 1 2 3\nusemtl Healthy\nf 2 4 3\n");
+        }
+        std::map<std::string, MaterialData> PublishedMaterials()
+        {
+            std::map<std::string, MaterialData> materials;
+            for (const auto& record : Products("model.obj", AssetType::Material))
+            {
+                auto read = ReadRegisteredProduct(Owner->GetProductDirectory(), record);
+                if (auto* error = std::get_if<AssetError>(&read))
+                {
+                    ADD_FAILURE() << error->Message;
+                    continue;
+                }
+                const auto& bytes   = std::get<std::vector<std::byte>>(read);
+                auto        decoded = DecodeMaterialProduct(bytes.data(), bytes.size());
+                if (auto* error = std::get_if<AssetError>(&decoded))
+                {
+                    ADD_FAILURE() << error->Message;
+                    continue;
+                }
+                auto       material = std::get<MaterialData>(std::move(decoded));
+                const auto name     = material.Name;
+                materials.emplace(name, std::move(material));
+            }
+            return materials;
+        }
+        void ExpectBrokenTextureOmitted()
+        {
+            // Inspect published bytes as well as dependency metadata: retaining
+            // a stale slot while dropping only its dependency must also fail.
+            ASSERT_EQ(Products("model.obj", AssetType::Model).size(), 1u);
+            ASSERT_EQ(Products("model.obj", AssetType::StaticMesh).size(), 2u);
+            const auto materials = PublishedMaterials();
+            ASSERT_TRUE(materials.count("Surface"));
+            ASSERT_TRUE(materials.count("Healthy"));
+            const auto& surface = materials.at("Surface");
+            ASSERT_EQ(surface.Textures.size(), 1u);
+            ASSERT_EQ(Products("normal.tga").size(), 1u);
+            EXPECT_EQ(surface.Textures[0].Texture, Products("normal.tga")[0].Metadata.assetID);
+            ASSERT_TRUE(surface.Bindings);
+            ASSERT_EQ(surface.Bindings->Textures.size(), 1u);
+            EXPECT_EQ(surface.Bindings->Textures[0].Binding, 2u); // NormalMap; BaseColorMap (1) is unassigned.
+            EXPECT_EQ(surface.Bindings->Textures[0].TextureIndex, 0u);
+            const auto& healthy = materials.at("Healthy");
+            ASSERT_EQ(healthy.Textures.size(), 1u);
+            ASSERT_EQ(Products("healthy.tga").size(), 1u);
+            EXPECT_EQ(healthy.Textures[0].Texture, Products("healthy.tga")[0].Metadata.assetID);
+            for (const auto& record : Products("model.obj", AssetType::Material))
+                for (AssetID dependency : record.Metadata.Dependencies)
+                    EXPECT_NE(dependency.GetSourceID(), ID("diffuse.tga"));
+        }
     };
 
     TEST_F(ProjectBuildTest, BuildIsUpToDateUntilSourceSettingsOrForceChange)
@@ -164,6 +224,106 @@ namespace
         EXPECT_EQ(rebuilt.Root.Disposition, AssetBuildDisposition::Published);
         for (const auto& dependency : rebuilt.Dependencies)
             EXPECT_EQ(dependency.Disposition, AssetBuildDisposition::UpToDate);
+    }
+
+    TEST_F(ProjectBuildTest, BrokenModelTextureWarnsAndPublishesOtherMaterialsAndTextures)
+    {
+        TwoMaterialModel();
+        Write("diffuse.tga", "corrupt raster");
+        Open();
+        const auto built = Build("model.obj");
+        EXPECT_EQ(built.Root.Disposition, AssetBuildDisposition::Published);
+        ASSERT_EQ(built.Root.Warnings.size(), 1u);
+        EXPECT_NE(built.Root.Warnings[0].find("diffuse.tga"), std::string::npos);
+        EXPECT_NE(built.Root.Warnings[0].find("Unsupported or malformed Texture source"), std::string::npos);
+        EXPECT_NE(built.Root.Warnings[0].find("leaving reference unassigned"), std::string::npos);
+        EXPECT_TRUE(Products("diffuse.tga").empty());
+        EXPECT_EQ(built.Dependencies.size(), 2u);
+        ExpectBrokenTextureOmitted();
+    }
+
+    TEST_F(ProjectBuildTest, FailedModelTextureRebuildDropsStaleSlotAndRecoversWhenFixed)
+    {
+        TwoMaterialModel();
+        Open();
+        Build("model.obj");
+        const auto before = PublishedMaterials();
+        ASSERT_TRUE(before.count("Surface"));
+        ASSERT_EQ(before.at("Surface").Textures.size(), 2u);
+        ASSERT_EQ(Products("diffuse.tga").size(), 1u);
+        const auto stale = Products("diffuse.tga")[0];
+
+        Write("diffuse.tga", "corrupt raster");
+        const auto rebuilt = Build("model.obj");
+        EXPECT_EQ(rebuilt.Root.Disposition, AssetBuildDisposition::Published);
+        ASSERT_EQ(rebuilt.Root.Warnings.size(), 1u);
+        EXPECT_NE(rebuilt.Root.Warnings[0].find("diffuse.tga"), std::string::npos);
+        EXPECT_NE(rebuilt.Root.Warnings[0].find("Unsupported or malformed Texture source"), std::string::npos);
+        // Failed sources keep their old publications, but the model must not use them.
+        ASSERT_EQ(Products("diffuse.tga").size(), 1u);
+        EXPECT_EQ(Products("diffuse.tga")[0].Location.ContentDigest, stale.Location.ContentDigest);
+        ExpectBrokenTextureOmitted();
+        const auto repeated = Build("model.obj");
+        EXPECT_EQ(repeated.Root.Disposition, AssetBuildDisposition::UpToDate);
+        EXPECT_EQ(repeated.Root.Warnings, rebuilt.Root.Warnings);
+
+        Write("diffuse.tga", Tga(200, 10, 10));
+        const auto recovered = Build("model.obj");
+        EXPECT_EQ(recovered.Root.Disposition, AssetBuildDisposition::Published);
+        EXPECT_TRUE(recovered.Root.Warnings.empty());
+        const auto after = PublishedMaterials();
+        ASSERT_TRUE(after.count("Surface"));
+        ASSERT_EQ(after.at("Surface").Textures.size(), 2u);
+        EXPECT_TRUE(std::any_of(after.at("Surface").Textures.begin(),
+                                after.at("Surface").Textures.end(),
+                                [&](const auto& slot) { return slot.Texture == stale.Metadata.assetID; }));
+    }
+
+    TEST_F(ProjectBuildTest, ModelTextureSettingsFailureAlsoWarnsAndLeavesSlotEmpty)
+    {
+        // A valid image with invalid user settings fails before decoding. Handling
+        // only missing/corrupt raster errors must not pass this regression.
+        TwoMaterialModel();
+        Open();
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(
+            Owner->SetSourceImportConfiguration(ID("diffuse.tga"), {"", {{"usage", "invalid"}}})));
+        const auto explicitBuild = Owner->BuildAsset(ID("diffuse.tga"), {});
+        ASSERT_TRUE(std::holds_alternative<AssetError>(explicitBuild));
+        EXPECT_EQ(std::get<AssetError>(explicitBuild).Code, AssetErrorCode::InvalidArgument);
+        EXPECT_NE(std::get<AssetError>(explicitBuild).Message.find("Invalid Texture usage: invalid"),
+                  std::string::npos);
+        const auto built = Build("model.obj");
+        ASSERT_EQ(built.Root.Warnings.size(), 1u);
+        EXPECT_NE(built.Root.Warnings[0].find("diffuse.tga"), std::string::npos);
+        EXPECT_NE(built.Root.Warnings[0].find(std::get<AssetError>(explicitBuild).Message), std::string::npos);
+        ExpectBrokenTextureOmitted();
+    }
+
+    TEST_F(ProjectBuildTest, ExplicitTextureAndMaterialBuildsStillFailOnBrokenTexture)
+    {
+        Write("diffuse.tga", Tga(200, 10, 10));
+        Open();
+        Build("diffuse.tga");
+        ASSERT_EQ(Products("diffuse.tga").size(), 1u);
+        const auto texture = Products("diffuse.tga")[0].Metadata.assetID;
+        Write("surface.material",
+              "magic: KansMaterial\nversion: 2\nshader: ''\ntextures: {BaseColorMap: " + texture.ToString() + "}\n");
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(Owner->RefreshAssets()));
+        Build("surface.material");
+        ASSERT_EQ(Products("surface.material").size(), 1u);
+        const auto before = Products("surface.material")[0];
+        Write("diffuse.tga", "corrupt raster");
+        const auto explicitBuild = Owner->BuildAsset(ID("diffuse.tga"), {});
+        ASSERT_TRUE(std::holds_alternative<AssetError>(explicitBuild));
+        EXPECT_NE(std::get<AssetError>(explicitBuild).Message.find("Unsupported or malformed Texture source"),
+                  std::string::npos);
+        const auto materialBuild = Owner->BuildAsset(ID("surface.material"), {});
+        ASSERT_TRUE(std::holds_alternative<AssetError>(materialBuild));
+        EXPECT_NE(std::get<AssetError>(materialBuild).Message.find("diffuse.tga"), std::string::npos);
+        EXPECT_NE(std::get<AssetError>(materialBuild).Message.find("Unsupported or malformed Texture source"),
+                  std::string::npos);
+        ASSERT_EQ(Products("surface.material").size(), 1u);
+        EXPECT_EQ(Products("surface.material")[0].Location.ContentDigest, before.Location.ContentDigest);
     }
 
     TEST_F(ProjectBuildTest, IdentityLivesInTheSidecarAndSurvivesLosingTheCache)

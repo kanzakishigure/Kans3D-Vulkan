@@ -1,5 +1,6 @@
 #pragma once
 #include <map>
+#include <set>
 #include <vector>
 #include "Kans3D/Asset/Asset.h"
 #include "LocalIDMap.h"
@@ -26,6 +27,7 @@ namespace Kans
         // Other source files the importer may read.
         std::map<std::filesystem::path, SourceAssetID> SourceInputs;
         // Source file -> its primary Product, for references made by path (model textures).
+        // An invalid ID explicitly marks an unavailable optional source.
         std::map<std::filesystem::path, AssetID> ProductsBySource;
         // Published bytes of referenced Products, supplied only when RequiresProductBytes().
         std::map<AssetID, std::vector<std::byte>> ProductBytes;
@@ -38,6 +40,9 @@ namespace Kans
         std::vector<std::filesystem::path> SourceFiles;
         // Source files whose Products are referenced by path (model textures).
         std::vector<std::filesystem::path> ProductSources;
+        // Subset of ProductSources: build failures warn and resolve to an invalid
+        // Product ID, leaving the importer free to omit the reference.
+        std::set<std::filesystem::path> OptionalProductSources;
         // Import settings to give a referenced source that has none of its own,
         // e.g. {"usage": "normal"} for a texture used as a normal map.
         std::map<std::filesystem::path, std::map<std::string, std::string>> ProductSourceSettings;

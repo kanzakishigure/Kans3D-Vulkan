@@ -179,10 +179,18 @@ namespace Kans
                             return AssetError {AssetErrorCode::InvalidData, "Invalid PNG chromaticity metadata"};
                         constexpr std::array<uint32_t, 8> standard {
                             31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000};
+                        // cHRM stores xy coordinates in units of 1/100000. Allow
+                        // one unit for tools that round/truncate sRGB/Rec.709
+                        // primaries and the D65 white point differently.
+                        constexpr uint32_t tolerance = 1;
                         for (size_t i = 0; i < standard.size(); ++i)
-                            if (settings.Usage == TextureUsage::Color && Big32(data + i * 4) != standard[i])
+                        {
+                            const auto value      = Big32(data + i * 4);
+                            const auto difference = value > standard[i] ? value - standard[i] : standard[i] - value;
+                            if (settings.Usage == TextureUsage::Color && difference > tolerance)
                                 return AssetError {AssetErrorCode::NotImplemented,
                                                    "Non-sRGB PNG primaries are not supported"};
+                        }
                     }
                     if (std::memcmp(type, "eXIf", 4) == 0)
                     {

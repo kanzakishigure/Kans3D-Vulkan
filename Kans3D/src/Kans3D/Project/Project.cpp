@@ -386,28 +386,44 @@ namespace Kans
         }
         for (const auto& input : found.ProductSources)
         {
-            auto source = FindSourceByFile(input);
-            if (auto* error = std::get_if<AssetError>(&source))
-                return std::move(*error);
-            const auto producer = std::get<SourceAssetID>(source);
-            // Suggested settings apply only to sources nobody has configured.
-            if (const auto settings = found.ProductSourceSettings.find(input);
-                settings != found.ProductSourceSettings.end())
-            {
-                const auto current = m_SourceAssetDatabase.FindByID(producer);
-                if (current.Import.Importer.empty() && current.Import.Settings.empty())
+            const auto resolve = [&]() -> std::variant<AssetID, AssetError> {
+                auto source = FindSourceByFile(input);
+                if (auto* error = std::get_if<AssetError>(&source))
+                    return std::move(*error);
+                const auto producer = std::get<SourceAssetID>(source);
+                // Suggested settings apply only to sources nobody has configured.
+                if (const auto settings = found.ProductSourceSettings.find(input);
+                    settings != found.ProductSourceSettings.end())
                 {
-                    auto configured = SetSourceImportConfiguration(producer, {"", settings->second});
-                    if (auto* error = std::get_if<AssetError>(&configured))
-                        m_AssetWarnings.push_back(std::move(*error));
+                    const auto current = m_SourceAssetDatabase.FindByID(producer);
+                    if (current.Import.Importer.empty() && current.Import.Settings.empty())
+                    {
+                        auto configured = SetSourceImportConfiguration(producer, {"", settings->second});
+                        if (auto* error = std::get_if<AssetError>(&configured))
+                            m_AssetWarnings.push_back(std::move(*error));
+                    }
                 }
+                auto built = BuildSource(producer, session);
+                if (auto* error = std::get_if<AssetError>(&built))
+                    return std::move(*error);
+                const auto primary = PrimaryProduct(producer, std::get<AssetBuildResult>(built).LocalIDs);
+                if (!primary.IsValid())
+                    return AssetError {AssetErrorCode::NotFound,
+                                       input.u8string() + " produced no referenceable Product"};
+                return primary;
+            };
+            auto resolved = resolve();
+            if (auto* error = std::get_if<AssetError>(&resolved))
+            {
+                if (!found.OptionalProductSources.count(input) || error->Code == AssetErrorCode::Cancelled)
+                    return std::move(*error);
+                found.Warnings.push_back("Optional Product source " + input.u8string() +
+                                         " is unavailable: " + error->Message + "; leaving reference unassigned");
+                // Do not use an older published Product after a failed rebuild.
+                inputs.ProductsBySource.emplace(input.lexically_normal(), AssetID {});
+                continue;
             }
-            auto built = BuildSource(producer, session);
-            if (auto* error = std::get_if<AssetError>(&built))
-                return std::move(*error);
-            const auto primary = PrimaryProduct(producer, std::get<AssetBuildResult>(built).LocalIDs);
-            if (!primary.IsValid())
-                return AssetError {AssetErrorCode::NotFound, input.u8string() + " produced no referenceable Product"};
+            const auto primary = std::get<AssetID>(resolved);
             inputs.ProductsBySource.emplace(input.lexically_normal(), primary);
             if (std::find(inputs.ProductInputs.begin(), inputs.ProductInputs.end(), primary) ==
                 inputs.ProductInputs.end())
