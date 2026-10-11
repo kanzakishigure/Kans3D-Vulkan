@@ -74,6 +74,33 @@ namespace
         EXPECT_EQ(restored->GetSourceAssetDatabase().FindByID(id).Import.Settings, settings.Settings);
     }
 
+    // Two projects opened by the same process must not share a source asset
+    // cache: a shared, executable-relative cache let each overwrite the other's.
+    TEST_F(ProjectTest, DefaultSourceAssetCacheIsPerProject)
+    {
+        const fs::path otherRoot = directory.parent_path() / (directory.filename().string() + "_other");
+        fs::remove_all(otherRoot);
+        fs::create_directories(otherRoot / "assets");
+        Write(otherRoot / "assets/b.png", "other");
+        ProjectConfig other = config;
+        other.RootDirectory = otherRoot;
+
+        auto first  = Project::Open(config);
+        auto second = Project::Open(other);
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(first));
+        ASSERT_TRUE(std::holds_alternative<std::unique_ptr<Project>>(second));
+        const auto firstCache  = std::get<std::unique_ptr<Project>>(first)->GetSourceAssetCachePath();
+        const auto secondCache = std::get<std::unique_ptr<Project>>(second)->GetSourceAssetCachePath();
+        EXPECT_EQ(firstCache.parent_path(), fs::weakly_canonical(directory / config.CacheDirectory));
+        EXPECT_EQ(secondCache.parent_path(), fs::weakly_canonical(otherRoot / config.CacheDirectory));
+        // Each cache still describes its own project after both are open.
+        EXPECT_NE(Read(firstCache).find("a.png"), std::string::npos);
+        EXPECT_EQ(Read(firstCache).find("b.png"), std::string::npos);
+        EXPECT_NE(Read(secondCache).find("b.png"), std::string::npos);
+        second = std::unique_ptr<Project>();
+        fs::remove_all(otherRoot);
+    }
+
     TEST_F(ProjectTest, ConfigurationFailurePreservesDatabaseCacheAndSidecar)
     {
         auto opened = Project::Open(config);

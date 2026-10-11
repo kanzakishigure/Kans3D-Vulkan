@@ -4,7 +4,6 @@
 #include <yaml-cpp/yaml.h>
 #include "Kans3D/Asset/AssetScanner.h"
 #include "Kans3D/Asset/SourceAssetDatabaseSerializer.h"
-#include "../KansEditor/src/EditorAssetCachePath.h"
 
 namespace
 {
@@ -307,17 +306,5 @@ namespace
             Store(fresh.Database);
             EXPECT_EQ(Read(root / "A.custom.kmeta"), sidecar);
         }
-    }
-
-    TEST(EditorAssetCachePath, UsesExecutableDirectory)
-    {
-        const auto result = GetEditorAssetCachePath();
-        ASSERT_TRUE(std::holds_alternative<fs::path>(result));
-        const auto path = std::get<fs::path>(result);
-        EXPECT_TRUE(path.is_absolute());
-        EXPECT_EQ(path.filename(), "SourceAssetDatabase.cache.yaml");
-#if defined(__linux__)
-        EXPECT_EQ(path.parent_path(), fs::read_symlink("/proc/self/exe").parent_path());
-#endif
     }
 } // namespace

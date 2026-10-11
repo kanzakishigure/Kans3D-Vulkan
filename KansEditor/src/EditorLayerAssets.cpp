@@ -5,19 +5,12 @@
 #include "Kans3D/Asset/Storage/AssetProvider.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Scene/SceneSerializer.h"
-#include "EditorAssetCachePath.h"
 #include "EditorLayer.h"
 
 namespace Kans
 {
     void EditorLayer::OpenProject()
     {
-        const auto cacheLocation = GetEditorAssetCachePath();
-        if (const auto* error = std::get_if<AssetError>(&cacheLocation))
-        {
-            CORE_ERROR("Project cache location: {}", error->Message);
-            return;
-        }
         // Bootstrap from editor settings until project files are implemented.
         ProjectConfig config;
         config.Name = "KansEditor Project";
@@ -29,9 +22,9 @@ namespace Kans
             return;
         }
         config.AssetDirectory = KansFileSystem::GetAssetFolder();
-        ProjectOpenOptions options;
-        options.SourceAssetCachePath = std::get<std::filesystem::path>(cacheLocation);
-        auto opened                  = Project::Open(config, options);
+        // The source asset cache lives in the project's own cache directory, so
+        // projects opened by the same editor never share (and overwrite) it.
+        auto opened = Project::Open(config);
         if (const auto* error = std::get_if<AssetError>(&opened))
         {
             CORE_ERROR("Cannot open project: {}", error->Message);

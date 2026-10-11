@@ -56,7 +56,6 @@ add_executable(Kans3DTests
     SourceAssetDatabaseSerializerTests.cpp
     ProjectTests.cpp
     ContentBrowserTests.cpp
-    ../KansEditor/src/EditorAssetCachePath.cpp
     ../KansEditor/src/Panels/ContentBrowser/BrowserModel.cpp
     ../KansEditor/src/Panels/ContentBrowser/AssetFileOperations.cpp
     ../KansEditor/src/SceneHistory.cpp
