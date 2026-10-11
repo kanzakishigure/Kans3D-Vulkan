@@ -1,5 +1,6 @@
 #pragma once
-#include "Texture.h"
+#include "Kans3D/Asset/Asset.h"
+#include "Kans3D/RHI/RHI.h"
 
 namespace Kans
 {
@@ -7,11 +8,12 @@ namespace Kans
     class Environment : public Asset
     {
     public:
-        Ref<TextureCube> RadianceMap;
-        Ref<TextureCube> IrradianceMap;
+        RenderHardware::Handle<RenderHardware::Texture> RadianceMap;
+        RenderHardware::Handle<RenderHardware::Texture> IrradianceMap;
 
         Environment() = default;
-        Environment(const Ref<TextureCube>& radianceMap, const Ref<TextureCube>& irradianceMap) :
+        Environment(const RenderHardware::Handle<RenderHardware::Texture>& radianceMap,
+                    const RenderHardware::Handle<RenderHardware::Texture>& irradianceMap) :
             RadianceMap(radianceMap), IrradianceMap(irradianceMap)
         {}
 

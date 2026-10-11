@@ -5,10 +5,7 @@
 #include "Renderer2D.h"
 #include "Resource/SceneCamera.h"
 
-#include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
-#include "Kans3D/Platform/OpenGL/OpenGLShader.h"
-#include "Kans3D/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 
 // temp
 #include "Resource/Camera.h"
@@ -76,6 +73,8 @@ namespace Kans
     void Renderer::InitGlobalRendererResource()
     {
 
+        if (!s_GlobalRendererResource)
+            s_GlobalRendererResource = DEBUG_NEW GlobalRendererResource();
         // Init renderer asset
         // Texture
         {
@@ -96,64 +95,8 @@ namespace Kans
             s_GlobalRendererResource->Quad = MeshFactory::CreatQuad(glm::vec2(1.0));
         }
 
-        // shader
-        // TODO technically we can use SPIR-V reflect the Vulkan-GLSL layout to get the uniformStorgeBuffer
-        {
-            std::string shaderpath = KansFileSystem::GetShaderFolder().generic_string();
-            shaderpath += RendererAPI::Current() == RendererAPIType::OPENGL ? "OpenGL/" : "Vulkan/";
-            {
-                auto GridShader = Shader::Create(shaderpath + "GridShader.glsl");
-                GridShader->SetShaderBuffer(
-                    {{ShaderDataType::Float, "U_Settings.Scale"}, {ShaderDataType::Float, "U_Settings.Size"}});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(GridShader);
-            }
-
-            {
-                auto StencilShader = Shader::Create(shaderpath + "StencilShader.glsl");
-                StencilShader->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(StencilShader);
-            }
-
-            {
-                auto OutLineShader = Shader::Create(shaderpath + "OutLineShader.glsl");
-                OutLineShader->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(OutLineShader);
-            }
-
-            {
-                auto DebugnormalShader = Shader::Create(shaderpath + "DebugNormalShader.glsl");
-                DebugnormalShader->SetShaderBuffer({{ShaderDataType::Color4, "u_NormalColor"}});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(DebugnormalShader);
-            }
-
-            // PBR-Pipeline
-            {
-                auto skyboxShader = Shader::Create(shaderpath + "PBR/skybox.glsl");
-                skyboxShader->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(skyboxShader);
-            }
-
-            {
-                auto HdrToCubeMap = Shader::Create(shaderpath + "PBR/HdrToCubeMap.glsl");
-                HdrToCubeMap->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(HdrToCubeMap);
-            }
-            {
-                auto prtShader = Shader::Create(shaderpath + "PBR/genIrradiance.glsl");
-                prtShader->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(prtShader);
-            }
-            {
-                auto prefilterShader = Shader::Create(shaderpath + "PBR/prefilter.glsl");
-                prefilterShader->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(prefilterShader);
-            }
-            {
-                auto brdfShader = Shader::Create(shaderpath + "PBR/brdf.glsl");
-                brdfShader->SetShaderBuffer({});
-                s_GlobalRendererResource->m_ShaderLibrary->Add(brdfShader);
-            }
-        }
+        // Kept for editor API compatibility; engine passes use embedded internal shaders.
+        s_GlobalRendererResource->m_ShaderLibrary = CreateRef<ShaderLibrary>();
     }
 
     void Renderer::InitRenderPipline(const RenderPipelineSpecification& spec)

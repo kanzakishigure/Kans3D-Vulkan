@@ -2,6 +2,7 @@
 #include <chrono>
 #include <glm/glm.hpp>
 #include "Kans3D/Renderer/RHI/FrameBuffer.h"
+#include "ImmediatePassState.h"
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
@@ -48,10 +49,9 @@ namespace Kans
     struct SceneRendererSpecification
     {
         bool SwapChainTarget = false;
-        // Optional library for auxiliary geometry; defaults to the renderer library.
+        // Source-compatible legacy fields. Built-in passes now use engine-owned shaders.
         Ref<ShaderLibrary> GeometryShaders;
-        // Optional environment/grid/skybox shaders for offscreen clients.
-        // Keeping this separate preserves the GeometryShaders override's scope.
+        // Accepted for existing offscreen clients; no resource-folder dependency.
         Ref<ShaderLibrary> AuxiliaryShaders;
     };
 
@@ -94,8 +94,7 @@ namespace Kans
         void SubmitModel(const ProductModelComponent& model,
                          const glm::mat4&             transform,
                          ModelStencilMode             stencil = ModelStencilMode::Disabled);
-        // Queues model geometry after the material pass with a shader from the library that takes
-        // U_ViewProjection, U_Transform and U_ViewPos (outline, stencil, debug).
+        // Queues built-in StencilShader, OutLineShader or DebugNormalShader geometry after materials.
         void SubmitModelGeometry(const ProductModelComponent& model,
                                  const glm::mat4&             transform,
                                  const std::string&           shaderName,
@@ -128,9 +127,10 @@ namespace Kans
         void                  SetViewportSize(uint32_t width, uint32_t height);
         std::vector<uint32_t> GetViewportSize() { return {m_ViewportWidth, m_ViewportHeight}; }
 
-        void SubmitGrid(float size, float scale, glm::mat4 transform);
-        void SubmitSkybox(Ref<TextureCube> skybox);
+        void SubmitGrid(float size, float scale, glm::mat4 transform, ImmediatePassState state = {});
+        void SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state = {});
 
+        RenderHardware::RenderingDesc GetRenderTarget() const { return SceneTarget(RenderHardware::LoadOp::Load); }
         uintptr_t              GetOutput(uint32_t index) const;
         std::shared_ptr<RenderHardware::Device>                        GetDevice() const { return m_Device; }
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> GetMaterialEnvironment();
@@ -139,17 +139,16 @@ namespace Kans
             return m_IBLSampler;
         }
         const Environment&     GetEnvironment() const { return m_Environment; }
-        const Ref<Texture2D>&  GetBrdfLUT() const { return m_BrdfLUT; }
+        const RenderHardware::Handle<RenderHardware::Texture>& GetBrdfLUT() const { return m_BrdfLUT; }
         float                  GetElapsedTime() const
         {
             return std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
         }
-        const Ref<TextureCube> GetSkybox() { return m_SkyBox; }
+        const RenderHardware::Handle<RenderHardware::Texture> GetSkybox() { return m_SkyBox; }
 
     private:
-        void DrawGeometry(const Ref<VertexArray>& geometry);
-        // Draws a mesh and counts it in the stats.
-        void DrawMesh(const GpuMesh& mesh);
+        RenderHardware::PipelineDesc
+        ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled);
         struct ShaderDraw
         {
             AssetID          Mesh;
@@ -181,14 +180,14 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::Texture>              m_Depth;
         RenderHardware::Handle<RenderHardware::Sampler>              m_IBLSampler;
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> m_BlackEnvironment;
-        // RHI-MIGRATION: attachments shared with legacy grid/skybox/geometry passes.
-        uint32_t                      m_InteropFramebuffer = 0;
+        std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Shader>> m_InternalPrograms;
+        std::optional<GpuMesh>                                                          m_Cube;
         void                          ResizeTarget();
         RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load) const;
 
         Environment             m_Environment;
-        Ref<TextureCube>        m_SkyBox;
-        Ref<Texture2D>          m_BrdfLUT;
+        RenderHardware::Handle<RenderHardware::Texture> m_SkyBox;
+        RenderHardware::Handle<RenderHardware::Texture> m_BrdfLUT;
         bool                    m_Active = false;
         Scope<RenderAssetCache> m_AssetCache;
         EntityPicker            m_Picker;

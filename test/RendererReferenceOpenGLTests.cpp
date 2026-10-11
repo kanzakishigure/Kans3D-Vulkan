@@ -515,7 +515,7 @@ namespace
         glDisable(GL_CULL_FACE);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        Renderer->SubmitGrid(0.035f, 12.0f, Transform({0.1f, -0.3f, 0}, {2.0f, 1, 2.0f}));
+        Renderer->SubmitGrid(0.035f, 12.0f, Transform({0.1f, -0.3f, 0}, {2.0f, 1, 2.0f}), {true});
         Renderer->EndScene();
         CompareScene("grid", {1, 0.0});
     }
@@ -551,7 +551,7 @@ namespace
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         Renderer2D::ResetStats();
-        Renderer2D::BeginScene(Info.sceneCamera.camera, Info.sceneCamera.viewMatrix);
+        Renderer2D::BeginScene(Info.sceneCamera.camera, Info.sceneCamera.viewMatrix, {true});
         Renderer2D::DrawQuad(
             Transform({-0.3f, 0.25f, 0.2f}, {1.9f, 1.2f, 1}, 0.27f), texture, {0.8f, 1, 0.6f, 0.7f}, 1.5f);
         Renderer2D::EndScene();

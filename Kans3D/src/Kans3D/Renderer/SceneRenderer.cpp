@@ -1,95 +1,73 @@
 #include "kspch.h"
-#include <glad/glad.h>
-#include "Kans3D/Renderer/SceneRenderer.h"
-#include "Kans3D/Core/Log/Log.h"
-#include "Kans3D/Renderer/Renderer.h"
-// test
-#include "imgui.h"
-// temp
-#include <istream>
-#include <ostream>
+
+#include <iostream>
 #include <string>
-#include "Kans3D/Core/Application.h"
-#include "Kans3D/Platform/OpenGL/OpenGLShader.h"
+#include <glm/gtc/packing.hpp>
+#include "Kans3D/Asset/Importer/TextureSource.h"
+#include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
+#include "Kans3D/Renderer/Renderer.h"
+#include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/Resource/MaterialPass.h"
 #include "Kans3D/Renderer/Resource/MeshFactory.h"
-#define EnableEnv true
+#include "Kans3D/Renderer/Resource/SceneShaders.h"
+#include "Kans3D/Renderer/SceneRenderer.h"
 
 namespace Kans
 {
     namespace
     {
-        void SetCapability(GLenum capability, GLboolean enabled)
+        using namespace RenderHardware;
+        struct SceneDrawData
         {
-            if (enabled)
-                glEnable(capability);
-            else
-                glDisable(capability);
-        }
-
-        struct RasterState
-        {
-            GLboolean Cull = glIsEnabled(GL_CULL_FACE), Blend = glIsEnabled(GL_BLEND),
-                      Depth = glIsEnabled(GL_DEPTH_TEST), DepthWrite;
-            GLint     CullMode, DepthFunc, Polygon[2], SrcRGB, DstRGB, SrcAlpha, DstAlpha, EquationRGB, EquationAlpha;
-            GLboolean ColorWrite[4], Stencil = glIsEnabled(GL_STENCIL_TEST);
-            struct StencilFace
-            {
-                GLint Function, Reference, ValueMask, WriteMask, Fail, DepthFail, DepthPass;
-            };
-            StencilFace Front {}, Back {};
-            RasterState()
-            {
-                glGetBooleanv(GL_DEPTH_WRITEMASK, &DepthWrite);
-                glGetBooleanv(GL_COLOR_WRITEMASK, ColorWrite);
-                glGetIntegerv(GL_STENCIL_FUNC, &Front.Function);
-                glGetIntegerv(GL_STENCIL_REF, &Front.Reference);
-                glGetIntegerv(GL_STENCIL_VALUE_MASK, &Front.ValueMask);
-                glGetIntegerv(GL_STENCIL_WRITEMASK, &Front.WriteMask);
-                glGetIntegerv(GL_STENCIL_FAIL, &Front.Fail);
-                glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &Front.DepthFail);
-                glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &Front.DepthPass);
-                glGetIntegerv(GL_STENCIL_BACK_FUNC, &Back.Function);
-                glGetIntegerv(GL_STENCIL_BACK_REF, &Back.Reference);
-                glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &Back.ValueMask);
-                glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &Back.WriteMask);
-                glGetIntegerv(GL_STENCIL_BACK_FAIL, &Back.Fail);
-                glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &Back.DepthFail);
-                glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &Back.DepthPass);
-                glGetIntegerv(GL_CULL_FACE_MODE, &CullMode);
-                glGetIntegerv(GL_DEPTH_FUNC, &DepthFunc);
-                glGetIntegerv(GL_POLYGON_MODE, Polygon);
-                glGetIntegerv(GL_BLEND_SRC_RGB, &SrcRGB);
-                glGetIntegerv(GL_BLEND_DST_RGB, &DstRGB);
-                glGetIntegerv(GL_BLEND_SRC_ALPHA, &SrcAlpha);
-                glGetIntegerv(GL_BLEND_DST_ALPHA, &DstAlpha);
-                glGetIntegerv(GL_BLEND_EQUATION_RGB, &EquationRGB);
-                glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &EquationAlpha);
-            }
-            void Apply() const
-            {
-                SetCapability(GL_CULL_FACE, Cull);
-                SetCapability(GL_BLEND, Blend);
-                SetCapability(GL_DEPTH_TEST, Depth);
-                glCullFace(CullMode);
-                glDepthFunc(DepthFunc);
-                glDepthMask(DepthWrite);
-                glPolygonMode(GL_FRONT_AND_BACK, Polygon[0]);
-                glBlendFuncSeparate(SrcRGB, DstRGB, SrcAlpha, DstAlpha);
-                glBlendEquationSeparate(EquationRGB, EquationAlpha);
-                glColorMask(ColorWrite[0], ColorWrite[1], ColorWrite[2], ColorWrite[3]);
-                SetCapability(GL_STENCIL_TEST, Stencil);
-                const auto restoreFace = [](GLenum face, const StencilFace& state) {
-                    glStencilFuncSeparate(face, state.Function, state.Reference, state.ValueMask);
-                    glStencilMaskSeparate(face, state.WriteMask);
-                    glStencilOpSeparate(face, state.Fail, state.DepthFail, state.DepthPass);
-                };
-                restoreFace(GL_FRONT, Front);
-                restoreFace(GL_BACK, Back);
-            }
+            glm::mat4 ViewProjection {1}, Transform {1}, DeviceClip {1};
+            glm::vec4 ViewPos {0}, Settings {0};
         };
+        struct CaptureData
+        {
+            glm::mat4 Projection {1}, View {1};
+            glm::vec4 Parameters {0};
+        };
+        Handle<RenderHardware::Shader> Build(Device& device, const char* name, const char* vertex, const char* fragment)
+        {
+            auto result = CreateInternalShader(device, name, vertex, fragment);
+            if (auto* error = std::get_if<AssetError>(&result))
+            {
+                if (Log::GetCoreLogger())
+                    CORE_ERROR("{}", error->Message);
+                else
+                    std::cerr << error->Message << std::endl;
+                return {};
+            }
+            return std::get<Handle<RenderHardware::Shader>>(std::move(result));
+        }
+        template<class T>
+        Handle<BindGroup> DrawGroup(Device&                         device,
+                                    const Handle<BindGroupLayout>&  layout,
+                                    const T&                        data,
+                                    Handle<RenderHardware::Texture> texture = {},
+                                    Handle<Sampler>                 sampler = {})
+        {
+            auto buffer = device.CreateBuffer({sizeof(T), BufferUsage::Uniform, MemoryUsage::Upload});
+            buffer->Write(0, &data, sizeof(T));
+            BindGroupDesc group;
+            group.Layout = layout;
+            group.Entries.push_back({0, buffer, 0, sizeof(T), {}, {}});
+            if (texture)
+                group.Entries.push_back({1, {}, 0, 0, std::move(texture), std::move(sampler)});
+            return device.CreateBindGroup(group);
+        }
+        uint32_t Mips(uint32_t size)
+        {
+            uint32_t levels = 1;
+            while (size > 1)
+            {
+                size >>= 1;
+                ++levels;
+            }
+            return levels;
+        }
     } // namespace
 
     SceneRenderer::SceneRenderer(RenderScene* scene, SceneRendererSpecification spec) :
@@ -101,30 +79,9 @@ namespace Kans
 
     SceneRenderer::~SceneRenderer()
     {
-        // RHI-MIGRATION: delete the attachment-only FBO used by remaining immediate passes.
-        RenderHardware::OpenGLInterop::DeleteSceneFramebuffer(m_InteropFramebuffer);
         if (m_Active)
             m_Device->EndFrame();
         m_Device->WaitIdle();
-    }
-
-    void SceneRenderer::DrawGeometry(const Ref<VertexArray>& geometry)
-    {
-        geometry->Bind();
-        OpenGLRenderCommand::DrawIndexed(geometry);
-        geometry->Unbind();
-    }
-
-    void SceneRenderer::DrawMesh(const GpuMesh& mesh)
-    {
-        // RHI-MIGRATION: only legacy geometry creates/uses the mesh VAO compatibility view.
-        if (!mesh.VertexArray)
-            mesh.VertexArray =
-                RenderHardware::OpenGLInterop::MeshVertexArray(m_Device, mesh.Vertices, mesh.Indices, mesh.IndexCount);
-        mesh.VertexArray->Bind();
-        OpenGLRenderCommand::DrawIndexed(mesh.VertexArray);
-        ++m_Stats.DrawCalls;
-        m_Stats.Triangles += mesh.IndexCount / 3;
     }
 
     void SceneRenderer::SetAssetManager(AssetManager* assets)
@@ -265,17 +222,13 @@ namespace Kans
             m_IBLSampler             = m_Device->CreateSampler(desc);
         }
         std::array<Handle<RenderHardware::Texture>, 3> environment;
-        const std::array<Ref<Kans::Texture>, 3>        legacy {
+        const std::array<Handle<RenderHardware::Texture>, 3> maps {
             m_Environment.IrradianceMap, m_Environment.RadianceMap, m_BrdfLUT};
         for (size_t i = 0; i < 3; ++i)
         {
             const auto dimension = i == 2 ? TextureDimension::Texture2D : TextureDimension::Cube;
-            if (legacy[i])
-            {
-                // RHI-MIGRATION: borrow legacy IBL precomputation outputs and retain their owners.
-                environment[i] =
-                    OpenGLInterop::BorrowTexture(*m_Device, legacy[i]->GetRenererID(), dimension, legacy[i]);
-            }
+            if (maps[i])
+                environment[i] = maps[i];
             else
             {
                 if (m_BlackEnvironment[i])
@@ -310,37 +263,103 @@ namespace Kans
 
     void SceneRenderer::DrawModelGeometry(const GeometryDraw& draw)
     {
+        using namespace RenderHardware;
         if (!m_AssetCache)
             return;
         const ModelInstances* instances = m_AssetCache->GetModel(draw.Model.Model);
-        const auto            library =
-            m_Specification.GeometryShaders ? m_Specification.GeometryShaders : Renderer::GetShaderLibrary();
-        if (!instances || !library || !library->Exists(draw.ShaderName))
+        if (!instances)
             return;
-        glEnable(GL_DEPTH_TEST);
-        glDepthFunc(draw.Mode == ModelGeometryMode::StencilOutline ? GL_LEQUAL : GL_LESS);
-        glDepthMask(GL_FALSE);
-        glDisable(GL_BLEND);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        SetCapability(GL_CULL_FACE, draw.Mode == ModelGeometryMode::BackFaces);
-        glCullFace(GL_FRONT);
-        SetCapability(GL_STENCIL_TEST, draw.Mode == ModelGeometryMode::StencilOutline);
-        glStencilFunc(GL_NOTEQUAL, 1, 0xff);
-        glStencilMask(0);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-        auto  shaderRef = library->Get(draw.ShaderName);
-        auto* shader    = static_cast<OpenGLShader*>(shaderRef.get());
-        shader->Bind();
-        shader->UploadUniformMat4("U_ViewProjection",
-                                  m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() *
-                                      m_SceneInfo.sceneCamera.viewMatrix);
-        shader->UploadUniform3Float("U_ViewPos", m_SceneInfo.sceneCamera.Position);
+        const bool  normals  = draw.ShaderName == "DebugNormalShader";
+        const char* vertex   = normals                            ? SceneShaders::NormalVertex :
+                               draw.ShaderName == "OutLineShader" ? SceneShaders::OutlineVertex :
+                               draw.ShaderName == "StencilShader" ? SceneShaders::StencilVertex :
+                                                                    nullptr;
+        const char* fragment = normals                            ? SceneShaders::NormalFragment :
+                               draw.ShaderName == "OutLineShader" ? SceneShaders::OutlineFragment :
+                                                                    SceneShaders::StencilFragment;
+        if (!vertex)
+            return;
+        PipelineDesc desc = ScenePipeline(draw.ShaderName.c_str(), vertex, fragment, false);
+        if (!desc.Program)
+            return;
+        desc.DepthStencil.DepthCompare =
+            draw.Mode == ModelGeometryMode::StencilOutline ? CompareOp::LessEqual : CompareOp::Less;
+        desc.DepthStencil.StencilTest   = draw.Mode == ModelGeometryMode::StencilOutline;
+        desc.DepthStencil.Front.Compare = desc.DepthStencil.Back.Compare = CompareOp::NotEqual;
+        desc.DepthStencil.Front.Reference = desc.DepthStencil.Back.Reference = 1;
+        desc.DepthStencil.Front.WriteMask = desc.DepthStencil.Back.WriteMask = 0;
+        desc.Rasterizer.Cull = draw.Mode == ModelGeometryMode::BackFaces ? CullMode::Front : CullMode::None;
+        if (normals)
+        {
+            desc.Primitive      = Topology::LineList;
+            desc.VertexBindings = {{0, 28, false}};
+            desc.Attributes     = {
+                {0, 0, 0, VertexFormat::Float3}, {1, 0, 12, VertexFormat::Float3}, {2, 0, 24, VertexFormat::Float}};
+        }
+        else
+        {
+            desc.VertexBindings = {{0, 64, false}};
+            desc.Attributes     = {{0, 0, 0, VertexFormat::Float3},
+                                   {1, 0, 12, VertexFormat::Float3},
+                                   {2, 0, 24, VertexFormat::Float2},
+                                   {3, 0, 32, VertexFormat::Float4},
+                                   {4, 0, 48, VertexFormat::Float4}};
+        }
+        auto pipeline = m_Device->CreatePipeline(desc);
+        auto commands = m_Device->CreateCommandList();
+        commands->BeginRendering(SceneTarget(LoadOp::Load));
+        commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
+        commands->BindPipeline(pipeline);
+        SceneDrawData data;
+        data.DeviceClip     = DeviceProjection(glm::mat4(1), m_Device->GetCoordinateConventions());
+        data.ViewProjection = m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
+        data.ViewPos        = glm::vec4(m_SceneInfo.sceneCamera.Position, 1);
         for (const auto& instance : instances->Instances)
             if (const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh))
             {
-                shader->UploadUniformMat4("U_Transform", draw.Transform * instance.Transform);
-                DrawMesh(*mesh);
+                data.Transform = draw.Transform * instance.Transform;
+                commands->BindGroup(DrawGroup(*m_Device, desc.GroupLayouts[0], data));
+                commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0}});
+                if (normals)
+                    commands->Draw(mesh->IndexCount * 2);
+                else
+                {
+                    commands->BindIndexBuffer(mesh->Indices, IndexType::Uint32);
+                    commands->DrawIndexed(mesh->IndexCount);
+                }
+                ++m_Stats.DrawCalls;
+                m_Stats.Triangles += mesh->IndexCount / 3;
             }
+        commands->EndRendering();
+        m_Device->Submit(commands);
+    }
+
+    RenderHardware::PipelineDesc
+    SceneRenderer::ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled)
+    {
+        using namespace RenderHardware;
+        PipelineDesc desc;
+        // Device shaders are scene-owned; CPU SPIR-V products are cached by InternalShader.
+        auto& program = m_InternalPrograms[name];
+        if (!program)
+            program = Build(*m_Device, name, vertex, fragment);
+        desc.Program = program;
+        BindGroupLayoutDesc layout {0, {{0, BindingType::UniformBuffer}}};
+        if (sampled)
+            layout.Entries.push_back({1, BindingType::CombinedTextureSampler});
+        desc.GroupLayouts           = {m_Device->CreateBindGroupLayout(layout)};
+        desc.ColorFormats           = {Format::RGBA8Unorm, Format::RGBA8Unorm};
+        desc.HasDepthStencil        = true;
+        desc.DepthStencilFormat     = Format::Depth24Stencil8;
+        desc.DepthStencil.DepthTest = true;
+        desc.Rasterizer.Cull        = CullMode::None;
+        desc.Rasterizer.Front       = m_Device->GetCoordinateConventions().ClipY == ClipYDirection::Up ?
+                                          FrontFace::CounterClockwise :
+                                          FrontFace::Clockwise;
+        BlendState blend;
+        blend.WriteMask = 7;
+        desc.Blends     = {blend, blend};
+        return desc;
     }
 
     void SceneRenderer::Init()
@@ -366,9 +385,6 @@ namespace Kans
     void SceneRenderer::ResizeTarget()
     {
         using namespace RenderHardware;
-        // RHI-MIGRATION: recreate the legacy attachment view on resize.
-        OpenGLInterop::DeleteSceneFramebuffer(m_InteropFramebuffer);
-        m_InteropFramebuffer = 0;
         m_Colors.clear();
         m_Depth.reset();
         TextureDesc desc;
@@ -381,8 +397,6 @@ namespace Kans
         desc.Usage       = RenderHardware::TextureUsage::DepthStencil | RenderHardware::TextureUsage::Sampled |
                            RenderHardware::TextureUsage::CopySource;
         m_Depth          = m_Device->CreateTexture(desc);
-        // RHI-MIGRATION: target attachments stay RHI-owned; only the legacy FBO is native.
-        m_InteropFramebuffer = OpenGLInterop::CreateSceneFramebuffer(m_Colors, m_Depth);
     }
     uintptr_t SceneRenderer::GetOutput(uint32_t index) const
     {
@@ -393,182 +407,185 @@ namespace Kans
 
     void SceneRenderer::PrepareEnvironment(EnvironmentPrecomputeSizes sizes)
     {
-        const auto library =
-            m_Specification.AuxiliaryShaders ? m_Specification.AuxiliaryShaders : Renderer::GetShaderLibrary();
-        OpenGLRenderCommand::GetError();
-        // prepareSceneEnv
-        OpenGLRenderCommand::EnableCullFace(false);
-        OpenGLRenderCommand::Clear();
-
+        using namespace RenderHardware;
+        if (!sizes.Cubemap || !sizes.Irradiance || sizes.Prefilter < 16 || !sizes.BrdfLUT)
+            throw std::invalid_argument("IBL sizes must be positive; prefilter needs five mips (at least 16 texels)");
+        // The asset decoder owns its stb configuration. Decode bottom-first rows,
+        // then match the legacy HDR image's half-float quantization before sampling.
+        TextureImportSettings settings;
+        settings.FlipY        = true;
+        settings.GenerateMips = false;
+        auto decoded = ParseTextureSource(std::filesystem::absolute(m_RenderScene->m_EnvironmentPath), settings);
+        if (auto* error = std::get_if<AssetError>(&decoded))
         {
-            FrameBufferSpecification frameBufferSpec;
-            frameBufferSpec.Width                   = sizes.Cubemap;
-            frameBufferSpec.Height                  = sizes.Cubemap;
-            frameBufferSpec.SwapChainTarget         = true;
-            frameBufferSpec.AttachmentSpecification = {FrameBufferTextureFormat::RGB16F,
-                                                       FrameBufferTextureFormat::Depth};
-
-            Ref<FrameBuffer> framebuffer = FrameBuffer::Create(frameBufferSpec);
-
-            TextureSpecification textureSepc;
-            textureSepc.Wrap = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            textureSepc.Minf = RHIFilter::RHI_FILTER_LINEAR;
-            textureSepc.Maxf = RHIFilter::RHI_FILTER_LINEAR;
-
-            Ref<Texture2D> hdrTexture = Texture2D::Create(textureSepc, m_RenderScene->m_EnvironmentPath);
-
-            // 设置cubemap6个面的viewmatrix
-            // ----------------------------------------------------------------------------------------------
-            glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-            // 从单位cube的中心点看向正方体6个面的view矩阵
-            glm::mat4 captureViews[] = {
-                glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
-                glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
-                glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
-                glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)),
-                glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
-                glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
-            OpenGLShader* hdrToCubeMapShader = static_cast<OpenGLShader*>(library->Get("HdrToCubeMap").get());
-
-            TextureSpecification envCubemapspec;
-            envCubemapspec.Width  = sizes.Cubemap;
-            envCubemapspec.Height = sizes.Cubemap;
-            envCubemapspec.Format = RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT;
-            envCubemapspec.Wrap   = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            envCubemapspec.Minf   = RHIFilter::RHI_FILTER_CUBIC_EXT;
-            envCubemapspec.Maxf   = RHIFilter::RHI_FILTER_LINEAR;
-
-            Ref<TextureCube> envCubemap = TextureCube::Create(envCubemapspec);
-
-            const auto cube = MeshFactory::GetCube();
-            framebuffer->Bind();
-            OpenGLRenderCommand::SetClearColor(glm::vec4(0.02f, 0.02f, 0.02f, 1.0f));
-            OpenGLRenderCommand::Clear();
-
-            hdrToCubeMapShader->Bind();
-            hdrToCubeMapShader->UploadUniformInt("equirectangularMap", 1);
-            hdrTexture->Bind(1);
-            hdrToCubeMapShader->UploadUniformMat4("projection", captureProjection);
-            OpenGLRenderCommand::EnableSetStencil(false);
-            OpenGLRenderCommand::EnableBlend(false);
-
-            for (unsigned int i = 0; i < 6; ++i)
-            {
-
-                hdrToCubeMapShader->UploadUniformMat4("view", captureViews[i]);
-                framebuffer->BindTextureToColorAttachMent(envCubemap, i);
-                OpenGLRenderCommand::Clear();
-                DrawGeometry(cube);
-            }
-
-            framebuffer->Unbind();
-
-            envCubemap->GenerateMipmap();
-            OpenGLRenderCommand::GetError();
-
-            //---irradiancemap--------------------------------------------------//
-
-            TextureSpecification irradianceCubemapspec;
-            irradianceCubemapspec.Width        = sizes.Irradiance;
-            irradianceCubemapspec.Height       = sizes.Irradiance;
-            irradianceCubemapspec.Format       = RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT;
-            irradianceCubemapspec.Wrap         = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            irradianceCubemapspec.Minf         = RHIFilter::RHI_FILTER_CUBIC_EXT;
-            irradianceCubemapspec.Maxf         = RHIFilter::RHI_FILTER_LINEAR;
-            irradianceCubemapspec.GenerateMips = true;
-            Ref<TextureCube> irradiancemap     = TextureCube::Create(irradianceCubemapspec);
-            framebuffer->Resize(sizes.Irradiance, sizes.Irradiance);
-
-            OpenGLShader* genIrradianceShader = static_cast<OpenGLShader*>(library->Get("genIrradiance").get());
-            genIrradianceShader->Bind();
-            genIrradianceShader->UploadUniformInt("environmentMap", 2);
-            genIrradianceShader->UploadUniformMat4("projection", captureProjection);
-            envCubemap->Bind(2);
-            framebuffer->Bind();
-            for (unsigned int i = 0; i < 6; ++i)
-            {
-                genIrradianceShader->UploadUniformMat4("view", captureViews[i]);
-                framebuffer->BindTextureToColorAttachMent(irradiancemap, i);
-                OpenGLRenderCommand::Clear();
-                DrawGeometry(cube);
-            }
-            OpenGLRenderCommand::GetError();
-
-            m_SkyBox = envCubemap;
-
-            m_Environment.IrradianceMap = irradiancemap;
-
-            //------PreFilterRadianceMap-----------------------------------------//
-
-            TextureSpecification prefilterMapspec;
-            prefilterMapspec.Width        = sizes.Prefilter;
-            prefilterMapspec.Height       = sizes.Prefilter;
-            prefilterMapspec.Wrap         = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            prefilterMapspec.Minf         = RHIFilter::RHI_FILTER_CUBIC_IMG;
-            prefilterMapspec.Maxf         = RHIFilter::RHI_FILTER_LINEAR;
-            prefilterMapspec.GenerateMips = true;
-            prefilterMapspec.Format       = RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT;
-
-            Ref<TextureCube> prefilterMap = TextureCube::Create(prefilterMapspec);
-            OpenGLRenderCommand::GetError();
-            OpenGLShader* prefilterShader = static_cast<OpenGLShader*>(library->Get("prefilter").get());
-            prefilterShader->Bind();
-            prefilterShader->UploadUniformInt("environmentMap", 2);
-            prefilterShader->UploadUniformMat4("projection", captureProjection);
-            envCubemap->Bind(2);
-
-            uint32_t maxMipLevels = 5;
-            for (unsigned int mip = 0; mip < maxMipLevels; ++mip)
-            {
-                // 调整 ViewPort大小,保证和 mip-level 维持统一
-                unsigned int mipWidth  = static_cast<unsigned int>(sizes.Prefilter * std::pow(0.5, mip));
-                unsigned int mipHeight = static_cast<unsigned int>(sizes.Prefilter * std::pow(0.5, mip));
-                framebuffer->Resize(mipWidth, mipHeight);
-                framebuffer->Bind();
-
-                float roughness = (float)mip / (float)(maxMipLevels - 1);
-                prefilterShader->UploadUniformFloat("roughness", roughness);
-                for (unsigned int i = 0; i < 6; ++i)
-                {
-                    prefilterShader->UploadUniformMat4("view", captureViews[i]);
-                    framebuffer->BindTextureToColorAttachMent(prefilterMap, i, mip);
-                    OpenGLRenderCommand::Clear();
-                    DrawGeometry(cube);
-                }
-            }
-            framebuffer->Unbind();
-            OpenGLRenderCommand::GetError();
-
-            //------PreCompute BRDF-LUT----------------------------------//
-            TextureSpecification brdfLUTspec;
-            brdfLUTspec.Width  = sizes.BrdfLUT;
-            brdfLUTspec.Height = sizes.BrdfLUT;
-            brdfLUTspec.Wrap   = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            brdfLUTspec.Minf   = RHIFilter::RHI_FILTER_LINEAR;
-            brdfLUTspec.Maxf   = RHIFilter::RHI_FILTER_LINEAR;
-            brdfLUTspec.Format = RHIFormat::RHI_FORMAT_R16G16_SFLOAT;
-
-            Ref<Texture2D> brdfLUTTexture = Texture2D::Create(brdfLUTspec);
-
-            framebuffer->Resize(sizes.BrdfLUT, sizes.BrdfLUT);
-            framebuffer->Bind();
-            framebuffer->BindTextureToColorAttachMent(brdfLUTTexture);
-
-            OpenGLShader* brdfShader = static_cast<OpenGLShader*>(library->Get("brdf").get());
-            brdfShader->Bind();
-            OpenGLRenderCommand::Clear();
-            OpenGLRenderCommand::DrawQuad();
-
-            framebuffer->Unbind();
-
-            //----Init the Scene Environment
-            m_SkyBox                    = envCubemap;
-            m_BrdfLUT                   = brdfLUTTexture;
-            m_Environment.IrradianceMap = irradiancemap;
-            m_Environment.RadianceMap   = prefilterMap;
+            if (Log::GetCoreLogger())
+                CORE_ERROR("{}", error->Message);
+            else
+                std::cerr << error->Message << std::endl;
+            return;
         }
-        OpenGLRenderCommand::EnableCullFace(true);
-        OpenGLRenderCommand::CullFace(CullFaceOption::BACK);
+        const auto& source = std::get<TextureData>(decoded);
+        if (source.Format != TexturePixelFormat::RGBA32Float)
+        {
+            if (Log::GetCoreLogger())
+                CORE_ERROR("Environment must be a floating-point HDR image");
+            return;
+        }
+        const uint32_t        width = source.Width, height = source.Height;
+        std::vector<uint16_t> half(size_t(width) * height * 4);
+        for (size_t i = 0; i < half.size(); ++i)
+        {
+            const auto* bytes = source.Mips[0].Pixels.data() + i * 4;
+            uint32_t    word  = uint32_t(bytes[0]) | (uint32_t(bytes[1]) << 8) | (uint32_t(bytes[2]) << 16) |
+                                (uint32_t(bytes[3]) << 24);
+            float       value;
+            std::memcpy(&value, &word, sizeof(value));
+            half[i] = glm::packHalf1x16(value);
+        }
+        TextureDesc hdrDesc;
+        hdrDesc.Width       = width;
+        hdrDesc.Height      = height;
+        hdrDesc.PixelFormat = Format::RGBA16Float;
+        hdrDesc.Usage       = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+        auto hdr            = m_Device->CreateTexture(hdrDesc);
+        auto upload =
+            m_Device->CreateBuffer({half.size() * sizeof(uint16_t), BufferUsage::CopySource, MemoryUsage::Upload});
+        upload->Write(0, half.data(), half.size() * sizeof(uint16_t));
+        auto commands = m_Device->CreateCommandList();
+        commands->CopyBufferToTexture(upload, 0, hdr);
+        if (!m_Cube)
+        {
+            auto mesh = UploadMesh(MeshFactory::CreateCubeData(glm::vec3(2)), m_Device);
+            if (auto* error = std::get_if<AssetError>(&mesh))
+                throw std::runtime_error(error->Message);
+            m_Cube = std::get<GpuMesh>(std::move(mesh));
+        }
+        auto texture = [&](uint32_t size, uint32_t levels, TextureDimension dimension) {
+            TextureDesc desc;
+            desc.Width = desc.Height = size;
+            desc.MipLevels           = levels;
+            desc.Dimension           = dimension;
+            desc.PixelFormat         = Format::RGBA16Float;
+            desc.Usage = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::RenderTarget |
+                         RenderHardware::TextureUsage::CopySource | RenderHardware::TextureUsage::CopyDestination;
+            return m_Device->CreateTexture(desc);
+        };
+        auto        sky        = texture(sizes.Cubemap, Mips(sizes.Cubemap), TextureDimension::Cube);
+        auto        irradiance = texture(sizes.Irradiance, 1, TextureDimension::Cube);
+        auto        prefilter  = texture(sizes.Prefilter, Mips(sizes.Prefilter), TextureDimension::Cube);
+        auto        brdf       = texture(sizes.BrdfLUT, 1, TextureDimension::Texture2D);
+        SamplerDesc sampling;
+        sampling.U = sampling.V = sampling.W = AddressMode::ClampToEdge;
+        auto sampler                         = m_Device->CreateSampler(sampling);
+        auto pipeline = [&](const char* name, const char* vertex, const char* fragment, bool sampled, bool cube) {
+            PipelineDesc desc;
+            desc.Program = Build(*m_Device, name, vertex, fragment);
+            if (!desc.Program)
+                return Handle<Pipeline> {};
+            BindGroupLayoutDesc layout {0, {{0, BindingType::UniformBuffer}}};
+            if (sampled)
+                layout.Entries.push_back({1, BindingType::CombinedTextureSampler});
+            desc.GroupLayouts           = {m_Device->CreateBindGroupLayout(layout)};
+            desc.ColorFormats           = {Format::RGBA16Float};
+            desc.HasDepthStencil        = true;
+            desc.DepthStencilFormat     = Format::Depth24Stencil8;
+            desc.DepthStencil.DepthTest = desc.DepthStencil.DepthWrite = true;
+            desc.DepthStencil.DepthCompare                             = CompareOp::LessEqual;
+            desc.Blends.resize(1);
+            desc.Rasterizer.Cull = CullMode::None;
+            if (cube)
+            {
+                desc.VertexBindings = {{0, 64, false}};
+                desc.Attributes     = {{0, 0, 0, VertexFormat::Float3}};
+            }
+            else
+                desc.Primitive = Topology::TriangleStrip;
+            return m_Device->CreatePipeline(desc);
+        };
+        auto hdrPipeline = pipeline("HdrToCubeMap", SceneShaders::HdrVertex, SceneShaders::HdrFragment, true, true);
+        auto irradiancePipeline =
+            pipeline("genIrradiance", SceneShaders::IrradianceVertex, SceneShaders::IrradianceFragment, true, true);
+        auto prefilterPipeline =
+            pipeline("prefilter", SceneShaders::PrefilterVertex, SceneShaders::PrefilterFragment, true, true);
+        auto brdfPipeline = pipeline("brdf", SceneShaders::BrdfVertex, SceneShaders::BrdfFragment, false, false);
+        if (!hdrPipeline || !irradiancePipeline || !prefilterPipeline || !brdfPipeline)
+            return;
+        const glm::vec3 directions[] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        const glm::vec3 up[]         = {{0, -1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}, {0, -1, 0}};
+        CaptureData     data;
+        data.Projection = DeviceTextureProjection(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f),
+                                                  m_Device->GetCoordinateConventions());
+        std::map<uint32_t, Handle<RenderHardware::Texture>> depths;
+        auto                                                depth = [&](uint32_t size) {
+            auto& target = depths[size];
+            if (!target)
+            {
+                TextureDesc desc;
+                desc.Width = desc.Height = size;
+                desc.PixelFormat         = Format::Depth24Stencil8;
+                desc.Usage               = RenderHardware::TextureUsage::DepthStencil;
+                target                   = m_Device->CreateTexture(desc);
+            }
+            DepthAttachment attachment;
+            attachment.Target = target;
+            attachment.Load   = LoadOp::Clear;
+            return attachment;
+        };
+        auto capture = [&](const Handle<Pipeline>&                pass,
+                           const Handle<RenderHardware::Texture>& target,
+                           const Handle<RenderHardware::Texture>& source,
+                           uint32_t                               mip,
+                           float                                  roughness) {
+            uint32_t size     = std::max(1u, target->GetDesc().Width >> mip);
+            data.Parameters.x = roughness;
+            for (uint32_t face = 0; face < 6; ++face)
+            {
+                data.View = glm::lookAt(glm::vec3(0), directions[face], up[face]);
+                RenderingDesc render;
+                render.Colors.push_back({target, {mip, face}, LoadOp::Clear, StoreOp::Store, {0.02f, 0.02f, 0.02f, 1}});
+                render.Depth = depth(size);
+                commands->BeginRendering(render);
+                commands->SetViewport({0, 0, float(size), float(size)});
+                commands->BindPipeline(pass);
+                commands->BindGroup(DrawGroup(*m_Device, pass->GetDesc().GroupLayouts[0], data, source, sampler));
+                commands->BindVertexBuffers({{0, m_Cube->Vertices, 0}});
+                commands->BindIndexBuffer(m_Cube->Indices, IndexType::Uint32);
+                commands->DrawIndexed(m_Cube->IndexCount);
+                commands->EndRendering();
+            }
+        };
+        capture(hdrPipeline, sky, hdr, 0, 0);
+        commands->GenerateMips(sky);
+        capture(irradiancePipeline, irradiance, sky, 0, 0);
+        // Legacy prefilter renders exactly five roughness levels. The remaining allocated
+        // levels are zero, as in the original allocation followed by mip generation.
+        const std::array<uint16_t, 4> zero {0, 0, 0, 0};
+        auto                          zeros = m_Device->CreateBuffer(
+            {size_t(sizes.Prefilter) * sizes.Prefilter * sizeof(zero), BufferUsage::CopySource, MemoryUsage::Upload});
+        std::vector<uint16_t> zeroPixels(size_t(sizes.Prefilter) * sizes.Prefilter * 4, 0);
+        zeros->Write(0, zeroPixels.data(), zeroPixels.size() * sizeof(uint16_t));
+        // Initialize lower levels explicitly; avoid generating over the rendered roughness levels.
+        for (uint32_t mip = 5; mip < prefilter->GetDesc().MipLevels; ++mip)
+            for (uint32_t face = 0; face < 6; ++face)
+                commands->CopyBufferToTexture(zeros, 0, prefilter, {mip, face});
+        for (uint32_t mip = 0; mip < 5; ++mip)
+            capture(prefilterPipeline, prefilter, sky, mip, float(mip) / 4.0f);
+        RenderingDesc render;
+        render.Colors.push_back({brdf});
+        render.Depth = depth(sizes.BrdfLUT);
+        commands->BeginRendering(render);
+        commands->SetViewport({0, 0, float(sizes.BrdfLUT), float(sizes.BrdfLUT)});
+        commands->BindPipeline(brdfPipeline);
+        data.Projection = DeviceTextureProjection(glm::mat4(1), m_Device->GetCoordinateConventions());
+        commands->BindGroup(DrawGroup(*m_Device, brdfPipeline->GetDesc().GroupLayouts[0], data));
+        commands->Draw(4);
+        commands->EndRendering();
+        m_Device->Submit(commands);
+        m_Device->WaitIdle();
+        m_SkyBox                    = std::move(sky);
+        m_Environment.IrradianceMap = std::move(irradiance);
+        m_Environment.RadianceMap   = std::move(prefilter);
+        m_BrdfLUT                   = std::move(brdf);
     }
 
     void SceneRenderer::UpdateEnvironment(std::string path)
@@ -589,15 +606,11 @@ namespace Kans
         if (m_AssetCache)
             m_AssetCache->BeginFrame();
         m_Device->BeginFrame();
-        // RHI-MIGRATION: preserve native raster state for the immediate grid/skybox passes.
-        const RasterState saved;
         auto              commands = m_Device->CreateCommandList();
         commands->BeginRendering(SceneTarget(RenderHardware::LoadOp::Clear));
         commands->EndRendering();
         m_Device->Submit(commands);
-        saved.Apply();
-        // RHI-MIGRATION: grid and skybox draw immediately between BeginScene and EndScene.
-        RenderHardware::OpenGLInterop::BindSceneFramebuffer(m_InteropFramebuffer, m_ViewportWidth, m_ViewportHeight);
+        Renderer2D::SetTarget(m_Device, SceneTarget(RenderHardware::LoadOp::Load));
     }
 
     void SceneRenderer::AppendModelDraws(const ProductModelComponent& model,
@@ -629,16 +642,9 @@ namespace Kans
             SubmitModel(m_Preview->Model, m_Preview->Transform);
             m_ViewMode = viewMode;
         }
-        {
-            // RHI-MIGRATION: restore native raster state after the remaining immediate geometry passes.
-            const RasterState saved;
-            DrawShaderMaterials(m_ModelDraws);
-            // RHI-MIGRATION: legacy geometry shares the target's alpha-preserving write mask.
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
-            for (const auto& draw : m_GeometryDraws)
-                DrawModelGeometry(draw);
-            saved.Apply();
-        }
+        DrawShaderMaterials(m_ModelDraws);
+        for (const auto& draw : m_GeometryDraws)
+            DrawModelGeometry(draw);
         m_ModelDraws.clear();
         m_GeometryDraws.clear();
         if (!m_Highlight.empty())
@@ -666,8 +672,7 @@ namespace Kans
                            {0.35f, 0.7f, 1.0f, 1.0f});
             m_Preview.reset();
         }
-        // RHI-MIGRATION: release the shared legacy target after auxiliary passes.
-        RenderHardware::OpenGLInterop::BindSceneFramebuffer(0, m_ViewportWidth, m_ViewportHeight);
+        Renderer2D::ClearTarget();
         m_Device->EndFrame();
         m_Active = false;
     }
@@ -697,37 +702,86 @@ namespace Kans
         ResizeTarget();
     }
 
-    void SceneRenderer::SubmitGrid(float size, float scale, glm::mat4 transform)
+    void SceneRenderer::SubmitGrid(float size, float scale, glm::mat4 transform, ImmediatePassState state)
     {
-        const auto library =
-            m_Specification.AuxiliaryShaders ? m_Specification.AuxiliaryShaders : Renderer::GetShaderLibrary();
-        auto shader = static_cast<OpenGLShader*>(library->Get("GridShader").get());
-        shader->Bind();
-
-        glm::mat4 viewprojection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        shader->UploadUniformMat4("U_ViewProjection", viewprojection);
-        shader->UploadUniformMat4("U_Transform", transform);
-
-        shader->UploadUniformFloat("U_Settings.Scale", scale);
-        shader->UploadUniformFloat("U_Settings.Size", size);
-        auto VA = m_Specification.AuxiliaryShaders ? MeshFactory::CreatQuad(glm::vec2(1.0f)) : Renderer::GetQuad();
-        VA->Bind();
-        OpenGLRenderCommand::DrawIndexed(VA);
-        VA->Unbind();
+        using namespace RenderHardware;
+        auto desc = ScenePipeline("GridShader", SceneShaders::GridVertex, SceneShaders::GridFragment, false);
+        if (!desc.Program)
+            return;
+        desc.VertexBindings             = {{0, 20, false}};
+        desc.Attributes                 = {{0, 0, 0, VertexFormat::Float3}, {1, 0, 12, VertexFormat::Float2}};
+        desc.DepthStencil.DepthCompare  = state.DepthCompare;
+        desc.DepthStencil.DepthWrite    = state.DepthWrite;
+        desc.Blends[0].Enabled          = state.Blend;
+        desc.Blends[0].WriteMask        = state.WriteMask;
+        desc.Blends[0].SourceAlpha      = BlendFactor::SourceAlpha;
+        desc.Blends[0].DestinationAlpha = BlendFactor::OneMinusSourceAlpha;
+        desc.Blends[0].SourceColor      = BlendFactor::SourceAlpha;
+        desc.Blends[0].DestinationColor = BlendFactor::OneMinusSourceAlpha;
+        desc.Blends[1]                  = desc.Blends[0];
+        const float    vertices[]       = {-0.5f, 0, -0.5f, 0, 0, 0.5f,  0, -0.5f, 1, 0,
+                                           0.5f,  0, 0.5f,  1, 1, -0.5f, 0, 0.5f,  0, 1};
+        const uint32_t indices[]        = {0, 1, 2, 2, 3, 0};
+        auto           vb = m_Device->CreateBuffer({sizeof(vertices), BufferUsage::Vertex, MemoryUsage::Upload});
+        auto           ib = m_Device->CreateBuffer({sizeof(indices), BufferUsage::Index, MemoryUsage::Upload});
+        vb->Write(0, vertices, sizeof(vertices));
+        ib->Write(0, indices, sizeof(indices));
+        SceneDrawData data;
+        data.DeviceClip     = DeviceProjection(glm::mat4(1), m_Device->GetCoordinateConventions());
+        data.ViewProjection = m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
+        data.Transform      = transform;
+        data.Settings       = {scale, size, 0, 0};
+        auto commands       = m_Device->CreateCommandList();
+        commands->BeginRendering(SceneTarget(LoadOp::Load));
+        commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
+        commands->BindPipeline(m_Device->CreatePipeline(desc));
+        commands->BindGroup(DrawGroup(*m_Device, desc.GroupLayouts[0], data));
+        commands->BindVertexBuffers({{0, vb, 0}});
+        commands->BindIndexBuffer(ib, IndexType::Uint32);
+        commands->DrawIndexed(6);
+        commands->EndRendering();
+        m_Device->Submit(commands);
     }
 
-    void SceneRenderer::SubmitSkybox(Ref<TextureCube> skybox)
+    void SceneRenderer::SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state)
     {
-        const auto library =
-            m_Specification.AuxiliaryShaders ? m_Specification.AuxiliaryShaders : Renderer::GetShaderLibrary();
-        auto shader = static_cast<OpenGLShader*>(library->Get("skybox").get());
-        shader->Bind();
-        shader->UploadUniformMat4("U_Projection", m_SceneInfo.sceneCamera.camera.GetProjectionMatrix());
-        shader->UploadUniformMat4("U_View", m_SceneInfo.sceneCamera.viewMatrix);
-        shader->UploadUniformInt("environmentMap", 1);
-        skybox->Bind(1);
-        DrawGeometry(MeshFactory::GetCube());
+        using namespace RenderHardware;
+        if (!skybox)
+            return;
+        auto desc = ScenePipeline("skybox", SceneShaders::SkyboxVertex, SceneShaders::SkyboxFragment, true);
+        if (!desc.Program)
+            return;
+        if (!m_Cube)
+        {
+            auto mesh = UploadMesh(MeshFactory::CreateCubeData(glm::vec3(2)), m_Device);
+            if (auto* error = std::get_if<AssetError>(&mesh))
+                throw std::runtime_error(error->Message);
+            m_Cube = std::get<GpuMesh>(std::move(mesh));
+        }
+        desc.VertexBindings            = {{0, 64, false}};
+        desc.Attributes                = {{0, 0, 0, VertexFormat::Float3}};
+        desc.DepthStencil.DepthCompare = state.DepthCompare;
+        desc.DepthStencil.DepthWrite   = state.DepthWrite;
+        desc.Blends[0].Enabled         = state.Blend;
+        desc.Blends[0].WriteMask       = state.WriteMask;
+        desc.Blends[0].SourceColor = desc.Blends[0].SourceAlpha = BlendFactor::SourceAlpha;
+        desc.Blends[0].DestinationColor = desc.Blends[0].DestinationAlpha = BlendFactor::OneMinusSourceAlpha;
+        desc.Blends[1]                                                    = desc.Blends[0];
+        SceneDrawData data;
+        data.DeviceClip     = DeviceProjection(glm::mat4(1), m_Device->GetCoordinateConventions());
+        data.ViewProjection = m_SceneInfo.sceneCamera.camera.GetProjectionMatrix();
+        data.Transform      = m_SceneInfo.sceneCamera.viewMatrix;
+        GetMaterialEnvironment();
+        auto commands = m_Device->CreateCommandList();
+        commands->BeginRendering(SceneTarget(LoadOp::Load));
+        commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
+        commands->BindPipeline(m_Device->CreatePipeline(desc));
+        commands->BindGroup(DrawGroup(*m_Device, desc.GroupLayouts[0], data, skybox, m_IBLSampler));
+        commands->BindVertexBuffers({{0, m_Cube->Vertices, 0}});
+        commands->BindIndexBuffer(m_Cube->Indices, IndexType::Uint32);
+        commands->DrawIndexed(m_Cube->IndexCount);
+        commands->EndRendering();
+        m_Device->Submit(commands);
     }
 
 } // namespace Kans

@@ -62,12 +62,33 @@ namespace
             Interop::BindTexture(bindings.Images.at(i++), MaterialSamplerUnit(shader, binding));
         return complete;
     }
-    const Ref<VertexArray>& LegacyArray(const GpuMesh& mesh)
+    struct NativeMeshArray
     {
-        if (!mesh.VertexArray)
-            mesh.VertexArray = Interop::MeshVertexArray(mesh.Device, mesh.Vertices, mesh.Indices, mesh.IndexCount);
-        return mesh.VertexArray;
-    }
+        RenderHardware::Handle<RenderHardware::Pipeline> Pipeline;
+        RenderHardware::Handle<RenderHardware::Buffer>   Vertices, Indices;
+        explicit NativeMeshArray(const GpuMesh& mesh) : Vertices(mesh.Vertices), Indices(mesh.Indices)
+        {
+            auto program = CreateInternalShader(
+                *mesh.Device,
+                "Test mesh layout",
+                "#version 450\nlayout(location=0) in vec3 Position; void main(){gl_Position=vec4(Position,1);}",
+                "#version 450\nlayout(location=0) out vec4 Color; void main(){Color=vec4(1);}");
+            RenderHardware::PipelineDesc desc;
+            desc.Program        = std::get<RenderHardware::Handle<RenderHardware::Shader>>(program);
+            desc.VertexBindings = mesh.VertexBindings;
+            desc.Attributes     = mesh.Attributes;
+            desc.ColorFormats   = {RenderHardware::Format::RGBA8Unorm};
+            desc.Blends.resize(1);
+            Pipeline = mesh.Device->CreatePipeline(desc);
+        }
+        void Bind() const
+        {
+            glBindVertexArray(Interop::PipelineVertexArrayName(Pipeline));
+            glBindVertexBuffer(0, Interop::BufferName(Vertices), 0, Pipeline->GetDesc().VertexBindings[0].Stride);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, Interop::BufferName(Indices));
+        }
+        void Unbind() const { glBindVertexArray(0); }
+    };
 
     class GatedProvider final : public IAssetProvider
     {
@@ -182,7 +203,8 @@ namespace
         const auto& mesh = std::get<GpuMesh>(uploaded);
         EXPECT_EQ(mesh.IndexCount, 6u);
         EXPECT_EQ(mesh.Material, data.Material);
-        LegacyArray(mesh)->Bind();
+        NativeMeshArray array(mesh);
+        array.Bind();
         GLint elements = 0;
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &elements);
         EXPECT_NE(elements, 0);
@@ -194,7 +216,7 @@ namespace
             EXPECT_TRUE(enabled) << attribute;
             EXPECT_EQ(size, (std::array<GLint, 5> {3, 3, 2, 4, 4}[attribute])) << attribute;
         }
-        LegacyArray(mesh)->Unbind();
+        array.Unbind();
         EXPECT_EQ(glGetError(), GL_NO_ERROR);
 
         data.Indices[0] = 100;
@@ -390,7 +412,8 @@ namespace
             auto mesh    = UploadMesh(quad);
             if (const auto* error = std::get_if<AssetError>(&mesh))
                 throw std::runtime_error(error->Message);
-            LegacyArray(std::get<GpuMesh>(mesh))->Bind();
+            NativeMeshArray array(std::get<GpuMesh>(mesh));
+            array.Bind();
             glClearColor(0, 0, 0, 1);
             glClear(GL_COLOR_BUFFER_BIT);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
@@ -848,7 +871,8 @@ namespace
             BindMaterialTextures(cache, *program, *bindings);
             glClearColor(0, 0, 0, 1);
             glClear(GL_COLOR_BUFFER_BIT);
-            LegacyArray(mesh)->Bind();
+            NativeMeshArray array(mesh);
+            array.Bind();
             glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
             EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
             std::array<uint8_t, Size * Size * 4> pixels {};
@@ -1262,6 +1286,93 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         std::vector<AssetID>       Models, Meshes, Materials;
     };
 
+    TEST_F(MaterialSceneGL, RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel)
+    {
+        using namespace RenderHardware;
+        constexpr uint32_t size = 64;
+        Render->OnViewportResize(size, size);
+        Renderer->SetViewportSize(size, size);
+        auto  camera     = LogicScene->CreateEntity("runtime camera");
+        auto& projection = camera.AddComponent<CameraComponent>().SceneCamera;
+        projection.SetPerspectve(glm::radians(45.0f), .1f, 10.0f);
+        projection.SetViewportSize(size, size);
+        auto& transform                             = camera.GetComponent<TransformComponent>();
+        transform.Position                          = {0, 2, 2};
+        transform.Rotation                          = {glm::radians(-45.0f), 0, 0};
+        auto model                                  = LogicScene->CreateEntity("blue model");
+        model.AddComponent<ProductModelComponent>() = Quad(Color({0, 0, 1, 1}, MaterialAlphaMode::Opaque, true));
+        auto& modelTransform                        = model.GetComponent<TransformComponent>();
+        modelTransform.Position                     = {-.6f, .5f, 0};
+        modelTransform.Scale                        = {.3f, .3f, .3f};
+        Ready();
+        auto resource                          = Render->GetRenderResource();
+        resource.Piplinestate.EnableGridShader = true;
+        Render->SetRenderResource(resource);
+        auto device = Renderer->GetDevice();
+        auto read   = [&](Handle<RenderHardware::Texture> target) {
+            std::vector<uint8_t> bytes(size * size * 4);
+            auto buffer   = device->CreateBuffer({bytes.size(), BufferUsage::CopyDestination, MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(target, {}, buffer, 0);
+            device->Submit(commands);
+            device->WaitIdle();
+            return buffer->Read(0, bytes.size());
+        };
+        // Baseline the same runtime model + grid before supplying a sky. This
+        // catches blending the editor grid, disabling its depth writes, masking
+        // its alpha, or letting a later far-plane sky overwrite its line pixels.
+        Render->OnRenderRuntime(Renderer, TimeStep(0));
+        auto        target = Renderer->GetRenderTarget();
+        auto        before = read(target.Colors[0].Target), beforeDepth = read(target.Depth.Target);
+        TextureDesc desc;
+        desc.Dimension      = TextureDimension::Cube;
+        desc.PixelFormat    = Format::RGBA32Float;
+        desc.Usage          = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+        auto            sky = device->CreateTexture(desc);
+        const glm::vec4 green(0, 4, 0, 1);
+        auto            upload = device->CreateBuffer({sizeof(green), BufferUsage::CopySource, MemoryUsage::Upload});
+        upload->Write(0, &green, sizeof(green));
+        auto commands = device->CreateCommandList();
+        for (uint32_t face = 0; face < 6; ++face)
+            commands->CopyBufferToTexture(upload, 0, sky, {0, face});
+        device->Submit(commands);
+        const_cast<Environment&>(Renderer->GetEnvironment()).IrradianceMap = sky;
+        Render->OnRenderRuntime(Renderer, TimeStep(0));
+        auto     after = read(target.Colors[0].Target), afterDepth = read(target.Depth.Target);
+        uint32_t lines = 0, background = 0, modelPixels = 0;
+        for (uint32_t i = 0; i < size * size; ++i)
+        {
+            std::array<uint8_t, 4> oldPixel, pixel;
+            std::copy_n(before.data() + i * 4, 4, oldPixel.data());
+            std::copy_n(after.data() + i * 4, 4, pixel.data());
+            if (oldPixel == std::array<uint8_t, 4> {230, 230, 230, 128})
+            {
+                ++lines;
+                EXPECT_EQ(pixel, oldPixel) << "grid pixel " << i;
+                uint32_t oldWord, word;
+                std::memcpy(&oldWord, beforeDepth.data() + i * 4, 4);
+                std::memcpy(&word, afterDepth.data() + i * 4, 4);
+                EXPECT_LT(word >> 8, 0xffffffu) << "grid must occlude far-plane sky " << i;
+                EXPECT_EQ(word >> 8, oldWord >> 8) << "sky changed grid depth " << i;
+            }
+            else if (oldPixel[0] == 0 && oldPixel[1] == 0 && oldPixel[2] == 255)
+            {
+                ++modelPixels;
+                EXPECT_EQ(pixel, oldPixel) << "sky changed model pixel " << i;
+            }
+            else
+            {
+                ++background;
+                EXPECT_EQ(oldPixel, (std::array<uint8_t, 4> {5, 5, 5, 255}));
+                EXPECT_EQ(pixel, (std::array<uint8_t, 4> {0, 230, 0, 255}));
+            }
+        }
+        EXPECT_GT(lines, 16u);
+        EXPECT_GT(background, 100u);
+        EXPECT_GT(modelPixels, 16u);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u); // The model really executed.
+    }
+
     TEST_F(MaterialSceneGL, HighlightUsesReimportedMeshAfterQueuedGpuResourceIsDestroyed)
     {
         const auto material = Color({0, 1, 0, 1});
@@ -1269,7 +1380,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         Ready();
         auto&                            cache    = *Renderer->GetAssetCache();
         const auto                       meshID   = Meshes.back();
-        const std::weak_ptr<VertexArray> oldArray = LegacyArray(*cache.GetMesh(meshID));
+        const std::weak_ptr<RenderHardware::Buffer> oldArray = cache.GetMesh(meshID)->Vertices;
 
         // The viewport queues the selection before BeginScene, while it still resolves to the left half.
         Renderer->SetHighlight({{model, glm::mat4(1)}});
@@ -1462,6 +1573,77 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
+    TEST_F(MaterialSceneGL, DebugNormalLinesKeepIndexedEndpointsWithoutDepthOrAlphaWrites)
+    {
+        // Catches a missing endpoint expansion, wrong line stride/count, and depth
+        // writes. A .05 clip displacement spans 1.6 pixels in this 64-pixel target.
+        Renderer->SetViewportSize(64, 64);
+        MeshData mesh;
+        for (glm::vec3 p :
+             {glm::vec3(-.390625f, .015625f, 0), glm::vec3(.015625f, .015625f, 0), glm::vec3(-.390625f, .421875f, 0)})
+        {
+            MeshVertexData v;
+            v.Position = {p.x, p.y, p.z};
+            v.Normal   = {1, 0, 0};
+            mesh.Vertices.push_back(v);
+        }
+        mesh.Indices = {0, 1, 2};
+        auto meshID  = Add(AssetType::StaticMesh, EncodeMeshProduct(mesh));
+        Meshes.push_back(meshID);
+        ModelData model;
+        model.Nodes.push_back({"Root", -1, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, {meshID}});
+        ProductModelComponent component;
+        component.Model = Add(AssetType::Model, EncodeModelProduct(model));
+        Models.push_back(component.Model);
+        Ready();
+        Renderer->BeginScene(Info);
+        // Nonopaque destination alpha distinguishes an RGB-only normal pass
+        // from one that accidentally enables alpha writes for its white output.
+        auto clearedTarget = Renderer->GetRenderTarget();
+        for (auto& color : clearedTarget.Colors)
+        {
+            color.Load          = RenderHardware::LoadOp::Clear;
+            color.ClearColor[3] = .25f;
+        }
+        auto clear = Renderer->GetDevice()->CreateCommandList();
+        clear->BeginRendering(clearedTarget);
+        clear->EndRendering();
+        Renderer->GetDevice()->Submit(clear);
+        Renderer->SubmitModelGeometry(component, glm::mat4(1), "DebugNormalShader");
+        Renderer->EndScene();
+        const auto target = Renderer->GetRenderTarget();
+        auto       device = Renderer->GetDevice();
+        auto       read   = device->CreateBuffer(
+            {64 * 64 * 8, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+        auto commands = device->CreateCommandList();
+        commands->CopyTextureToBuffer(target.Colors[0].Target, {}, read, 0);
+        commands->CopyTextureToBuffer(target.Depth.Target, {}, read, 64 * 64 * 4);
+        device->Submit(commands);
+        device->WaitIdle();
+        auto bytes = read->Read(0, 64 * 64 * 8);
+        for (auto xy : {glm::uvec2(19, 32),
+                        glm::uvec2(20, 32),
+                        glm::uvec2(32, 32),
+                        glm::uvec2(33, 32),
+                        glm::uvec2(19, 45),
+                        glm::uvec2(20, 45)})
+        {
+            size_t offset = (xy.y * 64 + xy.x) * 4;
+            EXPECT_EQ((std::array<uint8_t, 4> {bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]}),
+                      (std::array<uint8_t, 4> {255, 255, 255, 64}))
+                << xy.x << "," << xy.y;
+        }
+        for (uint32_t i = 0; i < 64 * 64; ++i)
+        {
+            EXPECT_EQ(bytes[i * 4 + 3], 64);
+            uint32_t depth;
+            std::memcpy(&depth, bytes.data() + 64 * 64 * 4 + i * 4, 4);
+            ASSERT_EQ(depth >> 8, 0xffffffu);
+        }
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
+        EXPECT_EQ(Renderer->GetStats().Triangles, 1u);
+    }
+
     // Instrument actual driver calls, forwarding every call and restoring GLAD pointers on scope exit.
     class FrameUploadTrace
     {
@@ -1553,7 +1735,9 @@ void main() { o_Color = p.Tint; }
             EXPECT_EQ(trace.Queries, 0u);
         }
         Renderer->EndScene();
-        EXPECT_EQ(Renderer->GetStats().DrawCalls, 2u);
+        // Engine-owned built-ins are available without Renderer::Init; both
+        // queued geometry passes now issue draws alongside the two material draws.
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
     }
 
     TEST_F(MaterialSceneGL, FrameUniformsUploadOnlyAtDebugViewTransitionsIncludingLitPreview)
@@ -2117,17 +2301,23 @@ void main() {
     {
         MaterialPreviewRenderer preview(*Renderer);
         Renderer->SetViewMode(SceneViewMode::Normals);
-        TextureSpecification spec;
-        spec.Width = spec.Height = 1;
-        spec.Format              = RHI_FORMAT_R16G16B16A16_SFLOAT;
-        spec.Minf = spec.Maxf = RHIFilter::RHI_FILTER_NEAREST;
-        auto& environment     = const_cast<Environment&>(Renderer->GetEnvironment());
-        // Replace the scene map between calls, as UpdateEnvironment would; previews must not retain it.
+        auto& environment = const_cast<Environment&>(Renderer->GetEnvironment());
+        // Replace an RHI-owned scene map between calls; previews must resolve the new handle.
         auto map = [&](glm::vec4 color) {
-            auto cube = TextureCube::Create(spec);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, cube->GetRenererID());
-            for (int face = 0; face < 6; ++face)
-                glTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, 0, 0, 1, 1, GL_RGBA, GL_FLOAT, &color[0]);
+            using namespace RenderHardware;
+            TextureDesc desc;
+            desc.Dimension   = TextureDimension::Cube;
+            desc.PixelFormat = Format::RGBA32Float;
+            desc.Usage       = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+            auto device      = Renderer->GetDevice();
+            auto cube        = device->CreateTexture(desc);
+            auto buffer      = device->CreateBuffer({sizeof(color), BufferUsage::CopySource, MemoryUsage::Upload});
+            buffer->Write(0, &color, sizeof(color));
+            auto commands = device->CreateCommandList();
+            for (uint32_t face = 0; face < 6; ++face)
+                commands->CopyBufferToTexture(buffer, 0, cube, {0, face});
+            device->Submit(commands);
+            device->WaitIdle();
             return cube;
         };
         MaterialSource source;

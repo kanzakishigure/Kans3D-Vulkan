@@ -98,18 +98,13 @@ namespace Kans
             Renderer2D::EndScene();
         }
 
-        if (m_RenderResource.Piplinestate.EnableGridShader && Renderer::GetShaderLibrary() &&
-            Renderer::GetShaderLibrary()->Exists("GridShader"))
-        {
-            OpenGLRenderCommand::EnableCullFace(false);
+        // Preserve the editor's legacy immediate order and opaque grid depth writes.
+        if (m_RenderResource.Piplinestate.EnableGridShader)
             renderer.SubmitGrid(0.025f, 16.025f, glm::scale(glm::mat4(1.0f), glm::vec3(10, 1, 10)));
-            OpenGLRenderCommand::EnableCullFace(true);
-        }
 
-        OpenGLRenderCommand::EnableCullFace(false);
         if (renderer.GetEnvironment().IrradianceMap)
             renderer.SubmitSkybox(renderer.GetEnvironment().IrradianceMap);
-        OpenGLRenderCommand::EnableCullFace(true);
+
         renderer.EndScene();
     }
 

@@ -61,3 +61,29 @@ void main() { color = texture(image, vec2(0.5)); }
         EXPECT_EQ(DeviceRow(2, 13, {ClipYDirection::Up, DepthRange::MinusOneToOne, FramebufferOrigin::LowerLeft}), 2u);
     }
 } // namespace
+
+TEST(InternalShader, TextureProjectionPreservesSampledRowsAcrossDeviceConventions)
+{
+    // Using the display projection for a cube/LUT target V-flips its stored
+    // rows on top-origin devices. This simulates viewport mapping independently
+    // of DeviceTextureProjection and checks asymmetric V values exactly.
+    using namespace Kans;
+    using namespace Kans::RenderHardware;
+    for (auto y : {ClipYDirection::Up, ClipYDirection::Down})
+        for (auto origin : {FramebufferOrigin::LowerLeft, FramebufferOrigin::UpperLeft})
+            for (auto depth : {DepthRange::MinusOneToOne, DepthRange::ZeroToOne})
+            {
+                CoordinateConventions coordinates {y, depth, origin};
+                const auto            projection = DeviceTextureProjection(glm::mat4(1), coordinates);
+                for (float v : {.125f, .75f})
+                {
+                    const auto  clip = projection * glm::vec4(0, v * 2 - 1, -.5f, 1);
+                    const float fromTop =
+                        y == ClipYDirection::Up ? (1 - clip.y / clip.w) * .5f : (1 + clip.y / clip.w) * .5f;
+                    const float storedRow = origin == FramebufferOrigin::UpperLeft ? fromTop : 1 - fromTop;
+                    EXPECT_FLOAT_EQ(storedRow, v);
+                    EXPECT_FLOAT_EQ(clip.z, depth == DepthRange::ZeroToOne ? .25f : -.5f);
+                    EXPECT_FLOAT_EQ(clip.w, 1);
+                }
+            }
+}

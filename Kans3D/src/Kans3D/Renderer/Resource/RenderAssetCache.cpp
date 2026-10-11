@@ -52,6 +52,20 @@ namespace Kans
                                              RenderHardware::BufferUsage::Index,
                                              RenderHardware::MemoryUsage::Upload});
         mesh.Indices->Write(0, data.Indices.data(), data.Indices.size() * sizeof(uint32_t));
+        // Two endpoints per indexed vertex preserve the legacy per-triangle normal lines.
+        std::vector<float> lines;
+        lines.reserve(data.Indices.size() * 14);
+        for (uint32_t index : data.Indices)
+            for (float end : {0.0f, 1.0f})
+            {
+                const auto& v = data.Vertices[index];
+                lines.insert(lines.end(), v.Position.begin(), v.Position.end());
+                lines.insert(lines.end(), v.Normal.begin(), v.Normal.end());
+                lines.push_back(end);
+            }
+        mesh.NormalLines = device->CreateBuffer(
+            {lines.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
+        mesh.NormalLines->Write(0, lines.data(), lines.size() * sizeof(float));
         mesh.IndexCount  = static_cast<uint32_t>(data.Indices.size());
         mesh.Material    = data.Material;
         mesh.AuthoredMaterial = data.AuthoredMaterial;

@@ -6,7 +6,6 @@
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Runtime/TextureData.h"
-#include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
 #include "Kans3D/Renderer/Resource/GpuShader.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 
@@ -15,9 +14,7 @@ namespace Kans
     struct GpuMesh
     {
         std::shared_ptr<RenderHardware::Device> Device;
-        // RHI-MIGRATION: lazy VAO compatibility view only for legacy geometry passes.
-        mutable Ref<VertexArray>                       VertexArray;
-        RenderHardware::Handle<RenderHardware::Buffer> Vertices, Indices;
+        RenderHardware::Handle<RenderHardware::Buffer> Vertices, Indices, NormalLines;
         std::vector<RenderHardware::VertexBinding>     VertexBindings {{0, 64, false}};
         std::vector<RenderHardware::VertexAttribute>   Attributes {{0, 0, 0, RenderHardware::VertexFormat::Float3},
                                                                    {1, 0, 12, RenderHardware::VertexFormat::Float3},

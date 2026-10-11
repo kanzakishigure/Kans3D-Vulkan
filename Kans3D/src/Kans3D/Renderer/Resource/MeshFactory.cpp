@@ -23,41 +23,6 @@ namespace Kans
         return mesh;
     }
 
-    Ref<VertexArray> MeshFactory::CreateCube(const glm::vec3& size)
-    {
-        // RHI-MIGRATION: skybox/IBL geometry remains legacy; the static cube must not retain a context device lease.
-        const auto         data = CreateCubeData(size);
-        std::vector<float> packed;
-        for (const auto& vertex : data.Vertices)
-        {
-            packed.insert(packed.end(), vertex.Position.begin(), vertex.Position.end());
-            packed.insert(packed.end(), vertex.Normal.begin(), vertex.Normal.end());
-            packed.insert(packed.end(), vertex.UV.begin(), vertex.UV.end());
-            packed.insert(packed.end(), vertex.Color.begin(), vertex.Color.end());
-            packed.insert(packed.end(), vertex.Tangent.begin(), vertex.Tangent.end());
-        }
-        auto vertices = VertexBuffer::Create(packed.data(), uint32_t(packed.size() * sizeof(float)));
-        vertices->SetBufferLayout({{ShaderDataType::Float3, "a_Position"},
-                                   {ShaderDataType::Float3, "a_Normal"},
-                                   {ShaderDataType::Float2, "a_UV"},
-                                   {ShaderDataType::Float4, "a_Color"},
-                                   {ShaderDataType::Float4, "a_Tangent"}});
-        auto array = VertexArray::Create();
-        array->Bind();
-        array->AddVertexBuffer(vertices);
-        // Legacy IndexBuffer::Create accepts mutable input but only uploads it.
-        auto indices = data.Indices;
-        array->SetIndexBuffer(IndexBuffer::Create(indices.data(), uint32_t(indices.size())));
-        array->Unbind();
-        return array;
-    }
-
-    Ref<VertexArray> MeshFactory::GetCube()
-    {
-        static Ref<VertexArray> cube = CreateCube(glm::vec3(2.0f));
-        return cube;
-    }
-
     Ref<VertexArray> MeshFactory::CreatQuad(const glm::vec2 size)
     {
         struct QuadVertex

@@ -1939,6 +1939,10 @@ namespace Kans::RenderHardware
         }
         uint32_t BufferName(const Handle<Buffer>& b) { return std::dynamic_pointer_cast<GLBuffer>(b)->Name.ID; }
         uint32_t TextureName(const Handle<Texture>& t) { return std::dynamic_pointer_cast<GLTexture>(t)->Name.ID; }
+        uint32_t PipelineVertexArrayName(const Handle<Pipeline>& p)
+        {
+            return std::dynamic_pointer_cast<GLPipeline>(p)->Array.ID;
+        }
         uint32_t ProgramName(const Handle<Shader>& s) { return std::dynamic_pointer_cast<GLShader>(s)->Name.ID; }
         uint32_t UniformPoint(const Handle<Shader>& s, uint32_t group, uint32_t slot)
         {
@@ -1954,37 +1958,6 @@ namespace Kans::RenderHardware
             auto native = std::dynamic_pointer_cast<GLTexture>(t);
             glBindSampler(unit, 0);
             glBindTexture(native->Target(), native->Name.ID);
-        }
-        Handle<Texture>
-        BorrowTexture(Device& device, uint32_t name, TextureDimension dimension, std::shared_ptr<void> owner)
-        {
-            TextureDesc desc;
-            desc.Dimension   = dimension;
-            desc.Usage       = TextureUsage::Sampled;
-            desc.PixelFormat = Format::RGBA16Float;
-            GLenum target    = dimension == TextureDimension::Cube ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
-            GLint  previous, width, height;
-            glGetIntegerv(dimension == TextureDimension::Cube ? GL_TEXTURE_BINDING_CUBE_MAP : GL_TEXTURE_BINDING_2D,
-                          &previous);
-            glBindTexture(target, name);
-            GLenum face = dimension == TextureDimension::Cube ? GL_TEXTURE_CUBE_MAP_POSITIVE_X : GL_TEXTURE_2D;
-            glGetTexLevelParameteriv(face, 0, GL_TEXTURE_WIDTH, &width);
-            glGetTexLevelParameteriv(face, 0, GL_TEXTURE_HEIGHT, &height);
-            desc.Width     = width;
-            desc.Height    = height;
-            desc.MipLevels = 0;
-            for (int mip = 0; mip < 32; ++mip)
-            {
-                GLint w;
-                glGetTexLevelParameteriv(face, mip, GL_TEXTURE_WIDTH, &w);
-                if (!w)
-                    break;
-                ++desc.MipLevels;
-            }
-            glBindTexture(target, previous);
-            auto texture = dynamic_cast<GLDevice&>(device).Borrow(name, desc);
-            std::dynamic_pointer_cast<GLTexture>(texture)->BorrowedOwner = std::move(owner);
-            return texture;
         }
         class TextureAdapter final : public Kans::Texture2D
         {
@@ -2017,126 +1990,57 @@ namespace Kans::RenderHardware
         }
         Handle<Texture> TextureResource(const Ref<Kans::Texture2D>& texture)
         {
-            return std::dynamic_pointer_cast<TextureAdapter>(texture)->Image;
+            if (auto view = std::dynamic_pointer_cast<TextureAdapter>(texture))
+                return view->Image;
+            auto        device = AcquireDevice();
+            TextureDesc desc;
+            desc.Width     = texture->GetWidth();
+            desc.Height    = texture->GetHeight();
+            desc.Dimension = TextureDimension::Texture2D;
+            GLint previous = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
+            glBindTexture(GL_TEXTURE_2D, texture->GetRenererID());
+            desc.MipLevels = 0;
+            for (int mip = 0; mip < 32; ++mip)
+            {
+                GLint width = 0;
+                glGetTexLevelParameteriv(GL_TEXTURE_2D, mip, GL_TEXTURE_WIDTH, &width);
+                if (!width)
+                    break;
+                ++desc.MipLevels;
+            }
+            glBindTexture(GL_TEXTURE_2D, previous);
+            auto image = dynamic_cast<GLDevice&>(*device).Borrow(texture->GetRenererID(), desc);
+            std::dynamic_pointer_cast<GLTexture>(image)->BorrowedOwner = texture;
+            return image;
         }
-        class IndexAdapter final : public Kans::IndexBuffer
+        SamplerDesc TextureSampling(const Ref<Kans::Texture2D>& texture)
         {
-            std::shared_ptr<Device> GPU;
-            Handle<Buffer>          BufferResource;
-            uint32_t                Count;
-
-        public:
-            IndexAdapter(std::shared_ptr<Device> gpu, Handle<Buffer> b, uint32_t count) :
-                GPU(std::move(gpu)), BufferResource(std::move(b)), Count(count)
-            {}
-            void     Bind() const override { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, BufferName(BufferResource)); }
-            void     Unbind() const override { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); }
-            uint32_t GetCount() const override { return Count; }
-        };
-        class VertexAdapter final : public Kans::VertexBuffer
-        {
-            std::shared_ptr<Device> GPU;
-            Handle<Buffer>          BufferResource;
-            BufferLayout            Layout {{ShaderDataType::Float3, "a_Position"},
-                                            {ShaderDataType::Float3, "a_Normal"},
-                                            {ShaderDataType::Float2, "a_UV"},
-                                            {ShaderDataType::Float4, "a_Color"},
-                                            {ShaderDataType::Float4, "a_Tangent"}};
-
-        public:
-            VertexAdapter(std::shared_ptr<Device> gpu, Handle<Buffer> b) :
-                GPU(std::move(gpu)), BufferResource(std::move(b))
-            {}
-            void Bind() const override { glBindBuffer(GL_ARRAY_BUFFER, BufferName(BufferResource)); }
-            void Unbind() const override { glBindBuffer(GL_ARRAY_BUFFER, 0); }
-            void SetData(const void*, uint32_t) override { throw std::logic_error("Immutable RHI mesh interop view"); }
-            void SetBufferLayout(const BufferLayout&) override
-            {
-                throw std::logic_error("Immutable RHI mesh interop view");
-            }
-            const BufferLayout& GetLayout() const override { return Layout; }
-        };
-        class ArrayAdapter final : public Kans::VertexArray
-        {
-            std::shared_ptr<Device>              GPU;
-            Handle<Buffer>                       Vertices, Indices;
-            std::vector<Ref<Kans::VertexBuffer>> LegacyVertices;
-            Ref<Kans::IndexBuffer>               LegacyIndices;
-            Native                               Array;
-
-        public:
-            ArrayAdapter(std::shared_ptr<Device> gpu,
-                         Handle<Buffer>          vertices,
-                         Handle<Buffer>          indices,
-                         uint32_t                count,
-                         GLuint                  vao) :
-                GPU(std::move(gpu)), Vertices(std::move(vertices)), Indices(std::move(indices)),
-                LegacyVertices {CreateRef<VertexAdapter>(GPU, Vertices)},
-                LegacyIndices(CreateRef<IndexAdapter>(GPU, Indices, count)),
-                Array(std::dynamic_pointer_cast<GLBuffer>(Vertices)->Name.Owner, vao, [](GLuint n) {
-                    glDeleteVertexArrays(1, &n);
-                })
-            {
-                Bind();
-                glBindBuffer(GL_ARRAY_BUFFER, BufferName(Vertices));
-                const uint32_t sizes[] = {3, 3, 2, 4, 4}, offsets[] = {0, 12, 24, 32, 48};
-                for (uint32_t i = 0; i < 5; ++i)
-                {
-                    glEnableVertexAttribArray(i);
-                    glVertexAttribPointer(
-                        i, sizes[i], GL_FLOAT, GL_FALSE, 64, reinterpret_cast<void*>(uintptr_t(offsets[i])));
-                }
-                LegacyIndices->Bind();
-                Unbind();
-            }
-            void Bind() const override { glBindVertexArray(Array.ID); }
-            void Unbind() const override { glBindVertexArray(0); }
-            void AddVertexBuffer(const Ref<Kans::VertexBuffer>&) override
-            {
-                throw std::logic_error("Immutable RHI mesh interop view");
-            }
-            void SetIndexBuffer(const Ref<Kans::IndexBuffer>&) override
-            {
-                throw std::logic_error("Immutable RHI mesh interop view");
-            }
-            const std::vector<Ref<Kans::VertexBuffer>>& GetVertexBuffer() const override { return LegacyVertices; }
-            const Ref<Kans::IndexBuffer>&               GetIndexBuffer() const override { return LegacyIndices; }
-        };
-        Ref<Kans::VertexArray>
-        MeshVertexArray(std::shared_ptr<Device> gpu, Handle<Buffer> vertices, Handle<Buffer> indices, uint32_t count)
-        {
-            GLuint vao;
-            glGenVertexArrays(1, &vao);
-            return CreateRef<ArrayAdapter>(std::move(gpu), std::move(vertices), std::move(indices), count, vao);
-        }
-        uint32_t CreateSceneFramebuffer(const std::vector<Handle<Texture>>& colors, const Handle<Texture>& depth)
-        {
-            GLuint fbo;
-            glGenFramebuffers(1, &fbo);
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-            std::vector<GLenum> attachments;
-            for (size_t i = 0; i < colors.size(); ++i)
-            {
-                glFramebufferTexture2D(
-                    GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, TextureName(colors[i]), 0);
-                attachments.push_back(GL_COLOR_ATTACHMENT0 + i);
-            }
-            glDrawBuffers(attachments.size(), attachments.data());
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, TextureName(depth), 0);
-            Require(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
-                    "Incomplete scene interop target");
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            return fbo;
-        }
-        void BindSceneFramebuffer(uint32_t fbo, uint32_t width, uint32_t height)
-        {
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-            glViewport(0, 0, width, height);
-        }
-        void DeleteSceneFramebuffer(uint32_t fbo)
-        {
-            if (fbo)
-                glDeleteFramebuffers(1, &fbo);
+            GLint previous = 0, min = 0, mag = 0, u = 0, v = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
+            glBindTexture(GL_TEXTURE_2D, texture->GetRenererID());
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &min);
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &mag);
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &u);
+            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, &v);
+            glBindTexture(GL_TEXTURE_2D, previous);
+            SamplerDesc desc;
+            desc.Min = min == GL_NEAREST || min == GL_NEAREST_MIPMAP_NEAREST || min == GL_NEAREST_MIPMAP_LINEAR ?
+                           Filter::Nearest :
+                           Filter::Linear;
+            desc.Mag = mag == GL_NEAREST ? Filter::Nearest : Filter::Linear;
+            desc.Mip =
+                min == GL_NEAREST_MIPMAP_NEAREST || min == GL_LINEAR_MIPMAP_NEAREST ? Filter::Nearest : Filter::Linear;
+            if (min == GL_NEAREST || min == GL_LINEAR)
+                desc.MaxLod = 0;
+            auto address = [](GLint wrap) {
+                return wrap == GL_CLAMP_TO_EDGE   ? AddressMode::ClampToEdge :
+                       wrap == GL_MIRRORED_REPEAT ? AddressMode::MirrorRepeat :
+                                                    AddressMode::Repeat;
+            };
+            desc.U = address(u);
+            desc.V = address(v);
+            return desc;
         }
     } // namespace OpenGLInterop
 } // namespace Kans::RenderHardware

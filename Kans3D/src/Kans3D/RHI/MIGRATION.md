@@ -97,52 +97,44 @@ legacy geometry and is created at that draw, not at upload.
 
 ## Transitional OpenGL interop
 
-OpenGLInterop.h is backend-only. BufferName and TextureName serve the
-remaining mesh/Texture2D compatibility views; BindTexture serves immediate
-Texture2D clients. ProgramName, UniformPoint and TextureUnit are native probes
-used only by regression tests, so the tests can continue checking actual GL
-bindings and object deletion without binding methods on GpuShader. MeshVertexArray
-is now lazy and used only by legacy geometry; RHI mesh upload/picking/outline/
-preview never create a native VAO. TextureView/TextureResource preserve the
-editor Texture2D API. BorrowTexture retains legacy IBL owners while wrapping
-precomputation images. CreateSceneFramebuffer/BindSceneFramebuffer/
-DeleteSceneFramebuffer share RHI attachments with grid/skybox/legacy geometry.
+OpenGLInterop.h is backend-only. TextureView/TextureResource preserve the
+editor Texture2D API. TextureResource unwraps RHI-owned views directly; native
+editor Texture2D inputs retain their legacy owner inside a sampled view until
+submission retirement. TextureSampling translates that input's existing filter
+and address state to an independent RHI sampler. This bridge is needed only
+until phase 1c-4 replaces editor inputs. IBL never uses it.
+
+BufferName, TextureName, ProgramName, UniformPoint, TextureUnit and the new
+PipelineVertexArrayName are native test probes (TextureName also supports the
+Texture2D view). PipelineVertexArrayName lets existing mesh-layout tests inspect
+an actual RHI-created pipeline VAO without retaining a mesh compatibility view.
+BindTexture remains for immediate Texture2D clients and native regression tests.
 AcquireDevice remains the transitional context construction path.
 
-BindUniform, BindProgram, SubmitUpload, RetireUnbound and SaveSamplers/
-RestoreSamplers are removed. Native replay state preservation and safe idle
-retirement now belong to the backend, including indexed blend/masks, stencil,
-scissor, buffer ranges, descriptors, clip enables and pixel stores.
+Removed in 1c-3: MeshVertexArray and its buffer/VAO adapters, BorrowTexture,
+CreateSceneFramebuffer, BindSceneFramebuffer, DeleteSceneFramebuffer, the scene
+attachment-only FBO, SceneRenderer native raster preservation and the static
+legacy MeshFactory cube. Backend Submit state preservation remains unchanged.
+The backend's private native sampled-image adapter now serves only old editor
+Texture2D inputs; no cube or IBL ownership is borrowed.
 
-Every remaining engine consumer site is marked RHI-MIGRATION. The inventory below is generated
-from those markers; remove these sites and the interop API when the remaining
-passes move to the RHI.
+Every remaining engine consumer site is marked RHI-MIGRATION. This table is
+generated from the current markers; the remaining sites acquire context device
+leases or preserve editor Texture2D APIs for phase 1c-4.
 
 | Site | Purpose |
 | --- | --- |
-| [Renderer/Renderer2D.cpp:171](../Renderer/Renderer2D.cpp#L171) | batched texture views can own the context device; release them before context teardown. |
+| [Renderer/Renderer2D.cpp:92](../Renderer/Renderer2D.cpp#L92) | standalone editor/particle clients acquire the current context device. |
+| [Renderer/Renderer2D.cpp:176](../Renderer/Renderer2D.cpp#L176) | bridge editor Texture2D inputs through the existing texture view. |
 | [Renderer/Resource/GpuShader.cpp:8](../Renderer/Resource/GpuShader.cpp#L8) | standalone buffers acquire a context device; cache/preview inject one. |
 | [Renderer/Resource/GpuShader.cpp:30](../Renderer/Resource/GpuShader.cpp#L30) | standalone shader clients obtain the current context's shared device. |
-| [Renderer/Resource/MeshFactory.cpp:28](../Renderer/Resource/MeshFactory.cpp#L28) | skybox/IBL geometry remains legacy; the static cube must not retain a context device lease. |
 | [Renderer/Resource/RenderAssetCache.cpp:21](../Renderer/Resource/RenderAssetCache.cpp#L21) | preserve legacy standalone backend selection and context-error behavior. |
 | [Renderer/Resource/RenderAssetCache.cpp:26](../Renderer/Resource/RenderAssetCache.cpp#L26) | standalone upload compatibility obtains the context device lease. |
-| [Renderer/Resource/RenderAssetCache.cpp:232](../Renderer/Resource/RenderAssetCache.cpp#L232) | editor-compatible Texture2D view, owns the RHI image. |
-| [Renderer/Resource/RenderAssetCache.cpp:238](../Renderer/Resource/RenderAssetCache.cpp#L238) | lazy standalone caches share the context's device with SceneRenderer. |
-| [Renderer/Resource/RenderAssetCache.cpp:273](../Renderer/Resource/RenderAssetCache.cpp#L273) | unwrap the editor-compatible texture shim. |
-| [Renderer/Resource/RenderAssetCache.cpp:430](../Renderer/Resource/RenderAssetCache.cpp#L430) | unwrap the Texture2D compatibility view. |
-| [Renderer/Resource/RenderAssetCache.h:18](../Renderer/Resource/RenderAssetCache.h#L18) | lazy VAO compatibility view only for legacy geometry passes. |
-| [Renderer/SceneRenderer.cpp:104](../Renderer/SceneRenderer.cpp#L104) | delete the attachment-only FBO used by remaining immediate passes. |
-| [Renderer/SceneRenderer.cpp:120](../Renderer/SceneRenderer.cpp#L120) | only legacy geometry creates/uses the mesh VAO compatibility view. |
-| [Renderer/SceneRenderer.cpp:275](../Renderer/SceneRenderer.cpp#L275) | borrow legacy IBL precomputation outputs and retain their owners. |
-| [Renderer/SceneRenderer.cpp:350](../Renderer/SceneRenderer.cpp#L350) | acquire the device once alongside this context's scene renderer. |
-| [Renderer/SceneRenderer.cpp:369](../Renderer/SceneRenderer.cpp#L369) | recreate the legacy attachment view on resize. |
-| [Renderer/SceneRenderer.cpp:384](../Renderer/SceneRenderer.cpp#L384) | target attachments stay RHI-owned; only the legacy FBO is native. |
-| [Renderer/SceneRenderer.cpp:592](../Renderer/SceneRenderer.cpp#L592) | preserve native raster state for the immediate grid/skybox passes. |
-| [Renderer/SceneRenderer.cpp:599](../Renderer/SceneRenderer.cpp#L599) | grid and skybox draw immediately between BeginScene and EndScene. |
-| [Renderer/SceneRenderer.cpp:633](../Renderer/SceneRenderer.cpp#L633) | restore native raster state after the remaining immediate geometry passes. |
-| [Renderer/SceneRenderer.cpp:636](../Renderer/SceneRenderer.cpp#L636) | legacy geometry shares the target's alpha-preserving write mask. |
-| [Renderer/SceneRenderer.cpp:669](../Renderer/SceneRenderer.cpp#L669) | release the shared legacy target after auxiliary passes. |
-| [Renderer/SceneRenderer.h:184](../Renderer/SceneRenderer.h#L184) | attachments shared with legacy grid/skybox/geometry passes. |
+| [Renderer/Resource/RenderAssetCache.cpp:246](../Renderer/Resource/RenderAssetCache.cpp#L246) | editor-compatible Texture2D view, owns the RHI image. |
+| [Renderer/Resource/RenderAssetCache.cpp:252](../Renderer/Resource/RenderAssetCache.cpp#L252) | lazy standalone caches share the context's device with SceneRenderer. |
+| [Renderer/Resource/RenderAssetCache.cpp:287](../Renderer/Resource/RenderAssetCache.cpp#L287) | unwrap the editor-compatible texture shim. |
+| [Renderer/Resource/RenderAssetCache.cpp:444](../Renderer/Resource/RenderAssetCache.cpp#L444) | unwrap the Texture2D compatibility view. |
+| [Renderer/SceneRenderer.cpp:369](../Renderer/SceneRenderer.cpp#L369) | acquire the device once alongside this context's scene renderer. |
 
 ## Test adaptations
 
@@ -226,3 +218,220 @@ Final GPU run: 109/109 entries serially with `LIBGL_ALWAYS_SOFTWARE=1`,
 12 unchanged reference-image tests and the GL 4.3 extension-path bundled run.
 Six new CTest entries account for the increase from 374 CPU / 106 GPU entries.
 No references/tolerances were regenerated, and no commits or pushes were made.
+
+## Phase 1c-3
+
+SceneRenderer records HDR-to-cube capture, irradiance convolution, five specular
+roughness mips and BRDF integration through RenderHardware. Each cube face/mip
+uses ColorAttachment::Subresource; all outputs are normally owned RHI textures.
+Sky and specular cubes retain their mip chains; irradiance and BRDF use level
+zero. Lower unused specular levels are explicitly initialized to zero, matching
+the prior software reference path. HDR decoding uses ParseTextureSource's
+isolated decoder, FlipY and no generated input mips, then half-float quantization
+to match the previous RGB16F upload. Outputs use RGBA16Float (BRDF stores RG).
+EnvironmentPrecomputeSizes remains available; five specular levels require a
+prefilter size of at least 16. Existing integration counts, step sizes and the
+prefilter shader's 512-texel PDF constant are preserved for numerical equivalence.
+Materials and previews bind these handles directly and resolve replacements on
+each draw. Black fallbacks remain RHI-owned as before.
+
+Engine GLSL 450 is embedded in Renderer/Resource/SceneShaders.h for IBL, grid,
+skybox, stencil, outline and normal lines, and in Renderer2D.cpp for sprites.
+All use InternalShader's cached validated/reflected SPIR-V products, explicit
+set/binding and std140 blocks, with per-device shader objects. No engine pass
+loads shader files or depends on CWD or editor resource copies. Scene passes use
+a separate DeviceClip matrix after the original normal/shell calculations, so
+clip depth/Y conversion cannot distort those calculations. Capture and BRDF
+use DeviceTextureProjection: display clip conversion plus the framebuffer-origin
+correction keeps sampled texture V aligned with stored row zero on GL, Vulkan
+and DX conventions. This is an internal-shader helper, not an RHI extension.
+
+Grid and skybox render inside RHI scopes loading the scene's attachments.
+RenderScene preserves model submissions -> sprites -> grid -> skybox (material
+and queued geometry execution remains in EndScene, as before). The effective
+legacy editor state, measured at the immediate section, is the default for
+both scene passes and Renderer2D: depth test/write on, LessEqual, blend off,
+no culling, RGBA writes. Grid lines write {230,230,230,128} and depth; discarded
+pixels leave the target untouched. The subsequent far-plane sky cannot cover
+those lines. The target alpha still controls ImGui panel compositing.
+
+ImmediatePassState (engine renderer API, not an RHI extension) makes standalone
+variations explicit. The standalone grid/sprite references request straight-alpha
+blending, including alpha; the overlay test additionally disables depth writes.
+No native state is consulted to choose a pipeline. Existing editor calls retain
+their signatures through default arguments.
+
+Geometry uses explicit depth/stencil/cull state with RGB-only writes: stencil
+shells exclude reference 1 with no stencil writes; inverted hulls cull front
+faces. Normal lines use a portable LineList with two endpoints per indexed
+triangle vertex; the shader reproduces the original .05 clip-space displacement.
+No geometry shader RHI extension is needed. Triangle/draw statistics retain
+their meanings. IBL now explicitly supplies a cleared depth24/stencil8 attachment
+for every face/mip and BRDF scope, reproducing the original cleared depth24
+renderbuffer and inherited depth testing/writes rather than dropping them.
+
+### Phase 1c-3 ambient-state review
+
+Compared a0d1a28 SubmitGrid/SubmitSkybox, Renderer2D BeginScene/EndScene/Flush,
+DrawModelGeometry, EndScene, PrepareEnvironment, DrawGeometry/DrawMesh,
+OpenGLRenderCommand dispatch, OpenGLRendererAPI draws, and framebuffer attachment/
+resize code. The draw wrappers do not change raster state. Grid, skybox and
+sprites inherit the measured editor state. Geometry explicitly resets depth,
+blend, fill, cull and stencil for each draw, after EndScene selects RGB-only
+writes; later geometry draws therefore do not inherit another mode's settings.
+IBL disables culling, blending and stencil, retains the inherited depth/colour
+state, and clears its depth renderbuffer before every draw. Enabling back-face
+culling after legacy IBL was an ambient mutation; the migrated consumers choose
+their own explicit cull modes.
+
+All rows below have depth testing enabled, blending disabled, and filled
+triangles (debug normals are lines). Immediate stencil state was inherited:
+IBL left it disabled; before any IBL it was inert (Always, Keep, write mask zero)
+from engine initialization. The new immediate pipelines disable stencil. Old
+effective state and new RHI state match:
+
+| Pass | Old depth compare/write | New depth compare/write | Old/new cull | Old/new colour mask | Old/new stencil |
+| --- | --- | --- | --- | --- | --- |
+| Renderer2D (editor) | LEQUAL/on | LessEqual/on | none | RGBA | inherited inert / disabled |
+| Grid (editor) | LEQUAL/on | LessEqual/on | none | RGBA | inherited inert / disabled |
+| Skybox (editor) | LEQUAL/on | LessEqual/on | none | RGBA | inherited inert / disabled |
+| Stencil shell (StencilOutline) | LEQUAL/off | LessEqual/off | none | RGB | NotEqual 1, read 255, write 0, Keep |
+| Outline shell (BackFaces) | LESS/off | Less/off | front | RGB | off |
+| Debug normals (AllFaces) | LESS/off | Less/off | none | RGB | off |
+| Other built-in geometry (AllFaces) | LESS/off | Less/off | none | RGB | off |
+| HDR to cube | LEQUAL/on | LessEqual/on | none | RGBA (old target RGB) | off |
+| Irradiance | LEQUAL/on | LessEqual/on | none | RGBA (old target RGB) | off |
+| Specular prefilter, each mip | LEQUAL/on | LessEqual/on | none | RGBA (old target RGB) | off |
+| BRDF LUT | LEQUAL/on | LessEqual/on | none | RGBA (old target RG) | off |
+
+Renderer2D batches consecutive quads sharing one texture, flushing at a texture
+change or 10000 quads. This preserves draw/blend order and has no descriptor slot
+limit. Every draw owns immutable upload buffers and one combined texture/sampler
+binding, supported by Vulkan descriptors and DX12 texture/sampler descriptors
+without dynamic descriptor indexing or binding arrays. Vulkan can allocate these
+sets from a frame pool; DX12 can allocate one SRV/sampler pair per batch.
+DrawCalls counts actual issued batches, QuadCount counts all submitted quads,
+and vertex/index totals retain their meanings. White quads use an owned RHI
+texture; old editor Texture2D/SubTexture2D inputs use the marked view bridge.
+Init has an optional device argument. SetTarget/ClearTarget allow explicit RHI
+targets for standalone sprite/particle clients; SceneRenderer routes existing
+BeginScene calls automatically. All existing draw/BeginScene/stat signatures
+remain available. No public RHI extension was introduced.
+
+SceneRenderer's environment/sky/LUT accessors now return RHI textures. No editor
+source uses the changed accessor types. SceneRendererSpecification's old library
+fields remain accepted as source-compatible shims; built-in passes now use
+engine-owned shaders. Renderer::GetShaderLibrary remains available with an empty
+library. The editor's grid enable option no longer tests legacy shader presence.
+KansEditor/src requires no edits.
+
+The following GLSL files are unused by engine passes, under
+KansEditor/Resources/Shaders/OpenGL (all are retained; some reference fixtures
+still load them into legacy libraries):
+
+- PBR/HdrToCubeMap.glsl
+- PBR/genIrradiance.glsl
+- PBR/prefilter.glsl
+- PBR/brdf.glsl
+- PBR/skybox.glsl
+- GridShader.glsl
+- TextureShader.glsl
+- StencilShader.glsl
+- OutLineShader.glsl
+- DebugNormalShader.glsl
+
+### Phase 1c-3 test adaptations
+
+ReferenceImageTests, reference images and tolerances are unchanged. Two calls in
+RendererReferenceOpenGLTests now explicitly request blending, carrying the
+standalone GL setup into the RHI pipeline; every assertion and tolerance stays
+unchanged. Existing native material test draws use a test-local
+NativeMeshArray holding an RHI-created pipeline and original mesh buffers. The
+layout test still inspects actual native attribute enables/sizes and the index
+binding; pixel and GL-error assertions remain unchanged. The queued-highlight
+replacement test observes the old RHI vertex buffer's weak ownership instead of
+the removed mesh VAO view: it still requires destruction on replacement before
+EndScene and checks the same new/old silhouette pixels. The preview irradiance
+replacement test uploads the same red/green values into RHI cube faces instead
+of legacy cubes; every numeric pixel assertion and tolerance is unchanged.
+DeferredSubmissionDoesNotQueryDriverRasterState still requires exactly zero
+queries during both material and geometry submissions. Its draw count changes
+from two to four because the now always-available built-ins execute both queued
+geometry draws without Renderer::Init; previously a missing global library
+silently skipped those draws. The statistic still counts actual issued draws.
+
+### Phase 1c-3 new regressions
+
+- ScenePassGL.EquirectangularCaptureKeepsEveryFaceAndBothAxes: swaps or mirrors
+  any cube face. A direction-coded HDR independently checks three channels on
+  all six faces, at centre and asymmetric interior positions. .02 accounts for
+  RGBE truncation (<1/128), bilinear spherical interpolation and half rounding;
+  an axis reversal changes the checked channels by more than .2.
+- ScenePassGL.PrefilterRoughnessMipsActuallyBroadenTheDirectionalLobe: omitted
+  roughness uniform or copying level zero into the chain. The +X red face mean
+  must broaden across separately rendered levels, with conservative analytic
+  gradient separations (.15, .05 and .03) rather than getter checks.
+- ScenePassGL.BrdfLutMatchesIntegrationAtAsymmetricCoordinates: V flip, swapped
+  NdotV/roughness or a lost channel. Four asymmetric samples compare both output
+  channels with a double CPU integration oracle; .001 covers float accumulation
+  and half-float rounding.
+- ScenePassGL.ExplicitGridOverlayLeavesDepthAndBlendsAlphaWhileSkyboxStaysBehindSprites:
+  ignoring explicitly requested overlay depth/blend state, wrong grid blend alpha or skybox overwriting foreground geometry.
+  Depth24 is exact, grid/sprite/sky pixels use exact RGBA8 values.
+- ScenePassGL.SpriteTextureChangesBeyond32SlotsPreserveBindingsAndBlendOrder:
+  wrong texture descriptor, slot-limit overflow or reordering A/B/A batches.
+  Forty distinct textures are checked pixel-for-pixel; overlapping translucent
+  quads compare a CPU blend equation within one RGBA8 rounding unit.
+- ScenePassGL.SpriteCapacityFlushKeepsTheLastQuadAndStatistics: overflow or lost
+  final quad at the 10000-quad boundary, or overwriting submitted upload data.
+  Exact pixels distinguish the final red quad from the previous blue one and
+  verify quad/draw/vertex/index counts across both batches.
+- MaterialSceneGL.DebugNormalLinesKeepIndexedEndpointsWithoutDepthOrAlphaWrites:
+  missing endpoint expansion, incorrect stride/count, depth or alpha writes.
+  Six exact white endpoint pixels and all depth words/alpha bytes are checked;
+  destination alpha .25 distinguishes an accidentally enabled alpha mask.
+
+- MaterialSceneGL.RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel
+  replaces RuntimeGridRemainsVisibleOverSkyWithEngineOwnedShaders, whose blended
+  expectation encoded an editor regression. It calls OnRenderRuntime with an
+  actual asset-backed model and grid, then with a sky too. It requires exact
+  {230,230,230,128} line pixels, depth less than the far plane and unchanged after
+  sky drawing, an unobscured model, and exact sky background. Catches enabling
+  grid blending, disabling grid depth writes, masking alpha or sky overwrites.
+- ScenePassGL.DefaultSpritesKeepLegacyAlphaDepthWritesAndEqualDepthOrder:
+  catches blended editor sprites, Less instead of LessEqual, or missing sprite
+  depth writes. Two equal-depth quads must produce the second quad's unblended
+  {0,255,0,128}, survive the sky, and store exact depth24 0x800000.
+
+- InternalShader.TextureProjectionPreservesSampledRowsAcrossDeviceConventions:
+  using display Y conversion for texture capture, which vertically flips cube
+  faces and the BRDF LUT on top-origin devices. Independent viewport/origin math
+  checks two asymmetric V values and depth conversion exactly for all eight
+  combinations of clip Y, origin and depth range.
+
+### Phase 1c-3 validation
+
+Configured with `cmake --preset linux-gcc` after adding the shader/state headers
+and GPU test source. The engine and all three test executables built with `-j2`.
+All 24 Debug compilation targets containing editor sources (21 editor units and
+three reused by CPU tests) passed without editor source edits, editor linking or
+launching, resource-copy writes, build-configuration changes or output redirection.
+
+Changed C++ lines were processed with `git clang-format`, including the entirely
+new shader header and test file. Temporary Git metadata used the real repository
+as a read-only object alternate; its index/refs were not modified. The final
+formatter diff reported no changes. `git diff --check` also covered the new
+files through that temporary index and passed. The regenerated inventory matches
+all 11 remaining markers. Protected editor resources, user assets, reference
+images and tolerances are unchanged; standalone reference call sites explicitly
+request blending. No commits or pushes were made.
+
+Final CPU run: 378/378 entries with
+`ctest -C Debug -LE OpenGL -j1 --timeout 300` (41.86 seconds).
+Final GPU run: 119/119 entries, serially with `LIBGL_ALWAYS_SOFTWARE=1`,
+`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe`, `GALLIUM_DRIVER=llvmpipe` and
+`ctest -C Debug -L OpenGL --timeout 300` (113.98 seconds).
+There were no skips. All 12 unchanged reference-image tests and the GL 4.3
+extension-path bundled run passed. Ten new regressions comprise one CPU entry
+and nine GPU entries (the review replaces one runtime test and adds one sprite
+default-state test).

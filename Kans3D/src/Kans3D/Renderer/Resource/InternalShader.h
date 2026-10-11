@@ -19,5 +19,8 @@ namespace Kans
                                    const std::string&      vertex,
                                    const std::string&      fragment);
     glm::mat4 DeviceProjection(const glm::mat4& projection, RenderHardware::CoordinateConventions coordinates);
+    // Render-to-texture projection: canonical UV V=0 maps to stored row zero,
+    // independently of the display framebuffer origin.
+    glm::mat4 DeviceTextureProjection(const glm::mat4& projection, RenderHardware::CoordinateConventions coordinates);
     uint32_t  DeviceRow(uint32_t bottomLeftRow, uint32_t height, RenderHardware::CoordinateConventions coordinates);
 } // namespace Kans

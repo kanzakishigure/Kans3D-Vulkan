@@ -62,6 +62,14 @@ namespace Kans
         return conversion * projection;
     }
 
+    glm::mat4 DeviceTextureProjection(const glm::mat4& projection, RenderHardware::CoordinateConventions coordinates)
+    {
+        glm::mat4 origin(1);
+        if (coordinates.Origin == RenderHardware::FramebufferOrigin::UpperLeft)
+            origin[1][1] = -1;
+        return origin * DeviceProjection(projection, coordinates);
+    }
+
     uint32_t DeviceRow(uint32_t row, uint32_t height, RenderHardware::CoordinateConventions coordinates)
     {
         return coordinates.Origin == RenderHardware::FramebufferOrigin::LowerLeft ? row : height - row - 1;

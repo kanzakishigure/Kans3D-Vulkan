@@ -75,6 +75,7 @@ add_executable(OpenGLTextureTests
     GpuTestContext.cpp
     ReferenceImage.cpp
     RendererReferenceOpenGLTests.cpp
+    ScenePassOpenGLTests.cpp
     OpenGLTextureTests.cpp
     RenderAssetCacheOpenGLTests.cpp)
 target_link_libraries(OpenGLTextureTests PRIVATE Kans3D GTest::gtest_main PNG::PNG)
