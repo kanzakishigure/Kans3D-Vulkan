@@ -436,7 +436,8 @@ namespace Kans::RenderHardware
         virtual Handle<Pipeline>    CreatePipeline(const PipelineDesc& desc) = 0;
         virtual Handle<CommandList> CreateCommandList()                      = 0;
         virtual void                BeginFrame()                             = 0;
-        // Submit seals a list; its resources remain retained through frame retirement.
+        // Submit seals a list, inside or outside a frame. Resources remain retained
+        // until EndFrame or WaitIdle. Standalone work must eventually call WaitIdle.
         virtual void      Submit(const Handle<CommandList>& commands)             = 0;
         virtual void      EndFrame()                                              = 0;
         virtual void      WaitIdle()                                              = 0;

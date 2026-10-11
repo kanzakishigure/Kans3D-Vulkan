@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 #include <spirv_cross/spirv.hpp>
 #include "Kans3D/RHI/RHI.h"
+#include "Kans3D/Renderer/Resource/InternalShader.h"
+#include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "GpuTestContext.h"
 #include "MaterialShaderTestUtilities.h"
 
@@ -11,6 +13,10 @@ namespace
 {
     using namespace Kans;
     using namespace Kans::RenderHardware;
+    using Buffer                = Kans::RenderHardware::Buffer;
+    using Texture               = Kans::RenderHardware::Texture;
+    using Shader                = Kans::RenderHardware::Shader;
+    using TextureUsage          = Kans::RenderHardware::TextureUsage;
     constexpr uint32_t Size     = 16;
     const char*        Vertex   = R"(#version 450
 layout(push_constant) uniform Object { vec4 Color; vec4 Params; } p;
@@ -148,6 +154,144 @@ void main() { color = p.Color; })";
                     ASSERT_EQ(At(bytes, x, y), expected) << "pixel " << x << "," << y;
         }
     };
+
+    TEST_P(RHIConformance, InternalShaderCreationKeepsTheCompilerDiagnostic)
+    {
+        // Catches CreateInternalShader replacing the compiler message with a generic
+        // error, which would leave a broken editor shader undiagnosable in the log.
+        const auto result = CreateInternalShader(*GPU,
+                                                 "DiagnosticTest",
+                                                 "#version 450\nvoid main(){gl_Position=vec4(0);}",
+                                                 "#version 450\nlayout(location=0) out vec4 c;void main(){c=undefined_symbol;}");
+        ASSERT_TRUE(std::holds_alternative<AssetError>(result));
+        const auto& message = std::get<AssetError>(result).Message;
+        EXPECT_NE(message.find("undefined_symbol"), std::string::npos) << message;
+        EXPECT_NE(message.find("DiagnosticTest"), std::string::npos) << message;
+    }
+
+    TEST_P(RHIConformance, StandaloneSubmissionRetainsReadbacksAndDoesNotStartAFrame)
+    {
+        // Catches a backend requiring BeginFrame for a picker/thumbnail, implicitly
+        // retiring standalone lists, or leaving an implicit frame active.
+        GPU->EndFrame();
+        const std::array<uint32_t, 2> expected {7, 0xfedcba98u};
+        auto                          upload   = Upload(expected.data(), sizeof(expected));
+        auto                          result   = Readback(sizeof(expected));
+        auto                          commands = GPU->CreateCommandList();
+        commands->CopyBuffer(upload, 0, result, 0, sizeof(expected));
+        GPU->Submit(commands);
+        commands.reset();
+        upload.reset();
+        EXPECT_THROW(result->Read(0, sizeof(expected)), std::invalid_argument);
+        GPU->WaitIdle();
+        const auto              bytes = result->Read(0, sizeof(expected));
+        std::array<uint32_t, 2> actual;
+        std::memcpy(actual.data(), bytes.data(), sizeof(actual));
+        EXPECT_EQ(actual, expected);
+        GPU->BeginFrame(); // Fixture teardown ends this frame.
+    }
+
+    TEST_P(RHIConformance, PickerUsesBottomLeftRowsAndClearsResizedTargets)
+    {
+        auto     device = std::shared_ptr<Device>(GPU.get(), [](Device*) {});
+        MeshData quad;
+        for (auto p :
+             {glm::vec3(-1, -1, 0.25f), glm::vec3(1, -1, 0.25f), glm::vec3(1, 0, 0.25f), glm::vec3(-1, 0, 0.25f)})
+        {
+            MeshVertexData v;
+            v.Position = {p.x, p.y, p.z};
+            quad.Vertices.push_back(v);
+        }
+        quad.Indices  = {0, 1, 2, 2, 3, 0};
+        auto uploaded = UploadMesh(quad, device);
+        ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
+        const auto&                 mesh = std::get<GpuMesh>(uploaded);
+        EntityPicker                picker(device);
+        const std::vector<MeshDraw> draws {{&mesh, glm::mat4(1), 0xfedcba98u}};
+        // Asymmetric rows expose a Y inversion even with an identity camera.
+        auto lower = picker.PickSurface(draws, glm::mat4(1), {20, 12}, {10, 2});
+        ASSERT_EQ(lower.ID, 0xfedcba98u);
+        ASSERT_TRUE(lower.Position);
+        EXPECT_NEAR(lower.Position->x, 0.05f, 1e-6f);
+        EXPECT_NEAR(lower.Position->y, -7.0f / 12.0f, 1e-6f);
+        EXPECT_NEAR(lower.Position->z, 0.25f, 1e-6f);
+        EXPECT_EQ(picker.Pick(draws, glm::mat4(1), {20, 12}, {10, 9}), 0u);
+        // Reallocation must not return a stale ID/depth from the former target.
+        EXPECT_EQ(picker.Pick(draws, glm::mat4(1), {10, 6}, {5, 4}), 0u);
+        const auto resized = picker.PickSurface(draws, glm::mat4(1), {10, 6}, {5, 1});
+        ASSERT_EQ(resized.ID, 0xfedcba98u);
+        ASSERT_TRUE(resized.Position);
+        EXPECT_NEAR(resized.Position->x, 0.1f, 1e-6f);
+        EXPECT_NEAR(resized.Position->y, -0.5f, 1e-6f);
+        EXPECT_NEAR(resized.Position->z, 0.25f, 1e-6f);
+        EXPECT_EQ(picker.Pick(draws, glm::mat4(1), {10, 6}, {10, 1}), 0u);
+        // WaitIdle inside picking must leave the caller's active frame active.
+    }
+
+    TEST_P(RHIConformance, OutlinePreservesSceneAlphaAndDoesNotKeepOldSelectionOnResize)
+    {
+        auto     device = std::shared_ptr<Device>(GPU.get(), [](Device*) {});
+        MeshData quad;
+        for (auto p : {glm::vec3(-0.75f, -0.75f, 0),
+                       glm::vec3(-0.25f, -0.75f, 0),
+                       glm::vec3(-0.25f, 0.75f, 0),
+                       glm::vec3(-0.75f, 0.75f, 0)})
+        {
+            MeshVertexData v;
+            v.Position = {p.x, p.y, p.z};
+            quad.Vertices.push_back(v);
+        }
+        quad.Indices  = {0, 1, 2, 2, 3, 0};
+        auto uploaded = UploadMesh(quad, device);
+        ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
+        const auto&      mesh = std::get<GpuMesh>(uploaded);
+        SelectionOutline outline(device);
+        auto             target    = Target();
+        auto             auxiliary = Target();
+        RenderingDesc    scope;
+        scope.Colors               = {{target}, {auxiliary}};
+        scope.Colors[0].ClearColor = {0, 0, 0, 0.4f};
+        scope.Colors[1].ClearColor = {0, 1, 0, 0.6f};
+        auto clear                 = GPU->CreateCommandList();
+        clear->BeginRendering(scope);
+        clear->EndRendering();
+        GPU->Submit(clear);
+        outline.Draw(scope, {{&mesh, glm::mat4(1), 1}}, glm::mat4(1), {Size, Size}, {1, 0, 0, 1}, 1);
+        auto read   = GPU->CreateCommandList();
+        auto output = Readback(Size * Size * 4);
+        read->CopyTextureToBuffer(target, {}, output);
+        GPU->Submit(read);
+        GPU->WaitIdle();
+        auto bytes = output->Read(0, Size * Size * 4);
+        EXPECT_EQ(At(bytes, 6, ClipRow(8)), (Pixel {255, 0, 0, 102})); // Border.
+        EXPECT_EQ(At(bytes, 4, ClipRow(8)), (Pixel {31, 0, 0, 102}));  // 12% fill.
+        EXPECT_EQ(At(bytes, 12, ClipRow(8)), (Pixel {0, 0, 0, 102}));  // Unselected right side.
+        // A colour-0 composite must not clear/write unrelated scene attachments.
+        read = GPU->CreateCommandList();
+        read->CopyTextureToBuffer(auxiliary, {}, output);
+        GPU->Submit(read);
+        GPU->WaitIdle();
+        Solid(output->Read(0, Size * Size * 4), Pixel {0, 255, 0, 153});
+        // Catches a stale mask on resize/selection replacement: move selection right.
+        scope.Colors.resize(1);
+        target                 = Target(Format::RGBA8Unorm, 32, 16);
+        scope.Colors[0].Target = target;
+        clear                  = GPU->CreateCommandList();
+        clear->BeginRendering(scope);
+        clear->EndRendering();
+        GPU->Submit(clear);
+        glm::mat4 moved(1);
+        moved[3][0] = 1;
+        outline.Draw(scope, {{&mesh, moved, 2}}, glm::mat4(1), {32, 16}, {1, 0, 0, 1}, 1);
+        read   = GPU->CreateCommandList();
+        output = Readback(32 * 16 * 4);
+        read->CopyTextureToBuffer(target, {}, output);
+        GPU->Submit(read);
+        GPU->WaitIdle();
+        bytes = output->Read(0, 32 * 16 * 4);
+        EXPECT_EQ(bytes[(8 * 32 + 8) * 4], 0); // Old selection must be gone.
+        EXPECT_EQ(bytes[(8 * 32 + 24) * 4], 31);
+    }
 
     TEST_P(RHIConformance, BufferUploadCopyReadbackRanges)
     {

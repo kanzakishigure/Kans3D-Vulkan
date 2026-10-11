@@ -132,6 +132,12 @@ namespace Kans
         void SubmitSkybox(Ref<TextureCube> skybox);
 
         uintptr_t              GetOutput(uint32_t index) const;
+        std::shared_ptr<RenderHardware::Device>                        GetDevice() const { return m_Device; }
+        std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> GetMaterialEnvironment();
+        const RenderHardware::Handle<RenderHardware::Sampler>&         GetMaterialEnvironmentSampler() const
+        {
+            return m_IBLSampler;
+        }
         const Environment&     GetEnvironment() const { return m_Environment; }
         const Ref<Texture2D>&  GetBrdfLUT() const { return m_BrdfLUT; }
         float                  GetElapsedTime() const
@@ -174,7 +180,8 @@ namespace Kans
         std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Colors;
         RenderHardware::Handle<RenderHardware::Texture>              m_Depth;
         RenderHardware::Handle<RenderHardware::Sampler>              m_IBLSampler;
-        // RHI-MIGRATION: attachments shared with legacy grid/skybox/geometry/outline passes.
+        std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> m_BlackEnvironment;
+        // RHI-MIGRATION: attachments shared with legacy grid/skybox/geometry passes.
         uint32_t                      m_InteropFramebuffer = 0;
         void                          ResizeTarget();
         RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load) const;

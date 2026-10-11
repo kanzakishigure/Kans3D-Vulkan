@@ -5,7 +5,7 @@ namespace Kans
 {
     GpuUniformBuffer::GpuUniformBuffer(size_t bytes, const void* data, std::shared_ptr<RenderHardware::Device> device)
     {
-        // RHI-MIGRATION: standalone preview buffers obtain the current context's shared device.
+        // RHI-MIGRATION: standalone buffers acquire a context device; cache/preview inject one.
         m_Device = device ? std::move(device) : RenderHardware::OpenGLInterop::AcquireDevice();
         m_Buffer =
             m_Device->CreateBuffer({bytes, RenderHardware::BufferUsage::Uniform, RenderHardware::MemoryUsage::Upload});
@@ -16,10 +16,6 @@ namespace Kans
     GpuUniformBuffer::GpuUniformBuffer(GpuUniformBuffer&&) noexcept            = default;
     GpuUniformBuffer& GpuUniformBuffer::operator=(GpuUniformBuffer&&) noexcept = default;
     void              GpuUniformBuffer::Update(const void* data, size_t bytes) { m_Buffer->Write(0, data, bytes); }
-    // RHI-MIGRATION: compatibility binding for the immediate material preview and old clients.
-    void GpuUniformBuffer::Bind(uint32_t point) const { RenderHardware::OpenGLInterop::BindUniform(m_Buffer, point); }
-    // RHI-MIGRATION: native ID compatibility probe.
-    uint32_t GpuUniformBuffer::GetRendererID() const { return RenderHardware::OpenGLInterop::BufferName(m_Buffer); }
     namespace
     {
         AssetError Failure(std::string text) { return {AssetErrorCode::InvalidData, "Material Shader: " + text}; }
@@ -96,20 +92,13 @@ namespace Kans
         {
             if (resource.Count != 1)
                 return Failure("descriptor arrays are not supported ('" + resource.Name + "')");
-            if (resource.Kind == ShaderBindingKind::UniformBuffer)
-                // RHI-MIGRATION: native uniform points serve the immediate preview compatibility shim.
-                shader.m_BlockPoints.emplace(
-                    resource.Binding, RenderHardware::OpenGLInterop::UniformPoint(shader.Program, 1, resource.Binding));
-            else
+            if (resource.Kind == ShaderBindingKind::CombinedImageSampler)
             {
                 const auto found = data.TextureFallbacks.find(resource.Name);
                 const auto role  = found == data.TextureFallbacks.end() ? ShaderTextureFallback::White : found->second;
                 if (uint32_t(role) > uint32_t(ShaderTextureFallback::Normal))
                     return Failure("invalid texture fallback");
                 shader.m_SamplerFallbacks.emplace(resource.Binding, role);
-                // RHI-MIGRATION: native texture units serve the immediate preview compatibility shim.
-                shader.m_SamplerUnits.emplace(
-                    resource.Binding, RenderHardware::OpenGLInterop::TextureUnit(shader.Program, 1, resource.Binding));
             }
         }
 
@@ -118,8 +107,4 @@ namespace Kans
     GpuShader::~GpuShader()                               = default;
     GpuShader::GpuShader(GpuShader&&) noexcept            = default;
     GpuShader& GpuShader::operator=(GpuShader&&) noexcept = default;
-    // RHI-MIGRATION: immediate material preview compatibility program binding.
-    void GpuShader::Bind() const { RenderHardware::OpenGLInterop::BindProgram(Program); }
-    // RHI-MIGRATION: native program probe for compatibility clients.
-    uint32_t GpuShader::GetRendererID() const { return RenderHardware::OpenGLInterop::ProgramName(Program); }
 } // namespace Kans

@@ -1,7 +1,7 @@
 # Render hardware interface
 
 The core API is `RHI.h`, in `Kans::RenderHardware`. The namespace avoids the
-existing `Kans::RHI` class. The asset cache, scene target and material pass use this interface as of phase 1c-1. Remaining immediate passes use the temporary backend-only `OpenGLInterop.h` (see [MIGRATION.md](MIGRATION.md)).
+existing `Kans::RHI` class. The asset cache, scene target, material pass, picking, selection outline and material previews/thumbnails use this interface as of phase 1c-2. Remaining immediate passes use the temporary backend-only `OpenGLInterop.h` (see [MIGRATION.md](MIGRATION.md)).
 `OpenGL/OpenGLDevice.h` is the backend construction entry point, separate from
 the neutral core header. Creating that device requires a current, loaded 4.3
 core context; all calls use its owning thread.
@@ -66,8 +66,13 @@ have equivalents in the planned DirectX backends.
 `FramesInFlight` defaults to 2 and specifies the allowed upper bound. This
 backend completes each frame synchronously, which is within any positive bound;
 future backends may keep that many frames pending. `BeginFrame`/`EndFrame` must
-pair. Submission is allowed only inside a frame and outside a rendering scope.
+pair. Submission is allowed inside or outside a frame, always outside a rendering
+scope. Standalone submissions retain resources and keep readbacks inaccessible
+until `WaitIdle` or a later `EndFrame`; they do not implicitly start/end a frame.
 `WaitIdle` can retire submitted work inside a frame without ending it.
+The OpenGL backend isolates command replay from native caller state. Its idle
+retirement defers deletion of native objects still bound by immediate callers;
+frame retirement or a later idle after unbinding releases those objects.
 
 A recorded list owns every referenced resource. Submission transfers retention
 to the device until retirement, even when the caller releases the list. Safe
@@ -111,6 +116,9 @@ labelled `OpenGL`, serial, and runs with llvmpipe. Shader compilation uses
 
 | Test (prefix `RHIConformance.`) | Regression caught |
 | --- | --- |
+| StandaloneSubmissionRetainsReadbacksAndDoesNotStartAFrame | Submission wrongly requires BeginFrame, implicitly exposes pending readbacks, or leaves an implicit frame active. Exact copied uint32 values. |
+| PickerUsesBottomLeftRowsAndClearsResizedTargets | Editor Y inversion, stale ID/depth after resize, truncated uint32 IDs, incorrect unprojection, or picker ending the caller frame. World coordinates allow 1e-6 for float raster/unprojection rounding. |
+| OutlinePreservesSceneAlphaAndDoesNotKeepOldSelectionOnResize | Wrong selection coverage, alpha overwritten by fill/border, unrelated scene attachments cleared, or stale selection mask after resize. Exact RGBA8 bytes. |
 | BufferUploadCopyReadbackRanges | Dropped upload patches, wrong copy offsets/lengths, or readback exposed before completion. |
 | EveryMipAndCubeFaceRoundTrips | Aliased/swapped mips or cube faces, wrong copy extents/offsets or row reversal. All uploads precede all readbacks. |
 | OddWidthSingleChannelRows | Incorrect tight-row alignment for R8. |
@@ -156,3 +164,17 @@ expectations use gtest's float-ULP comparison for binary-exact test depths.
 must actually exist after release during the frame, then cease to exist after
 retirement. This independently detects early deletion even if allocation
 counters incorrectly still claim that the texture is alive.
+
+Engine-owned shaders use [InternalShader.h](../Renderer/Resource/InternalShader.h):
+`GetInternalShaderData(name, vertex, fragment)` caches CPU products and failures by
+all three arguments for the process; `CreateInternalShader(device, ...)` uploads
+a product to an RHI shader or returns `AssetError`. It reuses the asset importer's
+shaderc compilation, SPIR-V validation, product round trip and reflection. Inline
+450 sources beside selection/preview rendering require no working-directory
+lookup. Explicit uniform blocks use the same neutral group/slot contract as
+material shaders; no material-only convention validation is imposed on internal
+programs. Sources must use the categories supported by asset reflection (uniform
+blocks/combined samplers), which currently excludes push-data and storage.
+`test/InternalShaderTests.cpp` checks descriptor reflection/cache reuse, diagnostic
+propagation and source-sensitive failure caching, and projection/row conversions
+for downward-Y/zero-to-one/upper-left conventions.

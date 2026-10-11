@@ -42,6 +42,7 @@ namespace Kans
             packed.insert(packed.end(), vertex.Tangent.begin(), vertex.Tangent.end());
         }
         GpuMesh mesh;
+        mesh.Device = device;
         for (const auto& vertex : data.Vertices)
             mesh.LocalBounds.Expand(glm::make_vec3(vertex.Position.data()));
         mesh.Vertices = device->CreateBuffer(
@@ -51,9 +52,6 @@ namespace Kans
                                              RenderHardware::BufferUsage::Index,
                                              RenderHardware::MemoryUsage::Upload});
         mesh.Indices->Write(0, data.Indices.data(), data.Indices.size() * sizeof(uint32_t));
-        // RHI-MIGRATION: VAO view of RHI buffers for remaining immediate draws.
-        mesh.VertexArray = RenderHardware::OpenGLInterop::MeshVertexArray(
-            device, mesh.Vertices, mesh.Indices, uint32_t(data.Indices.size()));
         mesh.IndexCount  = static_cast<uint32_t>(data.Indices.size());
         mesh.Material    = data.Material;
         mesh.AuthoredMaterial = data.AuthoredMaterial;
@@ -230,8 +228,7 @@ namespace Kans
                 upload->Write(0, bytes.data(), bytes.size());
                 commands->CopyBufferToTexture(upload, 0, image, {mip, 0});
             }
-            // RHI-MIGRATION: submit outside a scene frame for immediate preview consumers.
-            OpenGLInterop::SubmitUpload(*device, commands);
+            device->Submit(commands);
             // RHI-MIGRATION: editor-compatible Texture2D view, owns the RHI image.
             return OpenGLInterop::TextureView(std::move(device), std::move(image));
         }
@@ -386,7 +383,7 @@ namespace Kans
             m_MaterialSampler = GetDevice()->CreateSampler();
         for (const auto& [binding, buffer] : bindings.Blocks)
             group.Entries.push_back({binding, buffer.Resource()});
-        for (const auto& [binding, unit] : shader.MaterialSamplerUnits())
+        for (const auto& [binding, unit] : shader.MaterialSamplerFallbacks())
         {
             Ref<Texture2D> texture;
             auto           sampler = m_MaterialSampler;
@@ -452,26 +449,6 @@ namespace Kans
             bindings.Images = std::move(images);
         }
         return bindings.Group;
-    }
-
-    bool RenderAssetCache::BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings)
-    {
-        bool complete;
-        GetMaterialGroup(shader, bindings, &complete);
-        size_t i = 0;
-        for (const auto& [binding, unit] : shader.MaterialSamplerUnits())
-        {
-            // RHI-MIGRATION: material preview still draws immediately with OpenGL.
-            RenderHardware::OpenGLInterop::BindTexture(bindings.Images.at(i++), unit);
-        }
-        return complete;
-    }
-
-    void RenderAssetCache::ReleaseRetiredResources()
-    {
-        // RHI-MIGRATION: backend protects native caller bindings during preview restoration.
-        if (m_Device)
-            RenderHardware::OpenGLInterop::RetireUnbound(*m_Device);
     }
 
     void RenderAssetCache::BeginFrame(uint64_t unusedFrames)

@@ -14,8 +14,9 @@ namespace Kans
 {
     struct GpuMesh
     {
-        // RHI-MIGRATION: immutable VAO view for picking/outline and the material preview.
-        Ref<VertexArray> VertexArray;
+        std::shared_ptr<RenderHardware::Device> Device;
+        // RHI-MIGRATION: lazy VAO compatibility view only for legacy geometry passes.
+        mutable Ref<VertexArray>                       VertexArray;
         RenderHardware::Handle<RenderHardware::Buffer> Vertices, Indices;
         std::vector<RenderHardware::VertexBinding>     VertexBindings {{0, 64, false}};
         std::vector<RenderHardware::VertexAttribute>   Attributes {{0, 0, 0, RenderHardware::VertexFormat::Float3},
@@ -78,8 +79,6 @@ namespace Kans
         // Evicts resources not used for `unusedFrames` frames.
         void BeginFrame(uint64_t unusedFrames = 600);
         void Clear();
-        // RHI-MIGRATION: compatibility retirement after legacy preview state restoration.
-        void ReleaseRetiredResources();
 
         const ModelInstances* GetModel(AssetID id);
         const GpuMesh*        GetMesh(AssetID id);
@@ -92,8 +91,6 @@ namespace Kans
         // Packed material parameters, using Standard for missing/pending/failed
         // custom Shaders. `standard` forces Standard for viewport debug views.
         const GpuMaterialBindings* GetMaterialBindings(AssetID material, bool standard = false);
-        // Returns false if an assigned texture is not ready (fallbacks still bind).
-        bool BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings);
 
         AssetManager& GetAssetManager() { return m_Assets; }
 
@@ -137,7 +134,7 @@ namespace Kans
         std::unordered_map<AssetID, BindingsEntry>                         m_StandardBindings;
     };
 
-    // Uploads CPU mesh data to RHI buffers and exposes an immutable legacy VAO view.
+    // Uploads CPU mesh data to RHI buffers.
     [[nodiscard]] std::variant<GpuMesh, AssetError> UploadMesh(const MeshData&                         data,
                                                                std::shared_ptr<RenderHardware::Device> device = {});
     // Converts a Model hierarchy to per-mesh model-space transforms.

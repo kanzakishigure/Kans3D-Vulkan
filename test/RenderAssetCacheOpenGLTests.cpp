@@ -19,8 +19,10 @@
 #include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/Project/Project.h"
+#include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
@@ -32,6 +34,40 @@ namespace
 {
     using namespace Kans;
     using namespace std::chrono_literals;
+
+    // Native probes and immediate draws in these legacy GL tests live here rather
+    // than requiring preview-only binding methods on the engine's RHI owners.
+    namespace Interop = Kans::RenderHardware::OpenGLInterop;
+    uint32_t NativeProgram(const GpuShader& shader) { return Interop::ProgramName(shader.Program); }
+    uint32_t NativeBuffer(const GpuUniformBuffer& buffer) { return Interop::BufferName(buffer.Resource()); }
+    void     NativeBind(const GpuShader& shader) { glUseProgram(NativeProgram(shader)); }
+    void     NativeBind(const GpuUniformBuffer& buffer, uint32_t point)
+    {
+        glBindBufferBase(GL_UNIFORM_BUFFER, point, NativeBuffer(buffer));
+    }
+    uint32_t MaterialBlockPoint(const GpuShader& shader, uint32_t binding)
+    {
+        return Interop::UniformPoint(shader.Program, 1, binding);
+    }
+    uint32_t MaterialSamplerUnit(const GpuShader& shader, uint32_t binding)
+    {
+        return Interop::TextureUnit(shader.Program, 1, binding);
+    }
+    bool BindMaterialTextures(RenderAssetCache& cache, const GpuShader& shader, const GpuMaterialBindings& bindings)
+    {
+        bool complete = true;
+        cache.GetMaterialGroup(shader, bindings, &complete);
+        size_t i = 0;
+        for (const auto& [binding, role] : shader.MaterialSamplerFallbacks())
+            Interop::BindTexture(bindings.Images.at(i++), MaterialSamplerUnit(shader, binding));
+        return complete;
+    }
+    const Ref<VertexArray>& LegacyArray(const GpuMesh& mesh)
+    {
+        if (!mesh.VertexArray)
+            mesh.VertexArray = Interop::MeshVertexArray(mesh.Device, mesh.Vertices, mesh.Indices, mesh.IndexCount);
+        return mesh.VertexArray;
+    }
 
     class GatedProvider final : public IAssetProvider
     {
@@ -146,7 +182,7 @@ namespace
         const auto& mesh = std::get<GpuMesh>(uploaded);
         EXPECT_EQ(mesh.IndexCount, 6u);
         EXPECT_EQ(mesh.Material, data.Material);
-        mesh.VertexArray->Bind();
+        LegacyArray(mesh)->Bind();
         GLint elements = 0;
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &elements);
         EXPECT_NE(elements, 0);
@@ -158,7 +194,7 @@ namespace
             EXPECT_TRUE(enabled) << attribute;
             EXPECT_EQ(size, (std::array<GLint, 5> {3, 3, 2, 4, 4}[attribute])) << attribute;
         }
-        mesh.VertexArray->Unbind();
+        LegacyArray(mesh)->Unbind();
         EXPECT_EQ(glGetError(), GL_NO_ERROR);
 
         data.Indices[0] = 100;
@@ -275,8 +311,8 @@ namespace
                 light = {0, 0, 1, 1};
             FrameBuffer  = CreateScope<GpuUniformBuffer>(sizeof(Frame));
             ObjectBuffer = CreateScope<GpuUniformBuffer>(sizeof(Object));
-            FrameBuffer->Bind(GpuShader::FrameBlockPoint);
-            ObjectBuffer->Bind(GpuShader::ObjectBlockPoint);
+            NativeBind(*FrameBuffer, 0);
+            NativeBind(*ObjectBuffer, 1);
         }
         void TearDown() override
         {
@@ -333,12 +369,12 @@ namespace
             const auto* shader = Cache->GetShader(bindings.Shader);
             if (!shader)
                 throw std::runtime_error("GPU shader failed");
-            shader->Bind();
+            NativeBind(*shader);
             FrameBuffer->Update(&Frame, sizeof(Frame));
             ObjectBuffer->Update(&Object, sizeof(Object));
             for (const auto& [binding, buffer] : bindings.Blocks)
-                buffer.Bind(shader->MaterialBlockPoints().at(binding));
-            Cache->BindMaterialTextures(*shader, bindings);
+                NativeBind(buffer, MaterialBlockPoint(*shader, binding));
+            BindMaterialTextures(*Cache, *shader, bindings);
             MeshData quad;
             for (auto [px, py] : {std::pair {-1.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {-1.0f, 1.0f}})
             {
@@ -354,7 +390,7 @@ namespace
             auto mesh    = UploadMesh(quad);
             if (const auto* error = std::get_if<AssetError>(&mesh))
                 throw std::runtime_error(error->Message);
-            std::get<GpuMesh>(mesh).VertexArray->Bind();
+            LegacyArray(std::get<GpuMesh>(mesh))->Bind();
             glClearColor(0, 0, 0, 1);
             glClear(GL_COLOR_BUFFER_BIT);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
@@ -650,8 +686,8 @@ namespace
             ASSERT_TRUE(std::holds_alternative<GpuShader>(program));
             AssetManager     assets(Provider, Registry({}));
             RenderAssetCache cache(assets);
-            cache.BindMaterialTextures(std::get<GpuShader>(program), {});
-            const auto unit = std::get<GpuShader>(program).MaterialSamplerUnits().at(1);
+            BindMaterialTextures(cache, std::get<GpuShader>(program), {});
+            const auto unit = MaterialSamplerUnit(std::get<GpuShader>(program), 1);
             glActiveTexture(GL_TEXTURE0 + unit);
             std::array<float, 4> pixel {};
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixel.data());
@@ -727,9 +763,9 @@ namespace
                    cache.GetMaterial(materialID)->Shader == StandardShaderID();
         }));
         const auto* legacy = cache.GetMaterialBindings(materialID);
-        legacy->Blocks.at(0).second.Bind(GpuShader::FirstMaterialBlockPoint);
+        NativeBind(legacy->Blocks.at(0).second, 2);
         GLint buffer = 0;
-        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, GpuShader::FirstMaterialBlockPoint, &buffer);
+        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &buffer);
         glBindBuffer(GL_UNIFORM_BUFFER, GLuint(buffer));
         float red = 0;
         glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(red), &red);
@@ -802,17 +838,17 @@ namespace
         // Moves the quad to the right half of the target.
         object.Transform[3] = glm::vec4(1, 0, 0, 1);
         GpuUniformBuffer frameBuffer(sizeof(frame), &frame), objectBuffer(sizeof(object), &object);
-        frameBuffer.Bind(GpuShader::FrameBlockPoint);
-        objectBuffer.Bind(GpuShader::ObjectBlockPoint);
+        NativeBind(frameBuffer, 0);
+        NativeBind(objectBuffer, 1);
         const auto draw = [&](AssetID materialID) -> std::array<uint8_t, 4> {
             const auto* bindings = cache.GetMaterialBindings(materialID);
-            program->Bind();
+            NativeBind(*program);
             for (const auto& [binding, buffer] : bindings->Blocks)
-                buffer.Bind(program->MaterialBlockPoints().at(binding));
-            cache.BindMaterialTextures(*program, *bindings);
+                NativeBind(buffer, MaterialBlockPoint(*program, binding));
+            BindMaterialTextures(cache, *program, *bindings);
             glClearColor(0, 0, 0, 1);
             glClear(GL_COLOR_BUFFER_BIT);
-            mesh.VertexArray->Bind();
+            LegacyArray(mesh)->Bind();
             glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
             EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
             std::array<uint8_t, Size * Size * 4> pixels {};
@@ -1233,7 +1269,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         Ready();
         auto&                            cache    = *Renderer->GetAssetCache();
         const auto                       meshID   = Meshes.back();
-        const std::weak_ptr<VertexArray> oldArray = cache.GetMesh(meshID)->VertexArray;
+        const std::weak_ptr<VertexArray> oldArray = LegacyArray(*cache.GetMesh(meshID));
 
         // The viewport queues the selection before BeginScene, while it still resolves to the left half.
         Renderer->SetHighlight({{model, glm::mat4(1)}});
@@ -1900,8 +1936,18 @@ void main() { o_Color = vec4(1); }
         glViewport(0, 0, Size, Size);
         glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT);
-        SelectionOutline outline;
-        outline.Draw(draws, glm::mat4(1.0f), {Size, Size}, {1, 0, 0, 1}, 2.0f);
+        auto                        device = mesh.Device;
+        RenderHardware::TextureDesc outlineDesc;
+        outlineDesc.Width = outlineDesc.Height = Size;
+        outlineDesc.Usage  = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
+        auto outlineTarget = device->CreateTexture(outlineDesc);
+        glFramebufferTexture2D(
+            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GLuint(device->GetImGuiTextureID(outlineTarget)), 0);
+        glClear(GL_COLOR_BUFFER_BIT);
+        RenderHardware::RenderingDesc target;
+        target.Colors = {{outlineTarget, {}, RenderHardware::LoadOp::Load}};
+        SelectionOutline outline(device);
+        outline.Draw(target, draws, glm::mat4(1.0f), {Size, Size}, {1, 0, 0, 1}, 2.0f);
         EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         // The outline leaves the target bound.
         GLint bound = 0;
@@ -2183,10 +2229,11 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
     TEST_F(MaterialPreviewGL, RestoresHostileImGuiStateIncludingBindingsAndBufferRanges)
     {
         MaterialPreviewRenderer preview(*Renderer);
-        GlProgram               program;
-        ASSERT_TRUE(std::holds_alternative<std::monostate>(
-            program.Build("#version 430 core\nvoid main(){gl_Position=vec4(0);}",
-                          "#version 430 core\nlayout(location=0) out vec4 c;void main(){c=vec4(1);}")));
+        auto program = CreateInternalShader(*Renderer->GetDevice(),
+                                            "HostileStateTest",
+                                            "#version 450\nvoid main(){gl_Position=vec4(0);}",
+                                            "#version 450\nlayout(location=0) out vec4 c;void main(){c=vec4(1);}");
+        ASSERT_TRUE(std::holds_alternative<RenderHardware::Handle<RenderHardware::Shader>>(program));
         GLuint array, buffer, textures[2], sampler, framebuffer, renderbuffer;
         glGenVertexArrays(1, &array);
         glGenBuffers(1, &buffer);
@@ -2216,7 +2263,7 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         glActiveTexture(GL_TEXTURE9);
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
-        program.Bind();
+        glUseProgram(Interop::ProgramName(std::get<RenderHardware::Handle<RenderHardware::Shader>>(program)));
         glViewport(3, 5, 19, 23);
         glScissor(1, 2, 3, 4);
         glEnable(GL_SCISSOR_TEST);
@@ -2501,8 +2548,8 @@ void main() { color=vec4(0,0,1,0.125); }
         for (int path = 0; path < 3; ++path)
         {
             SCOPED_TRACE(path);
-            const auto oldProgram = cache.GetShader(shaderID)->GetRendererID();
-            const auto oldBuffer  = cache.GetMaterialBindings(materialID)->Blocks.front().second.GetRendererID();
+            const auto oldProgram         = NativeProgram(*cache.GetShader(shaderID));
+            const auto oldBuffer          = NativeBuffer(cache.GetMaterialBindings(materialID)->Blocks.front().second);
             const auto oldTexture = cache.GetTexture(textureID)->GetRenererID();
             source.Parameters["Strength"] = {0.5f + 0.1f * path};
             shader.Code            = CompileTestMaterialShader(TestMaterialVertex,
@@ -2574,10 +2621,10 @@ void main() { color=p.Tint*p.Strength*texture(u_Albedo,v_UV)*vec4(1, )" +
         ASSERT_NE(oldBindings, nullptr);
         const auto* oldShader = cache.GetShader(shaderID);
         ASSERT_NE(oldShader, nullptr);
-        oldShader->Bind();
+        NativeBind(*oldShader);
         for (const auto& [binding, buffer] : oldBindings->Blocks)
-            buffer.Bind(oldShader->MaterialBlockPoints().at(binding));
-        ASSERT_TRUE(cache.BindMaterialTextures(*oldShader, *oldBindings));
+            NativeBind(buffer, MaterialBlockPoint(*oldShader, binding));
+        ASSERT_TRUE(BindMaterialTextures(cache, *oldShader, *oldBindings));
         GLint program, ubo, image;
         glGetIntegerv(GL_CURRENT_PROGRAM, &program);
         glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &ubo);

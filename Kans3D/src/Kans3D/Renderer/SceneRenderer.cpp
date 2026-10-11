@@ -12,6 +12,8 @@
 #include "Kans3D/Core/Application.h"
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
 #include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
+#include "Kans3D/Renderer/Resource/InternalShader.h"
+#include "Kans3D/Renderer/Resource/MaterialPass.h"
 #include "Kans3D/Renderer/Resource/MeshFactory.h"
 #define EnableEnv true
 
@@ -115,7 +117,10 @@ namespace Kans
 
     void SceneRenderer::DrawMesh(const GpuMesh& mesh)
     {
-        // RHI-MIGRATION: auxiliary geometry still uses the immutable VAO view.
+        // RHI-MIGRATION: only legacy geometry creates/uses the mesh VAO compatibility view.
+        if (!mesh.VertexArray)
+            mesh.VertexArray =
+                RenderHardware::OpenGLInterop::MeshVertexArray(m_Device, mesh.Vertices, mesh.Indices, mesh.IndexCount);
         mesh.VertexArray->Bind();
         OpenGLRenderCommand::DrawIndexed(mesh.VertexArray);
         ++m_Stats.DrawCalls;
@@ -178,15 +183,7 @@ namespace Kans
         frame.ViewProjection =
             m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
         const auto coordinates = m_Device->GetCoordinateConventions();
-        glm::mat4  clipConversion(1);
-        if (coordinates.ClipY == RenderHardware::ClipYDirection::Down)
-            clipConversion[1][1] = -1;
-        if (coordinates.Depth == RenderHardware::DepthRange::ZeroToOne)
-        {
-            clipConversion[2][2] = 0.5f;
-            clipConversion[3][2] = 0.5f;
-        }
-        frame.ViewProjection = clipConversion * frame.ViewProjection;
+        frame.ViewProjection   = DeviceProjection(frame.ViewProjection, coordinates);
         frame.CameraPosition = glm::vec4(m_SceneInfo.sceneCamera.Position, 1.0f);
         for (uint32_t i = 0; i < EngineLightCount; ++i)
         {
@@ -204,12 +201,63 @@ namespace Kans
             return;
         auto frames  = m_Device->CreateBuffer({frameStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
         auto objects = m_Device->CreateBuffer({objectStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
-        // RHI-MIGRATION: legacy auxiliary shaders use texture parameters, so restore their sampler bindings.
-        const auto savedSamplers = OpenGLInterop::SaveSamplers();
-        auto       commands      = m_Device->CreateCommandList();
+        auto commands = m_Device->CreateCommandList();
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight), 0, 1});
         commands->SetScissor({0, 0, m_ViewportWidth, m_ViewportHeight});
+        const auto           environment = GetMaterialEnvironment();
+        size_t               range = 0, frameRange = 0;
+        std::optional<float> uploadedDebugView;
+        for (const auto& item : ready)
+        {
+            const auto& draw = *item.Draw;
+            // Requests may finish during this pass. Snapshot the state used for sorting,
+            // but acquire GPU resources at the draw so a cache replacement cannot dangle a queued pointer.
+            const auto* mesh = m_AssetCache->GetMesh(draw.Mesh);
+            const auto* bindings =
+                m_AssetCache->GetMaterialBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
+            const auto* shader = bindings ? m_AssetCache->GetShader(bindings->Shader) : nullptr;
+            if (!mesh || !bindings || !shader)
+                continue;
+            const auto&    render      = item.Render;
+            frame.DebugView = draw.ViewMode == SceneViewMode::BaseColor ? 1.0f :
+                              draw.ViewMode == SceneViewMode::Normals   ? 2.0f :
+                                                                          0.0f;
+            if (!uploadedDebugView || *uploadedDebugView != frame.DebugView)
+            {
+                if (uploadedDebugView)
+                    ++frameRange;
+                frames->Write(frameRange * frameStride, &frame, sizeof(frame));
+                uploadedDebugView = frame.DebugView;
+            }
+            EngineObjectUniforms object;
+            object.Transform      = draw.Transform;
+            object.NormalMatrix   = glm::transpose(glm::inverse(draw.Transform));
+            object.MaterialRender = {float(render.AlphaMode), render.AlphaCutoff, render.DoubleSided ? 1.0f : 0.0f, 0};
+            objects->Write(range * objectStride, &object, sizeof(object));
+            MaterialPassData pass;
+            pass.Frame              = frames;
+            pass.Object             = objects;
+            pass.FrameOffset        = frameRange * frameStride;
+            pass.ObjectOffset       = range * objectStride;
+            pass.Environment        = environment;
+            pass.EnvironmentSampler = m_IBLSampler;
+            pass.ColorFormats       = {Format::RGBA8Unorm, Format::RGBA8Unorm};
+            pass.Wireframe          = draw.ViewMode == SceneViewMode::Wireframe;
+            pass.WriteStencil       = draw.Stencil == ModelStencilMode::WriteReference;
+            pass.Render             = render;
+            RecordMaterialDraw(*m_AssetCache, *commands, *shader, *bindings, *mesh, pass);
+            ++m_Stats.DrawCalls;
+            m_Stats.Triangles += mesh->IndexCount / 3;
+            ++range;
+        }
+        commands->EndRendering();
+        m_Device->Submit(commands);
+    }
+
+    std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> SceneRenderer::GetMaterialEnvironment()
+    {
+        using namespace RenderHardware;
         if (!m_IBLSampler)
         {
             SamplerDesc desc;
@@ -230,11 +278,16 @@ namespace Kans
             }
             else
             {
+                if (m_BlackEnvironment[i])
+                {
+                    environment[i] = m_BlackEnvironment[i];
+                    continue;
+                }
                 TextureDesc desc;
                 desc.Dimension   = dimension;
                 desc.PixelFormat = Format::RGBA32Float;
                 desc.Usage     = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
-                environment[i] = m_Device->CreateTexture(desc);
+                environment[i] = m_BlackEnvironment[i] = m_Device->CreateTexture(desc);
                 const std::array<float, 4> black {0, 0, 0, 1};
                 auto upload = m_Device->CreateBuffer({sizeof(black), BufferUsage::CopySource, MemoryUsage::Upload});
                 upload->Write(0, black.data(), sizeof(black));
@@ -244,112 +297,7 @@ namespace Kans
                 m_Device->Submit(copy);
             }
         }
-        size_t               range = 0, frameRange = 0;
-        std::optional<float> uploadedDebugView;
-        for (const auto& item : ready)
-        {
-            const auto& draw = *item.Draw;
-            // Requests may finish during this pass. Snapshot the state used for sorting,
-            // but acquire GPU resources at the draw so a cache replacement cannot dangle a queued pointer.
-            const auto* mesh = m_AssetCache->GetMesh(draw.Mesh);
-            const auto* bindings =
-                m_AssetCache->GetMaterialBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
-            const auto* shader = bindings ? m_AssetCache->GetShader(bindings->Shader) : nullptr;
-            if (!mesh || !bindings || !shader)
-                continue;
-            const auto&    render      = item.Render;
-            const bool     transparent = render.AlphaMode == MaterialAlphaMode::Blend;
-            const uint32_t key         = uint32_t(transparent) | (uint32_t(render.DoubleSided) << 1) |
-                                         (uint32_t(draw.ViewMode == SceneViewMode::Wireframe) << 2) |
-                                         (uint32_t(draw.Stencil == ModelStencilMode::WriteReference) << 3);
-            auto&          pipeline    = shader->Pipelines[key];
-            if (!pipeline)
-            {
-                PipelineDesc desc;
-                desc.Program                      = shader->Program;
-                desc.GroupLayouts                 = {shader->EngineLayout, shader->MaterialLayout};
-                desc.VertexBindings               = mesh->VertexBindings;
-                desc.Attributes                   = mesh->Attributes;
-                desc.ColorFormats                 = {Format::RGBA8Unorm, Format::RGBA8Unorm};
-                desc.HasDepthStencil              = true;
-                desc.DepthStencilFormat           = Format::Depth24Stencil8;
-                desc.DepthStencil.DepthTest       = true;
-                desc.DepthStencil.DepthWrite      = !transparent;
-                desc.DepthStencil.DepthCompare    = CompareOp::Less;
-                desc.DepthStencil.StencilTest     = draw.Stencil == ModelStencilMode::WriteReference;
-                desc.DepthStencil.Front.Reference = desc.DepthStencil.Back.Reference = 1;
-                desc.DepthStencil.Front.Pass = desc.DepthStencil.Back.Pass = StencilOp::Replace;
-                desc.Rasterizer.Front =
-                    coordinates.ClipY == ClipYDirection::Up ? FrontFace::CounterClockwise : FrontFace::Clockwise;
-                desc.Rasterizer.Cull = render.DoubleSided ? CullMode::None : CullMode::Back;
-                desc.Rasterizer.Polygon =
-                    draw.ViewMode == SceneViewMode::Wireframe ? PolygonMode::Line : PolygonMode::Fill;
-                BlendState blend;
-                blend.Enabled          = transparent;
-                blend.WriteMask        = 7;
-                blend.SourceColor      = BlendFactor::SourceAlpha;
-                blend.DestinationColor = BlendFactor::OneMinusSourceAlpha;
-                blend.SourceAlpha      = BlendFactor::Zero;
-                blend.DestinationAlpha = BlendFactor::One;
-                desc.Blends            = {blend, blend};
-                pipeline               = m_Device->CreatePipeline(desc);
-            }
-            frame.DebugView = draw.ViewMode == SceneViewMode::BaseColor ? 1.0f :
-                              draw.ViewMode == SceneViewMode::Normals   ? 2.0f :
-                                                                          0.0f;
-            if (!uploadedDebugView || *uploadedDebugView != frame.DebugView)
-            {
-                if (uploadedDebugView)
-                    ++frameRange;
-                frames->Write(frameRange * frameStride, &frame, sizeof(frame));
-                uploadedDebugView = frame.DebugView;
-            }
-            EngineObjectUniforms object;
-            object.Transform      = draw.Transform;
-            object.NormalMatrix   = glm::transpose(glm::inverse(draw.Transform));
-            object.MaterialRender = {float(render.AlphaMode), render.AlphaCutoff, render.DoubleSided ? 1.0f : 0.0f, 0};
-            objects->Write(range * objectStride, &object, sizeof(object));
-            BindGroupDesc engine;
-            engine.Layout = shader->EngineLayout;
-            for (const auto& binding : shader->EngineResources)
-            {
-                BindGroupEntry entry;
-                entry.Slot = binding.Binding;
-                if (binding.Binding == uint32_t(EngineBinding::Frame))
-                {
-                    entry.BufferResource = frames;
-                    entry.Offset         = frameRange * frameStride;
-                    entry.Bytes          = sizeof(frame);
-                }
-                else if (binding.Binding == uint32_t(EngineBinding::Object))
-                {
-                    entry.BufferResource = objects;
-                    entry.Offset         = range * objectStride;
-                    entry.Bytes          = sizeof(object);
-                }
-                else
-                {
-                    entry.TextureResource = environment.at(binding.Binding - 2);
-                    entry.SamplerResource = m_IBLSampler;
-                }
-                engine.Entries.push_back(std::move(entry));
-            }
-            commands->BindPipeline(pipeline);
-            commands->BindGroup(m_Device->CreateBindGroup(engine));
-            commands->BindGroup(m_AssetCache->GetMaterialGroup(*shader, *bindings));
-            commands->BindVertexBuffers({{0, mesh->Vertices, 0}});
-            commands->BindIndexBuffer(mesh->Indices, IndexType::Uint32);
-            commands->DrawIndexed(mesh->IndexCount);
-            ++m_Stats.DrawCalls;
-            m_Stats.Triangles += mesh->IndexCount / 3;
-            ++range;
-        }
-        commands->EndRendering();
-        m_Device->Submit(commands);
-        // RHI-MIGRATION: restore sampler state before legacy geometry/selection/Renderer2D.
-        OpenGLInterop::RestoreSamplers(savedSamplers);
-        // RHI-MIGRATION: resume immediate geometry/outline on the shared scene attachments.
-        OpenGLInterop::BindSceneFramebuffer(m_InteropFramebuffer, m_ViewportWidth, m_ViewportHeight);
+        return environment;
     }
 
     void SceneRenderer::SubmitModelGeometry(const ProductModelComponent& model,
@@ -401,6 +349,8 @@ namespace Kans
         m_ViewportHeight = m_RenderScene->m_ViewportHeight;
         // RHI-MIGRATION: acquire the device once alongside this context's scene renderer.
         m_Device = RenderHardware::OpenGLInterop::AcquireDevice();
+        m_Picker.SetDevice(m_Device);
+        m_Outline.SetDevice(m_Device);
         ResizeTarget();
     }
 
@@ -697,7 +647,11 @@ namespace Kans
             std::vector<MeshDraw> draws;
             for (const auto& model : m_Highlight)
                 AppendModelDraws(model.Model, model.Transform, 0, draws);
-            m_Outline.Draw(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {1.0f, 0.62f, 0.15f, 1.0f});
+            m_Outline.Draw(SceneTarget(RenderHardware::LoadOp::Load),
+                           draws,
+                           viewProjection,
+                           {m_ViewportWidth, m_ViewportHeight},
+                           {1.0f, 0.62f, 0.15f, 1.0f});
             m_Highlight.clear();
         }
         if (m_Preview)
@@ -705,7 +659,11 @@ namespace Kans
             // Resolve after the highlight too: collecting its models can update the cache.
             std::vector<MeshDraw> draws;
             AppendModelDraws(m_Preview->Model, m_Preview->Transform, 0, draws);
-            m_Outline.Draw(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {0.35f, 0.7f, 1.0f, 1.0f});
+            m_Outline.Draw(SceneTarget(RenderHardware::LoadOp::Load),
+                           draws,
+                           viewProjection,
+                           {m_ViewportWidth, m_ViewportHeight},
+                           {0.35f, 0.7f, 1.0f, 1.0f});
             m_Preview.reset();
         }
         // RHI-MIGRATION: release the shared legacy target after auxiliary passes.

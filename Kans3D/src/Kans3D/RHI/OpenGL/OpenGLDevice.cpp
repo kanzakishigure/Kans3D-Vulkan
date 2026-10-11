@@ -200,6 +200,261 @@ namespace Kans::RenderHardware
             }
             return false;
         }
+        struct BufferBindingGuard
+        {
+            GLenum Target;
+            GLint  Previous;
+            explicit BufferBindingGuard(GLenum target, GLenum binding) : Target(target)
+            {
+                glGetIntegerv(binding, &Previous);
+            }
+            ~BufferBindingGuard() { glBindBuffer(Target, Previous); }
+        };
+        struct VertexArrayGuard
+        {
+            GLint Previous;
+            VertexArrayGuard() { glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &Previous); }
+            ~VertexArrayGuard() { glBindVertexArray(Previous); }
+        };
+        // Isolate replay from remaining immediate consumers and ImGui. This backend
+        // boundary, rather than individual renderers, owns native state preservation.
+        struct SubmissionState
+        {
+            GLint DrawFBO, ReadFBO, Program, Array, ArrayBuffer, UniformBuffer, StorageBuffer, Renderbuffer,
+                ActiveTexture;
+            GLint                        Viewport[4], Scissor[4], Polygon[2], DepthFunc, CullFace, FrontFace;
+            GLboolean                    DepthWrite;
+            GLdouble                     DepthRange[2];
+            const std::array<GLenum, 12> Caps {GL_DEPTH_TEST,
+                                               GL_CULL_FACE,
+                                               GL_SCISSOR_TEST,
+                                               GL_STENCIL_TEST,
+                                               GL_FRAMEBUFFER_SRGB,
+                                               GL_RASTERIZER_DISCARD,
+                                               GL_COLOR_LOGIC_OP,
+                                               GL_POLYGON_OFFSET_FILL,
+                                               GL_PRIMITIVE_RESTART,
+                                               GL_DITHER,
+                                               GL_POLYGON_SMOOTH,
+                                               GL_POLYGON_OFFSET_LINE};
+            std::array<GLboolean, 12>    Enabled;
+            struct Unit
+            {
+                GLint Texture2D, Cube, Sampler;
+            };
+            std::vector<Unit> Units;
+            struct Block
+            {
+                GLint   Buffer;
+                GLint64 Start, Size;
+            };
+            std::vector<Block>           Blocks;
+            const std::array<GLenum, 12> Stores {GL_PACK_ALIGNMENT,
+                                                 GL_PACK_ROW_LENGTH,
+                                                 GL_PACK_SKIP_ROWS,
+                                                 GL_PACK_SKIP_PIXELS,
+                                                 GL_PACK_SWAP_BYTES,
+                                                 GL_PACK_LSB_FIRST,
+                                                 GL_UNPACK_ALIGNMENT,
+                                                 GL_UNPACK_ROW_LENGTH,
+                                                 GL_UNPACK_SKIP_ROWS,
+                                                 GL_UNPACK_SKIP_PIXELS,
+                                                 GL_UNPACK_SWAP_BYTES,
+                                                 GL_UNPACK_LSB_FIRST};
+            std::array<GLint, 12>        PixelStore;
+            GLint                        PackBuffer, UnpackBuffer, ClipCount;
+            std::vector<GLboolean>       Clips;
+            struct StencilState
+            {
+                GLint Function, Reference, ValueMask, WriteMask, Fail, DepthFail, DepthPass;
+            };
+            StencilState Front, Back;
+            struct ColorState
+            {
+                GLint     SrcRGB, DstRGB, SrcAlpha, DstAlpha, EqRGB, EqAlpha;
+                GLboolean Mask[4], Blend;
+            };
+            std::vector<ColorState> Colors;
+            std::vector<Block>      Storage;
+            GLfloat                 BiasFactor, BiasUnits;
+            SubmissionState()
+            {
+                GLint count;
+                glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
+                Units.resize(count);
+                glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &count);
+                Blocks.resize(count);
+
+                glGetIntegerv(GL_MAX_DRAW_BUFFERS, &count);
+                Colors.resize(count);
+                for (size_t i = 0; i < Colors.size(); ++i)
+                {
+                    auto& c = Colors[i];
+                    glGetIntegeri_v(GL_BLEND_SRC_RGB, i, &c.SrcRGB);
+                    glGetIntegeri_v(GL_BLEND_DST_RGB, i, &c.DstRGB);
+                    glGetIntegeri_v(GL_BLEND_SRC_ALPHA, i, &c.SrcAlpha);
+                    glGetIntegeri_v(GL_BLEND_DST_ALPHA, i, &c.DstAlpha);
+                    glGetIntegeri_v(GL_BLEND_EQUATION_RGB, i, &c.EqRGB);
+                    glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA, i, &c.EqAlpha);
+                    glGetBooleani_v(GL_COLOR_WRITEMASK, i, c.Mask);
+                    c.Blend = glIsEnabledi(GL_BLEND, i);
+                }
+                glGetIntegerv(GL_STENCIL_FUNC, &Front.Function);
+                glGetIntegerv(GL_STENCIL_REF, &Front.Reference);
+                glGetIntegerv(GL_STENCIL_VALUE_MASK, &Front.ValueMask);
+                glGetIntegerv(GL_STENCIL_WRITEMASK, &Front.WriteMask);
+                glGetIntegerv(GL_STENCIL_FAIL, &Front.Fail);
+                glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &Front.DepthFail);
+                glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &Front.DepthPass);
+                glGetIntegerv(GL_STENCIL_BACK_FUNC, &Back.Function);
+                glGetIntegerv(GL_STENCIL_BACK_REF, &Back.Reference);
+                glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &Back.ValueMask);
+                glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &Back.WriteMask);
+                glGetIntegerv(GL_STENCIL_BACK_FAIL, &Back.Fail);
+                glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &Back.DepthFail);
+                glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &Back.DepthPass);
+                glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &BiasFactor);
+                glGetFloatv(GL_POLYGON_OFFSET_UNITS, &BiasUnits);
+                glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &count);
+                Storage.resize(count);
+                for (size_t i = 0; i < Storage.size(); ++i)
+                {
+                    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, i, &Storage[i].Buffer);
+                    glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_START, i, &Storage[i].Start);
+                    glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_SIZE, i, &Storage[i].Size);
+                }
+                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &DrawFBO);
+                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &ReadFBO);
+                glGetIntegerv(GL_CURRENT_PROGRAM, &Program);
+                glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &Array);
+                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &ArrayBuffer);
+                glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &UniformBuffer);
+                glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING, &StorageBuffer);
+                glGetIntegerv(GL_RENDERBUFFER_BINDING, &Renderbuffer);
+                glGetIntegerv(GL_ACTIVE_TEXTURE, &ActiveTexture);
+                glGetIntegerv(GL_VIEWPORT, Viewport);
+                glGetIntegerv(GL_SCISSOR_BOX, Scissor);
+                glGetIntegerv(GL_POLYGON_MODE, Polygon);
+                glGetIntegerv(GL_DEPTH_FUNC, &DepthFunc);
+                glGetIntegerv(GL_CULL_FACE_MODE, &CullFace);
+                glGetIntegerv(GL_FRONT_FACE, &FrontFace);
+                glGetBooleanv(GL_DEPTH_WRITEMASK, &DepthWrite);
+                glGetDoublev(GL_DEPTH_RANGE, DepthRange);
+                for (size_t i = 0; i < Caps.size(); ++i)
+                    Enabled[i] = glIsEnabled(Caps[i]);
+                for (size_t i = 0; i < Units.size(); ++i)
+                {
+                    glActiveTexture(GL_TEXTURE0 + GLuint(i));
+                    glGetIntegerv(GL_TEXTURE_BINDING_2D, &Units[i].Texture2D);
+                    glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &Units[i].Cube);
+                    glGetIntegeri_v(GL_SAMPLER_BINDING, GLuint(i), &Units[i].Sampler);
+                }
+                for (size_t i = 0; i < Blocks.size(); ++i)
+                {
+                    glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, GLuint(i), &Blocks[i].Buffer);
+                    glGetInteger64i_v(GL_UNIFORM_BUFFER_START, GLuint(i), &Blocks[i].Start);
+                    glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, GLuint(i), &Blocks[i].Size);
+                }
+                glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &PackBuffer);
+                glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &UnpackBuffer);
+                for (size_t i = 0; i < Stores.size(); ++i)
+                    glGetIntegerv(Stores[i], &PixelStore[i]);
+                glGetIntegerv(GL_MAX_CLIP_DISTANCES, &ClipCount);
+                for (int i = 0; i < ClipCount; ++i)
+                    Clips.push_back(glIsEnabled(GL_CLIP_DISTANCE0 + i));
+            }
+            void Prepare()
+            {
+                for (auto cap : Caps)
+                    glDisable(cap);
+                for (int i = 0; i < ClipCount; ++i)
+                    glDisable(GL_CLIP_DISTANCE0 + i);
+                for (size_t i = 0; i < Units.size(); ++i)
+                    glBindSampler(GLuint(i), 0);
+                glActiveTexture(GL_TEXTURE0);
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                for (auto store : Stores)
+                    glPixelStorei(store, store == GL_PACK_ALIGNMENT || store == GL_UNPACK_ALIGNMENT ? 1 : 0);
+                glDisablei(GL_BLEND, 0);
+                glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                glDepthMask(GL_TRUE);
+                glDepthRange(0, 1);
+                glDepthFunc(GL_LESS);
+                glCullFace(GL_BACK);
+                glFrontFace(GL_CCW);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            }
+            ~SubmissionState()
+            {
+                const auto stencil = [](GLenum face, const StencilState& state) {
+                    glStencilFuncSeparate(face, state.Function, state.Reference, state.ValueMask);
+                    glStencilMaskSeparate(face, state.WriteMask);
+                    glStencilOpSeparate(face, state.Fail, state.DepthFail, state.DepthPass);
+                };
+                stencil(GL_FRONT, Front);
+                stencil(GL_BACK, Back);
+                glPolygonOffset(BiasFactor, BiasUnits);
+                for (size_t i = 0; i < Colors.size(); ++i)
+                {
+                    const auto& c = Colors[i];
+                    glBlendFuncSeparatei(i, c.SrcRGB, c.DstRGB, c.SrcAlpha, c.DstAlpha);
+                    glBlendEquationSeparatei(i, c.EqRGB, c.EqAlpha);
+                    glColorMaski(i, c.Mask[0], c.Mask[1], c.Mask[2], c.Mask[3]);
+                    c.Blend ? glEnablei(GL_BLEND, i) : glDisablei(GL_BLEND, i);
+                }
+                for (size_t i = 0; i < Storage.size(); ++i)
+                {
+                    const auto& b = Storage[i];
+                    if (b.Buffer && b.Size)
+                        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, i, b.Buffer, b.Start, b.Size);
+                    else
+                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i, b.Buffer);
+                }
+
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, DrawFBO);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, ReadFBO);
+                glUseProgram(Program);
+                glBindVertexArray(Array);
+                glBindBuffer(GL_ARRAY_BUFFER, ArrayBuffer);
+                glBindRenderbuffer(GL_RENDERBUFFER, Renderbuffer);
+                glViewport(Viewport[0], Viewport[1], Viewport[2], Viewport[3]);
+                glScissor(Scissor[0], Scissor[1], Scissor[2], Scissor[3]);
+                glPolygonMode(GL_FRONT_AND_BACK, Polygon[0]);
+                glDepthFunc(DepthFunc);
+                glDepthMask(DepthWrite);
+                glDepthRange(DepthRange[0], DepthRange[1]);
+                glCullFace(CullFace);
+                glFrontFace(FrontFace);
+                for (size_t i = 0; i < Caps.size(); ++i)
+                    Enabled[i] ? glEnable(Caps[i]) : glDisable(Caps[i]);
+                for (int i = 0; i < ClipCount; ++i)
+                    Clips[i] ? glEnable(GL_CLIP_DISTANCE0 + i) : glDisable(GL_CLIP_DISTANCE0 + i);
+                for (size_t i = 0; i < Units.size(); ++i)
+                {
+                    glActiveTexture(GL_TEXTURE0 + GLuint(i));
+                    glBindTexture(GL_TEXTURE_2D, Units[i].Texture2D);
+                    glBindTexture(GL_TEXTURE_CUBE_MAP, Units[i].Cube);
+                    glBindSampler(GLuint(i), Units[i].Sampler);
+                }
+                glActiveTexture(ActiveTexture);
+                for (size_t i = 0; i < Blocks.size(); ++i)
+                {
+                    const auto& b = Blocks[i];
+                    if (b.Buffer && b.Size)
+                        glBindBufferRange(GL_UNIFORM_BUFFER, GLuint(i), b.Buffer, b.Start, b.Size);
+                    else
+                        glBindBufferBase(GL_UNIFORM_BUFFER, GLuint(i), b.Buffer);
+                }
+                glBindBuffer(GL_UNIFORM_BUFFER, UniformBuffer);
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, StorageBuffer);
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, PackBuffer);
+                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, UnpackBuffer);
+                for (size_t i = 0; i < Stores.size(); ++i)
+                    glPixelStorei(Stores[i], PixelStore[i]);
+            }
+        };
+
         struct TransferState
         {
             GLenum                Target, Binding;
@@ -254,6 +509,7 @@ namespace Kans::RenderHardware
             {
                 Require(Desc.Memory == MemoryUsage::Upload && (data || !bytes), "Write requires upload memory");
                 Range(Desc.Bytes, offset, bytes);
+                BufferBindingGuard binding(GL_COPY_WRITE_BUFFER, GL_COPY_WRITE_BUFFER_BINDING);
                 glBindBuffer(GL_COPY_WRITE_BUFFER, Name.ID);
                 glBufferSubData(GL_COPY_WRITE_BUFFER, offset, bytes, data);
             }
@@ -263,6 +519,7 @@ namespace Kans::RenderHardware
                         "Readback requires frame retirement or WaitIdle");
                 Range(Desc.Bytes, offset, bytes);
                 std::vector<uint8_t> result(bytes);
+                BufferBindingGuard   binding(GL_COPY_READ_BUFFER, GL_COPY_READ_BUFFER_BINDING);
                 glBindBuffer(GL_COPY_READ_BUFFER, Name.ID);
                 if (bytes)
                 {
@@ -1187,6 +1444,7 @@ namespace Kans::RenderHardware
                 GLuint id = 0;
                 glGenBuffers(1, &id);
                 auto b = std::make_shared<GLBuffer>(m_State, desc, id);
+                BufferBindingGuard binding(GL_COPY_WRITE_BUFFER, GL_COPY_WRITE_BUFFER_BINDING);
                 glBindBuffer(GL_COPY_WRITE_BUFFER, id);
                 glBufferData(GL_COPY_WRITE_BUFFER,
                              desc.Bytes,
@@ -1601,6 +1859,7 @@ namespace Kans::RenderHardware
                 GLuint vao = 0;
                 glGenVertexArrays(1, &vao);
                 auto pipeline = std::make_shared<GLPipeline>(m_State, desc, vao);
+                VertexArrayGuard binding;
                 glBindVertexArray(vao);
                 for (auto b : desc.VertexBindings)
                     glVertexBindingDivisor(b.Slot, b.PerInstance ? 1 : 0);
@@ -1626,8 +1885,10 @@ namespace Kans::RenderHardware
             void Submit(const Handle<CommandList>& commands) override
             {
                 auto list = std::dynamic_pointer_cast<GLCommands>(commands);
-                Require(list && list->Owner == m_State && m_State->InFrame && !list->Sealed && !list->Rendering,
+                Require(list && list->Owner == m_State && !list->Sealed && !list->Rendering,
                         "Invalid command submission");
+                SubmissionState state;
+                state.Prepare();
                 list->Sealed = true;
                 Execution execution;
                 execution.Owner = m_State;
@@ -1649,10 +1910,7 @@ namespace Kans::RenderHardware
                 m_State->Retire();
                 m_State->InFrame = false;
             }
-            void      WaitIdle() override { m_State->Retire(); }
-            void            FinishUploadFrame() { m_State->InFrame = false; }
-            bool            InFrame() const { return m_State->InFrame; }
-            void            RetireUnbound() { m_State->Retire(true); }
+            void            WaitIdle() override { m_State->Retire(true); }
             Handle<Texture> Borrow(GLuint id, const TextureDesc& desc)
             {
                 auto texture         = std::make_shared<GLTexture>(m_State, desc, id);
@@ -1690,11 +1948,6 @@ namespace Kans::RenderHardware
         {
             return std::dynamic_pointer_cast<GLShader>(s)->CombinedUnits.at(Point(group, slot));
         }
-        void BindUniform(const Handle<Buffer>& b, uint32_t point)
-        {
-            glBindBufferBase(GL_UNIFORM_BUFFER, point, BufferName(b));
-        }
-        void BindProgram(const Handle<Shader>& s) { glUseProgram(ProgramName(s)); }
         void BindTexture(const Handle<Texture>& t, uint32_t unit)
         {
             glActiveTexture(GL_TEXTURE0 + unit);
@@ -1702,19 +1955,6 @@ namespace Kans::RenderHardware
             glBindSampler(unit, 0);
             glBindTexture(native->Target(), native->Name.ID);
         }
-        void SubmitUpload(Device& device, const Handle<CommandList>& commands)
-        {
-            auto& gl       = dynamic_cast<GLDevice&>(device);
-            bool  ownFrame = !gl.InFrame();
-            if (ownFrame)
-                device.BeginFrame();
-            device.Submit(commands);
-            // Uploads used by legacy immediate consumers must be visible now.
-            // The outer preview guard retires uploads after restoring caller bindings.
-            if (ownFrame)
-                gl.FinishUploadFrame();
-        }
-        void RetireUnbound(Device& device) { dynamic_cast<GLDevice&>(device).RetireUnbound(); }
         Handle<Texture>
         BorrowTexture(Device& device, uint32_t name, TextureDimension dimension, std::shared_ptr<void> owner)
         {
@@ -1892,24 +2132,6 @@ namespace Kans::RenderHardware
         {
             glBindFramebuffer(GL_FRAMEBUFFER, fbo);
             glViewport(0, 0, width, height);
-        }
-        std::vector<uint32_t> SaveSamplers()
-        {
-            GLint count;
-            glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
-            std::vector<uint32_t> result(count);
-            for (int i = 0; i < count; ++i)
-            {
-                GLint sampler;
-                glGetIntegeri_v(GL_SAMPLER_BINDING, i, &sampler);
-                result[i] = sampler;
-            }
-            return result;
-        }
-        void RestoreSamplers(const std::vector<uint32_t>& samplers)
-        {
-            for (size_t i = 0; i < samplers.size(); ++i)
-                glBindSampler(i, samplers[i]);
         }
         void DeleteSceneFramebuffer(uint32_t fbo)
         {

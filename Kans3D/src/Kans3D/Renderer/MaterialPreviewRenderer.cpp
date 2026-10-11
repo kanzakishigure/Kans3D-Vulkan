@@ -1,187 +1,35 @@
 #include "kspch.h"
 #include "MaterialPreviewRenderer.h"
-#include <glad/glad.h>
+#include <iostream>
+
 #include <glm/gtc/matrix_transform.hpp>
 #include "Kans3D/Asset/Runtime/StandardShader.h"
+#include "Resource/InternalShader.h"
+#include "Resource/MaterialPass.h"
 #include "SceneRenderer.h"
 
 namespace Kans
 {
     namespace
     {
-        // Includes state changed indirectly by mesh/texture/program/UBO uploads.
-        struct PreviewState
+        struct PreviewRetirement
         {
-            GLint     DrawFBO, ReadFBO, Program, Array, ArrayBuffer, UniformBuffer, Renderbuffer, ActiveTexture;
-            GLint     Viewport[4], Polygon[2], DepthFunc, CullFace, FrontFace;
-            GLint     SrcRGB, DstRGB, SrcAlpha, DstAlpha, EquationRGB, EquationAlpha;
-            GLboolean DepthWrite, ColorWrite[4], Blend;
-            GLdouble  DepthRange[2];
-            const std::array<GLenum, 11> Caps {GL_DEPTH_TEST,
-                                               GL_CULL_FACE,
-                                               GL_SCISSOR_TEST,
-                                               GL_STENCIL_TEST,
-                                               GL_FRAMEBUFFER_SRGB,
-                                               GL_RASTERIZER_DISCARD,
-                                               GL_COLOR_LOGIC_OP,
-                                               GL_POLYGON_OFFSET_FILL,
-                                               GL_PRIMITIVE_RESTART,
-                                               GL_DITHER,
-                                               GL_POLYGON_SMOOTH};
-            std::array<GLboolean, 11>    Enabled;
-            struct Unit
-            {
-                GLint Texture2D, Cube, Sampler;
-            };
-            std::array<Unit, 16> Units;
-            struct Block
-            {
-                GLint   Buffer;
-                GLint64 Start, Size;
-            };
-            std::array<Block, 12>        Blocks;
-            const std::array<GLenum, 12> Stores {GL_PACK_ALIGNMENT,
-                                                 GL_PACK_ROW_LENGTH,
-                                                 GL_PACK_SKIP_ROWS,
-                                                 GL_PACK_SKIP_PIXELS,
-                                                 GL_PACK_SWAP_BYTES,
-                                                 GL_PACK_LSB_FIRST,
-                                                 GL_UNPACK_ALIGNMENT,
-                                                 GL_UNPACK_ROW_LENGTH,
-                                                 GL_UNPACK_SKIP_ROWS,
-                                                 GL_UNPACK_SKIP_PIXELS,
-                                                 GL_UNPACK_SWAP_BYTES,
-                                                 GL_UNPACK_LSB_FIRST};
-            std::array<GLint, 12>        PixelStore;
-            GLint                        PackBuffer, UnpackBuffer, ClipCount;
-            std::vector<GLboolean>       Clips;
-            inline static thread_local PreviewState* Current = nullptr;
-            PreviewState*                            Parent;
-            RenderAssetCache*                        Cache;
-            explicit PreviewState(RenderAssetCache* cache) : Parent(Current), Cache(cache)
-            {
-                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &DrawFBO);
-                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &ReadFBO);
-                glGetIntegerv(GL_CURRENT_PROGRAM, &Program);
-                glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &Array);
-                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &ArrayBuffer);
-                glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &UniformBuffer);
-                glGetIntegerv(GL_RENDERBUFFER_BINDING, &Renderbuffer);
-                glGetIntegerv(GL_ACTIVE_TEXTURE, &ActiveTexture);
-                glGetIntegerv(GL_VIEWPORT, Viewport);
-                glGetIntegerv(GL_POLYGON_MODE, Polygon);
-                glGetIntegerv(GL_DEPTH_FUNC, &DepthFunc);
-                glGetIntegerv(GL_CULL_FACE_MODE, &CullFace);
-                glGetIntegerv(GL_FRONT_FACE, &FrontFace);
-                glGetIntegeri_v(GL_BLEND_SRC_RGB, 0, &SrcRGB);
-                glGetIntegeri_v(GL_BLEND_DST_RGB, 0, &DstRGB);
-                glGetIntegeri_v(GL_BLEND_SRC_ALPHA, 0, &SrcAlpha);
-                glGetIntegeri_v(GL_BLEND_DST_ALPHA, 0, &DstAlpha);
-                glGetIntegeri_v(GL_BLEND_EQUATION_RGB, 0, &EquationRGB);
-                glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA, 0, &EquationAlpha);
-                glGetBooleanv(GL_DEPTH_WRITEMASK, &DepthWrite);
-                glGetBooleani_v(GL_COLOR_WRITEMASK, 0, ColorWrite);
-                glGetDoublev(GL_DEPTH_RANGE, DepthRange);
-                Blend = glIsEnabledi(GL_BLEND, 0);
-                for (size_t i = 0; i < Caps.size(); ++i)
-                    Enabled[i] = glIsEnabled(Caps[i]);
-                for (size_t i = 0; i < Units.size(); ++i)
-                {
-                    glActiveTexture(GL_TEXTURE0 + GLuint(i));
-                    glGetIntegerv(GL_TEXTURE_BINDING_2D, &Units[i].Texture2D);
-                    glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &Units[i].Cube);
-                    glGetIntegeri_v(GL_SAMPLER_BINDING, GLuint(i), &Units[i].Sampler);
-                }
-                for (size_t i = 0; i < Blocks.size(); ++i)
-                {
-                    glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, GLuint(i), &Blocks[i].Buffer);
-                    glGetInteger64i_v(GL_UNIFORM_BUFFER_START, GLuint(i), &Blocks[i].Start);
-                    glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, GLuint(i), &Blocks[i].Size);
-                }
-                glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &PackBuffer);
-                glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &UnpackBuffer);
-                for (size_t i = 0; i < Stores.size(); ++i)
-                    glGetIntegerv(Stores[i], &PixelStore[i]);
-                glGetIntegerv(GL_MAX_CLIP_DISTANCES, &ClipCount);
-                for (int i = 0; i < ClipCount; ++i)
-                    Clips.push_back(glIsEnabled(GL_CLIP_DISTANCE0 + i));
-                Current = this;
-            }
-            void Prepare()
-            {
-                for (auto cap : Caps)
-                    glDisable(cap);
-                for (int i = 0; i < ClipCount; ++i)
-                    glDisable(GL_CLIP_DISTANCE0 + i);
-                for (size_t i = 0; i < Units.size(); ++i)
-                    glBindSampler(GLuint(i), 0);
-                glActiveTexture(GL_TEXTURE0);
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                for (auto store : Stores)
-                    glPixelStorei(store, store == GL_PACK_ALIGNMENT || store == GL_UNPACK_ALIGNMENT ? 1 : 0);
-                glDisablei(GL_BLEND, 0);
-                glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-                glDepthMask(GL_TRUE);
-                glDepthRange(0, 1);
-                glDepthFunc(GL_LESS);
-                glCullFace(GL_BACK);
-                glFrontFace(GL_CCW);
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            }
-            ~PreviewState()
-            {
-                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, DrawFBO);
-                glBindFramebuffer(GL_READ_FRAMEBUFFER, ReadFBO);
-                glUseProgram(Program);
-                glBindVertexArray(Array);
-                glBindBuffer(GL_ARRAY_BUFFER, ArrayBuffer);
-                glBindRenderbuffer(GL_RENDERBUFFER, Renderbuffer);
-                glViewport(Viewport[0], Viewport[1], Viewport[2], Viewport[3]);
-                glPolygonMode(GL_FRONT_AND_BACK, Polygon[0]);
-                glDepthFunc(DepthFunc);
-                glDepthMask(DepthWrite);
-                glDepthRange(DepthRange[0], DepthRange[1]);
-                glCullFace(CullFace);
-                glFrontFace(FrontFace);
-                glBlendFuncSeparatei(0, SrcRGB, DstRGB, SrcAlpha, DstAlpha);
-                glBlendEquationSeparatei(0, EquationRGB, EquationAlpha);
-                glColorMaski(0, ColorWrite[0], ColorWrite[1], ColorWrite[2], ColorWrite[3]);
-                Blend ? glEnablei(GL_BLEND, 0) : glDisablei(GL_BLEND, 0);
-                for (size_t i = 0; i < Caps.size(); ++i)
-                    Enabled[i] ? glEnable(Caps[i]) : glDisable(Caps[i]);
-                for (int i = 0; i < ClipCount; ++i)
-                    Clips[i] ? glEnable(GL_CLIP_DISTANCE0 + i) : glDisable(GL_CLIP_DISTANCE0 + i);
-                for (size_t i = 0; i < Units.size(); ++i)
-                {
-                    glActiveTexture(GL_TEXTURE0 + GLuint(i));
-                    glBindTexture(GL_TEXTURE_2D, Units[i].Texture2D);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, Units[i].Cube);
-                    glBindSampler(GLuint(i), Units[i].Sampler);
-                }
-                glActiveTexture(ActiveTexture);
-                for (size_t i = 0; i < Blocks.size(); ++i)
-                {
-                    const auto& b = Blocks[i];
-                    if (b.Buffer && b.Size)
-                        glBindBufferRange(GL_UNIFORM_BUFFER, GLuint(i), b.Buffer, b.Start, b.Size);
-                    else
-                        glBindBufferBase(GL_UNIFORM_BUFFER, GLuint(i), b.Buffer);
-                }
-                glBindBuffer(GL_UNIFORM_BUFFER, UniformBuffer);
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, PackBuffer);
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, UnpackBuffer);
-                for (size_t i = 0; i < Stores.size(); ++i)
-                    glPixelStorei(Stores[i], PixelStore[i]);
-                Current = Parent;
-                // Thumbnail readback and malformed-shader fallbacks nest guards.
-                // Only the outer guard has restored the caller bindings completely.
-                // RHI-MIGRATION: retire RHI replacements after restoring native preview bindings.
-                if (!Parent && Cache)
-                    Cache->ReleaseRetiredResources();
-            }
+            RenderHardware::Device& Device;
+            ~PreviewRetirement() { Device.WaitIdle(); }
         };
-
+        const char*    CheckerVertex   = R"(#version 450
+void main() {
+    vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    gl_Position = vec4(p * 2 - 1, 0, 1);
+})";
+        const char*    CheckerFragment = R"(#version 450
+layout(set=0,binding=0,std140) uniform Background { vec4 Size; } p;
+layout(location=0) out vec4 color;
+void main() {
+    float y = p.Size.z != 0 ? p.Size.y - gl_FragCoord.y : gl_FragCoord.y;
+    float c = mod(floor(gl_FragCoord.x / 16) + floor(y / 16), 2);
+    color = vec4(vec3(mix(0.22, 0.32, c)), 1);
+})";
         MeshVertexData Vertex(glm::vec3 p, glm::vec3 n, glm::vec2 uv, glm::vec4 t)
         {
             MeshVertexData v;
@@ -255,44 +103,27 @@ namespace Kans
         }
     } // namespace
 
-    MaterialPreviewRenderer::~MaterialPreviewRenderer()
-    {
-        if (m_Framebuffer)
-            glDeleteFramebuffers(1, &m_Framebuffer);
-        if (m_Color)
-            glDeleteTextures(1, &m_Color);
-        if (m_Depth)
-            glDeleteRenderbuffers(1, &m_Depth);
-        if (m_EmptyArray)
-            glDeleteVertexArrays(1, &m_EmptyArray);
-    }
+    MaterialPreviewRenderer::MaterialPreviewRenderer(SceneRenderer& scene) : m_Scene(scene), m_Device(scene.GetDevice())
+    {}
+    MaterialPreviewRenderer::~MaterialPreviewRenderer() = default;
 
     bool MaterialPreviewRenderer::Resize(glm::uvec2 size)
     {
         if (!size.x || !size.y || size.x > 4096 || size.y > 4096)
             return false;
-        if (size == m_Size && m_Framebuffer)
+        if (size == m_Size && m_Color)
             return true;
-        if (!m_Framebuffer)
-        {
-            glGenFramebuffers(1, &m_Framebuffer);
-            glGenTextures(1, &m_Color);
-            glGenRenderbuffers(1, &m_Depth);
-        }
-        glBindTexture(GL_TEXTURE_2D, m_Color);
-        glTexImage2D(
-            GL_TEXTURE_2D, 0, GL_RGBA8, GLsizei(size.x), GLsizei(size.y), 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glBindRenderbuffer(GL_RENDERBUFFER, m_Depth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, GLsizei(size.x), GLsizei(size.y));
-        glBindFramebuffer(GL_FRAMEBUFFER, m_Framebuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_Color, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_Depth);
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-            return false;
+        using namespace RenderHardware;
+        TextureDesc desc;
+        desc.Width       = size.x;
+        desc.Height      = size.y;
+        desc.PixelFormat = Format::RGBA8Unorm;
+        desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
+                           RenderHardware::TextureUsage::CopySource;
+        m_Color          = m_Device->CreateTexture(desc);
+        desc.PixelFormat = Format::Depth24Stencil8;
+        desc.Usage       = RenderHardware::TextureUsage::DepthStencil;
+        m_Depth          = m_Device->CreateTexture(desc);
         m_Size = size;
         return true;
     }
@@ -303,8 +134,7 @@ namespace Kans
     {
         if (!m_Scene.GetAssetCache())
             return {};
-        PreviewState state(m_Scene.GetAssetCache());
-        state.Prepare();
+        PreviewRetirement retirement {*m_Device};
         auto&            cache    = *m_Scene.GetAssetCache();
         const GpuShader* shader   = nullptr;
         bool             complete = true;
@@ -314,7 +144,7 @@ namespace Kans
             {
                 m_ShaderSource = *source;
                 m_Shader.reset();
-                auto built = GpuShader::Create(*source);
+                auto built = GpuShader::Create(*source, m_Device);
                 if (auto* value = std::get_if<GpuShader>(&built))
                     m_Shader = CreateScope<GpuShader>(std::move(*value));
             }
@@ -338,7 +168,7 @@ namespace Kans
         }
         if (!shader)
             return {};
-        auto packed = MakeGpuMaterialBindings(data, *source);
+        auto packed = MakeGpuMaterialBindings(data, *source, m_Device);
         if (auto* bindings = std::get_if<GpuMaterialBindings>(&packed))
             return Draw(*shader, *bindings, options, complete);
         // A malformed custom recipe takes the same Standard fallback as the scene.
@@ -346,8 +176,9 @@ namespace Kans
         {
             MaterialData fallback;
             fallback.Render = material.Render;
-            return Render(fallback, nullptr, options).Texture ? MaterialPreviewResult {m_Color, false} :
-                                                                MaterialPreviewResult {};
+            return Render(fallback, nullptr, options).Texture ?
+                       MaterialPreviewResult {m_Device->GetImGuiTextureID(m_Color), false} :
+                       MaterialPreviewResult {};
         }
         return {};
     }
@@ -356,8 +187,7 @@ namespace Kans
     {
         if (!m_Scene.GetAssetCache())
             return {};
-        PreviewState state(m_Scene.GetAssetCache());
-        state.Prepare();
+        PreviewRetirement retirement {*m_Device};
         auto& cache    = *m_Scene.GetAssetCache();
         auto  status   = cache.GetAssetManager().Request<MaterialDataAsset>(material);
         bool  complete = status.IsReady();
@@ -383,52 +213,51 @@ namespace Kans
             return {};
         if (!m_Shapes[shape])
         {
-            auto uploaded = UploadMesh(Shape(options.Shape));
+            auto uploaded = UploadMesh(Shape(options.Shape), m_Device);
             if (auto* mesh = std::get_if<GpuMesh>(&uploaded))
                 m_Shapes[shape] = std::move(*mesh);
             else
                 return {};
         }
-        if (!m_Checker.IsValid())
+        using namespace RenderHardware;
+        if (!m_Checker)
         {
-            auto built = m_Checker.Build(R"(#version 430 core
-void main() {
-    vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-    gl_Position = vec4(p * 2 - 1, 0, 1);
-})",
-                                         R"(#version 430 core
-layout(location=0) out vec4 color;
-void main() {
-    float c = mod(floor(gl_FragCoord.x / 16) + floor(gl_FragCoord.y / 16), 2);
-    color = vec4(vec3(mix(0.22, 0.32, c)), 1);
-})");
-            if (std::holds_alternative<AssetError>(built))
+            auto built = CreateInternalShader(*m_Device, "MaterialChecker", CheckerVertex, CheckerFragment);
+            if (auto* error = std::get_if<AssetError>(&built))
+            {
+                if (Log::GetCoreLogger())
+                    CORE_ERROR("{}", error->Message);
+                else
+                    std::cerr << error->Message << std::endl;
                 return {};
-            glGenVertexArrays(1, &m_EmptyArray);
+            }
+            PipelineDesc desc;
+            desc.Program         = std::get<Handle<RenderHardware::Shader>>(std::move(built));
+            desc.GroupLayouts    = {m_Device->CreateBindGroupLayout({0, {{0, BindingType::UniformBuffer}}})};
+            desc.Rasterizer.Cull = CullMode::None;
+            desc.ColorFormats    = {Format::RGBA8Unorm};
+            desc.Blends.resize(1);
+            desc.HasDepthStencil    = true;
+            desc.DepthStencilFormat = Format::Depth24Stencil8;
+            m_Checker               = m_Device->CreatePipeline(desc);
         }
-        glBindFramebuffer(GL_FRAMEBUFFER, m_Framebuffer);
-        glViewport(0, 0, GLsizei(options.Size.x), GLsizei(options.Size.y));
-        const GLfloat depth = 1;
-        glClearBufferfv(GL_DEPTH, 0, &depth);
-        glBindVertexArray(m_EmptyArray);
-        m_Checker.Bind();
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
-        glEnable(GL_DEPTH_TEST);
-        if (bindings.Render.AlphaMode == MaterialAlphaMode::Blend)
-        {
-            glEnablei(GL_BLEND, 0);
-            glBlendEquationSeparatei(0, GL_FUNC_ADD, GL_FUNC_ADD);
-            glBlendFuncSeparatei(0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
-            glDepthMask(GL_FALSE);
-        }
-        if (!bindings.Render.DoubleSided)
-            glEnable(GL_CULL_FACE);
-        if (!m_Frame)
-        {
-            m_Frame  = CreateScope<GpuUniformBuffer>(sizeof(EngineFrameUniforms));
-            m_Object = CreateScope<GpuUniformBuffer>(sizeof(EngineObjectUniforms));
-        }
+        auto          commands = m_Device->CreateCommandList();
+        RenderingDesc target;
+        target.Colors       = {{m_Color}};
+        target.Depth.Target = m_Depth;
+        commands->BeginRendering(target);
+        commands->SetViewport({0, 0, float(options.Size.x), float(options.Size.y), 0, 1});
+        commands->SetScissor({0, 0, options.Size.x, options.Size.y});
+        commands->BindPipeline(m_Checker);
+        const auto      coordinates = m_Device->GetCoordinateConventions();
+        const glm::vec4 background {float(options.Size.x),
+                                    float(options.Size.y),
+                                    coordinates.Origin == FramebufferOrigin::UpperLeft ? 1.0f : 0.0f,
+                                    0};
+        auto checkerData = m_Device->CreateBuffer({sizeof(background), BufferUsage::Uniform, MemoryUsage::Upload});
+        checkerData->Write(0, &background, sizeof(background));
+        commands->BindGroup(m_Device->CreateBindGroup({m_Checker->GetDesc().GroupLayouts[0], {{0, checkerData}}}));
+        commands->Draw(3);
         EngineFrameUniforms frame;
         frame.CameraPosition = {0, 0, 3.5f, 1};
         frame.ViewProjection =
@@ -438,9 +267,9 @@ void main() {
         frame.LightColors[0]    = {40, 40, 40, 1};
         frame.LightDiffuse[0]   = {1, 1, 1, 1};
         frame.Time              = m_Scene.GetElapsedTime();
-        m_Frame->Update(&frame, sizeof(frame));
-        // RHI-MIGRATION: immediate preview binds the RHI frame buffer through its compatibility shim.
-        m_Frame->Bind(GpuShader::FrameBlockPoint);
+        frame.ViewProjection    = DeviceProjection(frame.ViewProjection, coordinates);
+        auto frameBuffer        = m_Device->CreateBuffer({sizeof(frame), BufferUsage::Uniform, MemoryUsage::Upload});
+        frameBuffer->Write(0, &frame, sizeof(frame));
         EngineObjectUniforms object;
         object.Transform      = glm::rotate(glm::mat4(1), options.Rotation.y, {1, 0, 0}) *
                                 glm::rotate(glm::mat4(1), options.Rotation.x, {0, 1, 0});
@@ -449,51 +278,44 @@ void main() {
                                  bindings.Render.AlphaCutoff,
                                  bindings.Render.DoubleSided ? 1.0f : 0.0f,
                                  0};
-        m_Object->Update(&object, sizeof(object));
-        // RHI-MIGRATION: immediate preview binds the RHI object buffer through its compatibility shim.
-        m_Object->Bind(GpuShader::ObjectBlockPoint);
-        const auto& environment = m_Scene.GetEnvironment();
-        const auto& brdfLUT     = m_Scene.GetBrdfLUT();
-        // Explicitly unbind absent environment maps, never sample an ImGui texture by accident.
-        glActiveTexture(GL_TEXTURE0 + GpuShader::IrradianceUnit);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, environment.IrradianceMap ? environment.IrradianceMap->GetRenererID() : 0);
-        glActiveTexture(GL_TEXTURE0 + GpuShader::PrefilterUnit);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, environment.RadianceMap ? environment.RadianceMap->GetRenererID() : 0);
-        glActiveTexture(GL_TEXTURE0 + GpuShader::BrdfLUTUnit);
-        glBindTexture(GL_TEXTURE_2D, brdfLUT ? brdfLUT->GetRenererID() : 0);
-        // RHI-MIGRATION: bind the RHI program and material buffers for the immediate preview.
-        shader.Bind();
-        for (const auto& [binding, buffer] : bindings.Blocks)
-            buffer.Bind(shader.MaterialBlockPoints().at(binding));
-        // RHI-MIGRATION: native material texture bindings from the RHI group 1 resources.
-        complete &= m_Scene.GetAssetCache()->BindMaterialTextures(shader, bindings);
-        const auto& mesh = *m_Shapes[shape];
-        // RHI-MIGRATION: preview geometry uses the RHI mesh VAO compatibility view.
-        mesh.VertexArray->Bind();
-        glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
-        return {m_Color, complete};
+        auto objectBuffer     = m_Device->CreateBuffer({sizeof(object), BufferUsage::Uniform, MemoryUsage::Upload});
+        objectBuffer->Write(0, &object, sizeof(object));
+        MaterialPassData pass;
+        pass.Frame              = frameBuffer;
+        pass.Object             = objectBuffer;
+        pass.Environment        = m_Scene.GetMaterialEnvironment();
+        pass.EnvironmentSampler = m_Scene.GetMaterialEnvironmentSampler();
+        pass.Render             = bindings.Render;
+        complete &= RecordMaterialDraw(*m_Scene.GetAssetCache(), *commands, shader, bindings, *m_Shapes[shape], pass);
+        commands->EndRendering();
+        m_Device->Submit(commands);
+        return {m_Device->GetImGuiTextureID(m_Color), complete};
     }
 
     std::optional<MaterialThumbnail> MaterialPreviewRenderer::RenderThumbnail(AssetID                       material,
                                                                               const MaterialPreviewOptions& options)
     {
-        PreviewState state(m_Scene.GetAssetCache());
-        state.Prepare();
+        PreviewRetirement retirement {*m_Device};
         const auto rendered = Render(material, options);
         if (!rendered.Texture || !rendered.Complete)
             return std::nullopt;
         MaterialThumbnail result;
         result.Size = options.Size;
         result.Pixels.resize(size_t(options.Size.x) * options.Size.y * 4);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_Framebuffer);
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(
-            0, 0, GLsizei(options.Size.x), GLsizei(options.Size.y), GL_RGBA, GL_UNSIGNED_BYTE, result.Pixels.data());
+        using namespace RenderHardware;
+        auto readback =
+            m_Device->CreateBuffer({result.Pixels.size(), BufferUsage::CopyDestination, MemoryUsage::Readback});
+        auto commands = m_Device->CreateCommandList();
+        commands->CopyTextureToBuffer(m_Color, {}, readback);
+        m_Device->Submit(commands);
+        m_Device->WaitIdle();
+        result.Pixels  = readback->Read(0, result.Pixels.size());
         const auto row = size_t(options.Size.x) * 4;
-        for (size_t y = 0; y < options.Size.y / 2; ++y)
-            std::swap_ranges(result.Pixels.begin() + y * row,
-                             result.Pixels.begin() + (y + 1) * row,
-                             result.Pixels.begin() + (options.Size.y - y - 1) * row);
+        if (m_Device->GetCoordinateConventions().Origin == FramebufferOrigin::LowerLeft)
+            for (size_t y = 0; y < options.Size.y / 2; ++y)
+                std::swap_ranges(result.Pixels.begin() + y * row,
+                                 result.Pixels.begin() + (y + 1) * row,
+                                 result.Pixels.begin() + (options.Size.y - y - 1) * row);
         return result;
     }
 } // namespace Kans

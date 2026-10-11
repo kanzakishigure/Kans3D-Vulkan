@@ -20,7 +20,7 @@ namespace Kans
     };
     struct MaterialPreviewResult
     {
-        uint32_t Texture  = 0;
+        uintptr_t Texture  = 0;
         bool     Complete = false;
     };
     struct MaterialThumbnail
@@ -30,13 +30,13 @@ namespace Kans
         std::vector<uint8_t> Pixels;
     };
 
-    // Render thread only, with the scene's GL context current, including destruction.
+    // Render thread only; the scene's device and its context must remain alive.
     // SceneRenderer must outlive this instance. Does not begin/end a scene/cache frame.
     // Inputs are borrowed only during the call. GPU cache resources are resolved at draw time.
     class MaterialPreviewRenderer
     {
     public:
-        explicit MaterialPreviewRenderer(SceneRenderer& scene) : m_Scene(scene) {}
+        explicit MaterialPreviewRenderer(SceneRenderer& scene);
         ~MaterialPreviewRenderer();
         MaterialPreviewRenderer(const MaterialPreviewRenderer&)            = delete;
         MaterialPreviewRenderer& operator=(const MaterialPreviewRenderer&) = delete;
@@ -59,10 +59,10 @@ namespace Kans
         bool                                  Resize(glm::uvec2 size);
         SceneRenderer&                        m_Scene;
         glm::uvec2                            m_Size {};
-        uint32_t                              m_Framebuffer = 0, m_Color = 0, m_Depth = 0, m_EmptyArray = 0;
+        std::shared_ptr<RenderHardware::Device>          m_Device;
+        RenderHardware::Handle<RenderHardware::Texture>  m_Color, m_Depth;
         std::array<std::optional<GpuMesh>, 3> m_Shapes;
-        GlProgram                             m_Checker;
-        Scope<GpuUniformBuffer>               m_Frame, m_Object;
+        RenderHardware::Handle<RenderHardware::Pipeline> m_Checker;
         std::optional<ShaderData>             m_ShaderSource;
         Scope<GpuShader>                      m_Shader;
     };

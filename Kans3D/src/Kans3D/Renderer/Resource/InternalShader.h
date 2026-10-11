@@ -1,0 +1,23 @@
+#pragma once
+#include <string>
+#include <variant>
+#include <glm/glm.hpp>
+#include "Kans3D/Asset/AssetError.h"
+#include "Kans3D/Asset/Runtime/ShaderData.h"
+#include "Kans3D/RHI/RHI.h"
+
+namespace Kans
+{
+    // CPU products (including failures) are cached by name AND source for the process.
+    // Sources are embedded beside their renderer, independent of the working directory.
+    using InternalShaderData = std::variant<ShaderData, AssetError>;
+    const InternalShaderData&
+    GetInternalShaderData(const std::string& name, const std::string& vertex, const std::string& fragment);
+    std::variant<RenderHardware::Handle<RenderHardware::Shader>, AssetError>
+              CreateInternalShader(RenderHardware::Device& device,
+                                   const std::string&      name,
+                                   const std::string&      vertex,
+                                   const std::string&      fragment);
+    glm::mat4 DeviceProjection(const glm::mat4& projection, RenderHardware::CoordinateConventions coordinates);
+    uint32_t  DeviceRow(uint32_t bottomLeftRow, uint32_t height, RenderHardware::CoordinateConventions coordinates);
+} // namespace Kans
