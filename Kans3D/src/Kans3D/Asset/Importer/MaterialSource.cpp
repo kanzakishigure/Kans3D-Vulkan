@@ -2,6 +2,7 @@
 #include "MaterialSource.h"
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <set>
 #include <stdexcept>
 #include <yaml-cpp/yaml.h>
@@ -74,7 +75,7 @@ namespace Kans
 
         MaterialSource CanonicalSource(MaterialSource source)
         {
-            if (!IsStandardShader(source.Shader))
+            if (source.Parent.IsValid() || !IsStandardShader(source.Shader))
                 return source;
             const auto migrate = [](auto& values, const char* oldName, const char* newName) {
                 auto node = values.extract(oldName);
@@ -112,6 +113,91 @@ namespace Kans
         }
     } // namespace
 
+    // Decode the actual packed values against this material's Shader. This also
+    // preserves legacy parameter writes, arrays and row-major matrix layouts.
+    std::variant<MaterialSource, AssetError> EditableMaterial(MaterialData data, const ShaderData& shader)
+    {
+        if (!data.Bindings && IsStandardShader(data.Shader))
+        {
+            auto resolved = ResolveStandardMaterial(data);
+            if (const auto* error = std::get_if<AssetError>(&resolved))
+                return *error;
+            data = std::get<MaterialData>(std::move(resolved));
+        }
+        if (!data.Bindings)
+            return AssetError {AssetErrorCode::InvalidData, "Embedded material has no binding recipe"};
+        auto reflection = InspectShaderProgram(shader.Code);
+        if (const auto* error = std::get_if<AssetError>(&reflection))
+            return *error;
+        auto packed = PackMaterialUniforms(data, shader.Code, *data.Bindings);
+        if (const auto* error = std::get_if<AssetError>(&packed))
+            return *error;
+        auto schema = DescribeMaterial(&shader);
+        if (const auto* error = std::get_if<AssetError>(&schema))
+            return *error;
+        MaterialSource source;
+        source.Name   = data.Name;
+        source.Shader = data.Shader;
+        source.Render = data.Render;
+        std::set<uint32_t> textures;
+        for (const auto& resource : MaterialShaderResources(std::get<std::vector<ShaderStageReflection>>(reflection)))
+        {
+            if (resource.Kind == ShaderBindingKind::CombinedImageSampler)
+            {
+                for (const auto& assignment : data.Bindings->Textures)
+                    if (assignment.Set == resource.Set && assignment.Binding == resource.Binding)
+                    {
+                        source.Textures[resource.Name] = data.Textures.at(assignment.TextureIndex).Texture;
+                        textures.insert(assignment.TextureIndex);
+                    }
+                continue;
+            }
+            const auto& blocks = std::get<std::vector<MaterialUniformBlock>>(packed);
+            const auto  block  = std::find_if(blocks.begin(), blocks.end(), [&](const auto& item) {
+                return item.Set == resource.Set && item.Binding == resource.Binding;
+            });
+            if (block == blocks.end())
+                return AssetError {AssetErrorCode::InvalidData, "Missing embedded material uniform block"};
+            for (const auto& member : resource.Members)
+            {
+                if (member.Type == ShaderUniformType::Struct)
+                    return AssetError {AssetErrorCode::NotImplemented, "Cannot extract struct material parameters"};
+                auto& values = source.Parameters[member.Name];
+                for (uint32_t element = 0; element < member.ArrayCount; ++element)
+                    for (uint32_t column = 0; column < member.Columns; ++column)
+                        for (uint32_t row = 0; row < member.Components; ++row)
+                        {
+                            uint64_t offset = member.Offset + element * member.ArrayStride;
+                            offset += member.Columns == 1 ? row * 4 :
+                                      member.RowMajor     ? row * member.MatrixStride + column * 4 :
+                                                            column * member.MatrixStride + row * 4;
+                            if (offset + 4 > block->Bytes.size())
+                                return AssetError {AssetErrorCode::InvalidData, "Invalid material parameter layout"};
+                            uint32_t bits = 0;
+                            for (size_t byte = 0; byte < 4; ++byte)
+                                bits |= uint32_t(std::to_integer<uint8_t>(block->Bytes[offset + byte])) << (8 * byte);
+                            if (member.Type == ShaderUniformType::Float)
+                            {
+                                float value;
+                                std::memcpy(&value, &bits, 4);
+                                values.push_back(value);
+                            }
+                            else if (member.Type == ShaderUniformType::Signed)
+                            {
+                                int32_t value;
+                                std::memcpy(&value, &bits, 4);
+                                values.push_back(value);
+                            }
+                            else
+                                values.push_back(bits);
+                        }
+            }
+        }
+        if (textures.size() != data.Textures.size())
+            return AssetError {AssetErrorCode::NotImplemented, "Cannot extract unbound material textures"};
+        return source;
+    }
+
     std::variant<MaterialSource, AssetError> ParseMaterialSource(const std::byte* bytes, size_t size)
     {
         if (!bytes || !size || size > 1024 * 1024)
@@ -130,17 +216,39 @@ namespace Kans
             {
                 const auto field = entry.first.as<std::string>();
                 if (!fields.insert(field).second ||
-                    !std::set<std::string> {"magic", "version", "name", "shader", "parameters", "textures", "render"}
+                    !std::set<std::string> {
+                        "magic", "version", "name", "shader", "parent", "parameters", "textures", "render"}
                          .count(field))
                     return Invalid("unknown or duplicate field '" + field + "'");
             }
             if (!root["magic"] || root["magic"].as<std::string>() != "KansMaterial")
                 return Invalid("missing 'magic: KansMaterial'");
-            if (!root["version"] || (root["version"].as<uint32_t>() != 2 && root["version"].as<uint32_t>() != 3))
-                return AssetError {AssetErrorCode::UnsupportedVersion, "Material source requires version 2 or 3"};
+            if (!root["version"] || root["version"].as<uint32_t>() < 2 || root["version"].as<uint32_t>() > 4)
+                return AssetError {AssetErrorCode::UnsupportedVersion, "Material source requires version 2, 3 or 4"};
 
             MaterialSource source;
+            if (root["parent"])
+            {
+                if (root["version"].as<uint32_t>() < 4)
+                    return Invalid("parent requires version 4");
+                source.Parent = AssetID::FromString(root["parent"].as<std::string>());
+                if (!source.Parent.IsValid())
+                    return Invalid("invalid parent Material AssetID");
+                if (root["shader"])
+                    return Invalid("an instance cannot specify both parent and shader");
+            }
             source.Render = ReadMaterialRenderState(root["render"]);
+            if (source.Parent.IsValid())
+            {
+                const auto render = root["render"];
+                if (render && render["alpha_mode"])
+                    source.RenderOverrides.AlphaMode = source.Render.AlphaMode;
+                if (render && render["alpha_cutoff"])
+                    source.RenderOverrides.AlphaCutoff = source.Render.AlphaCutoff;
+                if (render && render["double_sided"])
+                    source.RenderOverrides.DoubleSided = source.Render.DoubleSided;
+                source.Render = {};
+            }
             source.Name = root["name"] ? root["name"].as<std::string>() : std::string();
             if (source.Name.size() > 4096)
                 return Invalid("name is too long");
@@ -170,8 +278,11 @@ namespace Kans
                 for (const auto& entry : textures)
                 {
                     const auto name = entry.first.as<std::string>();
-                    const auto id   = AssetID::FromString(entry.second.as<std::string>());
-                    if (!ValidName(name) || !id.IsValid() || !source.Textures.emplace(name, id).second)
+                    const bool clear =
+                        entry.second.IsNull() || (entry.second.IsScalar() && entry.second.Scalar().empty());
+                    const auto id = clear ? AssetID {} : AssetID::FromString(entry.second.as<std::string>());
+                    if (!ValidName(name) || (!id.IsValid() && !(clear && source.Parent.IsValid())) ||
+                        !source.Textures.emplace(name, id).second)
                         return Invalid("invalid texture entry '" + name + "'");
                 }
             }
@@ -190,11 +301,42 @@ namespace Kans
         out.SetFloatPrecision(9);
         out << YAML::BeginMap;
         out << YAML::Key << "magic" << YAML::Value << "KansMaterial";
-        out << YAML::Key << "version" << YAML::Value << 3;
+        out << YAML::Key << "version" << YAML::Value << 4;
         out << YAML::Key << "name" << YAML::Value << source.Name;
-        out << YAML::Key << "shader" << YAML::Value
-            << (source.Shader.IsValid() ? source.Shader.ToString() : std::string());
-        EmitMaterialRenderState(out, source.Render);
+        if (source.Parent.IsValid())
+        {
+            if (source.Shader.IsValid())
+                throw std::invalid_argument("an instance cannot specify both parent and shader");
+            out << YAML::Key << "parent" << YAML::Value << source.Parent.ToString();
+            const auto& render = source.RenderOverrides;
+            if (render.AlphaMode || render.AlphaCutoff || render.DoubleSided)
+            {
+                MaterialRenderState state;
+                if (render.AlphaMode)
+                    state.AlphaMode = *render.AlphaMode;
+                if (render.AlphaCutoff)
+                    state.AlphaCutoff = *render.AlphaCutoff;
+                if (!IsValidMaterialRenderState(state))
+                    throw std::invalid_argument("invalid material render override");
+                out << YAML::Key << "render" << YAML::Value << YAML::Flow << YAML::BeginMap;
+                if (render.AlphaMode)
+                    out << YAML::Key << "alpha_mode" << YAML::Value
+                        << (state.AlphaMode == MaterialAlphaMode::Mask  ? "mask" :
+                            state.AlphaMode == MaterialAlphaMode::Blend ? "blend" :
+                                                                          "opaque");
+                if (render.AlphaCutoff)
+                    out << YAML::Key << "alpha_cutoff" << YAML::Value << *render.AlphaCutoff;
+                if (render.DoubleSided)
+                    out << YAML::Key << "double_sided" << YAML::Value << *render.DoubleSided;
+                out << YAML::EndMap;
+            }
+        }
+        else
+        {
+            out << YAML::Key << "shader" << YAML::Value
+                << (source.Shader.IsValid() ? source.Shader.ToString() : std::string());
+            EmitMaterialRenderState(out, source.Render);
+        }
         out << YAML::Key << "parameters" << YAML::Value << YAML::BeginMap;
         for (const auto& [name, values] : source.Parameters)
         {
@@ -212,7 +354,15 @@ namespace Kans
         out << YAML::EndMap;
         out << YAML::Key << "textures" << YAML::Value << YAML::BeginMap;
         for (const auto& [name, id] : source.Textures)
-            out << YAML::Key << name << YAML::Value << id.ToString();
+        {
+            out << YAML::Key << name << YAML::Value;
+            if (id.IsValid())
+                out << id.ToString();
+            else if (source.Parent.IsValid())
+                out << YAML::Null;
+            else
+                throw std::invalid_argument("empty texture requires a parent");
+        }
         out << YAML::EndMap;
         out << YAML::EndMap;
         return std::string(out.c_str()) + "\n";
@@ -293,8 +443,51 @@ namespace Kans
         }
     }
 
+    std::variant<MaterialSource, AssetError>
+    ApplyMaterialOverrides(const MaterialSource& parent, const MaterialSource& instance, const ShaderData* shader)
+    {
+        if (parent.Parent.IsValid() || !instance.Parent.IsValid() || instance.Shader.IsValid())
+            return Invalid("overrides require an effective parent and an instance without its own Shader");
+        auto described = DescribeMaterial(IsStandardShader(parent.Shader) ? nullptr : shader);
+        if (const auto* error = std::get_if<AssetError>(&described))
+            return *error;
+        const auto&    schema     = std::get<MaterialSchema>(described);
+        MaterialSource effective  = parent;
+        effective.Name            = instance.Name;
+        effective.RenderOverrides = {};
+        for (const auto& [name, values] : instance.Parameters)
+        {
+            if (std::none_of(schema.Parameters.begin(), schema.Parameters.end(), [&](const auto& parameter) {
+                    return parameter.Name == name;
+                }))
+                return Invalid("unknown parameter override '" + name + "'");
+            effective.Parameters[name] = values;
+        }
+        for (const auto& [name, id] : instance.Textures)
+        {
+            if (std::find(schema.Textures.begin(), schema.Textures.end(), name) == schema.Textures.end())
+                return Invalid("unknown texture override '" + name + "'");
+            if (id.IsValid())
+                effective.Textures[name] = id;
+            else
+                effective.Textures.erase(name);
+        }
+        if (instance.RenderOverrides.AlphaMode)
+            effective.Render.AlphaMode = *instance.RenderOverrides.AlphaMode;
+        if (instance.RenderOverrides.AlphaCutoff)
+            effective.Render.AlphaCutoff = *instance.RenderOverrides.AlphaCutoff;
+        if (instance.RenderOverrides.DoubleSided)
+            effective.Render.DoubleSided = *instance.RenderOverrides.DoubleSided;
+        auto validated = ResolveMaterialSource(effective, shader);
+        if (const auto* error = std::get_if<AssetError>(&validated))
+            return *error;
+        return effective;
+    }
+
     std::variant<MaterialData, AssetError> ResolveMaterialSource(const MaterialSource& input, const ShaderData* shader)
     {
+        if (input.Parent.IsValid())
+            return Invalid("instance must be combined with its effective parent before resolving");
         MaterialSource source;
         try
         {

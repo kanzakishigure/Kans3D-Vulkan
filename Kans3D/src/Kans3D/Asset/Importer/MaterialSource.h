@@ -5,10 +5,18 @@
 
 namespace Kans
 {
+    // Presence, including false/opaque/0, means override. Used only with Parent.
+    struct MaterialRenderOverrides
+    {
+        std::optional<MaterialAlphaMode> AlphaMode;
+        std::optional<float>             AlphaCutoff;
+        std::optional<bool>              DoubleSided;
+    };
+
     // Human-authored `.material` source (YAML). Parameters and textures are named:
     //
     //   magic: KansMaterial
-    //   version: 3
+    //   version: 4
     //   name: Toon
     //   shader: <Shader AssetID>   # empty: engine Standard
     //   parameters: {Tint: [1, 0.8, 0.8, 1], Steps: 3}
@@ -27,6 +35,11 @@ namespace Kans
         std::map<std::string, std::vector<double>> Parameters;
         std::map<std::string, AssetID>              Textures;
         MaterialRenderState                         Render;
+        // Instances omit shader, store only overrides, and use RenderOverrides.
+        // Textures[name] == AssetID{} explicitly clears an inherited texture
+        // (YAML: `textures: {NormalMap: null}`). Missing entries inherit.
+        AssetID                 Parent;
+        MaterialRenderOverrides RenderOverrides;
     };
 
     struct MaterialParameterInfo
@@ -54,6 +67,16 @@ namespace Kans
 
     [[nodiscard]] std::variant<MaterialSource, AssetError> ParseMaterialSource(const std::byte* bytes, size_t size);
     [[nodiscard]] std::string                             SerializeMaterialSource(const MaterialSource& source);
+
+    // Decodes actual packed values, including legacy writes and matrix layouts.
+    // Returns a standalone effective source (no Parent), using the material's Shader.
+    [[nodiscard]] std::variant<MaterialSource, AssetError> EditableMaterial(MaterialData      data,
+                                                                            const ShaderData& shader);
+
+    // Parent must already be effective. Validates overrides against its Shader's
+    // schema and returns an effective source suitable for ResolveMaterialSource.
+    [[nodiscard]] std::variant<MaterialSource, AssetError>
+    ApplyMaterialOverrides(const MaterialSource& parent, const MaterialSource& instance, const ShaderData* shader);
 
     // Reflected schema of the engine Standard Shader (shader == nullptr) or of a material Shader.
     // Struct members of material uniform blocks are not exposed and stay zero.

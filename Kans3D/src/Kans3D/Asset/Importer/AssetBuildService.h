@@ -15,6 +15,9 @@ namespace Kans
         // Import even if the build key matches the published build.
         bool                                  Force = false;
         std::function<bool(PublicationPhase)> Progress;
+        // Project coordinator: also build published dependents of the root,
+        // transitively, for Target. Unrelated sources are never selected.
+        bool RebuildDependents = false;
     };
 
     enum class AssetBuildDisposition

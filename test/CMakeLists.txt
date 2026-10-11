@@ -38,6 +38,7 @@ add_executable(Kans3DTests
     ShaderImporterTests.cpp
     MaterialBindingsTests.cpp
     MaterialSourceTests.cpp
+    MaterialInstanceTests.cpp
     MaterialParameterGroupsTests.cpp
     TextureImporterTests.cpp
     ImporterRegistryTests.cpp

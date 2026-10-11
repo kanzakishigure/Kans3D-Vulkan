@@ -91,7 +91,7 @@ assets/x.obj + x.obj.kmeta                    AssetID
 
 ## 材质与材质 Shader（`Importer/MaterialSource`、`Runtime/MaterialShaderInterface`）
 
-- 材质只有一个模型：Shader + 命名参数 + 命名纹理 + render state。`.material`（YAML v3，兼容 v2）的
+- 材质只有一个模型：Shader + 命名参数 + 命名纹理 + render state。`.material`（YAML v4，兼容 v2/v3）的
   `shader` 为空时选择引擎内嵌 Standard（保留 ID `ffffffffffffffff:0000000000000001`），
   无需项目文件。Standard 和项目 Shader 使用同一编译、SPIR-V 反射、约定校验及
   GL 交叉编译流程；`DescribeMaterial(nullptr)` 在 CPU 上提供其真实反射 schema、默认值和 hint。
@@ -140,6 +140,80 @@ assets/x.obj + x.obj.kmeta                    AssetID
 - 示例：`KansEditor/assets/shaders/Toon/Toon.shaderprog`（卡通着色 + Ramp + 边缘光）；
   `ToneCharacter/ToneCharacter.shaderprog` 是旧版原神风格 `ToneCharactorShader`
   的移植（Diffuse + `_Light` + `_Ramp` 贴图，默认参数同旧 `MaterialUtils`）。
+
+## Material instances（材质实例）
+
+`.material` v4 可用 `parent` 指定一个 Material **AssetID**（不是 SourceAssetID）。
+实例禁止出现 `shader` 字段，包括空字符串或 null；有效 Shader 递归继承。
+例如：
+
+```yaml
+magic: KansMaterial
+version: 4
+name: Polished variant
+parent: 0123456789abcdef:0000000000000001
+parameters:
+  Roughness: 0.15
+textures:
+  BaseColorMap: fedcba9876543210:0000000000000001
+  NormalMap: null
+render:
+  double_sided: false
+```
+
+- `parameters`、`textures` 仅保存覆盖项。未列出的名字继承父材质实际有效值，
+  包括 Shader 默认值。`textures: {NormalMap: null}` 清除继承纹理；空字符串 `''`
+  同样表示清除，保存统一写 `null`。独立材质不接受空纹理项。
+- `render` 仅列出的字段覆盖；可独立指定 `alpha_mode: opaque|mask|blend`、
+  `alpha_cutoff: <有限非负数>`、`double_sided: true|false`。省略整个 mapping 表示全部继承。
+  显式 `opaque`、`0`、`false` 都是覆盖。独立材质继续使用原来的 Render/default 行为。
+- `SerializeMaterialSource` 对实例只写 Parent、名字和覆盖项，不写有效 Shader 或继承值。
+  v2/v3 独立源仍能读取及迁移旧 Standard 名字；保存写 v4。实例覆盖名必须在有效 Shader
+  schema 中，未知参数/纹理（包括清除项）及错误形状/类型均报错。
+- MaterialImporter v8 声明父材质为必需、有类型的 Product 输入，Project 先递归构建父链，
+  再提供父 KMAT 及其已发布 Shader/Texture 依赖。通过 `EditableMaterial` 解码实际打包的命名值，
+  应用覆盖，再走原来的 `ResolveMaterialSource`。KMAT 继续为 v4，存完整有效材质，运行时无需父链。
+  父材质缺失、未发布指定 ID、非 Material 或构建失败时实例构建失败，保留之前成功的 Product；
+  不使用默认材质回退。自引用/循环以源路径和 ID 输出完整有序链。
+- 保存材质后，编辑器必须设置 `AssetBuildOptions::RebuildDependents = true`，并调用
+  `EditorAssetImportService::Start(materialSourceID, options)`（Target 使用 `EditorAssetTarget`）；
+  CPU 工具使用 `Project::BuildAsset(materialSourceID, options)`。默认 false 保留现有单根构建语义。
+  Project 遍历该目标已发布的反向输入图，传递重建所有实例/实例的实例，每个源在一次 session
+  中最多构建一次、前向输入仍先构建，指纹未变则跳过。不会选择无关或仅在其他目标发布的源。
+  尚未发布的实例需单独首次构建。`AssetBuildGraphResult::Dependents` 记录根之后构建的源；
+  `Root.Registry` 为全部成功发布后的最终快照，编辑器 Poll 完成后按现有方式更新运行时 Registry。
+  每个源单独原子发布。根成功后，某个 dependent 失败不会中断其他独立分支；
+  仅跳过该失败源的已发布后代，不读取它的旧 Product 来发布后代。失败/跳过的源保留以前的 Product，
+  修复后可重试。根构建失败或取消仍返回 variant 的 AssetError。
+  编辑器结果形状不增加新字段：`Root` 保留成功根的 Source、Disposition 等；
+  `Root.Registry` 为全部成功发布后的最终快照；`Dependents` 仅包含成功的后续构建结果。
+  `Root.Warnings` 每个失败源追加 `Dependent build failed: <source path>: <message>`，
+  每个跳过后代追加 `Skipped dependent <source path>: dependency <failed source path> failed: <message>`。
+  `EditorAssetImportService` 在这些 dependent 失败时仍返回 Succeeded 和 Result（Error 不设置），
+  调用者更新 Registry，并显示 Root.Warnings；现有 import panel 已显示这些警告。
+  模型提取仍生成独立材质，不生成实例。
+
+编辑器 CPU helper API（`Importer/MaterialSource.h`，无 GL）：
+
+```cpp
+std::variant<MaterialSource, AssetError>
+EditableMaterial(MaterialData data, const ShaderData& shader);
+
+std::variant<MaterialSource, AssetError>
+ApplyMaterialOverrides(const MaterialSource& parent,
+                       const MaterialSource& instance,
+                       const ShaderData* shader);
+```
+
+`EditableMaterial` 输入已发布 MaterialData 和其实际 ShaderData（Standard 用
+`GetStandardShader()`），输出无 Parent 的有效命名源，保留整数、数组、矩阵布局和 render state。
+`ApplyMaterialOverrides` 的 parent 必须已有效化，instance 必须有 Parent 且无自己的 Shader；
+shader 是父材质有效 Shader（Standard 可传 nullptr）。返回同样无 Parent 的有效源并验证覆盖。
+预览未保存实例：解码父材质 → 应用未保存覆盖 → `ResolveMaterialSource(effective, shader)` →
+现有 `MaterialPreviewRenderer`。保存时始终序列化原 instance，不序列化 effective。
+判断覆盖无需额外函数：`instance.Parameters.count(name)`、`instance.Textures.count(name)`
+（空 AssetID 也是覆盖）；render 分别检查 `instance.RenderOverrides.AlphaMode/AlphaCutoff/DoubleSided`
+的 `has_value()`，不能检查里面的值是否为真。独立源仍编辑 `instance.Render`。
 
 ## 编辑器
 

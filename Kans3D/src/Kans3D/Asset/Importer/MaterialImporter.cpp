@@ -29,10 +29,13 @@ namespace Kans
             return std::move(*failure);
         const auto&  source = std::get<MaterialSource>(parsed);
         ImportInputs inputs;
-        if (!IsStandardShader(source.Shader))
+        if (source.Parent.IsValid())
+            inputs.ProductsWithDependencies.emplace(source.Parent, AssetType::Material);
+        else if (!IsStandardShader(source.Shader))
             inputs.Products.push_back(source.Shader);
         for (const auto& texture : source.Textures)
-            if (std::find(inputs.Products.begin(), inputs.Products.end(), texture.second) == inputs.Products.end())
+            if (texture.second.IsValid() &&
+                std::find(inputs.Products.begin(), inputs.Products.end(), texture.second) == inputs.Products.end())
                 inputs.Products.push_back(texture.second);
         for (AssetID id : inputs.Products)
             if (id.GetSourceID() == context.SourceID)
@@ -55,22 +58,47 @@ namespace Kans
             auto parsed = ReadMaterialSource(context.SourceFile);
             if (auto failure = std::get_if<AssetError>(&parsed))
                 return *failure;
-            const auto& source = std::get<MaterialSource>(parsed);
+            auto source = std::get<MaterialSource>(parsed);
             // Referenced Products must have been built and supplied, with the expected types.
             const auto decoded = [&](AssetID id) -> const std::vector<std::byte>* {
                 const auto found = context.ProductBytes.find(id);
                 return found == context.ProductBytes.end() ? nullptr : &found->second;
             };
-            std::optional<ShaderData> shader;
-            if (!IsStandardShader(source.Shader))
+            std::optional<MaterialData> parent;
+            if (source.Parent.IsValid())
             {
-                const auto* shaderBytes = decoded(source.Shader);
+                const auto* parentBytes = decoded(source.Parent);
+                if (!parentBytes)
+                    return AssetError {AssetErrorCode::NotFound,
+                                       "Material parent Product is unavailable: " + source.Parent.ToString()};
+                auto material = DecodeMaterialProduct(parentBytes->data(), parentBytes->size());
+                if (std::holds_alternative<AssetError>(material))
+                    return AssetError {AssetErrorCode::InvalidData,
+                                       "Material parent is not a Material Product: " + source.Parent.ToString()};
+                parent = std::get<MaterialData>(std::move(material));
+            }
+            const auto                shaderID = parent ? parent->Shader : source.Shader;
+            std::optional<ShaderData> shader;
+            if (!IsStandardShader(shaderID))
+            {
+                const auto* shaderBytes = decoded(shaderID);
                 if (!shaderBytes)
                     return AssetError {AssetErrorCode::NotFound, "Material Shader Product is not available"};
                 auto decodedShader = DecodeShaderProduct(shaderBytes->data(), shaderBytes->size());
                 if (std::holds_alternative<AssetError>(decodedShader))
                     return AssetError {AssetErrorCode::InvalidData, "Material Shader is not a Shader Product"};
                 shader = std::get<ShaderData>(std::move(decodedShader));
+            }
+            if (parent)
+            {
+                auto editable = EditableMaterial(*parent, shader ? *shader : GetStandardShader());
+                if (const auto* failure = std::get_if<AssetError>(&editable))
+                    return *failure;
+                auto effective =
+                    ApplyMaterialOverrides(std::get<MaterialSource>(editable), source, shader ? &*shader : nullptr);
+                if (const auto* failure = std::get_if<AssetError>(&effective))
+                    return *failure;
+                source = std::get<MaterialSource>(std::move(effective));
             }
             auto resolved = ResolveMaterialSource(source, shader ? &*shader : nullptr);
             if (auto* failure = std::get_if<AssetError>(&resolved))

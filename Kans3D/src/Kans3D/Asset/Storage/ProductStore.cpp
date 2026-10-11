@@ -311,13 +311,16 @@ namespace Kans
         return build == found->second.Targets.end() ? std::nullopt : std::optional<ProductBuildRecord>(build->second);
     }
 
-    std::vector<SourceAssetID> ProductStore::FindDependents(SourceAssetID source) const
+    std::vector<SourceAssetID> ProductStore::FindDependents(SourceAssetID      source,
+                                                            const std::string& requestedTarget) const
     {
         const auto                 catalog = Current();
         std::vector<SourceAssetID> result;
         for (const auto& [id, state] : catalog->Sources)
             for (const auto& [target, build] : state.Targets)
             {
+                if (!requestedTarget.empty() && target != requestedTarget)
+                    continue;
                 const bool reads = std::count(build.SourceInputs.begin(), build.SourceInputs.end(), source) > 0;
                 const bool uses  = std::any_of(build.ProductInputs.begin(),
                                                build.ProductInputs.end(),

@@ -43,6 +43,9 @@ namespace Kans
         std::map<std::filesystem::path, std::map<std::string, std::string>> ProductSourceSettings;
         // Products referenced by ID (a Material's Shader and Textures).
         std::vector<AssetID> Products;
+        // Required typed Products, including their published dependency closure.
+        // Material instances need the parent's effective Shader and textures too.
+        std::map<AssetID, AssetType> ProductsWithDependencies;
         // Typed, optional references: unavailable inputs warn and are omitted.
         std::map<AssetID, AssetType> OptionalProducts;
         // Problems that do not stop the import, such as a missing texture file.

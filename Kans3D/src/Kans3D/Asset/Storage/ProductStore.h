@@ -66,7 +66,8 @@ namespace Kans
         std::optional<SourceProducts>     FindSource(SourceAssetID source) const;
         std::optional<ProductBuildRecord> FindBuild(SourceAssetID source, const std::string& target) const;
         // Sources with builds that read `source` or use one of its Products.
-        std::vector<SourceAssetID>     FindDependents(SourceAssetID source) const;
+        // Empty target considers every target (deletion planning).
+        std::vector<SourceAssetID>     FindDependents(SourceAssetID source, const std::string& target = {}) const;
         const std::filesystem::path&   GetRoot() const { return m_Root; }
         const std::vector<AssetError>& GetWarnings() const { return m_Warnings; }
 

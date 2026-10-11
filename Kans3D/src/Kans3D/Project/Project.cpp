@@ -50,6 +50,12 @@ namespace Kans
         std::map<SourceAssetID, AssetBuildResult> Done;
         std::set<SourceAssetID>                   Active;
         std::vector<AssetBuildResult>             Order;
+        std::vector<SourceAssetID>                Stack;
+        std::map<SourceAssetID, AssetError>       Failed;
+        // Published reverse graph, enabled only after the root succeeds.
+        std::map<SourceAssetID, std::vector<SourceAssetID>> Dependents;
+        // Descendant -> failed ancestor; never rebuild against its stale Product.
+        std::map<SourceAssetID, SourceAssetID> Blocked;
     };
 
     Project::~Project() = default;
@@ -242,7 +248,7 @@ namespace Kans
     std::variant<AssetBuildGraphResult, AssetError>
     Project::BuildAsset(SourceAssetID id, const AssetBuildOptions& options, const ImporterRegistry& importers)
     {
-        BuildSession session {importers, options, {}, {}, {}};
+        BuildSession session {importers, options, {}, {}, {}, {}, {}, {}, {}};
         auto         built = BuildSource(id, session);
         if (auto* error = std::get_if<AssetError>(&built))
             return std::move(*error);
@@ -250,6 +256,42 @@ namespace Kans
         result.Root = std::get<AssetBuildResult>(std::move(built));
         session.Order.pop_back();
         result.Dependencies = std::move(session.Order);
+        session.Order.clear();
+        if (options.RebuildDependents)
+        {
+            // Walk the published reverse graph, retaining one session so each
+            // source builds once and forward dependencies still build first.
+            std::vector<SourceAssetID> pending {id};
+            std::set<SourceAssetID>    visited {id};
+            for (size_t index = 0; index < pending.size(); ++index)
+            {
+                auto& dependents = session.Dependents[pending[index]];
+                dependents       = m_ProductStore->FindDependents(pending[index], options.Target);
+                for (SourceAssetID dependent : dependents)
+                    if (visited.insert(dependent).second)
+                        pending.push_back(dependent);
+            }
+            for (size_t index = 1; index < pending.size(); ++index)
+            {
+                const auto source    = pending[index];
+                auto       dependent = BuildSource(source, session);
+                if (auto* error = std::get_if<AssetError>(&dependent))
+                {
+                    if (error->Code == AssetErrorCode::Cancelled)
+                        return *error;
+                    const auto path = m_SourceAssetDatabase.FindByID(source).Path.ToString();
+                    if (const auto blocked = session.Blocked.find(source); blocked != session.Blocked.end())
+                        result.Root.Warnings.push_back("Skipped dependent " + path + ": dependency " +
+                                                       m_SourceAssetDatabase.FindByID(blocked->second).Path.ToString() +
+                                                       " failed: " + session.Failed.at(blocked->second).Message);
+                    else
+                        result.Root.Warnings.push_back("Dependent build failed: " + path + ": " + error->Message);
+                }
+            }
+            result.Dependents = std::move(session.Order);
+        }
+        // Existing editor callers consume Root.Registry; include all publications.
+        result.Root.Registry = GetRuntimeAssetRegistry();
         auto cached         = SaveSourceCache();
         if (auto* error = std::get_if<AssetError>(&cached))
             m_AssetWarnings.push_back(std::move(*error));
@@ -260,8 +302,38 @@ namespace Kans
     {
         if (const auto done = session.Done.find(id); done != session.Done.end())
             return done->second;
+        if (const auto failed = session.Failed.find(id); failed != session.Failed.end())
+            return failed->second;
+        if (session.Blocked.count(id))
+            return AssetError {AssetErrorCode::InvalidData, "Dependency failed during propagation"};
+        auto built = BuildSourceOnce(id, session);
+        if (const auto* error = std::get_if<AssetError>(&built); error && error->Code != AssetErrorCode::Cancelled)
+        {
+            session.Failed.emplace(id, *error);
+            std::vector<SourceAssetID> pending {id};
+            std::set<SourceAssetID>    visited {id};
+            for (size_t index = 0; index < pending.size(); ++index)
+                if (const auto found = session.Dependents.find(pending[index]); found != session.Dependents.end())
+                    for (SourceAssetID dependent : found->second)
+                        if (visited.insert(dependent).second)
+                        {
+                            session.Blocked.emplace(dependent, id);
+                            pending.push_back(dependent);
+                        }
+        }
+        return built;
+    }
+
+    std::variant<AssetBuildResult, AssetError> Project::BuildSourceOnce(SourceAssetID id, BuildSession& session)
+    {
         if (session.Active.count(id))
-            return AssetError {AssetErrorCode::InvalidData, "Source dependency cycle at " + id.ToString()};
+        {
+            std::string chain;
+            for (auto source : session.Stack)
+                chain += m_SourceAssetDatabase.FindByID(source).Path.ToString() + " (" + source.ToString() + ") -> ";
+            chain += m_SourceAssetDatabase.FindByID(id).Path.ToString() + " (" + id.ToString() + ")";
+            return AssetError {AssetErrorCode::InvalidData, "Source dependency cycle: " + chain};
+        }
         auto metadata = m_SourceAssetDatabase.FindByID(id);
         if (!metadata.IsValid() || !metadata.Exists)
             return AssetError {AssetErrorCode::NotFound, "Source " + id.ToString() + " is unknown or Missing"};
@@ -293,12 +365,18 @@ namespace Kans
         auto found = std::get<ImportInputs>(std::move(discovered));
 
         session.Active.insert(id);
+        session.Stack.push_back(id);
         struct ActiveGuard
         {
             std::set<SourceAssetID>& Active;
             SourceAssetID            ID;
-            ~ActiveGuard() { Active.erase(ID); }
-        } guard {session.Active, id};
+            std::vector<SourceAssetID>& Stack;
+            ~ActiveGuard()
+            {
+                Active.erase(ID);
+                Stack.pop_back();
+            }
+        } guard {session.Active, id, session.Stack};
         for (const auto& input : found.SourceFiles)
         {
             auto source = FindSourceByFile(input);
@@ -348,6 +426,39 @@ namespace Kans
                 inputs.ProductInputs.push_back(product);
         }
 
+        for (const auto& [product, type] : found.ProductsWithDependencies)
+        {
+            const auto label = type == AssetType::Material ? "Material parent " : "Required Product ";
+            auto       built = BuildSource(product.GetSourceID(), session);
+            if (const auto* error = std::get_if<AssetError>(&built))
+                return AssetError {
+                    error->Code, metadata.Path.ToString() + ": " + label + product.ToString() + ": " + error->Message};
+            const auto registry = m_ProductStore->Snapshot();
+            const auto record   = registry->Find(product, session.Options.Target);
+            if (!record || record->Metadata.Type != type)
+                return AssetError {AssetErrorCode::InvalidData,
+                                   metadata.Path.ToString() + ": " + label + product.ToString() +
+                                       " is unpublished or has the wrong Product type"};
+            std::vector<AssetID> pending {product};
+            std::set<AssetID>    visited;
+            for (size_t index = 0; index < pending.size(); ++index)
+            {
+                const auto input = pending[index];
+                if (!visited.insert(input).second)
+                    continue;
+                const auto dependency = registry->Find(input, session.Options.Target);
+                if (!dependency)
+                    return AssetError {AssetErrorCode::NotFound,
+                                       std::string("Required dependency of ") + label + product.ToString() +
+                                           " is unpublished: " + input.ToString()};
+                if (std::find(inputs.ProductInputs.begin(), inputs.ProductInputs.end(), input) ==
+                    inputs.ProductInputs.end())
+                    inputs.ProductInputs.push_back(input);
+                pending.insert(
+                    pending.end(), dependency->Metadata.Dependencies.begin(), dependency->Metadata.Dependencies.end());
+            }
+        }
+
         for (const auto& [product, type] : found.OptionalProducts)
         {
             auto built = BuildSource(product.GetSourceID(), session);
@@ -365,6 +476,10 @@ namespace Kans
                 inputs.ProductInputs.push_back(product);
         }
 
+        // A recursive input can fail while this source is active. In particular,
+        // optional model remaps must not publish a fallback for a blocked branch.
+        if (session.Blocked.count(id))
+            return AssetError {AssetErrorCode::InvalidData, "Dependency failed during propagation"};
         auto built = AssetBuildService::Build(
             inputs, session.Options, *m_ProductStore, m_Digests, m_Config.CacheDirectory / "ImportWork");
         if (auto* error = std::get_if<AssetError>(&built))

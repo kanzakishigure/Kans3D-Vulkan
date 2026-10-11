@@ -34,9 +34,13 @@ namespace Kans
 
     struct AssetBuildGraphResult
     {
+        // A successful root is retained when dependent builds fail. Warnings
+        // report each failed/skipped dependent by source path and reason.
         AssetBuildResult Root;
         // Sources built before the root because it reads or references them.
         std::vector<AssetBuildResult> Dependencies;
+        // Successful additional sources built after the root with RebuildDependents.
+        std::vector<AssetBuildResult> Dependents;
     };
 
     struct SourceAssetDeletionPlan
@@ -121,6 +125,7 @@ namespace Kans
                               const std::string&              target = "default");
 
         // Builds the source after building every source it reads or references.
+        // RebuildDependents also updates its published dependents for the target.
         [[nodiscard]] std::variant<AssetBuildGraphResult, AssetError> BuildAsset(SourceAssetID            id,
                                                                                  const AssetBuildOptions& options);
         // Uses a custom importer set instead of the default importers.
@@ -144,6 +149,7 @@ namespace Kans
         std::variant<std::monostate, AssetError>   SaveSourceCache() const;
         std::variant<std::monostate, AssetError>   RecoverInterruptedMove();
         std::variant<AssetBuildResult, AssetError> BuildSource(SourceAssetID id, BuildSession& session);
+        std::variant<AssetBuildResult, AssetError> BuildSourceOnce(SourceAssetID id, BuildSession& session);
         std::variant<SourceAssetID, AssetError>    FindSourceByFile(const std::filesystem::path& file) const;
         std::variant<std::monostate, AssetError>   SaveSidecar(const SourceAssetMetadata& metadata);
         std::filesystem::path                      SourceFile(const SourceAssetMetadata& metadata) const;
