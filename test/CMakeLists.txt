@@ -14,6 +14,8 @@ function(kans_copy_test_runtime target)
     endif()
 endfunction()
 add_executable(Kans3DTests
+    ReferenceImageTests.cpp
+    ReferenceImage.cpp
     CoreIdentityConcurrencyTests.cpp
     ModelLoadingTests.cpp
     ImportedModelDataTests.cpp
@@ -59,7 +61,8 @@ add_executable(Kans3DTests
     ../KansEditor/src/Panels/ContentBrowser/AssetFileOperations.cpp
     ../KansEditor/src/SceneHistory.cpp
 )
-target_link_libraries(Kans3DTests PRIVATE Kans3D GTest::gtest_main)
+find_package(PNG REQUIRED)
+target_link_libraries(Kans3DTests PRIVATE Kans3D GTest::gtest_main PNG::PNG)
 target_compile_features(Kans3DTests PRIVATE cxx_std_17)
 target_compile_definitions(Kans3DTests PRIVATE
     KANS_TEST_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../KansEditor/assets/model")
@@ -68,9 +71,16 @@ kans_copy_test_runtime(Kans3DTests)
 gtest_discover_tests(Kans3DTests)
 
 # Real GL tests run separately from the CPU-only suite.
-add_executable(OpenGLTextureTests OpenGLTextureTests.cpp RenderAssetCacheOpenGLTests.cpp)
-target_link_libraries(OpenGLTextureTests PRIVATE Kans3D GTest::gtest_main)
+add_executable(OpenGLTextureTests
+    GpuTestContext.cpp
+    ReferenceImage.cpp
+    RendererReferenceOpenGLTests.cpp
+    OpenGLTextureTests.cpp
+    RenderAssetCacheOpenGLTests.cpp)
+target_link_libraries(OpenGLTextureTests PRIVATE Kans3D GTest::gtest_main PNG::PNG)
 target_compile_definitions(OpenGLTextureTests PRIVATE
+    KANS_TEST_REFERENCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/references"
+    KANS_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}/reference-output"
     KANS_TEST_ICON_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Editor/ContentBrowser"
     KANS_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Shaders/OpenGL"
     KANS_TEST_EDITOR_ASSET_DIR="${PROJECT_SOURCE_DIR}/KansEditor/assets")
@@ -88,7 +98,7 @@ if(UNIX AND NOT APPLE)
         RUN_SERIAL TRUE
         ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1;MESA_LOADER_DRIVER_OVERRIDE=llvmpipe;GALLIUM_DRIVER=llvmpipe")
 else()
-    gtest_discover_tests(OpenGLTextureTests PROPERTIES LABELS "OpenGL")
+    gtest_discover_tests(OpenGLTextureTests PROPERTIES LABELS "OpenGL" RUN_SERIAL TRUE)
 endif()
 if(UNIX AND NOT APPLE)
     # Mesa otherwise returns its highest supported core version, masking the

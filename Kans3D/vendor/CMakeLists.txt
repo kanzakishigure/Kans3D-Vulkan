@@ -105,6 +105,13 @@ target_include_directories(glm INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/glm)
 
 
 # ============================================================
+# Vulkan Memory Allocator — Header-only INTERFACE library
+# ============================================================
+add_library(VulkanMemoryAllocator INTERFACE)
+target_include_directories(VulkanMemoryAllocator SYSTEM INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/VulkanMemoryAllocator/include)
+
+# ============================================================
 # EnTT — Header-only INTERFACE library
 # ============================================================
 add_library(EnTT INTERFACE)

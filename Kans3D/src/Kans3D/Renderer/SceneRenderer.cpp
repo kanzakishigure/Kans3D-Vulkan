@@ -323,8 +323,10 @@ namespace Kans
         return m_FrameBuffer->GetDepthAttachmentRendererID();
     }
 
-    void SceneRenderer::PrepareEnvironment()
+    void SceneRenderer::PrepareEnvironment(EnvironmentPrecomputeSizes sizes)
     {
+        const auto library =
+            m_Specification.AuxiliaryShaders ? m_Specification.AuxiliaryShaders : Renderer::GetShaderLibrary();
         OpenGLRenderCommand::GetError();
         // prepareSceneEnv
         OpenGLRenderCommand::EnableCullFace(false);
@@ -332,8 +334,8 @@ namespace Kans
 
         {
             FrameBufferSpecification frameBufferSpec;
-            frameBufferSpec.Width                   = 512;
-            frameBufferSpec.Height                  = 512;
+            frameBufferSpec.Width                   = sizes.Cubemap;
+            frameBufferSpec.Height                  = sizes.Cubemap;
             frameBufferSpec.SwapChainTarget         = true;
             frameBufferSpec.AttachmentSpecification = {FrameBufferTextureFormat::RGB16F,
                                                        FrameBufferTextureFormat::Depth};
@@ -358,12 +360,11 @@ namespace Kans
                 glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)),
                 glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
                 glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
-            OpenGLShader* hdrToCubeMapShader =
-                static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("HdrToCubeMap").get());
+            OpenGLShader* hdrToCubeMapShader = static_cast<OpenGLShader*>(library->Get("HdrToCubeMap").get());
 
             TextureSpecification envCubemapspec;
-            envCubemapspec.Width  = 512;
-            envCubemapspec.Height = 512;
+            envCubemapspec.Width  = sizes.Cubemap;
+            envCubemapspec.Height = sizes.Cubemap;
             envCubemapspec.Format = RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT;
             envCubemapspec.Wrap   = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             envCubemapspec.Minf   = RHIFilter::RHI_FILTER_CUBIC_EXT;
@@ -400,18 +401,17 @@ namespace Kans
             //---irradiancemap--------------------------------------------------//
 
             TextureSpecification irradianceCubemapspec;
-            irradianceCubemapspec.Width        = 512;
-            irradianceCubemapspec.Height       = 512;
+            irradianceCubemapspec.Width        = sizes.Irradiance;
+            irradianceCubemapspec.Height       = sizes.Irradiance;
             irradianceCubemapspec.Format       = RHIFormat::RHI_FORMAT_R16G16B16_SFLOAT;
             irradianceCubemapspec.Wrap         = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             irradianceCubemapspec.Minf         = RHIFilter::RHI_FILTER_CUBIC_EXT;
             irradianceCubemapspec.Maxf         = RHIFilter::RHI_FILTER_LINEAR;
             irradianceCubemapspec.GenerateMips = true;
             Ref<TextureCube> irradiancemap     = TextureCube::Create(irradianceCubemapspec);
-            framebuffer->Resize(512, 512);
+            framebuffer->Resize(sizes.Irradiance, sizes.Irradiance);
 
-            OpenGLShader* genIrradianceShader =
-                static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("genIrradiance").get());
+            OpenGLShader* genIrradianceShader = static_cast<OpenGLShader*>(library->Get("genIrradiance").get());
             genIrradianceShader->Bind();
             genIrradianceShader->UploadUniformInt("environmentMap", 2);
             genIrradianceShader->UploadUniformMat4("projection", captureProjection);
@@ -433,8 +433,8 @@ namespace Kans
             //------PreFilterRadianceMap-----------------------------------------//
 
             TextureSpecification prefilterMapspec;
-            prefilterMapspec.Width        = 128;
-            prefilterMapspec.Height       = 128;
+            prefilterMapspec.Width        = sizes.Prefilter;
+            prefilterMapspec.Height       = sizes.Prefilter;
             prefilterMapspec.Wrap         = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             prefilterMapspec.Minf         = RHIFilter::RHI_FILTER_CUBIC_IMG;
             prefilterMapspec.Maxf         = RHIFilter::RHI_FILTER_LINEAR;
@@ -443,8 +443,7 @@ namespace Kans
 
             Ref<TextureCube> prefilterMap = TextureCube::Create(prefilterMapspec);
             OpenGLRenderCommand::GetError();
-            OpenGLShader* prefilterShader =
-                static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("prefilter").get());
+            OpenGLShader* prefilterShader = static_cast<OpenGLShader*>(library->Get("prefilter").get());
             prefilterShader->Bind();
             prefilterShader->UploadUniformInt("environmentMap", 2);
             prefilterShader->UploadUniformMat4("projection", captureProjection);
@@ -454,8 +453,8 @@ namespace Kans
             for (unsigned int mip = 0; mip < maxMipLevels; ++mip)
             {
                 // 调整 ViewPort大小,保证和 mip-level 维持统一
-                unsigned int mipWidth  = static_cast<unsigned int>(128 * std::pow(0.5, mip));
-                unsigned int mipHeight = static_cast<unsigned int>(128 * std::pow(0.5, mip));
+                unsigned int mipWidth  = static_cast<unsigned int>(sizes.Prefilter * std::pow(0.5, mip));
+                unsigned int mipHeight = static_cast<unsigned int>(sizes.Prefilter * std::pow(0.5, mip));
                 framebuffer->Resize(mipWidth, mipHeight);
                 framebuffer->Bind();
 
@@ -474,8 +473,8 @@ namespace Kans
 
             //------PreCompute BRDF-LUT----------------------------------//
             TextureSpecification brdfLUTspec;
-            brdfLUTspec.Width  = 512;
-            brdfLUTspec.Height = 512;
+            brdfLUTspec.Width  = sizes.BrdfLUT;
+            brdfLUTspec.Height = sizes.BrdfLUT;
             brdfLUTspec.Wrap   = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
             brdfLUTspec.Minf   = RHIFilter::RHI_FILTER_LINEAR;
             brdfLUTspec.Maxf   = RHIFilter::RHI_FILTER_LINEAR;
@@ -483,11 +482,11 @@ namespace Kans
 
             Ref<Texture2D> brdfLUTTexture = Texture2D::Create(brdfLUTspec);
 
-            framebuffer->Resize(512, 512);
+            framebuffer->Resize(sizes.BrdfLUT, sizes.BrdfLUT);
             framebuffer->Bind();
             framebuffer->BindTextureToColorAttachMent(brdfLUTTexture);
 
-            OpenGLShader* brdfShader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("brdf").get());
+            OpenGLShader* brdfShader = static_cast<OpenGLShader*>(library->Get("brdf").get());
             brdfShader->Bind();
             OpenGLRenderCommand::Clear();
             OpenGLRenderCommand::DrawQuad();
@@ -633,7 +632,9 @@ namespace Kans
 
     void SceneRenderer::SubmitGrid(float size, float scale, glm::mat4 transform)
     {
-        auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("GridShader").get());
+        const auto library =
+            m_Specification.AuxiliaryShaders ? m_Specification.AuxiliaryShaders : Renderer::GetShaderLibrary();
+        auto shader = static_cast<OpenGLShader*>(library->Get("GridShader").get());
         shader->Bind();
 
         glm::mat4 viewprojection =
@@ -643,7 +644,7 @@ namespace Kans
 
         shader->UploadUniformFloat("U_Settings.Scale", scale);
         shader->UploadUniformFloat("U_Settings.Size", size);
-        auto VA = Renderer::GetQuad();
+        auto VA = m_Specification.AuxiliaryShaders ? MeshFactory::CreatQuad(glm::vec2(1.0f)) : Renderer::GetQuad();
         VA->Bind();
         OpenGLRenderCommand::DrawIndexed(VA);
         VA->Unbind();
@@ -651,7 +652,9 @@ namespace Kans
 
     void SceneRenderer::SubmitSkybox(Ref<TextureCube> skybox)
     {
-        auto shader = static_cast<OpenGLShader*>(Renderer::GetShaderLibrary()->Get("skybox").get());
+        const auto library =
+            m_Specification.AuxiliaryShaders ? m_Specification.AuxiliaryShaders : Renderer::GetShaderLibrary();
+        auto shader = static_cast<OpenGLShader*>(library->Get("skybox").get());
         shader->Bind();
         shader->UploadUniformMat4("U_Projection", m_SceneInfo.sceneCamera.camera.GetProjectionMatrix());
         shader->UploadUniformMat4("U_View", m_SceneInfo.sceneCamera.viewMatrix);

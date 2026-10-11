@@ -38,11 +38,21 @@ namespace Kans
         BackFaces,      // Inverted hull outline: cull front faces.
     };
 
+    // Default sizes preserve the editor's environment precomputation. Small
+    // offscreen clients can select lower resolutions without changing shaders.
+    struct EnvironmentPrecomputeSizes
+    {
+        uint32_t Cubemap = 512, Irradiance = 512, Prefilter = 128, BrdfLUT = 512;
+    };
+
     struct SceneRendererSpecification
     {
         bool SwapChainTarget = false;
         // Optional library for auxiliary geometry; defaults to the renderer library.
         Ref<ShaderLibrary> GeometryShaders;
+        // Optional environment/grid/skybox shaders for offscreen clients.
+        // Keeping this separate preserves the GeometryShaders override's scope.
+        Ref<ShaderLibrary> AuxiliaryShaders;
     };
 
     class Scene;
@@ -110,7 +120,7 @@ namespace Kans
         const SceneRenderStats& GetStats() const { return m_Stats; }
 
         void                  Init();
-        void                  PrepareEnvironment();
+        void                  PrepareEnvironment(EnvironmentPrecomputeSizes sizes = {});
         void                  UpdateEnvironment(std::string path);
         void                  BeginScene(SceneInfo info);
         void                  EndScene();

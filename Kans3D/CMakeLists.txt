@@ -54,6 +54,7 @@ target_link_libraries(Kans3D PUBLIC
     ImGuizmo
     assimp
     mono
+    VulkanMemoryAllocator
 )
 
 # Vulkan SDK (shaderc, spirv-cross, vulkan loader)
