@@ -72,3 +72,5 @@
 #define ICON_FA_PAUSE                  "\xef\x81\x8c" // U+F04C
 #define ICON_FA_STOP                   "\xef\x81\x8d" // U+F04D
 #define ICON_FA_FORWARD_STEP           "\xef\x81\x91" // U+F051
+#define ICON_FA_CIRCLE                 "\xef\x84\x91" // U+F111
+#define ICON_FA_CIRCLE_DOT             "\xef\x86\x92" // U+F192

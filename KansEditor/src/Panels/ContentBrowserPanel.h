@@ -42,6 +42,8 @@ namespace Kans
         {
             m_MaterialThumbnail = std::move(provider);
         }
+        // "Create Material Instance" of a .material file.
+        void SetCreateInstanceCallback(PathCallback callback) { m_CreateInstance = std::move(callback); }
         // "Extract Materials" of an imported model.
         void SetExtractMaterialsCallback(PathCallback callback) { m_ExtractMaterials = std::move(callback); }
         void SetErrorCallback(std::function<void(const std::string&)> callback) { m_ReportError = std::move(callback); }
@@ -115,6 +117,7 @@ namespace Kans
         // ---- callbacks and services ----
         PathCallback m_OpenFile, m_CreateMaterial, m_Import, m_ImportSettings, m_ExtractMaterials;
         MaterialThumbnailProvider m_MaterialThumbnail;
+        PathCallback              m_CreateInstance;
         std::function<void(const std::string&)> m_ReportError;
         EditorAssetImportService*                m_Service = nullptr;
         Browser::AssetFileOperations             m_Operations;

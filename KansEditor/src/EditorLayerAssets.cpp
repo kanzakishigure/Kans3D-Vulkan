@@ -1,3 +1,5 @@
+#include "Kans3D/Asset/Importer/MaterialSource.h"
+#include <fstream>
 #include <imgui.h>
 #include <algorithm>
 #include "Kans3D/Asset/Storage/AssetProvider.h"
@@ -64,6 +66,8 @@ namespace Kans
             [this](const std::filesystem::path& path) { OpenImporter(path); });
         m_ContentBrowserPanel.SetExtractMaterialsCallback(
             [this](const std::filesystem::path& path) { ExtractMaterials(path); });
+        m_ContentBrowserPanel.SetCreateInstanceCallback(
+            [this](const std::filesystem::path& path) { CreateMaterialInstance(path); });
         m_ContentBrowserPanel.SetErrorCallback(
             [this](const std::string& message) { Record(AssetError {AssetErrorCode::InvalidArgument, message}); });
         m_ContentBrowserPanel.Bind(m_AssetImports.get());
@@ -288,6 +292,73 @@ namespace Kans
         if (status.Error)
             entry.Material = {}; // Deleted or unpublished: find it again.
         return entry.Texture;
+    }
+
+    AssetID EditorLayer::FindPublishedMaterial(const std::filesystem::path& file)
+    {
+        if (!m_AssetImports)
+            return {};
+        std::error_code error;
+        const auto      wanted  = std::filesystem::weakly_canonical(file, error);
+        auto            sources = m_AssetImports->GetSources();
+        if (const auto* list = std::get_if<std::vector<SourceAssetMetadata>>(&sources))
+            for (const auto& source : *list)
+                if (std::filesystem::weakly_canonical(m_AssetImports->GetConfig().AssetDirectory / source.Path.GetPath(),
+                                                      error) == wanted)
+                    for (const auto& product : m_AssetImports->GetRuntimeAssetRegistry()->GetAllProducts())
+                        if (product.Metadata.assetID.GetSourceID() == source.sourceAssetID &&
+                            product.Metadata.Type == AssetType::Material && product.Target == EditorAssetTarget)
+                            return product.Metadata.assetID;
+        return {};
+    }
+
+    void EditorLayer::CreateMaterialInstance(const std::filesystem::path& file)
+    {
+        const AssetID parent = FindPublishedMaterial(file);
+        if (!parent.IsValid())
+        {
+            Record(AssetError {AssetErrorCode::NotFound, "Import the material before creating an instance of it"});
+            return;
+        }
+        std::filesystem::path target;
+        for (int index = 0; index < 1000; ++index)
+        {
+            target = file.parent_path() / (file.stem().u8string() + "_Instance" +
+                                           (index ? std::to_string(index) : std::string()) + ".material");
+            std::error_code error;
+            if (!std::filesystem::exists(target, error))
+                break;
+        }
+        MaterialSource source;
+        source.Name   = target.stem().u8string();
+        source.Parent = parent;
+        {
+            std::ofstream output(target, std::ios::binary | std::ios::trunc);
+            output << SerializeMaterialSource(source);
+            if (!output)
+            {
+                Record(AssetError {AssetErrorCode::IoError, "Cannot write " + target.u8string()});
+                return;
+            }
+        }
+        Record(m_AssetImports->RefreshSources());
+        auto sources = m_AssetImports->GetSources();
+        if (const auto* list = std::get_if<std::vector<SourceAssetMetadata>>(&sources))
+        {
+            std::error_code error;
+            for (const auto& meta : *list)
+                if (std::filesystem::weakly_canonical(m_AssetImports->GetConfig().AssetDirectory / meta.Path.GetPath(),
+                                                      error) == std::filesystem::weakly_canonical(target, error))
+                {
+                    AssetBuildOptions options;
+                    options.Target = EditorAssetTarget;
+                    if (auto started = m_AssetImports->Start(meta.sourceAssetID, options);
+                        std::holds_alternative<AssetError>(started))
+                        Record(std::get<AssetError>(started));
+                }
+        }
+        m_ContentBrowserPanel.Refresh();
+        OpenMaterial(target);
     }
 
     void EditorLayer::ImportSource(const std::filesystem::path& file)

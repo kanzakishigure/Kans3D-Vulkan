@@ -46,6 +46,14 @@ namespace Kans
         void                  DrawTexture(const std::string& name);
         // Alpha mode, cutoff and double-sided: how the renderer draws the material.
         void DrawRenderState();
+        // Instances: a parent material whose values are inherited unless overridden.
+        bool                  IsInstance() const { return m_Source.Parent.IsValid(); }
+        void                  DrawParent();
+        // The parent's effective values (what an instance inherits); null while loading or on error.
+        const MaterialSource* ParentEffective();
+        // Marker before an instance's value: filled when overridden (click to reset to the
+        // parent's value), hollow when inherited. True when a reset was requested.
+        bool                  OverrideMarker(bool overridden);
         // Thumbnail button for a texture (or an empty slot); shows a larger preview on hover.
         void DrawThumbnail(AssetID texture, float size);
         // Assigns a file dropped from the content browser, importing it first if needed.
@@ -94,6 +102,13 @@ namespace Kans
         uint32_t                 m_PreviewTexture  = 0;
         bool                     m_PreviewComplete = false;
         std::string              m_PreviewError;
+
+        // Parent cache of an instance, keyed by the parent's material and Shader assets.
+        AssetID                       m_ParentFor;
+        Ref<const MaterialDataAsset>  m_ParentAsset;
+        Ref<const ShaderDataAsset>    m_ParentShaderAsset;
+        std::optional<MaterialSource> m_ParentEffective;
+        std::string                   m_ParentError;
 
         // Schema cache, keyed by the Shader asset it was built from.
         Ref<const ShaderDataAsset>    m_SchemaShader;

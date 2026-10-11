@@ -64,6 +64,10 @@ namespace Kans
         // Writes a model's embedded materials to editable .material files next to it
         // (in a Materials folder), makes the model use them and rebuilds it.
         void                                     ExtractMaterials(const std::filesystem::path& file);
+        // Writes `<Name>_Instance.material` next to `file` with it as the parent, builds it and opens it.
+        void                                     CreateMaterialInstance(const std::filesystem::path& file);
+        // Published Material of a .material source, or invalid.
+        AssetID                                  FindPublishedMaterial(const std::filesystem::path& file);
         // Content-browser thumbnail of a .material file: rendered a few per frame,
         // re-rendered when the material is rebuilt. Null until ready.
         Ref<Texture2D> MaterialThumbnail(const std::filesystem::path& file, uint32_t size);

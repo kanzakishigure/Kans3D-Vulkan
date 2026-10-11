@@ -1250,6 +1250,13 @@ namespace Kans
                         m_Import(targets.front());
                     if (ImGui::MenuItem(Label(ICON_FA_GEAR, "Import Settings...").c_str()) && m_ImportSettings)
                         m_ImportSettings(targets.front());
+                    if (targets.front().extension() == ".material" &&
+                        ImGui::MenuItem(Label(ICON_FA_CLONE, "Create Material Instance").c_str(),
+                                        nullptr,
+                                        false,
+                                        status && status->Products) &&
+                        m_CreateInstance)
+                        m_CreateInstance(targets.front());
                     if (Browser::KindOf(targets.front(), false) == Browser::AssetKind::Model &&
                         ImGui::MenuItem(Label(ICON_FA_PALETTE, "Extract Materials").c_str(),
                                         nullptr,

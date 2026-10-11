@@ -5,6 +5,7 @@
 #include "Kans3D/Asset/Importer/ImporterRegistry.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
+#include "UI/EditorIcons.h"
 
 namespace Kans
 {
@@ -151,7 +152,13 @@ namespace Kans
 
     const MaterialSchema* MaterialEditorPanel::Schema()
     {
-        if (IsStandardShader(m_Source.Shader))
+        if (IsInstance() && !ParentEffective())
+        {
+            m_SchemaError = m_ParentError.empty() ? "Loading parent material..." : m_ParentError;
+            return nullptr;
+        }
+        const AssetID shaderID = IsInstance() ? ParentEffective()->Shader : m_Source.Shader;
+        if (IsStandardShader(shaderID))
         {
             if (!m_Schema || m_SchemaShader)
             {
@@ -165,7 +172,7 @@ namespace Kans
             m_SchemaError = "Assets are not loaded yet.";
             return nullptr;
         }
-        auto status = m_Assets->Request<ShaderDataAsset>(m_Source.Shader);
+        auto status = m_Assets->Request<ShaderDataAsset>(shaderID);
         if (status.Error)
         {
             m_SchemaError = status.Error->Message;
@@ -194,8 +201,13 @@ namespace Kans
     void MaterialEditorPanel::DrawParameter(const MaterialParameterInfo& parameter, const MaterialSchema& schema)
     {
         std::vector<double> values;
+        const bool          instance   = IsInstance();
+        const bool          overridden = m_Source.Parameters.count(parameter.Name) > 0;
+        const auto*         parent     = instance ? ParentEffective() : nullptr;
         if (const auto found = m_Source.Parameters.find(parameter.Name); found != m_Source.Parameters.end())
             values = found->second;
+        else if (parent && parent->Parameters.count(parameter.Name))
+            values = parent->Parameters.at(parameter.Name);
         else if (const auto fallback = schema.Defaults.find(parameter.Name); fallback != schema.Defaults.end())
             values = fallback->second;
         values.resize(parameter.ValueCount(), 0.0);
@@ -212,6 +224,21 @@ namespace Kans
 
         bool changed = false;
         ImGui::PushID(parameter.Name.c_str());
+        if (instance)
+        {
+            if (OverrideMarker(overridden))
+            {
+                m_Source.Parameters.erase(parameter.Name);
+                m_Dirty = true;
+                ImGui::PopID();
+                return;
+            }
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+        }
+        // Inherited values are dimmed; editing one makes it an override.
+        if (instance && !overridden)
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.6f);
         for (uint32_t chunk = 0; chunk < chunks; ++chunk)
         {
             std::string label = parameter.Name;
@@ -292,6 +319,10 @@ namespace Kans
             }
             ImGui::PopID();
         }
+        if (instance && !overridden)
+            ImGui::PopStyleVar();
+        if (instance)
+            ImGui::EndGroup();
         ImGui::PopID();
         if (changed)
         {
@@ -306,8 +337,8 @@ namespace Kans
         if (texture.IsValid() ? found != m_Source.Textures.end() && found->second == texture :
                                 found == m_Source.Textures.end())
             return;
-        if (texture.IsValid())
-            m_Source.Textures[slot] = texture;
+        if (texture.IsValid() || IsInstance())
+            m_Source.Textures[slot] = texture; // An instance's empty entry clears the inherited texture.
         else
             m_Source.Textures.erase(slot);
         m_Dirty = true;
@@ -354,11 +385,30 @@ namespace Kans
 
     void MaterialEditorPanel::DrawTexture(const std::string& name)
     {
-        constexpr float Size    = 48.0f;
-        const auto      found   = m_Source.Textures.find(name);
-        const AssetID   current = found == m_Source.Textures.end() ? AssetID {} : found->second;
+        constexpr float Size       = 48.0f;
+        const auto      found      = m_Source.Textures.find(name);
+        const bool      instance   = IsInstance();
+        const bool      overridden = found != m_Source.Textures.end();
+        AssetID         current    = overridden ? found->second : AssetID {};
+        if (instance && !overridden)
+            if (const auto* parent = ParentEffective())
+                if (const auto inherited = parent->Textures.find(name); inherited != parent->Textures.end())
+                    current = inherited->second;
 
         ImGui::PushID(name.c_str());
+        if (instance)
+        {
+            if (OverrideMarker(overridden))
+            {
+                m_Source.Textures.erase(name);
+                m_Dirty = true;
+                ImGui::PopID();
+                return;
+            }
+            ImGui::SameLine();
+        }
+        if (instance && !overridden)
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.6f);
         ImGui::BeginGroup();
         DrawThumbnail(current, Size);
         ImGui::SameLine();
@@ -426,6 +476,8 @@ namespace Kans
         }
         ImGui::EndGroup();
         ImGui::EndGroup();
+        if (instance && !overridden)
+            ImGui::PopStyleVar();
 
         // Drop an image from the content browser on the row.
         if (ImGui::BeginDragDropTarget())
@@ -566,8 +618,9 @@ namespace Kans
             return;
         }
         AssetBuildOptions options;
-        options.Target = EditorAssetTarget;
-        auto started   = m_Service->Start(*source, options);
+        options.Target            = EditorAssetTarget;
+        options.RebuildDependents = true; // Instances of this material update too.
+        auto started              = m_Service->Start(*source, options);
         if (const auto* error = std::get_if<AssetError>(&started))
             m_Status = "Saved; build not started: " + error->Message;
         else
@@ -575,6 +628,127 @@ namespace Kans
             m_Status   = "Building...";
             m_Building = true;
         }
+    }
+
+    bool MaterialEditorPanel::OverrideMarker(bool overridden)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              overridden ? ImVec4(0.35f, 0.7f, 1.0f, 1.0f) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        const bool clicked = ImGui::SmallButton(overridden ? ICON_FA_CIRCLE "##override" : ICON_FA_CIRCLE_DOT "##override") &&
+                             overridden;
+        ImGui::PopStyleColor(2);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(overridden ? "Overridden. Click to use the parent's value." :
+                                           "Inherited from the parent. Edit to override.");
+        return clicked;
+    }
+
+    const MaterialSource* MaterialEditorPanel::ParentEffective()
+    {
+        if (!IsInstance() || !m_Assets)
+            return nullptr;
+        if (m_ParentFor != m_Source.Parent)
+        {
+            m_ParentFor = m_Source.Parent;
+            m_ParentAsset.reset();
+            m_ParentShaderAsset.reset();
+            m_ParentEffective.reset();
+            m_ParentError.clear();
+        }
+        const auto material = m_Assets->Request<MaterialDataAsset>(m_Source.Parent);
+        if (material.Error)
+        {
+            m_ParentError = "Parent material: " + material.Error->Message;
+            m_ParentEffective.reset();
+            return nullptr;
+        }
+        if (!material.IsReady())
+            return m_ParentEffective ? &*m_ParentEffective : nullptr; // Keep showing the last values while it reloads.
+        const auto&                data   = material.Asset->GetData();
+        const ShaderData*          shader = &GetStandardShader();
+        Ref<const ShaderDataAsset> shaderAsset;
+        if (!IsStandardShader(data.Shader))
+        {
+            const auto status = m_Assets->Request<ShaderDataAsset>(data.Shader);
+            if (status.Error)
+            {
+                m_ParentError = "Parent shader: " + status.Error->Message;
+                m_ParentEffective.reset();
+                return nullptr;
+            }
+            if (!status.IsReady())
+                return m_ParentEffective ? &*m_ParentEffective : nullptr;
+            shaderAsset = status.Asset;
+            shader      = &status.Asset->GetData();
+        }
+        if (material.Asset != m_ParentAsset || shaderAsset != m_ParentShaderAsset || !m_ParentEffective)
+        {
+            m_ParentAsset       = material.Asset;
+            m_ParentShaderAsset = shaderAsset;
+            auto effective      = EditableMaterial(data, *shader);
+            if (const auto* error = std::get_if<AssetError>(&effective))
+            {
+                m_ParentError = "Parent material: " + error->Message;
+                m_ParentEffective.reset();
+            }
+            else
+            {
+                m_ParentEffective = std::get<MaterialSource>(std::move(effective));
+                m_ParentError.clear();
+            }
+        }
+        return m_ParentEffective ? &*m_ParentEffective : nullptr;
+    }
+
+    void MaterialEditorPanel::DrawParent()
+    {
+        const std::string current = IsInstance() ? ChoiceName(m_Source.Parent) : std::string("None");
+        if (ImGui::BeginCombo("Parent", current.c_str(), ImGuiComboFlags_HeightLarge))
+        {
+            if (ImGui::Selectable("None", !IsInstance()) && IsInstance())
+            {
+                // Becoming standalone keeps the current effective values.
+                if (const auto* parent = ParentEffective())
+                {
+                    const ShaderData* shader = m_SchemaShader && !IsStandardShader(parent->Shader) ?
+                                                   &m_SchemaShader->GetData() :
+                                                   nullptr;
+                    auto effective = ApplyMaterialOverrides(*parent, m_Source, shader);
+                    if (auto* source = std::get_if<MaterialSource>(&effective))
+                    {
+                        source->Name = m_Source.Name;
+                        m_Source     = std::move(*source);
+                        m_Dirty      = true;
+                    }
+                    else
+                        m_Status = std::get<AssetError>(effective).Message;
+                }
+                else
+                    m_Status = "The parent is not loaded; cannot keep its values.";
+            }
+            for (const auto& choice : m_Choices)
+            {
+                if (choice.Type != AssetType::Material || choice.ID == m_Source.Parent)
+                    continue;
+                if (ImGui::Selectable(choice.Name.c_str(), false))
+                {
+                    // An instance stores only overrides: start from none.
+                    m_Source.Parent = choice.ID;
+                    m_Source.Shader = {};
+                    m_Source.Parameters.clear();
+                    m_Source.Textures.clear();
+                    m_Source.RenderOverrides = {};
+                    m_Dirty                  = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(IsInstance() ? "Values not overridden here come from this material." :
+                                             "Choose a material to make this an instance of it.");
+        if (IsInstance() && !m_ParentError.empty())
+            ImGui::TextColored({0.95f, 0.38f, 0.35f, 1.0f}, "%s", m_ParentError.c_str());
     }
 
     void MaterialEditorPanel::DrawParameters(const MaterialSchema& schema)
@@ -638,19 +812,27 @@ namespace Kans
         // until every texture has loaded.
         const auto key = SerializeMaterialSource(m_Source) + "|" + std::to_string(int(m_PreviewShape)) + "|" +
                          std::to_string(m_PreviewRotation.x) + "|" + std::to_string(m_PreviewRotation.y) + "|" +
-                         std::to_string(side) + "|" + std::to_string(uintptr_t(m_SchemaShader.get()));
+                         std::to_string(side) + "|" + std::to_string(uintptr_t(m_SchemaShader.get())) + "|" +
+                         std::to_string(uintptr_t(m_ParentAsset.get()));
         if (key != m_PreviewKey || !m_PreviewComplete)
         {
-            const ShaderData* shader = nullptr;
-            bool              ready  = true;
-            if (!IsStandardShader(m_Source.Shader))
+            const ShaderData* shader    = nullptr;
+            const auto*       parent    = IsInstance() ? ParentEffective() : nullptr;
+            const AssetID     shaderID  = parent ? parent->Shader : m_Source.Shader;
+            bool              ready     = !IsInstance() || parent;
+            if (ready && !IsStandardShader(shaderID))
             {
                 ready  = m_SchemaShader && m_Schema;
                 shader = ready ? &m_SchemaShader->GetData() : nullptr;
             }
             if (ready)
             {
-                auto resolved = ResolveMaterialSource(m_Source, shader);
+                std::variant<MaterialSource, AssetError> effective = m_Source;
+                if (parent)
+                    effective = ApplyMaterialOverrides(*parent, m_Source, shader);
+                auto resolved = std::holds_alternative<AssetError>(effective) ?
+                                    std::variant<MaterialData, AssetError>(std::get<AssetError>(effective)) :
+                                    ResolveMaterialSource(std::get<MaterialSource>(effective), shader);
                 if (const auto* error = std::get_if<AssetError>(&resolved))
                 {
                     m_PreviewError    = error->Message;
@@ -730,7 +912,32 @@ namespace Kans
     {
         ImGui::Spacing();
         ImGui::TextDisabled("Rendering");
-        auto& render = m_Source.Render;
+        // An instance edits a copy of its effective state; changed fields become overrides.
+        const bool          instance = IsInstance();
+        const auto*         parent   = instance ? ParentEffective() : nullptr;
+        MaterialRenderState effective = parent ? parent->Render : m_Source.Render;
+        if (instance)
+        {
+            const auto& overrides = m_Source.RenderOverrides;
+            if (overrides.AlphaMode)
+                effective.AlphaMode = *overrides.AlphaMode;
+            if (overrides.AlphaCutoff)
+                effective.AlphaCutoff = *overrides.AlphaCutoff;
+            if (overrides.DoubleSided)
+                effective.DoubleSided = *overrides.DoubleSided;
+            const bool any = overrides.AlphaMode || overrides.AlphaCutoff || overrides.DoubleSided;
+            if (any)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Use parent's"))
+                {
+                    m_Source.RenderOverrides = {};
+                    m_Dirty                  = true;
+                }
+            }
+        }
+        const MaterialRenderState before = effective;
+        auto&                     render = instance ? effective : m_Source.Render;
         const struct
         {
             MaterialAlphaMode Mode;
@@ -776,6 +983,16 @@ namespace Kans
         }
         if (ImGui::Checkbox("Double-sided", &render.DoubleSided))
             m_Dirty = true;
+        if (instance)
+        {
+            auto& overrides = m_Source.RenderOverrides;
+            if (render.AlphaMode != before.AlphaMode)
+                overrides.AlphaMode = render.AlphaMode;
+            if (render.AlphaCutoff != before.AlphaCutoff)
+                overrides.AlphaCutoff = render.AlphaCutoff;
+            if (render.DoubleSided != before.DoubleSided)
+                overrides.DoubleSided = render.DoubleSided;
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Draw back faces too, lit with the flipped normal (leaves, cloth, thin planes).");
     }
@@ -805,8 +1022,15 @@ namespace Kans
             m_Dirty       = true;
         }
 
-        const std::string shaderName = !IsStandardShader(m_Source.Shader) ? ChoiceName(m_Source.Shader) : "Standard";
-        if (ImGui::BeginCombo("Shader", shaderName.c_str()))
+        DrawParent();
+        const AssetID     shownShader = IsInstance() && ParentEffective() ? ParentEffective()->Shader : m_Source.Shader;
+        const std::string shaderName  = !IsStandardShader(shownShader) ? ChoiceName(shownShader) : "Standard";
+        ImGui::BeginDisabled(IsInstance());
+        const bool shaderOpen = ImGui::BeginCombo("Shader", shaderName.c_str());
+        ImGui::EndDisabled();
+        if (IsInstance() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Inherited from the parent material.");
+        if (shaderOpen)
         {
             if (ImGui::Selectable("Standard", IsStandardShader(m_Source.Shader)))
             {
