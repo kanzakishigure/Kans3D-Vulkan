@@ -109,3 +109,17 @@ if(UNIX AND NOT APPLE)
         RUN_SERIAL TRUE
         LABELS "OpenGL")
 endif()
+
+# The conformance suite uses only the neutral interface; backend construction is
+# provided by GpuTestContext. Future backends instantiate the same tests.
+add_executable(RHIConformanceTests GpuTestContext.cpp RHIConformanceTests.cpp OpenGLRHILifetimeTests.cpp)
+target_link_libraries(RHIConformanceTests PRIVATE Kans3D GTest::gtest_main)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(RHIConformanceTests PRIVATE OpenGL::EGL)
+    target_compile_definitions(RHIConformanceTests PRIVATE KANS_TEST_USE_EGL)
+endif()
+kans_copy_test_runtime(RHIConformanceTests)
+gtest_discover_tests(RHIConformanceTests PROPERTIES
+    LABELS "OpenGL"
+    RUN_SERIAL TRUE
+    ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1;MESA_LOADER_DRIVER_OVERRIDE=llvmpipe;GALLIUM_DRIVER=llvmpipe")

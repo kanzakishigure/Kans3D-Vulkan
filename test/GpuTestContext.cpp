@@ -1,5 +1,6 @@
 #include "GpuTestContext.h"
 #include <glad/glad.h>
+#include <stdexcept>
 #include <gtest/gtest.h>
 #ifdef KANS_TEST_USE_EGL
 #include <EGL/egl.h>
@@ -8,6 +9,7 @@
 #include <GLFW/glfw3.h>
 #endif
 #include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
+#include "Kans3D/RHI/OpenGL/OpenGLDevice.h"
 
 struct GpuTestContext::State
 {
@@ -100,4 +102,14 @@ void GpuTestContext::TearDown()
     glfwTerminate();
 #endif
     m_State.reset();
+}
+
+std::unique_ptr<Kans::RenderHardware::Device> GpuTestContext::CreateDevice(const Kans::RenderHardware::DeviceDesc& desc)
+{
+    switch (m_Backend)
+    {
+        case GpuTestBackend::OpenGL:
+            return Kans::RenderHardware::CreateOpenGLDevice(desc);
+    }
+    throw std::invalid_argument("Unsupported GPU test backend");
 }

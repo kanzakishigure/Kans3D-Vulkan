@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include "Kans3D/RHI/RHI.h"
 
 enum class GpuTestBackend
 {
@@ -18,6 +19,7 @@ public:
     GpuTestContext& operator=(const GpuTestContext&) = delete;
     void            SetUp();
     void            TearDown();
+    std::unique_ptr<Kans::RenderHardware::Device> CreateDevice(const Kans::RenderHardware::DeviceDesc& desc = {});
 
 private:
     struct State;
