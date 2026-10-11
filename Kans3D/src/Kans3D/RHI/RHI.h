@@ -45,6 +45,8 @@ namespace Kans::RenderHardware
         RGBA8Unorm,
         RGBA8Srgb,
         RGBA16Float,
+        RGBA32Float,
+        RG8Unorm,
         R32Uint,
         R8Unorm,
         Depth32Float,

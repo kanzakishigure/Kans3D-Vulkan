@@ -1,27 +1,36 @@
 #include "kspch.h"
 #include "RenderAssetCache.h"
-#include <glad/glad.h>
 #include <type_traits>
 #include <unordered_set>
 #include <glm/gtc/type_ptr.hpp>
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
-#include "Kans3D/Platform/OpenGL/OpenGLBuffer.h"
-#include "Kans3D/Platform/OpenGL/OpenGLVertexArray.h"
+#include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
+
 #include "Kans3D/Renderer/RHI/RendererAPI.h"
 
 namespace Kans
 {
-    std::variant<GpuMesh, AssetError> UploadMesh(const MeshData& data)
+    std::variant<GpuMesh, AssetError> UploadMesh(const MeshData& data, std::shared_ptr<RenderHardware::Device> device)
     {
         auto valid = ValidateMeshData(data);
         if (auto* error = std::get_if<AssetError>(&valid))
             return *error;
-        if (RendererAPI::Current() != RendererAPIType::OPENGL)
-            return AssetError {AssetErrorCode::NotImplemented, "Mesh upload is unavailable for this backend"};
-        if (!glGetString || !glGetString(GL_VERSION))
-            return AssetError {AssetErrorCode::InvalidArgument, "Mesh upload requires a current OpenGL context"};
-
+        if (!device)
+        {
+            // RHI-MIGRATION: preserve legacy standalone backend selection and context-error behavior.
+            if (RendererAPI::Current() != RendererAPIType::OPENGL)
+                return AssetError {AssetErrorCode::NotImplemented, "Mesh upload is unavailable for this backend"};
+            try
+            {
+                // RHI-MIGRATION: standalone upload compatibility obtains the context device lease.
+                device = RenderHardware::OpenGLInterop::AcquireDevice();
+            }
+            catch (const std::exception& e)
+            {
+                return AssetError {AssetErrorCode::InvalidArgument, e.what()};
+            }
+        }
         std::vector<float> packed;
         packed.reserve(data.Vertices.size() * 16);
         for (const auto& vertex : data.Vertices)
@@ -32,24 +41,19 @@ namespace Kans
             packed.insert(packed.end(), vertex.Color.begin(), vertex.Color.end());
             packed.insert(packed.end(), vertex.Tangent.begin(), vertex.Tangent.end());
         }
-        auto array = CreateRef<OpenGLVertexArray>();
-        array->Bind();
-        auto vertices =
-            CreateRef<OpenGLVertexBuffer>(packed.data(), static_cast<uint32_t>(packed.size() * sizeof(float)));
-        vertices->SetBufferLayout({{ShaderDataType::Float3, "a_Position"},
-                                   {ShaderDataType::Float3, "a_Normal"},
-                                   {ShaderDataType::Float2, "a_UV"},
-                                   {ShaderDataType::Float4, "a_Color"},
-                                   {ShaderDataType::Float4, "a_Tangent"}});
-        array->AddVertexBuffer(vertices);
-        array->SetIndexBuffer(
-            CreateRef<OpenGLIndexBuffer>(data.Indices.data(), static_cast<uint32_t>(data.Indices.size())));
-        array->Unbind();
-
         GpuMesh mesh;
         for (const auto& vertex : data.Vertices)
             mesh.LocalBounds.Expand(glm::make_vec3(vertex.Position.data()));
-        mesh.VertexArray = std::move(array);
+        mesh.Vertices = device->CreateBuffer(
+            {packed.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
+        mesh.Vertices->Write(0, packed.data(), packed.size() * sizeof(float));
+        mesh.Indices = device->CreateBuffer({data.Indices.size() * sizeof(uint32_t),
+                                             RenderHardware::BufferUsage::Index,
+                                             RenderHardware::MemoryUsage::Upload});
+        mesh.Indices->Write(0, data.Indices.data(), data.Indices.size() * sizeof(uint32_t));
+        // RHI-MIGRATION: VAO view of RHI buffers for remaining immediate draws.
+        mesh.VertexArray = RenderHardware::OpenGLInterop::MeshVertexArray(
+            device, mesh.Vertices, mesh.Indices, uint32_t(data.Indices.size()));
         mesh.IndexCount  = static_cast<uint32_t>(data.Indices.size());
         mesh.Material    = data.Material;
         mesh.AuthoredMaterial = data.AuthoredMaterial;
@@ -99,8 +103,10 @@ namespace Kans
         return material;
     }
 
-    std::variant<GpuMaterialBindings, AssetError> MakeGpuMaterialBindings(const MaterialData& material,
-                                                                          const ShaderData&   shader)
+    std::variant<GpuMaterialBindings, AssetError>
+    MakeGpuMaterialBindings(const MaterialData&                     material,
+                            const ShaderData&                       shader,
+                            std::shared_ptr<RenderHardware::Device> device)
     {
         if (!material.Bindings)
             return AssetError {AssetErrorCode::InvalidArgument, "Material has no Shader bindings"};
@@ -111,7 +117,8 @@ namespace Kans
         bindings.Shader = material.Shader;
         bindings.Render = material.Render;
         for (const auto& block : std::get<std::vector<MaterialUniformBlock>>(packed))
-            bindings.Blocks.emplace_back(block.Binding, GpuUniformBuffer(block.Bytes.size(), block.Bytes.data()));
+            bindings.Blocks.emplace_back(block.Binding,
+                                         GpuUniformBuffer(block.Bytes.size(), block.Bytes.data(), device));
         for (const auto& texture : material.Bindings->Textures)
             bindings.Textures.emplace_back(texture.Binding, material.Textures[texture.TextureIndex].Texture);
         return bindings;
@@ -134,16 +141,6 @@ namespace Kans
                 status.Error = std::move(*error);
             else
             {
-                if constexpr (std::is_same_v<Resource, GpuShader>)
-                {
-                    if (entry.Value)
-                        m_RetiredShaders.emplace_back(std::move(entry.Value));
-                }
-                else if constexpr (std::is_same_v<Resource, Ref<Texture2D>>)
-                {
-                    if (entry.Value)
-                        m_RetiredTextures.emplace_back(std::move(entry.Value));
-                }
                 entry.Value = CreateScope<Resource>(std::get<Resource>(std::move(built)));
                 entry.ReportedError.reset();
             }
@@ -163,7 +160,7 @@ namespace Kans
 
     const GpuMesh* RenderAssetCache::GetMesh(AssetID id)
     {
-        return Resolve(m_Meshes, id, [](const MeshAsset& asset) { return UploadMesh(asset.GetData()); });
+        return Resolve(m_Meshes, id, [&](const MeshAsset& asset) { return UploadMesh(asset.GetData(), GetDevice()); });
     }
 
     const GpuMaterial* RenderAssetCache::GetMaterial(AssetID id)
@@ -173,15 +170,111 @@ namespace Kans
         });
     }
 
+    namespace
+    {
+        std::variant<Ref<Texture2D>, AssetError> UploadTexture(const TextureData&                      data,
+                                                               std::shared_ptr<RenderHardware::Device> device)
+        {
+            auto valid = ValidateTextureData(data);
+            if (auto* error = std::get_if<AssetError>(&valid))
+                return *error;
+            if (data.Kind != TextureKind::Texture2D)
+                return AssetError {AssetErrorCode::NotImplemented, "Only 2D product textures are supported"};
+            using namespace RenderHardware;
+            TextureDesc desc;
+            desc.Width     = data.Width;
+            desc.Height    = data.Height;
+            desc.MipLevels = uint32_t(data.Mips.size());
+            desc.Usage     = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+            switch (data.Format)
+            {
+                case TexturePixelFormat::R8:
+                    desc.PixelFormat = Format::R8Unorm;
+                    break;
+                case TexturePixelFormat::RG8:
+                    desc.PixelFormat = Format::RG8Unorm;
+                    break;
+                case TexturePixelFormat::RGBA8:
+                    desc.PixelFormat =
+                        data.ColorSpace == TextureColorSpace::SRGB ? Format::RGBA8Srgb : Format::RGBA8Unorm;
+                    break;
+                case TexturePixelFormat::RGBA32Float:
+                    desc.PixelFormat = Format::RGBA32Float;
+                    break;
+            }
+            auto image    = device->CreateTexture(desc);
+            auto commands = device->CreateCommandList();
+            for (uint32_t mip = 0; mip < desc.MipLevels; ++mip)
+            {
+                const auto&            source = data.Mips[mip].Pixels;
+                std::vector<std::byte> bytes(source.size());
+                const size_t           height = std::max(1u, data.Height >> mip), row = source.size() / height;
+                const bool             lowerLeft =
+                    device->GetCoordinateConventions().Origin == RenderHardware::FramebufferOrigin::LowerLeft;
+                const bool flip = (data.Origin == TextureOrigin::TopLeft) == lowerLeft;
+                for (size_t y = 0; y < height; ++y)
+                {
+                    const auto* input = source.data() + (flip ? height - 1 - y : y) * row;
+                    if (data.Format != TexturePixelFormat::RGBA32Float)
+                        std::memcpy(bytes.data() + y * row, input, row);
+                    else
+                        for (size_t x = 0; x < row; x += 4)
+                        {
+                            uint32_t bits = 0;
+                            for (size_t b = 0; b < 4; ++b)
+                                bits |= uint32_t(std::to_integer<uint8_t>(input[x + b])) << (b * 8);
+                            std::memcpy(bytes.data() + y * row + x, &bits, 4);
+                        }
+                }
+                auto upload = device->CreateBuffer({bytes.size(), BufferUsage::CopySource, MemoryUsage::Upload});
+                upload->Write(0, bytes.data(), bytes.size());
+                commands->CopyBufferToTexture(upload, 0, image, {mip, 0});
+            }
+            // RHI-MIGRATION: submit outside a scene frame for immediate preview consumers.
+            OpenGLInterop::SubmitUpload(*device, commands);
+            // RHI-MIGRATION: editor-compatible Texture2D view, owns the RHI image.
+            return OpenGLInterop::TextureView(std::move(device), std::move(image));
+        }
+    } // namespace
+    std::shared_ptr<RenderHardware::Device> RenderAssetCache::GetDevice()
+    {
+        // RHI-MIGRATION: lazy standalone caches share the context's device with SceneRenderer.
+        if (!m_Device)
+            m_Device = RenderHardware::OpenGLInterop::AcquireDevice();
+        return m_Device;
+    }
+    void RenderAssetCache::SetTextureSampler(AssetID id, const RenderHardware::SamplerDesc& desc)
+    {
+        m_TextureSamplers[id] = GetDevice()->CreateSampler(desc);
+        for (auto* entries : {&m_Bindings, &m_StandardBindings})
+            for (auto& [key, entry] : *entries)
+                if (entry.Value)
+                    entry.Value->Group.reset();
+    }
     Ref<Texture2D> RenderAssetCache::GetTexture(AssetID id)
     {
-        auto* texture = Resolve(m_Textures, id, [](const TextureAsset& asset) {
-            auto uploaded = Texture2D::CreateFromProduct(asset.GetData());
-            if (auto* error = std::get_if<AssetError>(&uploaded))
-                return std::variant<Ref<Texture2D>, AssetError>(std::move(*error));
-            return std::variant<Ref<Texture2D>, AssetError>(std::get<Ref<Texture2D>>(std::move(uploaded)));
+        auto* texture = Resolve(m_Textures, id, [&](const TextureAsset& asset) {
+            auto uploaded = UploadTexture(asset.GetData(), GetDevice());
+            if (std::holds_alternative<Ref<Texture2D>>(uploaded))
+            {
+                // Drop obsolete cached descriptors. Recorded commands still retain their snapshots.
+                for (auto* entries : {&m_Bindings, &m_StandardBindings})
+                    for (auto& [key, entry] : *entries)
+                        if (entry.Value)
+                        {
+                            entry.Value->Group.reset();
+                            entry.Value->Images.clear();
+                        }
+            }
+            return uploaded;
         });
         return texture ? *texture : nullptr;
+    }
+    RenderHardware::Handle<RenderHardware::Texture> RenderAssetCache::GetTextureResource(AssetID id)
+    {
+        auto view = GetTexture(id);
+        // RHI-MIGRATION: unwrap the editor-compatible texture shim.
+        return view ? RenderHardware::OpenGLInterop::TextureResource(view) : nullptr;
     }
 
     const GpuShader* RenderAssetCache::GetShader(AssetID id)
@@ -194,7 +287,7 @@ namespace Kans
                 entry.Source = GetStandardShaderAsset();
             if (!entry.Value && !entry.ReportedError)
             {
-                auto built = GpuShader::Create(entry.Source->GetData());
+                auto built = GpuShader::Create(entry.Source->GetData(), GetDevice());
                 if (auto* error = std::get_if<AssetError>(&built))
                 {
                     entry.ReportedError = *error;
@@ -206,8 +299,9 @@ namespace Kans
             return entry.Value.get();
         }
         const auto  status = m_Assets.Request<ShaderDataAsset>(id);
-        const auto* shader =
-            Resolve(m_Shaders, id, [](const ShaderDataAsset& asset) { return GpuShader::Create(asset.GetData()); });
+        const auto* shader = Resolve(m_Shaders, id, [&](const ShaderDataAsset& asset) {
+            return GpuShader::Create(asset.GetData(), GetDevice());
+        });
         // Shader failures must not expose an older program with a newer CPU layout.
         return status.IsReady() && !m_Shaders.at(id).ReportedError ? shader : nullptr;
     }
@@ -250,8 +344,7 @@ namespace Kans
         {
             entry.Material = materialSource;
             entry.Shader   = shaderSource;
-            if (entry.Value)
-                m_RetiredBindings.emplace_back(std::move(entry.Value));
+            entry.Value.reset();
             MaterialData data = materialSource ? materialSource->GetData() : MaterialData {};
             if (standard)
             {
@@ -271,7 +364,7 @@ namespace Kans
                 }
                 data = std::get<MaterialData>(std::move(resolved));
             }
-            auto built = MakeGpuMaterialBindings(data, shaderSource->GetData());
+            auto built = MakeGpuMaterialBindings(data, shaderSource->GetData(), GetDevice());
             if (auto* error = std::get_if<AssetError>(&built))
             {
                 CORE_ERROR("Material {}: {}", materialID.ToString(), error->Message);
@@ -282,17 +375,28 @@ namespace Kans
         return entry.Value.get();
     }
 
-    bool RenderAssetCache::BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings)
+    RenderHardware::Handle<RenderHardware::BindGroup>
+    RenderAssetCache::GetMaterialGroup(const GpuShader& shader, const GpuMaterialBindings& bindings, bool* result)
     {
         bool complete = true;
+        RenderHardware::BindGroupDesc group;
+        group.Layout = shader.MaterialLayout;
+        std::vector<RenderHardware::Handle<RenderHardware::Texture>> images;
+        if (!m_MaterialSampler)
+            m_MaterialSampler = GetDevice()->CreateSampler();
+        for (const auto& [binding, buffer] : bindings.Blocks)
+            group.Entries.push_back({binding, buffer.Resource()});
         for (const auto& [binding, unit] : shader.MaterialSamplerUnits())
         {
             Ref<Texture2D> texture;
+            auto           sampler = m_MaterialSampler;
             for (const auto& [textureBinding, id] : bindings.Textures)
                 if (textureBinding == binding && id.IsValid())
                 {
                     const auto status = m_Assets.Request<TextureAsset>(id);
                     texture = GetTexture(id);
+                    if (auto found = m_TextureSamplers.find(id); found != m_TextureSamplers.end())
+                        sampler = found->second;
                     const auto& entry = m_Textures.at(id);
                     // A failed replacement upload may retain the previous GPU texture.
                     complete &=
@@ -315,7 +419,7 @@ namespace Kans
                     image.Usage                = TextureUsage::Data;
                     image.Mips.push_back({std::vector<std::byte>(sizeof(pixel))});
                     std::memcpy(image.Mips[0].Pixels.data(), pixel.data(), sizeof(pixel));
-                    auto uploaded = Texture2D::CreateFromProduct(image);
+                    auto uploaded = UploadTexture(image, GetDevice());
                     if (auto* error = std::get_if<AssetError>(&uploaded))
                     {
                         CORE_ERROR("Material fallback texture: {}", error->Message);
@@ -326,88 +430,55 @@ namespace Kans
                 }
                 texture = fallback;
             }
-            texture->Bind(unit);
+            // RHI-MIGRATION: unwrap the Texture2D compatibility view.
+            auto image = RenderHardware::OpenGLInterop::TextureResource(texture);
+            images.push_back(image);
+            RenderHardware::BindGroupEntry entry;
+            entry.Slot            = binding;
+            entry.TextureResource = image;
+            entry.SamplerResource = sampler;
+            group.Entries.push_back(std::move(entry));
+        }
+        if (result)
+            *result = complete;
+        if (group.Entries.size() != group.Layout->GetDesc().Entries.size())
+        {
+            bindings.Images = std::move(images);
+            return nullptr; // Compatibility texture-only binding has no uniform blocks.
+        }
+        if (!bindings.Group || bindings.Images != images)
+        {
+            bindings.Group  = GetDevice()->CreateBindGroup(group);
+            bindings.Images = std::move(images);
+        }
+        return bindings.Group;
+    }
+
+    bool RenderAssetCache::BindMaterialTextures(const GpuShader& shader, const GpuMaterialBindings& bindings)
+    {
+        bool complete;
+        GetMaterialGroup(shader, bindings, &complete);
+        size_t i = 0;
+        for (const auto& [binding, unit] : shader.MaterialSamplerUnits())
+        {
+            // RHI-MIGRATION: material preview still draws immediately with OpenGL.
+            RenderHardware::OpenGLInterop::BindTexture(bindings.Images.at(i++), unit);
         }
         return complete;
     }
 
     void RenderAssetCache::ReleaseRetiredResources()
     {
-        // Deleting restored textures/buffers would unbind them from the caller.
-        // Retain only objects still in use, so hidden viewports cannot accumulate edits.
-        if (!m_RetiredShaders.empty())
-        {
-            GLint program;
-            glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-            for (auto it = m_RetiredShaders.begin(); it != m_RetiredShaders.end();)
-                it = (*it)->GetRendererID() == uint32_t(program) ? std::next(it) : m_RetiredShaders.erase(it);
-        }
-        if (!m_RetiredTextures.empty())
-        {
-            std::unordered_set<uint32_t> bound;
-            GLint                        active, count, texture;
-            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-            glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
-            for (GLint unit = 0; unit < count; ++unit)
-            {
-                glActiveTexture(GL_TEXTURE0 + unit);
-                glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
-                bound.insert(uint32_t(texture));
-            }
-            glActiveTexture(active);
-            for (auto it = m_RetiredTextures.begin(); it != m_RetiredTextures.end();)
-                it = bound.count((**it)->GetRenererID()) ? std::next(it) : m_RetiredTextures.erase(it);
-        }
-        if (!m_RetiredBindings.empty())
-        {
-            std::unordered_set<uint32_t> bound;
-            GLint                        buffer, count;
-            // A caller can bind a cache UBO to other buffer targets too.
-            for (auto target : {GL_ARRAY_BUFFER_BINDING,
-                                GL_ELEMENT_ARRAY_BUFFER_BINDING,
-                                GL_UNIFORM_BUFFER_BINDING,
-                                GL_PIXEL_PACK_BUFFER_BINDING,
-                                GL_PIXEL_UNPACK_BUFFER_BINDING,
-                                GL_COPY_READ_BUFFER_BINDING,
-                                GL_COPY_WRITE_BUFFER_BINDING,
-                                GL_DRAW_INDIRECT_BUFFER_BINDING,
-                                GL_DISPATCH_INDIRECT_BUFFER_BINDING,
-                                GL_SHADER_STORAGE_BUFFER_BINDING,
-                                GL_ATOMIC_COUNTER_BUFFER_BINDING,
-                                GL_TRANSFORM_FEEDBACK_BUFFER_BINDING,
-                                GL_TEXTURE_BUFFER_BINDING})
-            {
-                glGetIntegerv(target, &buffer);
-                bound.insert(uint32_t(buffer));
-            }
-            for (const auto& [target, limit] :
-                 {std::pair {GL_UNIFORM_BUFFER_BINDING, GL_MAX_UNIFORM_BUFFER_BINDINGS},
-                  std::pair {GL_SHADER_STORAGE_BUFFER_BINDING, GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS},
-                  std::pair {GL_ATOMIC_COUNTER_BUFFER_BINDING, GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS},
-                  std::pair {GL_TRANSFORM_FEEDBACK_BUFFER_BINDING, GL_MAX_TRANSFORM_FEEDBACK_BUFFERS}})
-            {
-                glGetIntegerv(limit, &count);
-                for (GLint point = 0; point < count; ++point)
-                {
-                    glGetIntegeri_v(target, point, &buffer);
-                    bound.insert(uint32_t(buffer));
-                }
-            }
-            for (auto it = m_RetiredBindings.begin(); it != m_RetiredBindings.end();)
-            {
-                const bool used = std::any_of((*it)->Blocks.begin(), (*it)->Blocks.end(), [&](const auto& block) {
-                    return bound.count(block.second.GetRendererID()) != 0;
-                });
-                it              = used ? std::next(it) : m_RetiredBindings.erase(it);
-            }
-        }
+        // RHI-MIGRATION: backend protects native caller bindings during preview restoration.
+        if (m_Device)
+            RenderHardware::OpenGLInterop::RetireUnbound(*m_Device);
     }
 
     void RenderAssetCache::BeginFrame(uint64_t unusedFrames)
     {
-        m_RetiredShaders.clear();
-        m_RetiredTextures.clear();
-        m_RetiredBindings.clear();
+
+        if (m_Device)
+            m_Device->WaitIdle();
         ++m_Frame;
         auto evict = [&](auto& entries) {
             for (auto it = entries.begin(); it != entries.end();)
@@ -424,9 +495,7 @@ namespace Kans
 
     void RenderAssetCache::Clear()
     {
-        m_RetiredShaders.clear();
-        m_RetiredTextures.clear();
-        m_RetiredBindings.clear();
+
         m_Models.clear();
         m_Meshes.clear();
         m_Materials.clear();
@@ -435,5 +504,7 @@ namespace Kans
         m_Bindings.clear();
         m_StandardBindings.clear();
         m_FallbackTextures = {};
+        m_MaterialSampler.reset();
+        m_TextureSamplers.clear();
     }
 } // namespace Kans

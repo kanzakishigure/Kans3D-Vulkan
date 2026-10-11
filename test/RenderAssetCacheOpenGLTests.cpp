@@ -1448,7 +1448,7 @@ void main() { o_Color = p.Tint; }
         PFNGLBUFFERSUBDATAPROC   Original = glad_glBufferSubData;
         static void APIENTRY     Record(GLenum target, GLintptr offset, GLsizeiptr bytes, const void* data)
         {
-            if (target == GL_UNIFORM_BUFFER && offset == 0)
+            if (target == GL_COPY_WRITE_BUFFER)
             {
                 if (bytes == sizeof(EngineFrameUniforms))
                     Active->Views.push_back(static_cast<const EngineFrameUniforms*>(data)->DebugView);
@@ -1647,10 +1647,9 @@ void main() { o_Color = p.Tint; }
         const auto textureID = Add(AssetType::Texture, EncodeTextureProduct(texture));
         auto&      cache     = *Renderer->GetAssetCache();
         ASSERT_TRUE(Frames(cache, [&] { return cache.GetTexture(textureID) != nullptr; }));
-        cache.GetTexture(textureID)->Bind(12);
-        glActiveTexture(GL_TEXTURE12);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        RenderHardware::SamplerDesc nearest;
+        nearest.Min = nearest.Mag = nearest.Mip = RenderHardware::Filter::Nearest;
+        cache.SetTextureSampler(textureID, nearest);
         MaterialSource source;
         source.Parameters               = {{"BaseColor", {1, 0, 0, 0.75}}, {"VertexColorStrength", {1}},
                                            {"EmissiveColor", {1, 0, 0}}};

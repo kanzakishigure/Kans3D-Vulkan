@@ -79,6 +79,7 @@ void main()
                 glUniformMatrix4fv(transform, 1, GL_FALSE, glm::value_ptr(draw.Transform));
                 if (id >= 0)
                     glUniform1ui(id, draw.ID);
+                // RHI-MIGRATION: picker and silhouette mask use the RHI mesh VAO compatibility view.
                 draw.Mesh->VertexArray->Bind();
                 glDrawElements(GL_TRIANGLES, GLsizei(draw.Mesh->IndexCount), GL_UNSIGNED_INT, nullptr);
             }

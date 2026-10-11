@@ -2,6 +2,7 @@
 #include <cstring>
 #include <functional>
 #include <gtest/gtest.h>
+#include <spirv_cross/spirv.hpp>
 #include "Kans3D/RHI/RHI.h"
 #include "GpuTestContext.h"
 #include "MaterialShaderTestUtilities.h"
@@ -1134,6 +1135,169 @@ void main() { color=vec4(p.a[1][0][1],p.b[1][1][0],p.b[1][1][1],1); })");
         // Arrays require wider uniform strides. Off-diagonal values independently
         // expose losing row/column-major matrix order during code generation.
         Solid(Finish(commands, target), {64, 128, 255, 255});
+    }
+
+    TEST_P(RHIConformance, FullFloatTargetPreservesValuesBelowHalfPrecision)
+    {
+        // A mistaken RGBA16F allocation/transfer rounds these binary-exact values.
+        const std::array<float, 4> expected {1.0001220703125f, -2.000244140625f, 0.50006103515625f, 1};
+        auto                       target   = Target(Format::RGBA32Float);
+        auto                       commands = Begin(Render(target));
+        Draw(commands, GPU->CreatePipeline(Description(Format::RGBA32Float)), {expected, {}});
+        commands->EndRendering();
+        auto output = Readback(Size * Size * sizeof(expected));
+        commands->CopyTextureToBuffer(target, {}, output);
+        GPU->Submit(commands);
+        GPU->WaitIdle();
+        auto bytes = output->Read(0, Size * Size * sizeof(expected));
+        for (size_t i = 0; i < Size * Size; ++i)
+        {
+            std::array<float, 4> actual;
+            std::memcpy(actual.data(), bytes.data() + i * sizeof(actual), sizeof(actual));
+            EXPECT_EQ(actual, expected) << i;
+        }
+    }
+
+    TEST_P(RHIConformance, OddWidthTwoChannelMipsAndSampledComponents)
+    {
+        // Detects RG mapped as R/RGBA, padded odd-width rows, wrong mip extent,
+        // and a matching upload/readback mistake by independently sampling mip zero.
+        TextureDesc desc;
+        desc.Width       = 3;
+        desc.Height      = 5;
+        desc.MipLevels   = 3;
+        desc.PixelFormat = Format::RG8Unorm;
+        desc.Usage       = TextureUsage::Sampled | TextureUsage::CopySource | TextureUsage::CopyDestination;
+        auto                              texture = GPU->CreateTexture(desc);
+        std::vector<std::vector<uint8_t>> patterns;
+        std::vector<Handle<Buffer>>       outputs;
+        auto                              copy = GPU->CreateCommandList();
+        for (uint32_t mip = 0; mip < 3; ++mip)
+        {
+            size_t count = std::max(1u, 3u >> mip) * std::max(1u, 5u >> mip) * 2;
+            patterns.emplace_back(count);
+            for (size_t i = 0; i < count; ++i)
+                patterns.back()[i] = uint8_t(37 * i + 59 * mip + 11);
+            if (mip == 0)
+            {
+                patterns.back()[0] = 85;
+                patterns.back()[1] = 170;
+            }
+            auto upload = Upload(patterns.back().data(), count);
+            copy->CopyBufferToTexture(upload, 0, texture, {mip, 0});
+            outputs.push_back(Readback(count));
+        }
+        for (uint32_t mip = 0; mip < 3; ++mip)
+            copy->CopyTextureToBuffer(texture, {mip, 0}, outputs[mip]);
+        GPU->Submit(copy);
+        GPU->WaitIdle();
+        for (uint32_t mip = 0; mip < 3; ++mip)
+            EXPECT_EQ(outputs[mip]->Read(0, patterns[mip].size()), patterns[mip]);
+        Program               = ShaderFrom(Vertex, R"(#version 450
+layout(set=1,binding=9) uniform sampler2D image;
+layout(location=0) out vec4 color;
+void main() { color=texelFetch(image,ivec2(0),0); })");
+        auto           layout = GPU->CreateBindGroupLayout({1, {{9, BindingType::CombinedTextureSampler}}});
+        BindGroupEntry entry;
+        entry.Slot            = 9;
+        entry.TextureResource = texture;
+        entry.SamplerResource = GPU->CreateSampler();
+        auto group            = GPU->CreateBindGroup({layout, {entry}});
+        auto d                = Description();
+        d.GroupLayouts        = {layout};
+        auto target           = Target();
+        auto commands         = Begin(Render(target));
+        commands->BindGroup(group);
+        Draw(commands, GPU->CreatePipeline(d));
+        Solid(Finish(commands, target), {85, 170, 0, 255});
+    }
+
+    TEST_P(RHIConformance, SparsePublishedSlotsAndRecordedPerDrawUniformRanges)
+    {
+        // Slots above 7 must load unchanged. Colliding logical slots in both
+        // groups must stay independent; each recorded draw must retain its range.
+        ShaderData data;
+        data.Code = CompileTestMaterialShader(Vertex, R"(#version 450
+layout(set=0,binding=17,std140) uniform Frame { vec4 Value; } frame;
+layout(set=1,binding=17,std140) uniform Material { vec4 Value; } material;
+layout(set=0,binding=23) uniform sampler2D first;
+layout(set=1,binding=23) uniform sampler2D second;
+layout(location=0) out vec4 color;
+void main() { color=frame.Value*texture(first,vec2(.5))+material.Value*texture(second,vec2(.5)); })");
+        // shaderc imposes a source-language binding ceiling. SPIR-V uses uint32
+        // binding decorations; patch only those numbers to exercise the full RHI address.
+        for (auto& module : data.Code.Modules)
+            for (size_t i = 5; i < module.Words.size();)
+            {
+                const uint32_t count = module.Words[i] >> 16;
+                ASSERT_NE(count, 0u);
+                if ((module.Words[i] & 0xffffu) == spv::OpDecorate && count == 4 &&
+                    module.Words[i + 2] == spv::DecorationBinding)
+                {
+                    auto& slot = module.Words[i + 3];
+                    if (slot == 17)
+                        slot = 65537;
+                    else if (slot == 23)
+                        slot = 100023;
+                }
+                i += count;
+            }
+        Program = GPU->CreateShader(data);
+        std::vector<Handle<BindGroupLayout>> layouts;
+        for (uint32_t group = 0; group < 2; ++group)
+            layouts.push_back(GPU->CreateBindGroupLayout(
+                {group, {{65537, BindingType::UniformBuffer}, {100023, BindingType::CombinedTextureSampler}}}));
+        const size_t stride = std::max(size_t(16), GPU->GetBufferBindingAlignment(BindingType::UniformBuffer));
+        auto         frames = GPU->CreateBuffer({stride * 2, BufferUsage::Uniform, MemoryUsage::Upload});
+        const std::array<float, 4> first {1, 1, 1, 0}, second {.5f, 1, 1, 0}, material {1, 1, .5f, 1};
+        frames->Write(0, first.data(), 16);
+        frames->Write(stride, second.data(), 16);
+        auto                           parameters = Upload(material.data(), 16, BufferUsage::Uniform);
+        auto                           sampler    = GPU->CreateSampler();
+        auto                           commands   = GPU->CreateCommandList();
+        std::array<Handle<Texture>, 2> textures;
+        const std::array<Pixel, 2>     pixels {{{255, 0, 0, 255}, {0, 0, 255, 255}}};
+        for (size_t i = 0; i < 2; ++i)
+        {
+            TextureDesc td;
+            td.Usage    = TextureUsage::Sampled | TextureUsage::CopyDestination;
+            textures[i] = GPU->CreateTexture(td);
+            commands->CopyBufferToTexture(Upload(pixels[i].data(), 4), 0, textures[i]);
+        }
+        auto group = [&](uint32_t index, size_t offset) {
+            BindGroupEntry buffer;
+            buffer.Slot           = 65537;
+            buffer.BufferResource = index ? parameters : frames;
+            buffer.Offset         = offset;
+            buffer.Bytes          = 16;
+            BindGroupEntry image;
+            image.Slot            = 100023;
+            image.TextureResource = textures[index];
+            image.SamplerResource = sampler;
+            return GPU->CreateBindGroup({layouts[index], {buffer, image}});
+        };
+        auto d         = Description();
+        d.GroupLayouts = layouts;
+        auto pipeline  = GPU->CreatePipeline(d);
+        auto target    = Target();
+        commands->BeginRendering(Render(target));
+        commands->SetViewport({0, 0, float(Size), float(Size), 0, 1});
+        commands->BindGroup(group(1, 0));
+        commands->BindGroup(group(0, 0));
+        commands->SetScissor({0, 0, 8, Size});
+        Draw(commands, pipeline);
+        commands->BindGroup(group(0, stride));
+        commands->SetScissor({8, 0, 8, Size});
+        Draw(commands, pipeline);
+        // Release all caller references to demonstrate command ownership.
+        frames.reset();
+        parameters.reset();
+        textures   = {};
+        auto bytes = Finish(commands, target);
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+                EXPECT_EQ(At(bytes, x, y), (x < 8 ? Pixel {255, 0, 128, 255} : Pixel {128, 0, 128, 255}))
+                    << x << ',' << y;
     }
 
     INSTANTIATE_TEST_SUITE_P(Backends,

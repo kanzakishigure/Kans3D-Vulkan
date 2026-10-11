@@ -14,7 +14,15 @@ namespace Kans
 {
     struct GpuMesh
     {
+        // RHI-MIGRATION: immutable VAO view for picking/outline and the material preview.
         Ref<VertexArray> VertexArray;
+        RenderHardware::Handle<RenderHardware::Buffer> Vertices, Indices;
+        std::vector<RenderHardware::VertexBinding>     VertexBindings {{0, 64, false}};
+        std::vector<RenderHardware::VertexAttribute>   Attributes {{0, 0, 0, RenderHardware::VertexFormat::Float3},
+                                                                   {1, 0, 12, RenderHardware::VertexFormat::Float3},
+                                                                   {2, 0, 24, RenderHardware::VertexFormat::Float2},
+                                                                   {3, 0, 32, RenderHardware::VertexFormat::Float4},
+                                                                   {4, 0, 48, RenderHardware::VertexFormat::Float4}};
         uint32_t         IndexCount = 0;
         AssetID          Material;
         AssetID          AuthoredMaterial;
@@ -29,6 +37,8 @@ namespace Kans
     // Material data packed for its Shader: set-1 uniform blocks and textures.
     struct GpuMaterialBindings
     {
+        mutable RenderHardware::Handle<RenderHardware::BindGroup>            Group;
+        mutable std::vector<RenderHardware::Handle<RenderHardware::Texture>> Images;
         AssetID Shader; // Actual program, including Standard while a custom Shader is unavailable.
         MaterialRenderState Render;
         std::vector<std::pair<uint32_t, GpuUniformBuffer>> Blocks;
@@ -55,14 +65,20 @@ namespace Kans
     class RenderAssetCache
     {
     public:
-        explicit RenderAssetCache(AssetManager& assets) : m_Assets(assets) {}
+        explicit RenderAssetCache(AssetManager& assets, std::shared_ptr<RenderHardware::Device> device = {}) :
+            m_Device(std::move(device)), m_Assets(assets)
+        {}
+        std::shared_ptr<RenderHardware::Device>         GetDevice();
+        RenderHardware::Handle<RenderHardware::Texture> GetTextureResource(AssetID id);
+        // Sampling belongs to an independent RHI sampler, never mutable native image state.
+        void SetTextureSampler(AssetID id, const RenderHardware::SamplerDesc& desc);
+        RenderHardware::Handle<RenderHardware::BindGroup>
+        GetMaterialGroup(const GpuShader& shader, const GpuMaterialBindings& bindings, bool* complete = nullptr);
 
         // Evicts resources not used for `unusedFrames` frames.
         void BeginFrame(uint64_t unusedFrames = 600);
         void Clear();
-        // Call after restoring caller GL state. Bound retired objects stay alive until
-        // a later release or BeginFrame; unbound replacements are freed immediately.
-        // Requires the render thread and its current GL context. Does not advance the frame.
+        // RHI-MIGRATION: compatibility retirement after legacy preview state restoration.
         void ReleaseRetiredResources();
 
         const ModelInstances* GetModel(AssetID id);
@@ -106,6 +122,9 @@ namespace Kans
                                                    Ref<const ShaderDataAsset>   shaderSource,
                                                    bool                         standard);
 
+        std::shared_ptr<RenderHardware::Device>                                      m_Device;
+        RenderHardware::Handle<RenderHardware::Sampler>                              m_MaterialSampler;
+        std::unordered_map<AssetID, RenderHardware::Handle<RenderHardware::Sampler>> m_TextureSamplers;
         std::array<Ref<Texture2D>, 3>                                      m_FallbackTextures;
         AssetManager&                                                      m_Assets;
         uint64_t                                                           m_Frame = 0;
@@ -116,20 +135,18 @@ namespace Kans
         std::unordered_map<AssetID, Entry<ShaderDataAsset, GpuShader>>     m_Shaders;
         std::unordered_map<AssetID, BindingsEntry>                         m_Bindings;
         std::unordered_map<AssetID, BindingsEntry>                         m_StandardBindings;
-        // Keep replaced programs, textures and UBOs alive through GL state restoration.
-        // Preview completion releases unbound objects; BeginFrame/Clear releases all.
-        std::vector<Scope<GpuShader>>           m_RetiredShaders;
-        std::vector<Scope<Ref<Texture2D>>>      m_RetiredTextures;
-        std::vector<Scope<GpuMaterialBindings>> m_RetiredBindings;
     };
 
-    // Uploads CPU mesh data to an indexed vertex array (requires a current GL context).
-    [[nodiscard]] std::variant<GpuMesh, AssetError> UploadMesh(const MeshData& data);
+    // Uploads CPU mesh data to RHI buffers and exposes an immutable legacy VAO view.
+    [[nodiscard]] std::variant<GpuMesh, AssetError> UploadMesh(const MeshData&                         data,
+                                                               std::shared_ptr<RenderHardware::Device> device = {});
     // Converts a Model hierarchy to per-mesh model-space transforms.
     [[nodiscard]] std::variant<ModelInstances, AssetError> FlattenModel(const ModelData& data);
     // Maps imported material parameters and texture semantics to the engine PBR material.
     GpuMaterial MakeGpuMaterial(const MaterialData& data);
-    // Packs a Shader material's uniform blocks into GL buffers (requires a current GL context).
-    [[nodiscard]] std::variant<GpuMaterialBindings, AssetError> MakeGpuMaterialBindings(const MaterialData& material,
-                                                                                        const ShaderData&   shader);
+    // Packs a material into RHI uniform buffers; group 1 is resolved lazily with its textures.
+    [[nodiscard]] std::variant<GpuMaterialBindings, AssetError>
+    MakeGpuMaterialBindings(const MaterialData&                     material,
+                            const ShaderData&                       shader,
+                            std::shared_ptr<RenderHardware::Device> device = {});
 } // namespace Kans

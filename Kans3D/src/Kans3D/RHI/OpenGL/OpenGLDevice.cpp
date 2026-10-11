@@ -11,6 +11,7 @@
 #include <spirv-tools/libspirv.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
 #include "Kans3D/Asset/Runtime/ShaderData.h"
+#include "OpenGLInterop.h"
 
 namespace Kans::RenderHardware
 {
@@ -26,19 +27,24 @@ namespace Kans::RenderHardware
         {
             return (uint32_t(value) & uint32_t(flag)) == uint32_t(flag);
         }
-        constexpr uint32_t SlotsPerGroup = 8, GroupCount = 2, PushPoint = SlotsPerGroup * GroupCount;
-        uint32_t           Point(uint32_t group, uint32_t slot)
+        constexpr uint32_t GroupCount = 2, PushPoint = 16;
+        uint64_t           Point(uint32_t group, uint32_t slot)
         {
-            Require(group < GroupCount && slot < SlotsPerGroup, "Binding exceeds backend group/slot capacity");
-            return group * SlotsPerGroup + slot;
+            Require(group < GroupCount, "Binding exceeds backend group capacity");
+            return (uint64_t(group) << 32) | slot;
         }
         struct State
         {
             DeviceStats                        Stats;
             bool                               InFrame = false, Alive = true, PendingShaderWrites = false;
-            std::vector<std::function<void()>> Deletions;
+            struct Deletion
+            {
+                std::function<void()> Destroy;
+                std::function<bool()> Bound;
+            };
+            std::vector<Deletion>              Deletions;
             std::vector<std::function<void()>> Retentions;
-            void                               Retire()
+            void                               Retire(bool preserveBound = false)
             {
                 glFinish();
                 PendingShaderWrites = false;
@@ -51,7 +57,12 @@ namespace Kans::RenderHardware
                 Deletions.clear();
                 for (auto& destroy : work)
                 {
-                    destroy();
+                    if (preserveBound && destroy.Bound && destroy.Bound())
+                    {
+                        Deletions.push_back(std::move(destroy));
+                        continue;
+                    }
+                    destroy.Destroy();
                     --Stats.LiveResources;
                     --Stats.PendingDestructions;
                 }
@@ -62,8 +73,12 @@ namespace Kans::RenderHardware
             std::shared_ptr<State>      Owner;
             GLuint                      ID = 0;
             std::function<void(GLuint)> Delete;
-            Native(std::shared_ptr<State> state, GLuint id, std::function<void(GLuint)> destroy) :
-                Owner(std::move(state)), ID(id), Delete(std::move(destroy))
+            std::function<bool(GLuint)> Bound;
+            Native(std::shared_ptr<State>      state,
+                   GLuint                      id,
+                   std::function<void(GLuint)> destroy,
+                   std::function<bool(GLuint)> bound = {}) :
+                Owner(std::move(state)), ID(id), Delete(std::move(destroy)), Bound(std::move(bound))
             {
                 ++Owner->Stats.LiveResources;
             }
@@ -74,7 +89,10 @@ namespace Kans::RenderHardware
                 // Device teardown drains the queue; handles outliving it violate the contract.
                 if (Owner->Alive)
                 {
-                    Owner->Deletions.push_back([id, destroy] { destroy(id); });
+                    Owner->Deletions.push_back({[id, destroy] { destroy(id); },
+                                                Bound ?
+                                                    std::function<bool()>([id, bound = Bound] { return bound(id); }) :
+                                                    std::function<bool()>()});
                     ++Owner->Stats.PendingDestructions;
                 }
             }
@@ -99,6 +117,10 @@ namespace Kans::RenderHardware
                     return {GL_SRGB8_ALPHA8, GL_RGBA, GL_UNSIGNED_BYTE, 4};
                 case Format::RGBA16Float:
                     return {GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, 8};
+                case Format::RGBA32Float:
+                    return {GL_RGBA32F, GL_RGBA, GL_FLOAT, 16};
+                case Format::RG8Unorm:
+                    return {GL_RG8, GL_RG, GL_UNSIGNED_BYTE, 2};
                 case Format::R32Uint:
                     return {GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, 4};
                 case Format::R8Unorm:
@@ -118,13 +140,114 @@ namespace Kans::RenderHardware
                     "Invalid texture subresource");
             return size_t(Width(d, sub.Mip)) * Height(d, sub.Mip) * Info(d.PixelFormat).Bytes;
         }
+        bool BoundProgram(GLuint id)
+        {
+            GLint n;
+            glGetIntegerv(GL_CURRENT_PROGRAM, &n);
+            return GLuint(n) == id;
+        }
+        bool BoundTexture(GLuint id)
+        {
+            GLint active, count, n;
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+            glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
+            bool bound = false;
+            for (int i = 0; i < count; ++i)
+            {
+                glActiveTexture(GL_TEXTURE0 + i);
+                for (auto target : {GL_TEXTURE_BINDING_2D, GL_TEXTURE_BINDING_CUBE_MAP})
+                {
+                    glGetIntegerv(target, &n);
+                    bound |= GLuint(n) == id;
+                }
+            }
+            glActiveTexture(active);
+            return bound;
+        }
+        bool BoundBuffer(GLuint id)
+        {
+            GLint n, count;
+            for (auto target : {GL_ARRAY_BUFFER_BINDING,
+                                GL_ELEMENT_ARRAY_BUFFER_BINDING,
+                                GL_UNIFORM_BUFFER_BINDING,
+                                GL_PIXEL_PACK_BUFFER_BINDING,
+                                GL_PIXEL_UNPACK_BUFFER_BINDING,
+                                GL_COPY_READ_BUFFER_BINDING,
+                                GL_COPY_WRITE_BUFFER_BINDING,
+                                GL_DRAW_INDIRECT_BUFFER_BINDING,
+                                GL_DISPATCH_INDIRECT_BUFFER_BINDING,
+                                GL_SHADER_STORAGE_BUFFER_BINDING,
+                                GL_ATOMIC_COUNTER_BUFFER_BINDING,
+                                GL_TRANSFORM_FEEDBACK_BUFFER_BINDING,
+                                GL_TEXTURE_BUFFER_BINDING})
+            {
+                glGetIntegerv(target, &n);
+                if (GLuint(n) == id)
+                    return true;
+            }
+            for (auto pair : {std::pair {GL_UNIFORM_BUFFER_BINDING, GL_MAX_UNIFORM_BUFFER_BINDINGS},
+                              std::pair {GL_SHADER_STORAGE_BUFFER_BINDING, GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS},
+                              std::pair {GL_ATOMIC_COUNTER_BUFFER_BINDING, GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS},
+                              std::pair {GL_TRANSFORM_FEEDBACK_BUFFER_BINDING, GL_MAX_TRANSFORM_FEEDBACK_BUFFERS}})
+            {
+                glGetIntegerv(pair.second, &count);
+                for (int i = 0; i < count; ++i)
+                {
+                    glGetIntegeri_v(pair.first, i, &n);
+                    if (GLuint(n) == id)
+                        return true;
+                }
+            }
+            return false;
+        }
+        struct TransferState
+        {
+            GLenum                Target, Binding;
+            GLint                 Texture = 0, Buffer = 0;
+            std::array<GLenum, 8> Stores;
+            std::array<GLint, 8>  Values;
+            TransferState(GLenum target, bool pack) :
+                Target(target), Binding(pack ? GL_PIXEL_PACK_BUFFER : GL_PIXEL_UNPACK_BUFFER)
+            {
+                glGetIntegerv(target == GL_TEXTURE_2D ? GL_TEXTURE_BINDING_2D : GL_TEXTURE_BINDING_CUBE_MAP, &Texture);
+                glGetIntegerv(pack ? GL_PIXEL_PACK_BUFFER_BINDING : GL_PIXEL_UNPACK_BUFFER_BINDING, &Buffer);
+                Stores = pack ? std::array<GLenum, 8> {GL_PACK_ALIGNMENT,
+                                                       GL_PACK_ROW_LENGTH,
+                                                       GL_PACK_IMAGE_HEIGHT,
+                                                       GL_PACK_SKIP_ROWS,
+                                                       GL_PACK_SKIP_PIXELS,
+                                                       GL_PACK_SKIP_IMAGES,
+                                                       GL_PACK_SWAP_BYTES,
+                                                       GL_PACK_LSB_FIRST} :
+                                std::array<GLenum, 8> {GL_UNPACK_ALIGNMENT,
+                                                       GL_UNPACK_ROW_LENGTH,
+                                                       GL_UNPACK_IMAGE_HEIGHT,
+                                                       GL_UNPACK_SKIP_ROWS,
+                                                       GL_UNPACK_SKIP_PIXELS,
+                                                       GL_UNPACK_SKIP_IMAGES,
+                                                       GL_UNPACK_SWAP_BYTES,
+                                                       GL_UNPACK_LSB_FIRST};
+                for (size_t i = 0; i < Stores.size(); ++i)
+                {
+                    glGetIntegerv(Stores[i], &Values[i]);
+                    glPixelStorei(Stores[i], i == 0 ? 1 : 0);
+                }
+            }
+            ~TransferState()
+            {
+                for (size_t i = 0; i < Stores.size(); ++i)
+                    glPixelStorei(Stores[i], Values[i]);
+                glBindBuffer(Binding, Buffer);
+                glBindTexture(Target, Texture);
+            }
+        };
         struct GLBuffer final : Buffer
         {
             BufferDesc Desc;
             Native     Name;
             size_t     PendingWrites = 0;
             GLBuffer(const std::shared_ptr<State>& state, BufferDesc desc, GLuint id) :
-                Desc(desc), Name(state, id, [](GLuint n) { glDeleteBuffers(1, &n); })
+                Desc(desc), Name(state, id, [](GLuint n) { glDeleteBuffers(1, &n); }, BoundBuffer)
             {}
             const BufferDesc& GetDesc() const override { return Desc; }
             void              Write(size_t offset, const void* data, size_t bytes) override
@@ -155,10 +278,11 @@ namespace Kans::RenderHardware
         };
         struct GLTexture final : Texture
         {
+            std::shared_ptr<void> BorrowedOwner;
             TextureDesc Desc;
             Native      Name;
             GLTexture(const std::shared_ptr<State>& state, TextureDesc desc, GLuint id) :
-                Desc(desc), Name(state, id, [](GLuint n) { glDeleteTextures(1, &n); })
+                Desc(desc), Name(state, id, [](GLuint n) { glDeleteTextures(1, &n); }, BoundTexture)
             {}
             const TextureDesc& GetDesc() const override { return Desc; }
             GLenum             Target() const
@@ -186,7 +310,8 @@ namespace Kans::RenderHardware
         };
         struct TextureUnit
         {
-            uint32_t Unit, ImagePoint, SamplerPoint;
+            uint32_t Unit;
+            uint64_t ImagePoint, SamplerPoint;
         };
         class ShaderCompiler final : public spirv_cross::CompilerGLSL
         {
@@ -300,8 +425,9 @@ namespace Kans::RenderHardware
             std::vector<PushCopy>      PushCopies;
             std::vector<ShaderBinding> Bindings;
             std::vector<TextureUnit>   Units;
+            std::map<uint64_t, uint32_t> UniformPoints, StoragePoints, CombinedUnits;
             GLShader(const std::shared_ptr<State>& state, GLuint id) :
-                Name(state, id, [](GLuint n) { glDeleteProgram(n); })
+                Name(state, id, [](GLuint n) { glDeleteProgram(n); }, BoundProgram)
             {}
             uint32_t GetPushConstantBytes() const override { return PushBytes; }
         };
@@ -589,7 +715,7 @@ namespace Kans::RenderHardware
                         Require(entry->TextureResource->GetDesc().Dimension == binding.Dimension,
                                 "Texture dimension disagrees with shader binding");
                 }
-                std::map<uint32_t, GLuint> images, samplers;
+                std::map<uint64_t, GLuint> images, samplers;
                 for (const auto& [groupIndex, group] : Groups)
                 {
                     const auto& l = group->Desc.Layout->GetDesc();
@@ -601,12 +727,17 @@ namespace Kans::RenderHardware
                         if (e.BufferResource)
                         {
                             auto b = std::static_pointer_cast<GLBuffer>(e.BufferResource);
-                            glBindBufferRange(type == BindingType::StorageBuffer ? GL_SHADER_STORAGE_BUFFER :
-                                                                                   GL_UNIFORM_BUFFER,
-                                              point,
-                                              b->Name.ID,
-                                              e.Offset,
-                                              e.Bytes ? e.Bytes : b->Desc.Bytes - e.Offset);
+                            const auto& points =
+                                type == BindingType::StorageBuffer ? program->StoragePoints : program->UniformPoints;
+                            if (!points.count(point))
+                                continue;
+                            glBindBufferRange(
+                                type == BindingType::StorageBuffer ? GL_SHADER_STORAGE_BUFFER : GL_UNIFORM_BUFFER,
+                                (type == BindingType::StorageBuffer ? program->StoragePoints : program->UniformPoints)
+                                    .at(point),
+                                b->Name.ID,
+                                e.Offset,
+                                e.Bytes ? e.Bytes : b->Desc.Bytes - e.Offset);
                         }
                         if (e.TextureResource)
                             images[point] = std::static_pointer_cast<GLTexture>(e.TextureResource)->Name.ID;
@@ -952,6 +1083,7 @@ namespace Kans::RenderHardware
                 Require(offset % Info(d->Desc.PixelFormat).Bytes == 0, "Texture copy offset must be texel aligned");
                 Range(s->Desc.Bytes, offset, TextureBytes(d->Desc, sub));
                 Record([s, d, offset, sub](Execution&) {
+                    TransferState state(d->Target(), false);
                     glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT);
                     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, s->Name.ID);
                     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -986,6 +1118,7 @@ namespace Kans::RenderHardware
                 Require(offset % Info(s->Desc.PixelFormat).Bytes == 0, "Texture copy offset must be texel aligned");
                 Range(d->Desc.Bytes, offset, TextureBytes(s->Desc, sub));
                 Record([s, d, offset, sub](Execution&) {
+                    TransferState state(s->Target(), true);
                     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT | GL_PIXEL_BUFFER_BARRIER_BIT);
                     glBindBuffer(GL_PIXEL_PACK_BUFFER, d->Name.ID);
                     glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -1080,10 +1213,15 @@ namespace Kans::RenderHardware
                 GLuint id = 0;
                 glGenTextures(1, &id);
                 auto t = std::make_shared<GLTexture>(m_State, desc, id);
+                GLint previous;
+                glGetIntegerv(desc.Dimension == TextureDimension::Cube ? GL_TEXTURE_BINDING_CUBE_MAP :
+                                                                         GL_TEXTURE_BINDING_2D,
+                              &previous);
                 glBindTexture(t->Target(), id);
                 glTexStorage2D(t->Target(), desc.MipLevels, info.Internal, desc.Width, desc.Height);
                 glTexParameteri(t->Target(), GL_TEXTURE_BASE_LEVEL, 0);
                 glTexParameteri(t->Target(), GL_TEXTURE_MAX_LEVEL, desc.MipLevels - 1);
+                glBindTexture(t->Target(), previous);
                 return t;
             }
             Handle<Sampler> CreateSampler(const SamplerDesc& desc) override
@@ -1119,6 +1257,7 @@ namespace Kans::RenderHardware
                 try
                 {
                     std::set<uint32_t> reservedUnits;
+                    std::set<uint64_t> uniformSlots, storageSlots, combinedSlots;
                     for (const auto& module : data.Code.Modules)
                     {
                         Require((module.Stage == ShaderProductStage::Vertex ||
@@ -1134,10 +1273,30 @@ namespace Kans::RenderHardware
                         if (!validator.Validate(module.Words))
                             throw std::invalid_argument("Invalid shader bytecode: " + diagnostic);
                         spirv_cross::Compiler reflection(module.Words);
-                        for (const auto& resource : reflection.get_shader_resources().sampled_images)
-                            reservedUnits.insert(
-                                Point(reflection.get_decoration(resource.id, spv::DecorationDescriptorSet),
-                                      reflection.get_decoration(resource.id, spv::DecorationBinding)));
+                        const auto            resources = reflection.get_shader_resources();
+                        auto                  collect   = [&](const auto& list, auto& slots) {
+                            for (const auto& resource : list)
+                                slots.insert(Point(reflection.get_decoration(resource.id, spv::DecorationDescriptorSet),
+                                                   reflection.get_decoration(resource.id, spv::DecorationBinding)));
+                        };
+                        collect(resources.uniform_buffers, uniformSlots);
+                        collect(resources.storage_buffers, storageSlots);
+                        collect(resources.sampled_images, combinedSlots);
+                    }
+                    uint32_t nextUniform = 2, nextStorage = 0, nextTexture = 3;
+                    for (auto point : uniformSlots)
+                    {
+                        if (nextUniform == PushPoint)
+                            ++nextUniform;
+                        shader->UniformPoints[point] = point < 2 ? uint32_t(point) : nextUniform++;
+                    }
+                    for (auto point : storageSlots)
+                        shader->StoragePoints[point] = nextStorage++;
+                    for (auto point : combinedSlots)
+                    {
+                        uint32_t unit                = point >= 2 && point <= 4 ? point - 2 : nextTexture++;
+                        shader->CombinedUnits[point] = unit;
+                        reservedUnits.insert(unit);
                     }
                     for (const auto& module : data.Code.Modules)
                     {
@@ -1153,6 +1312,7 @@ namespace Kans::RenderHardware
                         Require(resources.storage_images.empty() && resources.subpass_inputs.empty() &&
                                     resources.atomic_counters.empty(),
                                 "Unsupported shader resource");
+                        std::map<uint32_t, uint64_t> separatePoints;
                         auto remap = [&](const auto& list, BindingType type) {
                             for (const auto& r : list)
                             {
@@ -1182,7 +1342,14 @@ namespace Kans::RenderHardware
                                 else
                                     Require(old->Type == type && old->Bytes == bytes && old->Dimension == dimension,
                                             "Shader stages disagree about a binding");
-                                compiler.set_decoration(r.id, spv::DecorationBinding, point);
+                                const auto nativePoint =
+                                    type == BindingType::UniformBuffer          ? shader->UniformPoints.at(point) :
+                                    type == BindingType::StorageBuffer          ? shader->StoragePoints.at(point) :
+                                    type == BindingType::CombinedTextureSampler ? shader->CombinedUnits.at(point) :
+                                                                                  0u;
+                                if (type == BindingType::SampledTexture || type == BindingType::Sampler)
+                                    separatePoints[r.id] = point;
+                                compiler.set_decoration(r.id, spv::DecorationBinding, nativePoint);
                                 compiler.unset_decoration(r.id, spv::DecorationDescriptorSet);
                                 if (type == BindingType::CombinedTextureSampler)
                                 {
@@ -1191,7 +1358,7 @@ namespace Kans::RenderHardware
                                             return u.ImagePoint == point && u.SamplerPoint == point;
                                         });
                                     if (unit == shader->Units.end())
-                                        shader->Units.push_back({point, point, point});
+                                        shader->Units.push_back({shader->CombinedUnits.at(point), point, point});
                                 }
                             }
                         };
@@ -1205,8 +1372,8 @@ namespace Kans::RenderHardware
                             compiler.build_combined_image_samplers();
                             for (auto pair : compiler.get_combined_image_samplers())
                             {
-                                const auto image   = compiler.get_decoration(pair.image_id, spv::DecorationBinding);
-                                const auto sampler = compiler.get_decoration(pair.sampler_id, spv::DecorationBinding);
+                                const auto image   = separatePoints.at(pair.image_id);
+                                const auto sampler = separatePoints.at(pair.sampler_id);
                                 auto       unit =
                                     std::find_if(shader->Units.begin(), shader->Units.end(), [image, sampler](auto u) {
                                         return u.ImagePoint == image && u.SamplerPoint == sampler;
@@ -1483,6 +1650,15 @@ namespace Kans::RenderHardware
                 m_State->InFrame = false;
             }
             void      WaitIdle() override { m_State->Retire(); }
+            void            FinishUploadFrame() { m_State->InFrame = false; }
+            bool            InFrame() const { return m_State->InFrame; }
+            void            RetireUnbound() { m_State->Retire(true); }
+            Handle<Texture> Borrow(GLuint id, const TextureDesc& desc)
+            {
+                auto texture         = std::make_shared<GLTexture>(m_State, desc, id);
+                texture->Name.Delete = [](GLuint) {};
+                return texture;
+            }
             uintptr_t GetImGuiTextureID(const Handle<Texture>& texture) const override
             {
                 return Cast<GLTexture>(texture, m_State)->Name.ID;
@@ -1490,4 +1666,255 @@ namespace Kans::RenderHardware
         };
     } // namespace
     std::unique_ptr<Device> CreateOpenGLDevice(const DeviceDesc& desc) { return std::make_unique<GLDevice>(desc); }
+    namespace OpenGLInterop
+    {
+        std::shared_ptr<Device> AcquireDevice()
+        {
+            static std::weak_ptr<Device> current;
+            auto                         device = current.lock();
+            if (!device)
+            {
+                device  = CreateOpenGLDevice();
+                current = device;
+            }
+            return device;
+        }
+        uint32_t BufferName(const Handle<Buffer>& b) { return std::dynamic_pointer_cast<GLBuffer>(b)->Name.ID; }
+        uint32_t TextureName(const Handle<Texture>& t) { return std::dynamic_pointer_cast<GLTexture>(t)->Name.ID; }
+        uint32_t ProgramName(const Handle<Shader>& s) { return std::dynamic_pointer_cast<GLShader>(s)->Name.ID; }
+        uint32_t UniformPoint(const Handle<Shader>& s, uint32_t group, uint32_t slot)
+        {
+            return std::dynamic_pointer_cast<GLShader>(s)->UniformPoints.at(Point(group, slot));
+        }
+        uint32_t TextureUnit(const Handle<Shader>& s, uint32_t group, uint32_t slot)
+        {
+            return std::dynamic_pointer_cast<GLShader>(s)->CombinedUnits.at(Point(group, slot));
+        }
+        void BindUniform(const Handle<Buffer>& b, uint32_t point)
+        {
+            glBindBufferBase(GL_UNIFORM_BUFFER, point, BufferName(b));
+        }
+        void BindProgram(const Handle<Shader>& s) { glUseProgram(ProgramName(s)); }
+        void BindTexture(const Handle<Texture>& t, uint32_t unit)
+        {
+            glActiveTexture(GL_TEXTURE0 + unit);
+            auto native = std::dynamic_pointer_cast<GLTexture>(t);
+            glBindSampler(unit, 0);
+            glBindTexture(native->Target(), native->Name.ID);
+        }
+        void SubmitUpload(Device& device, const Handle<CommandList>& commands)
+        {
+            auto& gl       = dynamic_cast<GLDevice&>(device);
+            bool  ownFrame = !gl.InFrame();
+            if (ownFrame)
+                device.BeginFrame();
+            device.Submit(commands);
+            // Uploads used by legacy immediate consumers must be visible now.
+            // The outer preview guard retires uploads after restoring caller bindings.
+            if (ownFrame)
+                gl.FinishUploadFrame();
+        }
+        void RetireUnbound(Device& device) { dynamic_cast<GLDevice&>(device).RetireUnbound(); }
+        Handle<Texture>
+        BorrowTexture(Device& device, uint32_t name, TextureDimension dimension, std::shared_ptr<void> owner)
+        {
+            TextureDesc desc;
+            desc.Dimension   = dimension;
+            desc.Usage       = TextureUsage::Sampled;
+            desc.PixelFormat = Format::RGBA16Float;
+            GLenum target    = dimension == TextureDimension::Cube ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D;
+            GLint  previous, width, height;
+            glGetIntegerv(dimension == TextureDimension::Cube ? GL_TEXTURE_BINDING_CUBE_MAP : GL_TEXTURE_BINDING_2D,
+                          &previous);
+            glBindTexture(target, name);
+            GLenum face = dimension == TextureDimension::Cube ? GL_TEXTURE_CUBE_MAP_POSITIVE_X : GL_TEXTURE_2D;
+            glGetTexLevelParameteriv(face, 0, GL_TEXTURE_WIDTH, &width);
+            glGetTexLevelParameteriv(face, 0, GL_TEXTURE_HEIGHT, &height);
+            desc.Width     = width;
+            desc.Height    = height;
+            desc.MipLevels = 0;
+            for (int mip = 0; mip < 32; ++mip)
+            {
+                GLint w;
+                glGetTexLevelParameteriv(face, mip, GL_TEXTURE_WIDTH, &w);
+                if (!w)
+                    break;
+                ++desc.MipLevels;
+            }
+            glBindTexture(target, previous);
+            auto texture = dynamic_cast<GLDevice&>(device).Borrow(name, desc);
+            std::dynamic_pointer_cast<GLTexture>(texture)->BorrowedOwner = std::move(owner);
+            return texture;
+        }
+        class TextureAdapter final : public Kans::Texture2D
+        {
+        public:
+            std::shared_ptr<Device>         GPU;
+            Handle<RenderHardware::Texture> Image;
+            std::filesystem::path           Path;
+            TextureAdapter(std::shared_ptr<Device> gpu, Handle<RenderHardware::Texture> image) :
+                GPU(std::move(gpu)), Image(std::move(image))
+            {
+                auto  native = std::dynamic_pointer_cast<GLTexture>(Image);
+                GLint previous;
+                glGetIntegerv(native->Desc.Dimension == TextureDimension::Cube ? GL_TEXTURE_BINDING_CUBE_MAP :
+                                                                                 GL_TEXTURE_BINDING_2D,
+                              &previous);
+                glBindTexture(native->Target(), native->Name.ID);
+                glTexParameteri(native->Target(), GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glTexParameteri(native->Target(), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glBindTexture(native->Target(), previous);
+            }
+            uint32_t GetWidth() const override { return Image->GetDesc().Width; }
+            uint32_t GetHeight() const override { return Image->GetDesc().Height; }
+            uint32_t GetRenererID() const override { return uint32_t(GPU->GetImGuiTextureID(Image)); }
+            void     Bind(uint32_t unit) const override { BindTexture(Image, unit); }
+            const std::filesystem::path& GetPath() const override { return Path; }
+        };
+        Ref<Kans::Texture2D> TextureView(std::shared_ptr<Device> gpu, Handle<Texture> texture)
+        {
+            return CreateRef<TextureAdapter>(std::move(gpu), std::move(texture));
+        }
+        Handle<Texture> TextureResource(const Ref<Kans::Texture2D>& texture)
+        {
+            return std::dynamic_pointer_cast<TextureAdapter>(texture)->Image;
+        }
+        class IndexAdapter final : public Kans::IndexBuffer
+        {
+            std::shared_ptr<Device> GPU;
+            Handle<Buffer>          BufferResource;
+            uint32_t                Count;
+
+        public:
+            IndexAdapter(std::shared_ptr<Device> gpu, Handle<Buffer> b, uint32_t count) :
+                GPU(std::move(gpu)), BufferResource(std::move(b)), Count(count)
+            {}
+            void     Bind() const override { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, BufferName(BufferResource)); }
+            void     Unbind() const override { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); }
+            uint32_t GetCount() const override { return Count; }
+        };
+        class VertexAdapter final : public Kans::VertexBuffer
+        {
+            std::shared_ptr<Device> GPU;
+            Handle<Buffer>          BufferResource;
+            BufferLayout            Layout {{ShaderDataType::Float3, "a_Position"},
+                                            {ShaderDataType::Float3, "a_Normal"},
+                                            {ShaderDataType::Float2, "a_UV"},
+                                            {ShaderDataType::Float4, "a_Color"},
+                                            {ShaderDataType::Float4, "a_Tangent"}};
+
+        public:
+            VertexAdapter(std::shared_ptr<Device> gpu, Handle<Buffer> b) :
+                GPU(std::move(gpu)), BufferResource(std::move(b))
+            {}
+            void Bind() const override { glBindBuffer(GL_ARRAY_BUFFER, BufferName(BufferResource)); }
+            void Unbind() const override { glBindBuffer(GL_ARRAY_BUFFER, 0); }
+            void SetData(const void*, uint32_t) override { throw std::logic_error("Immutable RHI mesh interop view"); }
+            void SetBufferLayout(const BufferLayout&) override
+            {
+                throw std::logic_error("Immutable RHI mesh interop view");
+            }
+            const BufferLayout& GetLayout() const override { return Layout; }
+        };
+        class ArrayAdapter final : public Kans::VertexArray
+        {
+            std::shared_ptr<Device>              GPU;
+            Handle<Buffer>                       Vertices, Indices;
+            std::vector<Ref<Kans::VertexBuffer>> LegacyVertices;
+            Ref<Kans::IndexBuffer>               LegacyIndices;
+            Native                               Array;
+
+        public:
+            ArrayAdapter(std::shared_ptr<Device> gpu,
+                         Handle<Buffer>          vertices,
+                         Handle<Buffer>          indices,
+                         uint32_t                count,
+                         GLuint                  vao) :
+                GPU(std::move(gpu)), Vertices(std::move(vertices)), Indices(std::move(indices)),
+                LegacyVertices {CreateRef<VertexAdapter>(GPU, Vertices)},
+                LegacyIndices(CreateRef<IndexAdapter>(GPU, Indices, count)),
+                Array(std::dynamic_pointer_cast<GLBuffer>(Vertices)->Name.Owner, vao, [](GLuint n) {
+                    glDeleteVertexArrays(1, &n);
+                })
+            {
+                Bind();
+                glBindBuffer(GL_ARRAY_BUFFER, BufferName(Vertices));
+                const uint32_t sizes[] = {3, 3, 2, 4, 4}, offsets[] = {0, 12, 24, 32, 48};
+                for (uint32_t i = 0; i < 5; ++i)
+                {
+                    glEnableVertexAttribArray(i);
+                    glVertexAttribPointer(
+                        i, sizes[i], GL_FLOAT, GL_FALSE, 64, reinterpret_cast<void*>(uintptr_t(offsets[i])));
+                }
+                LegacyIndices->Bind();
+                Unbind();
+            }
+            void Bind() const override { glBindVertexArray(Array.ID); }
+            void Unbind() const override { glBindVertexArray(0); }
+            void AddVertexBuffer(const Ref<Kans::VertexBuffer>&) override
+            {
+                throw std::logic_error("Immutable RHI mesh interop view");
+            }
+            void SetIndexBuffer(const Ref<Kans::IndexBuffer>&) override
+            {
+                throw std::logic_error("Immutable RHI mesh interop view");
+            }
+            const std::vector<Ref<Kans::VertexBuffer>>& GetVertexBuffer() const override { return LegacyVertices; }
+            const Ref<Kans::IndexBuffer>&               GetIndexBuffer() const override { return LegacyIndices; }
+        };
+        Ref<Kans::VertexArray>
+        MeshVertexArray(std::shared_ptr<Device> gpu, Handle<Buffer> vertices, Handle<Buffer> indices, uint32_t count)
+        {
+            GLuint vao;
+            glGenVertexArrays(1, &vao);
+            return CreateRef<ArrayAdapter>(std::move(gpu), std::move(vertices), std::move(indices), count, vao);
+        }
+        uint32_t CreateSceneFramebuffer(const std::vector<Handle<Texture>>& colors, const Handle<Texture>& depth)
+        {
+            GLuint fbo;
+            glGenFramebuffers(1, &fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            std::vector<GLenum> attachments;
+            for (size_t i = 0; i < colors.size(); ++i)
+            {
+                glFramebufferTexture2D(
+                    GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, TextureName(colors[i]), 0);
+                attachments.push_back(GL_COLOR_ATTACHMENT0 + i);
+            }
+            glDrawBuffers(attachments.size(), attachments.data());
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, TextureName(depth), 0);
+            Require(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+                    "Incomplete scene interop target");
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return fbo;
+        }
+        void BindSceneFramebuffer(uint32_t fbo, uint32_t width, uint32_t height)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            glViewport(0, 0, width, height);
+        }
+        std::vector<uint32_t> SaveSamplers()
+        {
+            GLint count;
+            glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
+            std::vector<uint32_t> result(count);
+            for (int i = 0; i < count; ++i)
+            {
+                GLint sampler;
+                glGetIntegeri_v(GL_SAMPLER_BINDING, i, &sampler);
+                result[i] = sampler;
+            }
+            return result;
+        }
+        void RestoreSamplers(const std::vector<uint32_t>& samplers)
+        {
+            for (size_t i = 0; i < samplers.size(); ++i)
+                glBindSampler(i, samplers[i]);
+        }
+        void DeleteSceneFramebuffer(uint32_t fbo)
+        {
+            if (fbo)
+                glDeleteFramebuffers(1, &fbo);
+        }
+    } // namespace OpenGLInterop
 } // namespace Kans::RenderHardware

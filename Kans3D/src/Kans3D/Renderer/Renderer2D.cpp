@@ -168,6 +168,9 @@ namespace Kans
         PROFILE_FUCTION();
 
         delete[] s_Data.QuadVertexBufferBase;
+        // RHI-MIGRATION: batched texture views can own the context device; release them before context teardown.
+        s_Data.QuadVertexBufferBase = s_Data.QuadVertexBufferPtr = nullptr;
+        s_Data.TextureSlots.fill(nullptr);
         CORE_WARN(" render2d quadsbuffer memary is free");
     }
 

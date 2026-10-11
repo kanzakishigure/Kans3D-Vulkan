@@ -131,7 +131,7 @@ namespace Kans
         void SubmitGrid(float size, float scale, glm::mat4 transform);
         void SubmitSkybox(Ref<TextureCube> skybox);
 
-        uint32_t               GetOutput(uint32_t index) const;
+        uintptr_t              GetOutput(uint32_t index) const;
         const Environment&     GetEnvironment() const { return m_Environment; }
         const Ref<Texture2D>&  GetBrdfLUT() const { return m_BrdfLUT; }
         float                  GetElapsedTime() const
@@ -170,7 +170,14 @@ namespace Kans
         SceneRendererSpecification m_Specification;
 
         uint32_t         m_ViewportWidth = 0, m_ViewportHeight = 0;
-        Ref<FrameBuffer> m_FrameBuffer;
+        std::shared_ptr<RenderHardware::Device>                      m_Device;
+        std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Colors;
+        RenderHardware::Handle<RenderHardware::Texture>              m_Depth;
+        RenderHardware::Handle<RenderHardware::Sampler>              m_IBLSampler;
+        // RHI-MIGRATION: attachments shared with legacy grid/skybox/geometry/outline passes.
+        uint32_t                      m_InteropFramebuffer = 0;
+        void                          ResizeTarget();
+        RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load) const;
 
         Environment             m_Environment;
         Ref<TextureCube>        m_SkyBox;
@@ -183,9 +190,6 @@ namespace Kans
         std::optional<ModelDraw> m_Preview;
         SceneViewMode          m_ViewMode = SceneViewMode::Lit;
         SceneRenderStats       m_Stats;
-        // Engine data (set 0) of Shader materials, created on first use.
-        Scope<GpuUniformBuffer>               m_FrameUniforms;
-        Scope<GpuUniformBuffer>               m_ObjectUniforms;
         std::chrono::steady_clock::time_point m_StartTime = std::chrono::steady_clock::now();
     };
 } // namespace Kans

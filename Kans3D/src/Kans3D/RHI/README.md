@@ -1,7 +1,7 @@
-# Render hardware interface (phase 1a)
+# Render hardware interface
 
 The core API is `RHI.h`, in `Kans::RenderHardware`. The namespace avoids the
-existing `Kans::RHI` class. No existing renderer is migrated in this phase.
+existing `Kans::RHI` class. The asset cache, scene target and material pass use this interface as of phase 1c-1. Remaining immediate passes use the temporary backend-only `OpenGLInterop.h` (see [MIGRATION.md](MIGRATION.md)).
 `OpenGL/OpenGLDevice.h` is the backend construction entry point, separate from
 the neutral core header. Creating that device requires a current, loaded 4.3
 core context; all calls use its owning thread.
@@ -28,9 +28,14 @@ core context; all calls use its owning thread.
 
 ## Binding and shader translation
 
-The initial backend supports groups 0 and 1, each with slots 0 through 7.
-The mapping is `point = group * 8 + slot`, independently in the uniform,
-storage, and texture namespaces. Frame data uses group 0; material data uses
+The initial backend supports groups 0 and 1 with arbitrary uint32 logical slots.
+Shader reflection maps each logical group/slot to dense native uniform, storage
+and texture points independently. This preserves published products with sparse
+material bindings. Frame/Object reserve uniform points 0/1; material uniform
+blocks start at 2. Engine IBL reserves texture units 0/1/2; material samplers
+start at 3. The push emulation point 16 is excluded from uniform allocation.
+Separate images/samplers keep their logical keys while pairs get free texture
+units. Native stage/resource limits are enforced by shader compilation/linking. Frame data uses group 0; material data uses
 group 1. Layout and group entries are canonicalized by slot. The backend checks
 layouts against reflection and bound ranges against shader block sizes. `GetBufferBindingAlignment` exposes the uniform/storage
 view offset alignment so callers can construct portable buffer ranges.
@@ -77,7 +82,7 @@ still used by recorded or in-flight work. Copy results are inaccessible through 
 frame retirement or `WaitIdle`. Texture readback copies to a buffer, then maps
 that buffer; no texture mapping or renderer-issued barrier exists. Copies are
 full mip/face, tightly packed, with offsets aligned to the format's bytes per
-pixel. Backends may internally repack native transfer pitches. RGBA16Float transfers IEEE binary16, R32Uint
+pixel. Backends may internally repack native transfer pitches. RGBA16Float transfers IEEE binary16, RGBA32Float transfers native IEEE binary32 (16 bytes/pixel), RG8Unorm transfers two normalized bytes, R32Uint
 transfers uint32, Depth32Float transfers float, and Depth24Stencil8 transfers
 packed depth/stencil. Storage writes trigger automatic synchronization before
 later binding use; transfer/readback paths insert the appropriate memory barriers.
@@ -121,6 +126,9 @@ labelled `OpenGL`, serial, and runs with llvmpipe. Shader compilation uses
 | TwoGroupsWithCollidingSlotsAndCombinedSamplers | Group 0/1 slot collisions, ignored uniform-buffer range offsets, wrong texture unit, or ignored nearest filtering. |
 | SeparateTextureAndSamplerBindings | Sampler bound at the image's logical slot instead of its own, wrong pairing, filtering or repeat addressing. |
 | IntegerPickerTargetAndClear | Signed/float clear or transfer path truncating integer IDs above 2^24. |
+| FullFloatTargetPreservesValuesBelowHalfPrecision | Half precision substituted for full float, normalization/clamping, wrong transfer width or component order; exact binary float comparisons. |
+| OddWidthTwoChannelMipsAndSampledComponents | RG collapsed to R/RGBA, row padding or wrong mip extents; independent shader sampling checks components so matching transfer bugs cannot cancel. |
+| SparsePublishedSlotsAndRecordedPerDrawUniformRanges | Slots over 65535 rejected/truncated, group collisions, range offsets dropped, later groups replacing earlier recorded draws, or missing command ownership; exact RGBA8 pixels. |
 | HalfFloatTargetPreservesHDRAndNegative | Normalized allocation, clamping, wrong half transfer type or channel stride. |
 | PipelineCacheIncludesEveryStateField | Omitted raster/depth/stencil/blend/topology/push-range/format fields, or failure to reuse equal descriptions. |
 | PipelineCacheIncludesVertexAndBindingLayouts | Omitted vertex stride/divisor/location/offset/type, shader identity or logical binding layout; handle identity used instead of equivalent layout content. |

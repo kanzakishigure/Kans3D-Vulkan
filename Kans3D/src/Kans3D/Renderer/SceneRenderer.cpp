@@ -11,6 +11,7 @@
 #include <string>
 #include "Kans3D/Core/Application.h"
 #include "Kans3D/Platform/OpenGL/OpenGLShader.h"
+#include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
 #include "Kans3D/Renderer/Resource/MeshFactory.h"
 #define EnableEnv true
 
@@ -24,14 +25,6 @@ namespace Kans
                 glEnable(capability);
             else
                 glDisable(capability);
-        }
-
-        void ApplyStencil(ModelStencilMode mode)
-        {
-            SetCapability(GL_STENCIL_TEST, mode == ModelStencilMode::WriteReference);
-            glStencilFunc(GL_ALWAYS, 1, 0xff);
-            glStencilMask(mode == ModelStencilMode::WriteReference ? 0xff : 0);
-            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         }
 
         struct RasterState
@@ -104,7 +97,14 @@ namespace Kans
         Init();
     }
 
-    SceneRenderer::~SceneRenderer() = default;
+    SceneRenderer::~SceneRenderer()
+    {
+        // RHI-MIGRATION: delete the attachment-only FBO used by remaining immediate passes.
+        RenderHardware::OpenGLInterop::DeleteSceneFramebuffer(m_InteropFramebuffer);
+        if (m_Active)
+            m_Device->EndFrame();
+        m_Device->WaitIdle();
+    }
 
     void SceneRenderer::DrawGeometry(const Ref<VertexArray>& geometry)
     {
@@ -115,6 +115,7 @@ namespace Kans
 
     void SceneRenderer::DrawMesh(const GpuMesh& mesh)
     {
+        // RHI-MIGRATION: auxiliary geometry still uses the immutable VAO view.
         mesh.VertexArray->Bind();
         OpenGLRenderCommand::DrawIndexed(mesh.VertexArray);
         ++m_Stats.DrawCalls;
@@ -123,7 +124,7 @@ namespace Kans
 
     void SceneRenderer::SetAssetManager(AssetManager* assets)
     {
-        m_AssetCache = assets ? CreateScope<RenderAssetCache>(*assets) : nullptr;
+        m_AssetCache = assets ? CreateScope<RenderAssetCache>(*assets, m_Device) : nullptr;
     }
 
     void
@@ -173,16 +174,19 @@ namespace Kans
             return aBlend && a.DistanceSquared > b.DistanceSquared;
         });
 
-        glEnable(GL_DEPTH_TEST);
-        glDepthFunc(GL_LESS);
-        glCullFace(GL_BACK);
-        glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-        // Preserve the scene target's opaque alpha when compositing transparent colour.
-        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
-
         EngineFrameUniforms frame;
         frame.ViewProjection =
             m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
+        const auto coordinates = m_Device->GetCoordinateConventions();
+        glm::mat4  clipConversion(1);
+        if (coordinates.ClipY == RenderHardware::ClipYDirection::Down)
+            clipConversion[1][1] = -1;
+        if (coordinates.Depth == RenderHardware::DepthRange::ZeroToOne)
+        {
+            clipConversion[2][2] = 0.5f;
+            clipConversion[3][2] = 0.5f;
+        }
+        frame.ViewProjection = clipConversion * frame.ViewProjection;
         frame.CameraPosition = glm::vec4(m_SceneInfo.sceneCamera.Position, 1.0f);
         for (uint32_t i = 0; i < EngineLightCount; ++i)
         {
@@ -191,21 +195,57 @@ namespace Kans
             frame.LightDiffuse[i]   = glm::vec4(m_SceneInfo.pointLight.Diffuse_Intensity, 1.0f);
         }
         frame.Time = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
-        if (!m_FrameUniforms)
+        using namespace RenderHardware;
+        const size_t alignment   = m_Device->GetBufferBindingAlignment(BindingType::UniformBuffer);
+        const auto   align       = [alignment](size_t n) { return (n + alignment - 1) / alignment * alignment; };
+        const size_t frameStride = align(sizeof(frame)), objectStride = align(sizeof(EngineObjectUniforms));
+        // Each draw owns disjoint immutable ranges until command/frame retirement.
+        if (ready.empty())
+            return;
+        auto frames  = m_Device->CreateBuffer({frameStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
+        auto objects = m_Device->CreateBuffer({objectStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
+        // RHI-MIGRATION: legacy auxiliary shaders use texture parameters, so restore their sampler bindings.
+        const auto savedSamplers = OpenGLInterop::SaveSamplers();
+        auto       commands      = m_Device->CreateCommandList();
+        commands->BeginRendering(SceneTarget(LoadOp::Load));
+        commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight), 0, 1});
+        commands->SetScissor({0, 0, m_ViewportWidth, m_ViewportHeight});
+        if (!m_IBLSampler)
         {
-            m_FrameUniforms  = CreateScope<GpuUniformBuffer>(sizeof(EngineFrameUniforms));
-            m_ObjectUniforms = CreateScope<GpuUniformBuffer>(sizeof(EngineObjectUniforms));
+            SamplerDesc desc;
+            desc.U = desc.V = desc.W = AddressMode::ClampToEdge;
+            m_IBLSampler             = m_Device->CreateSampler(desc);
         }
+        std::array<Handle<RenderHardware::Texture>, 3> environment;
+        const std::array<Ref<Kans::Texture>, 3>        legacy {
+            m_Environment.IrradianceMap, m_Environment.RadianceMap, m_BrdfLUT};
+        for (size_t i = 0; i < 3; ++i)
+        {
+            const auto dimension = i == 2 ? TextureDimension::Texture2D : TextureDimension::Cube;
+            if (legacy[i])
+            {
+                // RHI-MIGRATION: borrow legacy IBL precomputation outputs and retain their owners.
+                environment[i] =
+                    OpenGLInterop::BorrowTexture(*m_Device, legacy[i]->GetRenererID(), dimension, legacy[i]);
+            }
+            else
+            {
+                TextureDesc desc;
+                desc.Dimension   = dimension;
+                desc.PixelFormat = Format::RGBA32Float;
+                desc.Usage     = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+                environment[i] = m_Device->CreateTexture(desc);
+                const std::array<float, 4> black {0, 0, 0, 1};
+                auto upload = m_Device->CreateBuffer({sizeof(black), BufferUsage::CopySource, MemoryUsage::Upload});
+                upload->Write(0, black.data(), sizeof(black));
+                auto copy = m_Device->CreateCommandList();
+                for (uint32_t face = 0; face < (i == 2 ? 1u : 6u); ++face)
+                    copy->CopyBufferToTexture(upload, 0, environment[i], {0, face});
+                m_Device->Submit(copy);
+            }
+        }
+        size_t               range = 0, frameRange = 0;
         std::optional<float> uploadedDebugView;
-        m_FrameUniforms->Bind(GpuShader::FrameBlockPoint);
-        m_ObjectUniforms->Bind(GpuShader::ObjectBlockPoint);
-        if (m_Environment.IrradianceMap)
-            m_Environment.IrradianceMap->Bind(GpuShader::IrradianceUnit);
-        if (m_Environment.RadianceMap)
-            m_Environment.RadianceMap->Bind(GpuShader::PrefilterUnit);
-        if (m_BrdfLUT)
-            m_BrdfLUT->Bind(GpuShader::BrdfLUTUnit);
-
         for (const auto& item : ready)
         {
             const auto& draw = *item.Draw;
@@ -217,38 +257,99 @@ namespace Kans
             const auto* shader = bindings ? m_AssetCache->GetShader(bindings->Shader) : nullptr;
             if (!mesh || !bindings || !shader)
                 continue;
-            ApplyStencil(draw.Stencil);
-            const auto& render      = item.Render;
-            const bool  transparent = render.AlphaMode == MaterialAlphaMode::Blend;
-            if (transparent)
-                glEnable(GL_BLEND);
-            else
-                glDisable(GL_BLEND);
-            glDepthMask(transparent ? GL_FALSE : GL_TRUE);
-            if (render.DoubleSided)
-                glDisable(GL_CULL_FACE);
-            else
-                glEnable(GL_CULL_FACE);
-            glPolygonMode(GL_FRONT_AND_BACK, draw.ViewMode == SceneViewMode::Wireframe ? GL_LINE : GL_FILL);
+            const auto&    render      = item.Render;
+            const bool     transparent = render.AlphaMode == MaterialAlphaMode::Blend;
+            const uint32_t key         = uint32_t(transparent) | (uint32_t(render.DoubleSided) << 1) |
+                                         (uint32_t(draw.ViewMode == SceneViewMode::Wireframe) << 2) |
+                                         (uint32_t(draw.Stencil == ModelStencilMode::WriteReference) << 3);
+            auto&          pipeline    = shader->Pipelines[key];
+            if (!pipeline)
+            {
+                PipelineDesc desc;
+                desc.Program                      = shader->Program;
+                desc.GroupLayouts                 = {shader->EngineLayout, shader->MaterialLayout};
+                desc.VertexBindings               = mesh->VertexBindings;
+                desc.Attributes                   = mesh->Attributes;
+                desc.ColorFormats                 = {Format::RGBA8Unorm, Format::RGBA8Unorm};
+                desc.HasDepthStencil              = true;
+                desc.DepthStencilFormat           = Format::Depth24Stencil8;
+                desc.DepthStencil.DepthTest       = true;
+                desc.DepthStencil.DepthWrite      = !transparent;
+                desc.DepthStencil.DepthCompare    = CompareOp::Less;
+                desc.DepthStencil.StencilTest     = draw.Stencil == ModelStencilMode::WriteReference;
+                desc.DepthStencil.Front.Reference = desc.DepthStencil.Back.Reference = 1;
+                desc.DepthStencil.Front.Pass = desc.DepthStencil.Back.Pass = StencilOp::Replace;
+                desc.Rasterizer.Front =
+                    coordinates.ClipY == ClipYDirection::Up ? FrontFace::CounterClockwise : FrontFace::Clockwise;
+                desc.Rasterizer.Cull = render.DoubleSided ? CullMode::None : CullMode::Back;
+                desc.Rasterizer.Polygon =
+                    draw.ViewMode == SceneViewMode::Wireframe ? PolygonMode::Line : PolygonMode::Fill;
+                BlendState blend;
+                blend.Enabled          = transparent;
+                blend.WriteMask        = 7;
+                blend.SourceColor      = BlendFactor::SourceAlpha;
+                blend.DestinationColor = BlendFactor::OneMinusSourceAlpha;
+                blend.SourceAlpha      = BlendFactor::Zero;
+                blend.DestinationAlpha = BlendFactor::One;
+                desc.Blends            = {blend, blend};
+                pipeline               = m_Device->CreatePipeline(desc);
+            }
             frame.DebugView = draw.ViewMode == SceneViewMode::BaseColor ? 1.0f :
                               draw.ViewMode == SceneViewMode::Normals   ? 2.0f :
                                                                           0.0f;
             if (!uploadedDebugView || *uploadedDebugView != frame.DebugView)
             {
-                m_FrameUniforms->Update(&frame, sizeof(frame));
+                if (uploadedDebugView)
+                    ++frameRange;
+                frames->Write(frameRange * frameStride, &frame, sizeof(frame));
                 uploadedDebugView = frame.DebugView;
             }
-            shader->Bind();
             EngineObjectUniforms object;
             object.Transform      = draw.Transform;
             object.NormalMatrix   = glm::transpose(glm::inverse(draw.Transform));
             object.MaterialRender = {float(render.AlphaMode), render.AlphaCutoff, render.DoubleSided ? 1.0f : 0.0f, 0};
-            m_ObjectUniforms->Update(&object, sizeof(object));
-            for (const auto& [binding, buffer] : bindings->Blocks)
-                buffer.Bind(shader->MaterialBlockPoints().at(binding));
-            m_AssetCache->BindMaterialTextures(*shader, *bindings);
-            DrawMesh(*mesh);
+            objects->Write(range * objectStride, &object, sizeof(object));
+            BindGroupDesc engine;
+            engine.Layout = shader->EngineLayout;
+            for (const auto& binding : shader->EngineResources)
+            {
+                BindGroupEntry entry;
+                entry.Slot = binding.Binding;
+                if (binding.Binding == uint32_t(EngineBinding::Frame))
+                {
+                    entry.BufferResource = frames;
+                    entry.Offset         = frameRange * frameStride;
+                    entry.Bytes          = sizeof(frame);
+                }
+                else if (binding.Binding == uint32_t(EngineBinding::Object))
+                {
+                    entry.BufferResource = objects;
+                    entry.Offset         = range * objectStride;
+                    entry.Bytes          = sizeof(object);
+                }
+                else
+                {
+                    entry.TextureResource = environment.at(binding.Binding - 2);
+                    entry.SamplerResource = m_IBLSampler;
+                }
+                engine.Entries.push_back(std::move(entry));
+            }
+            commands->BindPipeline(pipeline);
+            commands->BindGroup(m_Device->CreateBindGroup(engine));
+            commands->BindGroup(m_AssetCache->GetMaterialGroup(*shader, *bindings));
+            commands->BindVertexBuffers({{0, mesh->Vertices, 0}});
+            commands->BindIndexBuffer(mesh->Indices, IndexType::Uint32);
+            commands->DrawIndexed(mesh->IndexCount);
+            ++m_Stats.DrawCalls;
+            m_Stats.Triangles += mesh->IndexCount / 3;
+            ++range;
         }
+        commands->EndRendering();
+        m_Device->Submit(commands);
+        // RHI-MIGRATION: restore sampler state before legacy geometry/selection/Renderer2D.
+        OpenGLInterop::RestoreSamplers(savedSamplers);
+        // RHI-MIGRATION: resume immediate geometry/outline on the shared scene attachments.
+        OpenGLInterop::BindSceneFramebuffer(m_InteropFramebuffer, m_ViewportWidth, m_ViewportHeight);
     }
 
     void SceneRenderer::SubmitModelGeometry(const ProductModelComponent& model,
@@ -298,29 +399,46 @@ namespace Kans
     {
         m_ViewportWidth  = m_RenderScene->m_ViewportWidth;
         m_ViewportHeight = m_RenderScene->m_ViewportHeight;
-        // FrameBuffer init
-        {
-
-            FrameBufferSpecification spec;
-            spec.Width           = m_ViewportWidth;
-            spec.Height          = m_ViewportHeight;
-            spec.SwapChainTarget = true;
-            // Color                           normal													Depth
-            spec.AttachmentSpecification = {
-                FrameBufferTextureFormat::RGBA8, FrameBufferTextureFormat::RGBA8, FrameBufferTextureFormat::Depth};
-            m_FrameBuffer = FrameBuffer::Create(spec);
-            m_FrameBuffer->Unbind();
-        }
+        // RHI-MIGRATION: acquire the device once alongside this context's scene renderer.
+        m_Device = RenderHardware::OpenGLInterop::AcquireDevice();
+        ResizeTarget();
     }
 
-    uint32_t SceneRenderer::GetOutput(uint32_t index) const
+    RenderHardware::RenderingDesc SceneRenderer::SceneTarget(RenderHardware::LoadOp load) const
     {
-
-        if (index > m_FrameBuffer->GetColorAttachmentCount() + 1)
-            return -1; // Invalid index
-        if (index < m_FrameBuffer->GetColorAttachmentCount())
-            return m_FrameBuffer->GetColorAttachmentRendererID(index);
-        return m_FrameBuffer->GetDepthAttachmentRendererID();
+        RenderHardware::RenderingDesc desc;
+        for (const auto& color : m_Colors)
+            desc.Colors.push_back({color, {}, load, RenderHardware::StoreOp::Store, {0.02f, 0.02f, 0.02f, 1}});
+        desc.Depth.Target = m_Depth;
+        desc.Depth.Load   = load;
+        return desc;
+    }
+    void SceneRenderer::ResizeTarget()
+    {
+        using namespace RenderHardware;
+        // RHI-MIGRATION: recreate the legacy attachment view on resize.
+        OpenGLInterop::DeleteSceneFramebuffer(m_InteropFramebuffer);
+        m_InteropFramebuffer = 0;
+        m_Colors.clear();
+        m_Depth.reset();
+        TextureDesc desc;
+        desc.Width       = m_ViewportWidth;
+        desc.Height      = m_ViewportHeight;
+        desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
+                           RenderHardware::TextureUsage::CopySource;
+        m_Colors         = {m_Device->CreateTexture(desc), m_Device->CreateTexture(desc)};
+        desc.PixelFormat = Format::Depth24Stencil8;
+        desc.Usage       = RenderHardware::TextureUsage::DepthStencil | RenderHardware::TextureUsage::Sampled |
+                           RenderHardware::TextureUsage::CopySource;
+        m_Depth          = m_Device->CreateTexture(desc);
+        // RHI-MIGRATION: target attachments stay RHI-owned; only the legacy FBO is native.
+        m_InteropFramebuffer = OpenGLInterop::CreateSceneFramebuffer(m_Colors, m_Depth);
+    }
+    uintptr_t SceneRenderer::GetOutput(uint32_t index) const
+    {
+        if (index > m_Colors.size() + 1)
+            return uint32_t(-1);
+        return m_Device->GetImGuiTextureID(index < m_Colors.size() ? m_Colors[index] : m_Depth);
     }
 
     void SceneRenderer::PrepareEnvironment(EnvironmentPrecomputeSizes sizes)
@@ -520,27 +638,16 @@ namespace Kans
         m_GeometryDraws.clear();
         if (m_AssetCache)
             m_AssetCache->BeginFrame();
-        m_FrameBuffer->Bind();
-        // renderer
-        OpenGLRenderCommand::SetClearColor({0.02f, 0.02f, 0.02f, 1.0f});
-        // OpenGLRenderCommand::SetClearColor({ 0.8f, 0.8f, 0.8f, 1.0f });
-        GLboolean depthWrite, colorWrite[4];
-        GLint     stencilFront, stencilBack, stencilClear;
-        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
-        glGetBooleanv(GL_COLOR_WRITEMASK, colorWrite);
-        glGetIntegerv(GL_STENCIL_WRITEMASK, &stencilFront);
-        glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &stencilBack);
-        glGetIntegerv(GL_STENCIL_CLEAR_VALUE, &stencilClear);
-        glDepthMask(GL_TRUE);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glStencilMask(0xff);
-        glClearStencil(0);
-        OpenGLRenderCommand::Clear();
-        glDepthMask(depthWrite);
-        glColorMask(colorWrite[0], colorWrite[1], colorWrite[2], colorWrite[3]);
-        glStencilMaskSeparate(GL_FRONT, stencilFront);
-        glStencilMaskSeparate(GL_BACK, stencilBack);
-        glClearStencil(stencilClear);
+        m_Device->BeginFrame();
+        // RHI-MIGRATION: preserve native raster state for the immediate grid/skybox passes.
+        const RasterState saved;
+        auto              commands = m_Device->CreateCommandList();
+        commands->BeginRendering(SceneTarget(RenderHardware::LoadOp::Clear));
+        commands->EndRendering();
+        m_Device->Submit(commands);
+        saved.Apply();
+        // RHI-MIGRATION: grid and skybox draw immediately between BeginScene and EndScene.
+        RenderHardware::OpenGLInterop::BindSceneFramebuffer(m_InteropFramebuffer, m_ViewportWidth, m_ViewportHeight);
     }
 
     void SceneRenderer::AppendModelDraws(const ProductModelComponent& model,
@@ -573,11 +680,11 @@ namespace Kans
             m_ViewMode = viewMode;
         }
         {
-            // One snapshot for the deferred pass, independent of the number of submissions.
+            // RHI-MIGRATION: restore native raster state after the remaining immediate geometry passes.
             const RasterState saved;
-            // The viewport alpha belongs to the target, even when a project shader returns alpha < 1.
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
             DrawShaderMaterials(m_ModelDraws);
+            // RHI-MIGRATION: legacy geometry shares the target's alpha-preserving write mask.
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
             for (const auto& draw : m_GeometryDraws)
                 DrawModelGeometry(draw);
             saved.Apply();
@@ -601,7 +708,9 @@ namespace Kans
             m_Outline.Draw(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, {0.35f, 0.7f, 1.0f, 1.0f});
             m_Preview.reset();
         }
-        m_FrameBuffer->Unbind();
+        // RHI-MIGRATION: release the shared legacy target after auxiliary passes.
+        RenderHardware::OpenGLInterop::BindSceneFramebuffer(0, m_ViewportWidth, m_ViewportHeight);
+        m_Device->EndFrame();
         m_Active = false;
     }
 
@@ -627,7 +736,7 @@ namespace Kans
     {
         m_ViewportWidth  = width;
         m_ViewportHeight = height;
-        m_FrameBuffer->Resize(width, height);
+        ResizeTarget();
     }
 
     void SceneRenderer::SubmitGrid(float size, float scale, glm::mat4 transform)

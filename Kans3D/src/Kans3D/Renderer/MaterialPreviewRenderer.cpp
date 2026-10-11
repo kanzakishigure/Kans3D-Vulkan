@@ -176,6 +176,7 @@ namespace Kans
                 Current = Parent;
                 // Thumbnail readback and malformed-shader fallbacks nest guards.
                 // Only the outer guard has restored the caller bindings completely.
+                // RHI-MIGRATION: retire RHI replacements after restoring native preview bindings.
                 if (!Parent && Cache)
                     Cache->ReleaseRetiredResources();
             }
@@ -438,6 +439,7 @@ void main() {
         frame.LightDiffuse[0]   = {1, 1, 1, 1};
         frame.Time              = m_Scene.GetElapsedTime();
         m_Frame->Update(&frame, sizeof(frame));
+        // RHI-MIGRATION: immediate preview binds the RHI frame buffer through its compatibility shim.
         m_Frame->Bind(GpuShader::FrameBlockPoint);
         EngineObjectUniforms object;
         object.Transform      = glm::rotate(glm::mat4(1), options.Rotation.y, {1, 0, 0}) *
@@ -448,6 +450,7 @@ void main() {
                                  bindings.Render.DoubleSided ? 1.0f : 0.0f,
                                  0};
         m_Object->Update(&object, sizeof(object));
+        // RHI-MIGRATION: immediate preview binds the RHI object buffer through its compatibility shim.
         m_Object->Bind(GpuShader::ObjectBlockPoint);
         const auto& environment = m_Scene.GetEnvironment();
         const auto& brdfLUT     = m_Scene.GetBrdfLUT();
@@ -458,11 +461,14 @@ void main() {
         glBindTexture(GL_TEXTURE_CUBE_MAP, environment.RadianceMap ? environment.RadianceMap->GetRenererID() : 0);
         glActiveTexture(GL_TEXTURE0 + GpuShader::BrdfLUTUnit);
         glBindTexture(GL_TEXTURE_2D, brdfLUT ? brdfLUT->GetRenererID() : 0);
+        // RHI-MIGRATION: bind the RHI program and material buffers for the immediate preview.
         shader.Bind();
         for (const auto& [binding, buffer] : bindings.Blocks)
             buffer.Bind(shader.MaterialBlockPoints().at(binding));
+        // RHI-MIGRATION: native material texture bindings from the RHI group 1 resources.
         complete &= m_Scene.GetAssetCache()->BindMaterialTextures(shader, bindings);
         const auto& mesh = *m_Shapes[shape];
+        // RHI-MIGRATION: preview geometry uses the RHI mesh VAO compatibility view.
         mesh.VertexArray->Bind();
         glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
         return {m_Color, complete};
