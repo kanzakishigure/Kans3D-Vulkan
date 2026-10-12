@@ -406,7 +406,8 @@ namespace Kans::RenderHardware
                                 size_t                bytes)                                                  = 0;
         // Full mip/face, tightly packed rows; buffer offsets are aligned to bytes/pixel.
         // RGBA16Float uses IEEE half (8 bytes/pixel).
-        // Depth32Float uses float; Depth24Stencil8 uses packed 24 depth bits + 8 stencil bits.
+        // Depth32Float uses float; Depth24Stencil8 uses native uint32 words:
+        // depth occupies bits 31..8 and stencil bits 7..0.
         virtual void CopyBufferToTexture(const Handle<Buffer>&  source,
                                          size_t                 offset,
                                          const Handle<Texture>& destination,

@@ -23,7 +23,7 @@ namespace Kans
         virtual void                SetShaderBuffer(ShaderBufferLayout layout);
 
     private:
-        void LoadAndCreateShader(const std::map<VkShaderStageFlagBits, std::vector<uint32_t>>& shaderData);
+        void StoreCompiledData(const std::map<VkShaderStageFlagBits, std::vector<uint32_t>>& shaderData);
 
     private:
         std::string m_Name;
@@ -34,7 +34,6 @@ namespace Kans
         ShaderBuffer                                           m_Shaderbuffer;
         std::map<VkShaderStageFlagBits, std::vector<uint32_t>> m_ShaderData;
 
-        std::vector<VkPipelineShaderStageCreateInfo> m_PipelineShaderStageCreateInfos;
 
     private:
         friend class VulkanShaderCompiler;

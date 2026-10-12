@@ -4,7 +4,8 @@
 
 enum class GpuTestBackend
 {
-    OpenGL
+    OpenGL,
+    Vulkan
 };
 
 // Owns a headless context. Destroy GPU resources before TearDown (also called by

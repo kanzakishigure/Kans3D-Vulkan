@@ -10,7 +10,8 @@ See [MIGRATION.md](MIGRATION.md) for retirement and editor compatibility details
 all rendering consumers share its device. Backend window hints, context binding,
 entry-point loading, presentation and VSync live in `OpenGL/`. Calls use the
 context's owning thread. Headless conformance fixtures supply their own context.
-The retained older Vulkan framework is separate from this device implementation.
+The headless Vulkan foundation lives beside OpenGL in `Vulkan/`; see
+[Vulkan foundation](Vulkan/README.md) for implementation and migration details.
 
 `ImGuiRenderer.h` provides `CreateImGuiRenderer(backend, window)` with `NewFrame`,
 `Render`, `RenderPlatformWindows` and `EndFrame`. Its OpenGL implementation owns
@@ -73,9 +74,9 @@ have equivalents in the planned DirectX backends.
 
 ## Frames, destruction and readback
 
-`FramesInFlight` defaults to 2 and specifies the allowed upper bound. This
-backend completes each frame synchronously, which is within any positive bound;
-future backends may keep that many frames pending. `BeginFrame`/`EndFrame` must
+`FramesInFlight` defaults to 2 and specifies the allowed upper bound. Both
+current backends complete each frame synchronously, which is within any positive
+bound; future implementations may keep that many frames pending. `BeginFrame`/`EndFrame` must
 pair. Submission is allowed inside or outside a frame, always outside a rendering
 scope. Standalone submissions retain resources and keep readbacks inaccessible
 until `WaitIdle` or a later `EndFrame`; they do not implicitly start/end a frame.
@@ -128,8 +129,10 @@ conversion, and derives facing expectations from the queried clip Y direction.
 ## Conformance tests and concrete regressions
 
 `test/RHIConformanceTests.cpp` contains the parameterized suite. Only
-`GpuTestContext::CreateDevice` knows backend construction. Every GPU test is
-labelled `OpenGL`, serial, and runs with llvmpipe. Shader compilation uses
+`GpuTestContext::CreateDevice` knows backend construction. GPU tests are
+labelled `OpenGL` or `Vulkan`, run serially, and use llvmpipe or lavapipe.
+Vulkan enables validation and synchronization validation, with errors failing
+gtest; drawing cases explicitly skip with “phase 3b”. Shader compilation uses
 `MaterialShaderTestUtilities.h`, as the material tests do.
 
 | Test (prefix `RHIConformance.`) | Regression caught |
@@ -226,3 +229,36 @@ legacy 16-bit LDR byte truncation/metadata handling and linear half HDR.
 See [RESOURCE_COMPATIBILITY.md](RESOURCE_COMPATIBILITY.md) for the operation-by-operation
 comparison with the deleted implementations. Runtime display decoding has its
 own private stb instance; strict asset importing remains independent.
+
+## Phase 3a Vulkan validation
+
+The [Vulkan foundation notes](Vulkan/README.md) describe structure, legacy removals,
+state/graph batching, synchronous frame fences, deferred destruction, coordinates,
+CPU/lavapipe selection and every new test's concrete mutation target. The nine
+existing cases needing only foundation features run on Vulkan unchanged. Six new
+neutral cases run on both backends; two additional Vulkan safety cases verify
+selection and error delivery. All 31 existing drawing/pipeline cases stay registered
+and explicitly skip on Vulkan with “phase 3b”. Public signatures are unchanged;
+the existing D24S8 transfer word's bit packing is now stated explicitly.
+
+`linux-gcc` Debug, `-j2` builds; CPU **404/404** (57.34 s), serial llvmpipe OpenGL
+**147/147**, no skips (141.94 s), serial lavapipe Vulkan **17 passed, 31 explicitly
+skipped, 0 failures** across 48 registrations (3.26 s). The existing 141 OpenGL
+registrations and all references/assertions are preserved; six neutral additions
+account for the increase. Khronos validation and synchronization validation report
+no errors. Vulkan CTest registration pins both loader driver variables, disables
+third-party implicit layers and sets RUN_SERIAL for every case. An initial run
+correctly failed on loader errors from the installed LSFG implicit layer; isolating
+implicit layers resolved those errors without filtering validation messages.
+
+Changed-line `git clang-format` (with temporary Git metadata under `/tmp`) and
+`git diff --check` are clean. No cache/preset changes, editor launch/link, hardware
+GPU use, protected-path edits, reference changes, commits or pushes.
+
+Final review also preserves neutral scissors with negative/out-of-bounds origins
+by clipping to active attachment bounds before native recording. The new clear/load
+case checks this on both backends. After that correction the full Vulkan suite
+passes again (17 active/31 skipped), and the affected OpenGL case passes its
+additional serial recheck. A lavapipe-only standalone smoke check also verifies
+neutral shared-device initialization, all buffer usage flags, sampler creation,
+coordinate queries, byte copies and zero live allocations after retirement.

@@ -6,10 +6,16 @@
 namespace Kans
 {
 
-    void VulkanSwapChain::Init(VkInstance instance, const Ref<VulkanDevice>& device, GLFWwindow* Window)
+    void VulkanSwapChain::Init(VkInstance       instance,
+                               VkPhysicalDevice physical,
+                               VkDevice         device,
+                               uint32_t         graphicsFamily,
+                               GLFWwindow*      Window)
     {
         m_Instance = instance;
-        m_Device   = device;
+        m_Device         = device;
+        m_Physical       = physical;
+        m_GraphicsFamily = m_PresentFamily = graphicsFamily;
 
         fpGetPhysicalDeviceSurfaceSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(
             vkGetInstanceProcAddr(m_Instance, "vkGetPhysicalDeviceSurfaceSupportKHR"));
@@ -20,16 +26,15 @@ namespace Kans
         fpGetPhysicalDeviceSurfacePresentModesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>(
             vkGetInstanceProcAddr(m_Instance, "vkGetPhysicalDeviceSurfacePresentModesKHR"));
 
-        fpCreateSwapchainKHR = reinterpret_cast<PFN_vkCreateSwapchainKHR>(
-            vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkCreateSwapchainKHR"));
-        fpDestroySwapchainKHR = reinterpret_cast<PFN_vkDestroySwapchainKHR>(
-            vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkDestroySwapchainKHR"));
-        fpGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(
-            vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkGetSwapchainImagesKHR"));
-        fpAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(
-            vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkAcquireNextImageKHR"));
-        fpQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(
-            vkGetDeviceProcAddr(m_Device->GetVulkanDevice(), "vkQueuePresentKHR"));
+        fpCreateSwapchainKHR =
+            reinterpret_cast<PFN_vkCreateSwapchainKHR>(vkGetDeviceProcAddr(m_Device, "vkCreateSwapchainKHR"));
+        fpDestroySwapchainKHR =
+            reinterpret_cast<PFN_vkDestroySwapchainKHR>(vkGetDeviceProcAddr(m_Device, "vkDestroySwapchainKHR"));
+        fpGetSwapchainImagesKHR =
+            reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(m_Device, "vkGetSwapchainImagesKHR"));
+        fpAcquireNextImageKHR =
+            reinterpret_cast<PFN_vkAcquireNextImageKHR>(vkGetDeviceProcAddr(m_Device, "vkAcquireNextImageKHR"));
+        fpQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(vkGetDeviceProcAddr(m_Device, "vkQueuePresentKHR"));
 
         CreateWindowSurface(Window);
         CreateSyncPrimitives();
@@ -40,41 +45,12 @@ namespace Kans
     {
         VK_CHECK_RESULT(glfwCreateWindowSurface(m_Instance, windows, nullptr, &m_Surface));
 
-        VkPhysicalDevice    physicalDevice     = m_Device->GetPhysicalDevice()->GetVulkanPhysicalDevice();
-        QueueFamilyIndices& queueFamilyIndices = m_Device->GetPhysicalDevice()->GetQueueFamilyIndices();
-
-        VkBool32 presentSupport = false;
-        vkGetPhysicalDeviceSurfaceSupportKHR(
-            physicalDevice, queueFamilyIndices.Graphics.value(), m_Surface, &presentSupport);
-
-        if (presentSupport)
-        {
-            uint32_t i                 = queueFamilyIndices.Graphics.value();
-            queueFamilyIndices.Present = i;
-        }
-        else
-        {
-            CORE_INFO_TAG("renderer", "GraphicsQueueFamily don't support present,find seperate queue");
-            // Get available queue family properties
-            uint32_t queueCount;
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueCount, NULL);
-            CORE_ASSERT(queueCount >= 1);
-            std::vector<VkQueueFamilyProperties> queueProps(queueCount);
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueCount, queueProps.data());
-            for (size_t i = 0; i < queueCount; i++)
-            {
-                vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, m_Surface, &presentSupport);
-                if (presentSupport)
-                {
-                    queueFamilyIndices.Present = i;
-                    break;
-                }
-            }
-        }
-
-        CORE_ASSERT(queueFamilyIndices.Graphics.has_value());
-        CORE_ASSERT(queueFamilyIndices.Present.has_value());
-        m_QueueNodeIndex = queueFamilyIndices.Graphics.value();
+        VkBool32 presentSupport = VK_FALSE;
+        VK_CHECK_RESULT(vkGetPhysicalDeviceSurfaceSupportKHR(m_Physical, m_GraphicsFamily, m_Surface, &presentSupport));
+        if (!presentSupport)
+            throw std::runtime_error("Swapchain requires a graphics queue with presentation support");
+        m_PresentFamily  = m_GraphicsFamily;
+        m_QueueNodeIndex = m_GraphicsFamily;
         ChooseSurfaceFormatAndColorSpace();
     }
 
@@ -82,8 +58,8 @@ namespace Kans
     {
         m_VSync                         = vsync;
         VkSwapchainKHR   oldSwapchain   = m_SwapChain;
-        VkPhysicalDevice physicalDevice = m_Device->GetPhysicalDevice()->GetVulkanPhysicalDevice();
-        VkDevice         device         = m_Device->GetVulkanDevice();
+        VkPhysicalDevice physicalDevice = m_Physical;
+        VkDevice         device         = m_Device;
 
         // choose the presentMode
         uint32_t presentModeCount;
@@ -149,10 +125,9 @@ namespace Kans
         swapchaincreateInfo.clipped        = VK_TRUE;
         swapchaincreateInfo.oldSwapchain   = oldSwapchain;
 
-        QueueFamilyIndices indices               = m_Device->GetPhysicalDevice()->GetQueueFamilyIndices();
         uint32_t           queueFamilyIndexCount = 0;
-        uint32_t           queueFamilyIndices[]  = {indices.Graphics.value(), indices.Present.value()};
-        if (indices.Present.value() != indices.Graphics.value())
+        uint32_t           queueFamilyIndices[]  = {m_GraphicsFamily, m_PresentFamily};
+        if (m_PresentFamily != m_GraphicsFamily)
         {
             swapchaincreateInfo.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
             swapchaincreateInfo.queueFamilyIndexCount = 2;
@@ -172,12 +147,12 @@ namespace Kans
 
     void VulkanSwapChain::ReCreate(uint32_t width, uint32_t height)
     {
-        vkDeviceWaitIdle(m_Device->GetVulkanDevice());
+        vkDeviceWaitIdle(m_Device);
 
         for (auto syncPrimitives : m_SwapChainSyncPrimitives)
         {
-            VkResult res_wait_for_fences = vkWaitForFences(
-                m_Device->GetVulkanDevice(), Max_frames_in_flight, &syncPrimitives.FrameInFlight, VK_TRUE, UINT64_MAX);
+            VkResult res_wait_for_fences =
+                vkWaitForFences(m_Device, Max_frames_in_flight, &syncPrimitives.FrameInFlight, VK_TRUE, UINT64_MAX);
             if (VK_SUCCESS != res_wait_for_fences)
             {
                 CORE_ERROR("_vkWaitForFences failed");
@@ -187,26 +162,26 @@ namespace Kans
         // Cleanup swapchain
         {
             for (auto& image : m_SwapChainImages)
-                vkDestroyImageView(m_Device->GetVulkanDevice(), image.ImageView, nullptr);
+                vkDestroyImageView(m_Device, image.ImageView, nullptr);
             m_SwapChainImages.clear();
 
             // clean the framebuffer for swapchain image
 
             if (m_SwapChain != VK_NULL_HANDLE)
             {
-                vkDestroySwapchainKHR(m_Device->GetVulkanDevice(), m_SwapChain, nullptr);
+                vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
             }
         }
 
         Create(&width, &height, m_VSync);
-        vkDeviceWaitIdle(m_Device->GetVulkanDevice());
+        vkDeviceWaitIdle(m_Device);
     }
 
     void VulkanSwapChain::Present() {}
 
     void VulkanSwapChain::Cleanup()
     {
-        VkDevice deviece = m_Device->GetVulkanDevice();
+        VkDevice deviece = m_Device;
 
         for (auto imageView : m_SwapChainImages)
         {
@@ -222,7 +197,7 @@ namespace Kans
     void VulkanSwapChain::ChooseSurfaceFormatAndColorSpace()
     {
 
-        VkPhysicalDevice physicalDevice = m_Device->GetPhysicalDevice()->GetVulkanPhysicalDevice();
+        VkPhysicalDevice physicalDevice = m_Physical;
 
         // choose the Format and colorSpace
         // we prefer the R8G8B8A8 and COLOR_SPACE_SRGB_NONLINEAR
@@ -256,7 +231,7 @@ namespace Kans
 
     void VulkanSwapChain::CreateSwapchainImageViews()
     {
-        auto device = m_Device->GetVulkanDevice();
+        auto device = m_Device;
         // Retrieving swapchain images
         m_ImageCount = 0;
         VK_CHECK_RESULT(vkGetSwapchainImagesKHR(device, m_SwapChain, &m_ImageCount, nullptr));
@@ -307,17 +282,14 @@ namespace Kans
 
             for (auto& syncPrimitive : m_SwapChainSyncPrimitives)
             {
+                VK_CHECK_RESULT(
+                    vkCreateSemaphore(m_Device, &semaphore_create_info, nullptr, &syncPrimitive.RenderComplete));
+                VK_CHECK_RESULT(
+                    vkCreateSemaphore(m_Device, &semaphore_create_info, nullptr, &syncPrimitive.PresentComplete));
                 VK_CHECK_RESULT(vkCreateSemaphore(
-                    m_Device->GetVulkanDevice(), &semaphore_create_info, nullptr, &syncPrimitive.RenderComplete));
-                VK_CHECK_RESULT(vkCreateSemaphore(
-                    m_Device->GetVulkanDevice(), &semaphore_create_info, nullptr, &syncPrimitive.PresentComplete));
-                VK_CHECK_RESULT(vkCreateSemaphore(m_Device->GetVulkanDevice(),
-                                                  &semaphore_create_info,
-                                                  nullptr,
-                                                  &syncPrimitive.AvailableForTextrureCopy));
+                    m_Device, &semaphore_create_info, nullptr, &syncPrimitive.AvailableForTextrureCopy));
 
-                VK_CHECK_RESULT(vkCreateFence(
-                    m_Device->GetVulkanDevice(), &fence_create_info, nullptr, &syncPrimitive.FrameInFlight));
+                VK_CHECK_RESULT(vkCreateFence(m_Device, &fence_create_info, nullptr, &syncPrimitive.FrameInFlight));
             }
         }
     }
@@ -325,7 +297,7 @@ namespace Kans
     void VulkanSwapChain::CreateCommandPoolAndCommandBuffers()
     {
         // Create commandBufferPool and commandBuffer for swapChain
-        auto device = m_Device->GetVulkanDevice();
+        auto device = m_Device;
 
         for (auto& commandBuffer : m_CommandBuffers)
             vkDestroyCommandPool(device, commandBuffer.CommandPool, nullptr);

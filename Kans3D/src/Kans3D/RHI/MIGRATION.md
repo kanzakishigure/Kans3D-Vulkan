@@ -13,8 +13,11 @@ presentation and VSync also dispatch through neutral functions. SceneRenderer,
 RenderAssetCache, Renderer2D and Texture2D obtain the same initialized device.
 Resources die before the shared device, which dies before the window context.
 There is no lazy context lease, native resource borrowing or transitional bridge.
-The old Vulkan framework remains in `Platform/Vulkan` and `Renderer/RHI/Vulkan`;
-its context base and shader-layout metadata no longer depend on the deleted API.
+Phase 3a replaces the old Vulkan instance/device/RHI and image/texture stubs with
+the headless backend in `RHI/Vulkan`. The swapchain helper and shader compiler
+remain under `Platform/Vulkan`, with explicit device handles and CPU-only compiler
+products. See [Vulkan migration and ownership](Vulkan/README.md) for deleted files,
+state tracking, retirement and the remaining phase-3b/4 work.
 
 Texture2D owns its device, RHI image, path and neutral sampling description.
 Product uploads preserve authored mips, row origin, linear/sRGB and full floats.

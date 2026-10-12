@@ -3,8 +3,6 @@
 // if has shader compiler
 #include "ShaderCompiler/VulkanShaderCompiler.h"
 
-#include "VulkanDevice.h"
-#include "VulkanRHI.h"
 #include "VulkanShader.h"
 namespace Kans
 {
@@ -37,30 +35,11 @@ namespace Kans
 
     void VulkanShader::Release() {}
 
-    void VulkanShader::LoadAndCreateShader(const std::map<VkShaderStageFlagBits, std::vector<uint32_t>>& shaderData)
+    // Retained legacy compiler bridge is CPU-only. RHI shader/module creation
+    // will live in RHI/Vulkan in phase 3b, with explicit device ownership.
+    void VulkanShader::StoreCompiledData(const std::map<VkShaderStageFlagBits, std::vector<uint32_t>>& shaderData)
     {
-        m_ShaderData           = shaderData;
-        VkDevice currentdevice = VulkanRHI::GetCurrentDevice()->GetVulkanDevice();
-        m_PipelineShaderStageCreateInfos.clear();
-        // vkcreate shader;
-        for (const auto& [stage, source] : m_ShaderData)
-        {
-            VkShaderModuleCreateInfo createInfo {};
-            createInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-            createInfo.codeSize = source.size() * sizeof(uint32_t);
-            createInfo.pCode    = source.data();
-
-            VkShaderModule shaderModule;
-            VK_CHECK_RESULT(vkCreateShaderModule(currentdevice, &createInfo, nullptr, &shaderModule));
-
-            VkPipelineShaderStageCreateInfo shaderStageInfo {};
-            shaderStageInfo.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-            shaderStageInfo.stage  = stage;
-            shaderStageInfo.pName  = "main"; // function entry point
-            shaderStageInfo.module = shaderModule;
-
-            m_PipelineShaderStageCreateInfos.push_back(shaderStageInfo);
-        }
+        m_ShaderData = shaderData;
     }
 
 } // namespace Kans

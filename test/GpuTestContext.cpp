@@ -1,5 +1,7 @@
 #include "GpuTestContext.h"
 #include <glad/glad.h>
+#include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <gtest/gtest.h>
 #ifdef KANS_TEST_USE_EGL
@@ -10,6 +12,7 @@
 #endif
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/OpenGL/OpenGLDevice.h"
+#include "Kans3D/RHI/Vulkan/VulkanDevice.h"
 
 struct GpuTestContext::State
 {
@@ -25,6 +28,17 @@ GpuTestContext::GpuTestContext(GpuTestBackend backend) : m_State(std::make_uniqu
 GpuTestContext::~GpuTestContext() { TearDown(); }
 void GpuTestContext::SetUp()
 {
+    if (m_Backend == GpuTestBackend::Vulkan)
+    {
+        // Before even constructing an instance, refuse an unpinned test process.
+        const char* driver = std::getenv("VK_DRIVER_FILES");
+        const char* legacy = std::getenv("VK_ICD_FILENAMES");
+        ASSERT_NE(driver, nullptr);
+        ASSERT_NE(legacy, nullptr);
+        ASSERT_STREQ(driver, "/usr/share/vulkan/icd.d/lvp_icd.json");
+        ASSERT_STREQ(legacy, "/usr/share/vulkan/icd.d/lvp_icd.json");
+        return;
+    }
     ASSERT_EQ(m_Backend, GpuTestBackend::OpenGL);
     if (!m_State)
         m_State = std::make_unique<State>();
@@ -92,6 +106,12 @@ void GpuTestContext::TearDown()
 {
     if (!m_State)
         return;
+    if (m_Backend == GpuTestBackend::Vulkan)
+    {
+        Kans::RenderHardware::ShutdownDevice();
+        m_State.reset();
+        return;
+    }
     Kans::RenderHardware::ShutdownDevice();
 #ifdef KANS_TEST_USE_EGL
     auto& display = m_State->display;
@@ -124,6 +144,17 @@ std::unique_ptr<Kans::RenderHardware::Device> GpuTestContext::CreateDevice(const
     {
         case GpuTestBackend::OpenGL:
             return Kans::RenderHardware::CreateOpenGLDevice(desc);
+        case GpuTestBackend::Vulkan: {
+            Kans::RenderHardware::VulkanDeviceOptions options;
+            const char*                               allow = std::getenv("KANS_VULKAN_ALLOW_NON_CPU");
+            options.RequireCpuDevice                        = !allow || std::strcmp(allow, "1") != 0;
+            options.Validation                              = true;
+            options.SynchronizationValidation               = true;
+            // gtest records failures from driver callback threads too. This sink
+            // remains valid through resource/device/instance destruction.
+            options.ValidationError = [](const std::string& message) { ADD_FAILURE() << message; };
+            return Kans::RenderHardware::CreateVulkanDevice(desc, options);
+        }
     }
     throw std::invalid_argument("Unsupported GPU test backend");
 }

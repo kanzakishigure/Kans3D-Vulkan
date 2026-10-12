@@ -2,7 +2,6 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include "VulkanBase.h"
-#include "VulkanDevice.h"
 namespace Kans
 {
 
@@ -11,7 +10,11 @@ namespace Kans
 
     public:
         VulkanSwapChain() = default;
-        void Init(VkInstance instance, const Ref<VulkanDevice>& device, GLFWwindow* windows);
+        void Init(VkInstance       instance,
+                  VkPhysicalDevice physical,
+                  VkDevice         device,
+                  uint32_t         graphicsFamily,
+                  GLFWwindow*      windows);
         void Create(uint32_t* width, uint32_t* height, bool vsync);
         void ReCreate(uint32_t width, uint32_t height);
         void Present();
@@ -50,7 +53,9 @@ namespace Kans
 
         const uint32_t Max_frames_in_flight = {3};
         // swapchain
-        Ref<VulkanDevice> m_Device    = nullptr;
+        VkDevice          m_Device         = VK_NULL_HANDLE;
+        VkPhysicalDevice  m_Physical       = VK_NULL_HANDLE;
+        uint32_t          m_GraphicsFamily = 0, m_PresentFamily = 0;
         VkInstance        m_Instance  = VK_NULL_HANDLE;
         VkSwapchainKHR    m_SwapChain = VK_NULL_HANDLE;
         uint32_t          m_Width;
@@ -78,6 +83,5 @@ namespace Kans
         PFN_vkAcquireNextImageKHR                     fpAcquireNextImageKHR;
         PFN_vkQueuePresentKHR                         fpQueuePresentKHR;
 
-        friend class VulkanRHI;
     };
 } // namespace Kans

@@ -71,7 +71,7 @@ namespace Kans
         VulkanShaderCompiler compiler(shaderSourcePath, disableOptimization);
         compiler.Reload(forceCompile);
 
-        shader->LoadAndCreateShader(compiler.m_SPIRVData);
+        shader->StoreCompiledData(compiler.m_SPIRVData);
 
         return shader;
     }
@@ -133,7 +133,7 @@ namespace Kans
             return false;
         }
         shader->Release();
-        shader->LoadAndCreateShader(compiler.GetSPIRVData());
+        shader->StoreCompiledData(compiler.GetSPIRVData());
         return true;
     }
 

@@ -1,6 +1,5 @@
 #include "kspch.h"
 #include "VulkanBase.h"
-#include "VulkanDevice.h"
 namespace Kans::Utils
 {
 

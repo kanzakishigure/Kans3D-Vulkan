@@ -46,7 +46,8 @@ void main() { color = p.Color; })";
             ASSERT_NO_FATAL_FAILURE(Context->SetUp());
             GPU = Context->CreateDevice();
             GPU->BeginFrame();
-            Program = ShaderFrom(Vertex, Fragment);
+            if (GetParam() == GpuTestBackend::OpenGL)
+                Program = ShaderFrom(Vertex, Fragment);
         }
         void TearDown() override
         {
@@ -193,6 +194,8 @@ void main() { color = p.Color; })";
 
     TEST_P(RHIConformance, PickerUsesBottomLeftRowsAndClearsResizedTargets)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto     device = std::shared_ptr<Device>(GPU.get(), [](Device*) {});
         MeshData quad;
         for (auto p :
@@ -230,6 +233,8 @@ void main() { color = p.Color; })";
 
     TEST_P(RHIConformance, OutlinePreservesSceneAlphaAndDoesNotKeepOldSelectionOnResize)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto     device = std::shared_ptr<Device>(GPU.get(), [](Device*) {});
         MeshData quad;
         for (auto p : {glm::vec3(-0.75f, -0.75f, 0),
@@ -381,6 +386,8 @@ void main() { color = p.Color; })";
 
     TEST_P(RHIConformance, TriangleCoverageAndExactColor)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program       = ShaderFrom(R"(#version 450
 layout(push_constant) uniform Object { vec4 Color; vec4 Params; } p;
 void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
@@ -398,6 +405,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, DepthTestWritesAndReadback)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         TextureDesc dd;
         dd.Width                  = Size;
         dd.Height                 = Size;
@@ -435,6 +444,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, DepthCompareAndBias)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         TextureDesc dd;
         dd.Width                       = Size;
         dd.Height                      = Size;
@@ -466,6 +477,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, SeparateColorAlphaBlendAndWriteMask)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto  target       = Target();
         auto  d            = Description();
         auto& b            = d.Blends[0];
@@ -483,6 +496,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, BlendEquationsAndDisableTransition)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto  target       = Target();
         auto  d            = Description();
         auto& b            = d.Blends[0];
@@ -506,6 +521,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, CullFrontBackAndWinding)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         // The oversized triangle is CCW when clip Y points up. Each case catches inverted
         // front face, ignored cull mode, or stale enable state after pipeline changes.
         auto target = Target();
@@ -526,6 +543,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, WireframeAndFillTransition)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program              = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                                           Fragment);
@@ -548,6 +567,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, ScissorAndViewportBounds)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto target   = Target();
         auto commands = Begin(Render(target));
         commands->SetViewport({2, 3, 10, 9, 0, 1});
@@ -564,6 +585,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, PushConstantsPartialWritesAndRecordedValues)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program            = ShaderFrom(Vertex, R"(#version 450
 layout(push_constant) uniform Object { vec4 Color; vec4 Params; } p;
 layout(location=0) out vec4 color;
@@ -589,6 +612,8 @@ void main() { color=p.Color*p.Params.w; })");
 
     TEST_P(RHIConformance, TwoGroupsWithCollidingSlotsAndCombinedSamplers)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(Vertex, R"(#version 450
 layout(set=0,binding=0,std140) uniform Frame { vec4 Value; } a;
 layout(set=1,binding=0,std140) uniform Material { vec4 Value; } b;
@@ -649,6 +674,8 @@ void main() { color=a.Value*texture(first,vec2(.625,.25))+b.Value*texture(second
 
     TEST_P(RHIConformance, SeparateTextureAndSamplerBindings)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program     = ShaderFrom(Vertex, R"(#version 450
 layout(set=1,binding=2) uniform texture2D image;
 layout(set=1,binding=5) uniform sampler filtering;
@@ -688,6 +715,8 @@ void main() { color=texture(sampler2D(image,filtering),vec2(1.125,.5)); })");
 
     TEST_P(RHIConformance, IntegerPickerTargetAndClear)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program               = ShaderFrom(Vertex, R"(#version 450
 layout(location=0) out uint id;
 void main() { id=0x87654321u; })");
@@ -710,6 +739,8 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, HalfFloatTargetPreservesHDRAndNegative)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto target   = Target(Format::RGBA16Float);
         auto commands = Begin(Render(target));
         Draw(commands, GPU->CreatePipeline(Description(Format::RGBA16Float)), {{2, -0.5f, 0.25f, 1}, {}});
@@ -727,6 +758,8 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, PipelineCacheIncludesEveryStateField)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto base               = Description();
         base.HasDepthStencil    = true;
         base.DepthStencilFormat = Format::Depth24Stencil8;
@@ -780,6 +813,8 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, PipelineCacheIncludesVertexAndBindingLayouts)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto base                                                      = Description();
         base.VertexBindings                                            = {{0, 16, false}};
         base.Attributes                                                = {{0, 0, 0, VertexFormat::Float2}};
@@ -857,6 +892,8 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, CoordinateQueryMatchesCoverageDepthAndRows)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         const auto convention = GPU->GetCoordinateConventions();
         Program               = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-.75,.125),vec2(.75,.125),vec2(0,.875)); gl_Position=vec4(pos[gl_VertexIndex],.25,1); })",
@@ -904,6 +941,8 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,.125),vec2(.75,.125),vec2(0,.875)); g
 
     TEST_P(RHIConformance, IndexedVertexLayoutOffsetsAndBaseVertex)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(R"(#version 450
 layout(location=0) in vec2 position;
 layout(location=1) in vec4 tint;
@@ -952,6 +991,8 @@ void main() { color=vTint; })");
 
     TEST_P(RHIConformance, AttachmentLoadAndClearIgnorePreviousMasks)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto target           = Target();
         auto d                = Description();
         d.Blends[0].WriteMask = 1;
@@ -977,6 +1018,8 @@ void main() { color=vTint; })");
 
     TEST_P(RHIConformance, IndependentBlendStatesForMultipleTargets)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program    = ShaderFrom(Vertex, R"(#version 450
 layout(location=0) out vec4 a;
 layout(location=1) out vec4 b;
@@ -1005,6 +1048,8 @@ void main() { a=vec4(1,0,0,.25); b=vec4(0,1,0,.25); })");
 
     TEST_P(RHIConformance, StencilReplaceCompareAndWriteMask)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         TextureDesc td;
         td.Width                       = Size;
         td.Height                      = Size;
@@ -1044,6 +1089,8 @@ void main() { a=vec4(1,0,0,.25); b=vec4(0,1,0,.25); })");
 
     TEST_P(RHIConformance, SrgbTargetEncodingAndLinearTransition)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto srgb     = Target(Format::RGBA8Srgb);
         auto commands = Begin(Render(srgb));
         Draw(commands, GPU->CreatePipeline(Description(Format::RGBA8Srgb)), {{0.25f, 0.5f, 1, 1}, {}});
@@ -1082,6 +1129,8 @@ void main() { a=vec4(1,0,0,.25); b=vec4(0,1,0,.25); })");
 
     TEST_P(RHIConformance, StorageWritesFeedUniformsAndReadbackWithoutCallerBarriers)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto writer = ShaderFrom(R"(#version 450
 layout(set=1,binding=2,std430) buffer Storage { vec4 Color; } b;
 void main() {
@@ -1139,6 +1188,8 @@ layout(location=0) out vec4 color; void main() { color=b.Color; })");
 
     TEST_P(RHIConformance, PushConstantsRepackScalarArraysAndMixedTypes)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program             = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-1,-1),vec2(3,-1),vec2(-1,3)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                                          R"(#version 450
@@ -1162,6 +1213,8 @@ void main() { color=vec4(p.channels[0],p.channels[1],p.channels[2],float(p.alpha
 
     TEST_P(RHIConformance, PushConstantsRepackNestedStructArraysAndMatrices)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-1,-1),vec2(3,-1),vec2(-1,3)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                              R"(#version 450
@@ -1195,6 +1248,8 @@ void main() { color=vec4(p.items[1].channels[0]*p.factors[0][0],p.items[0].chann
 
     TEST_P(RHIConformance, PipelineMasksSurviveRenderingScopeClears)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         auto        target = Target();
         TextureDesc td;
         td.Width = td.Height      = Size;
@@ -1257,6 +1312,8 @@ void main() { color=vec4(p.items[1].channels[0]*p.factors[0][0],p.items[0].chann
 
     TEST_P(RHIConformance, PushConstantsRepackRowAndColumnMajorMatrixArrays)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-1,-1),vec2(3,-1),vec2(-1,3)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                              R"(#version 450
@@ -1283,6 +1340,8 @@ void main() { color=vec4(p.a[1][0][1],p.b[1][1][0],p.b[1][1][1],1); })");
 
     TEST_P(RHIConformance, FullFloatTargetPreservesValuesBelowHalfPrecision)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         // A mistaken RGBA16F allocation/transfer rounds these binary-exact values.
         const std::array<float, 4> expected {1.0001220703125f, -2.000244140625f, 0.50006103515625f, 1};
         auto                       target   = Target(Format::RGBA32Float);
@@ -1304,6 +1363,8 @@ void main() { color=vec4(p.a[1][0][1],p.b[1][1][0],p.b[1][1][1],1); })");
 
     TEST_P(RHIConformance, OddWidthTwoChannelMipsAndSampledComponents)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         // Detects RG mapped as R/RGBA, padded odd-width rows, wrong mip extent,
         // and a matching upload/readback mistake by independently sampling mip zero.
         TextureDesc desc;
@@ -1358,6 +1419,8 @@ void main() { color=texelFetch(image,ivec2(0),0); })");
 
     TEST_P(RHIConformance, SparsePublishedSlotsAndRecordedPerDrawUniformRanges)
     {
+        if (GetParam() == GpuTestBackend::Vulkan)
+            GTEST_SKIP() << "phase 3b";
         // Slots above 7 must load unchanged. Colliding logical slots in both
         // groups must stay independent; each recorded draw must retain its range.
         ShaderData data;
@@ -1444,8 +1507,317 @@ void main() { color=frame.Value*texture(first,vec2(.5))+material.Value*texture(s
                     << x << ',' << y;
     }
 
+    TEST_P(RHIConformance, ClearOnlyFormatsPreserveTypedValuesAndLoad)
+    {
+        // Wrong native sRGB/UNORM or float format, a missing attachment->copy
+        // layout transition, and Load implemented as Clear each fail independently.
+        for (auto format : {Format::RGBA8Unorm,
+                            Format::RGBA8Srgb,
+                            Format::RGBA16Float,
+                            Format::RGBA32Float,
+                            Format::RG8Unorm,
+                            Format::R8Unorm,
+                            Format::R32Uint})
+        {
+            SCOPED_TRACE(int(format));
+            auto                       target = Target(format);
+            const std::array<float, 4> clearValue =
+                format == Format::RGBA32Float ?
+                    std::array<float, 4> {1.0001220703125f, -2.000244140625f, 0.50006103515625f, 1} :
+                format == Format::RGBA16Float ? std::array<float, 4> {2, -0.5f, 0.25f, 1} :
+                                                std::array<float, 4> {0.25f, 0.5f, 1, 1};
+            auto clear                = Render(target, clearValue);
+            clear.Colors[0].ClearUint = 0xfedcba98u;
+            auto commands             = GPU->CreateCommandList();
+            commands->BeginRendering(clear);
+            // Clear/load must ignore the previous scope's scissor; negative
+            // origins also exercise neutral clipping without native validation errors.
+            commands->SetScissor({-2, -2, 3, 3});
+            commands->EndRendering();
+            GPU->Submit(commands);
+            auto load                 = clear;
+            load.Colors[0].Load       = LoadOp::Load;
+            load.Colors[0].ClearColor = {0, 0, 0, 0};
+            load.Colors[0].ClearUint  = 0;
+            commands                  = GPU->CreateCommandList();
+            commands->BeginRendering(load);
+            commands->EndRendering();
+            size_t pixelBytes = format == Format::RGBA32Float ? 16 :
+                                format == Format::RGBA16Float ? 8 :
+                                format == Format::RG8Unorm    ? 2 :
+                                format == Format::R8Unorm     ? 1 :
+                                                                4;
+            auto   output     = Readback(Size * Size * pixelBytes);
+            commands->CopyTextureToBuffer(target, {}, output);
+            GPU->Submit(commands);
+            EXPECT_THROW(output->Read(0, pixelBytes), std::invalid_argument);
+            GPU->WaitIdle();
+            auto raw = output->Read(0, Size * Size * pixelBytes);
+            for (size_t i = 0; i < raw.size(); i += pixelBytes)
+            {
+                if (format == Format::RGBA32Float)
+                {
+                    std::array<float, 4> value;
+                    std::memcpy(value.data(), raw.data() + i, 16);
+                    EXPECT_EQ(value, clearValue);
+                }
+                else if (format == Format::RGBA16Float)
+                {
+                    std::array<uint16_t, 4> value;
+                    std::memcpy(value.data(), raw.data() + i, 8);
+                    EXPECT_EQ(value, (std::array<uint16_t, 4> {0x4000, 0xb800, 0x3400, 0x3c00}));
+                }
+                else if (format == Format::R32Uint)
+                {
+                    uint32_t value;
+                    std::memcpy(&value, raw.data() + i, 4);
+                    EXPECT_EQ(value, 0xfedcba98u);
+                }
+                else if (format == Format::RGBA8Srgb)
+                {
+                    // Same one-byte conversion precision allowance as the existing
+                    // sRGB drawing case; all other components/bytes are exact.
+                    EXPECT_NEAR(raw[i], 137, 1);
+                    EXPECT_NEAR(raw[i + 1], 188, 1);
+                    EXPECT_EQ(raw[i + 2], 255);
+                    EXPECT_EQ(raw[i + 3], 255);
+                }
+                else
+                {
+                    const std::array<uint8_t, 4> expected {64, 128, 255, 255};
+                    for (size_t c = 0; c < pixelBytes; ++c)
+                        EXPECT_EQ(raw[i + c], expected[c]);
+                }
+            }
+        }
+    }
+
+    TEST_P(RHIConformance, ClearOnlyDepthStencilMipReadback)
+    {
+        // Wrong mip views, missing depth attachment/copy transitions or packed
+        // depth/stencil component ordering changes these exact bytes.
+        for (auto format : {Format::Depth32Float, Format::Depth24Stencil8})
+        {
+            TextureDesc desc;
+            desc.Width = desc.Height = 4;
+            desc.MipLevels           = 3;
+            desc.PixelFormat         = format;
+            desc.Usage               = TextureUsage::DepthStencil | TextureUsage::CopySource;
+            auto target              = GPU->CreateTexture(desc);
+            auto commands            = GPU->CreateCommandList();
+            for (uint32_t mip = 0; mip < 3; ++mip)
+            {
+                RenderingDesc scope;
+                scope.Depth.Target          = target;
+                scope.Depth.Subresource.Mip = mip;
+                // Endpoints have exact representations in D24 as well as D32.
+                scope.Depth.ClearDepth   = mip == 1 ? 0 : 1;
+                scope.Depth.ClearStencil = 0x21 + mip * 31;
+                commands->BeginRendering(scope);
+                commands->EndRendering();
+            }
+            GPU->Submit(commands);
+            for (uint32_t mip = 0; mip < 3; ++mip)
+            {
+                const size_t bytes  = size_t(4 >> mip) * (4 >> mip) * 4;
+                auto         output = Readback(bytes);
+                commands            = GPU->CreateCommandList();
+                commands->CopyTextureToBuffer(target, {mip, 0}, output);
+                GPU->Submit(commands);
+                GPU->WaitIdle();
+                auto raw = output->Read(0, bytes);
+                for (size_t i = 0; i < bytes; i += 4)
+                {
+                    if (format == Format::Depth32Float)
+                    {
+                        float value;
+                        std::memcpy(&value, raw.data() + i, 4);
+                        EXPECT_EQ(value, mip == 1 ? 0.0f : 1.0f);
+                    }
+                    else
+                    {
+                        uint32_t value;
+                        std::memcpy(&value, raw.data() + i, 4);
+                        EXPECT_EQ(value, (mip == 1 ? 0u : 0xffffff00u) | (0x21 + mip * 31));
+                    }
+                }
+            }
+        }
+    }
+
+    TEST_P(RHIConformance, CubeMipAttachmentCopiesFollowSubmissionOrder)
+    {
+        // Recording-order tracking (instead of submission order) loses layouts;
+        // mip-zero/face-zero copies overwrite sentinel subresources. Attachment
+        // clears independently address the face/mip that transfers later read.
+        TextureDesc desc;
+        desc.Width = desc.Height = 4;
+        desc.MipLevels           = 3;
+        desc.Dimension           = TextureDimension::Cube;
+        desc.PixelFormat         = Format::R32Uint;
+        desc.Usage = TextureUsage::RenderTarget | TextureUsage::CopySource | TextureUsage::CopyDestination;
+        auto                        texture = GPU->CreateTexture(desc);
+        std::vector<Handle<Buffer>> outputs;
+        auto                        read = GPU->CreateCommandList();
+        for (uint32_t face = 0; face < 6; ++face)
+            for (uint32_t mip = 0; mip < 3; ++mip)
+            {
+                auto output = Readback(size_t(4 >> mip) * (4 >> mip) * 4);
+                read->CopyTextureToBuffer(texture, {mip, face}, output);
+                outputs.push_back(output);
+            }
+        auto write = GPU->CreateCommandList();
+        for (uint32_t face = 0; face < 6; ++face)
+            for (uint32_t mip = 0; mip < 3; ++mip)
+            {
+                const uint32_t        value = 0xf0000000u + face * 17 + mip;
+                std::vector<uint32_t> pixels(size_t(4 >> mip) * (4 >> mip), value);
+                auto                  upload = Upload(pixels.data(), pixels.size() * 4);
+                write->CopyBufferToTexture(upload, 0, texture, {mip, face});
+            }
+        GPU->Submit(write);
+        RenderingDesc scope;
+        scope.Colors.push_back({texture, {1, 4}, LoadOp::Clear, StoreOp::Store, {}, 0x87654321u});
+        auto clear = GPU->CreateCommandList();
+        clear->BeginRendering(scope);
+        clear->EndRendering();
+        GPU->Submit(clear);
+        GPU->Submit(read);
+        GPU->WaitIdle();
+        for (uint32_t face = 0; face < 6; ++face)
+            for (uint32_t mip = 0; mip < 3; ++mip)
+            {
+                const size_t bytes = size_t(4 >> mip) * (4 >> mip) * 4;
+                auto         raw   = outputs[face * 3 + mip]->Read(0, bytes);
+                for (size_t i = 0; i < bytes; i += 4)
+                {
+                    uint32_t value;
+                    std::memcpy(&value, raw.data() + i, 4);
+                    EXPECT_EQ(value, face == 4 && mip == 1 ? 0x87654321u : 0xf0000000u + face * 17 + mip);
+                }
+            }
+    }
+
+    TEST_P(RHIConformance, PackedDepthStencilCopiesKeepMipBytesThroughDeviceLocalBuffers)
+    {
+        // Missing aspect transitions, wrong mip addressing and interpreting
+        // packed D24S8 as a single native copy corrupt exact depth/stencil bits.
+        TextureDesc desc;
+        desc.Width = desc.Height                   = 4;
+        desc.MipLevels                             = 3;
+        desc.PixelFormat                           = Format::Depth24Stencil8;
+        desc.Usage                                 = TextureUsage::CopySource | TextureUsage::CopyDestination;
+        auto                               texture = GPU->CreateTexture(desc);
+        std::vector<std::vector<uint32_t>> patterns;
+        std::vector<Handle<Buffer>>        outputs;
+        auto                               commands = GPU->CreateCommandList();
+        for (uint32_t mip = 0; mip < 3; ++mip)
+        {
+            std::vector<uint32_t> pattern(size_t(4 >> mip) * (4 >> mip));
+            for (size_t i = 0; i < pattern.size(); ++i)
+                pattern[i] = uint32_t(0x12345600u + mip * 0x310000u + i * 0x10203u);
+            auto upload = Upload(pattern.data(), pattern.size() * 4);
+            auto local  = GPU->CreateBuffer(
+                {pattern.size() * 4, BufferUsage::CopySource | BufferUsage::CopyDestination, MemoryUsage::DeviceLocal});
+            commands->CopyBuffer(upload, 0, local, 0, pattern.size() * 4);
+            commands->CopyBufferToTexture(local, 0, texture, {mip, 0});
+            outputs.push_back(Readback(pattern.size() * 4));
+            patterns.push_back(pattern);
+        }
+        GPU->Submit(commands);
+        commands = GPU->CreateCommandList();
+        for (uint32_t mip = 0; mip < 3; ++mip)
+            commands->CopyTextureToBuffer(texture, {mip, 0}, outputs[mip]);
+        GPU->Submit(commands);
+        GPU->WaitIdle();
+        for (uint32_t mip = 0; mip < 3; ++mip)
+        {
+            auto                  raw = outputs[mip]->Read(0, patterns[mip].size() * 4);
+            std::vector<uint32_t> actual(patterns[mip].size());
+            std::memcpy(actual.data(), raw.data(), raw.size());
+            EXPECT_EQ(actual, patterns[mip]);
+        }
+    }
+
+    TEST_P(RHIConformance, RepeatedFrameSlotsAndStandaloneWorkRetireReleasedResources)
+    {
+        // Resetting a pool/fence while commands still use it, omitting a fence
+        // reset, or releasing submitted memory early fails bytes or validation.
+        for (uint32_t count : {1u, 2u, 3u})
+        {
+            auto device = Context->CreateDevice({count});
+            EXPECT_EQ(device->GetDesc().FramesInFlight, count);
+            for (uint32_t frame = 0; frame < 18; ++frame)
+            {
+                const std::array<uint32_t, 4> pattern {frame, frame * 37, 0xfedcba98u, count};
+                auto upload = device->CreateBuffer({sizeof(pattern), BufferUsage::CopySource, MemoryUsage::Upload});
+                upload->Write(0, pattern.data(), sizeof(pattern));
+                auto output =
+                    device->CreateBuffer({sizeof(pattern), BufferUsage::CopyDestination, MemoryUsage::Readback});
+                auto commands = device->CreateCommandList();
+                commands->CopyBuffer(upload, 0, output, 0, sizeof(pattern));
+                std::weak_ptr<Buffer> lifetime = upload;
+                if (frame % 2 == 0)
+                    device->BeginFrame();
+                device->Submit(commands);
+                commands.reset();
+                upload.reset();
+                EXPECT_FALSE(lifetime.expired());
+                EXPECT_THROW(output->Read(0, sizeof(pattern)), std::invalid_argument);
+                if (frame % 2 == 0)
+                    device->EndFrame();
+                else
+                    device->WaitIdle();
+                EXPECT_TRUE(lifetime.expired());
+                auto                    raw = output->Read(0, sizeof(pattern));
+                std::array<uint32_t, 4> actual;
+                std::memcpy(actual.data(), raw.data(), sizeof(actual));
+                EXPECT_EQ(actual, pattern);
+                output.reset();
+                device->WaitIdle();
+                EXPECT_EQ(device->GetStats().LiveResources, 0u);
+                EXPECT_EQ(device->GetStats().PendingDestructions, 0u);
+            }
+        }
+    }
+
+    TEST_P(RHIConformance, OddWidthTwoChannelMipTransfers)
+    {
+        // Wrong mip extents/offsets or an R/RGBA mapping loses these independent
+        // two-channel bytes. The offset is texel-aligned but not four-byte-aligned.
+        TextureDesc desc;
+        desc.Width                                 = 3;
+        desc.Height                                = 5;
+        desc.MipLevels                             = 3;
+        desc.PixelFormat                           = Format::RG8Unorm;
+        desc.Usage                                 = TextureUsage::CopySource | TextureUsage::CopyDestination;
+        auto                              texture  = GPU->CreateTexture(desc);
+        auto                              commands = GPU->CreateCommandList();
+        std::vector<std::vector<uint8_t>> patterns;
+        std::vector<Handle<Buffer>>       outputs;
+        for (uint32_t mip = 0; mip < 3; ++mip)
+        {
+            const size_t         bytes = size_t(std::max(1u, 3u >> mip)) * std::max(1u, 5u >> mip) * 2;
+            std::vector<uint8_t> raw(bytes + 2);
+            for (size_t i = 0; i < bytes; ++i)
+                raw[i + 2] = uint8_t(i * 37 + mip * 53 + 11);
+            auto upload = Upload(raw.data(), raw.size());
+            commands->CopyBufferToTexture(upload, 2, texture, {mip, 0});
+            patterns.emplace_back(raw.begin() + 2, raw.end());
+            outputs.push_back(Readback(bytes + 2));
+        }
+        for (uint32_t mip = 0; mip < 3; ++mip)
+            commands->CopyTextureToBuffer(texture, {mip, 0}, outputs[mip], 2);
+        GPU->Submit(commands);
+        GPU->WaitIdle();
+        for (uint32_t mip = 0; mip < 3; ++mip)
+            EXPECT_EQ(outputs[mip]->Read(2, patterns[mip].size()), patterns[mip]);
+    }
+
     INSTANTIATE_TEST_SUITE_P(Backends,
                              RHIConformance,
-                             testing::Values(GpuTestBackend::OpenGL),
-                             [](const testing::TestParamInfo<GpuTestBackend>&) { return "OpenGL"; });
+                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
+                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
+                             });
 } // namespace

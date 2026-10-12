@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "Backend.h"
+#include "Vulkan/VulkanDevice.h"
 #include <stdexcept>
 #include "OpenGL/OpenGLDevice.h"
 namespace Kans::RenderHardware
@@ -31,9 +32,17 @@ namespace Kans::RenderHardware
                 throw std::logic_error("Another device is already initialized");
             return Shared;
         }
-        if (backend != Backend::OpenGL)
+        std::shared_ptr<Device> device;
+        if (backend == Backend::OpenGL)
+            device = CreateOpenGLDevice(window, desc);
+        else if (backend == Backend::Vulkan)
+        {
+            if (window)
+                throw std::invalid_argument("Vulkan surfaces are not implemented until phase 4");
+            device = CreateVulkanDevice(desc);
+        }
+        else
             throw std::invalid_argument("Device backend is not implemented");
-        auto device = CreateOpenGLDevice(window, desc);
         Selected    = backend;
         Surface     = window;
         Shared      = std::move(device);
