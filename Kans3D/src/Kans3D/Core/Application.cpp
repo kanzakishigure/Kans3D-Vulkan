@@ -22,6 +22,11 @@ namespace Kans
         //-------------create application Surface--------------------//
         CORE_ASSERT(!s_Instance, "Application already exist!");
 
+        const auto backend = RenderHardware::ResolveStartupBackend(spec.ConfigPath);
+        const auto capture = RenderHardware::GetStartupFrameCapture();
+        if (!capture.Path.empty())
+            m_CapturePath = std::filesystem::absolute(capture.Path).string();
+        m_CaptureAfter = capture.AfterFrames;
         KansFileSystem::Init(spec.ConfigPath);
 
         CORE_INFO("Application [{:>8}]  is Create :", spec.Name);
@@ -29,7 +34,7 @@ namespace Kans
         s_Instance = this;
 
         //-------------create application Surface and init the render context-----------------//
-        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
+        RenderHardware::SetBackend(backend);
 
         WindowSpecification windowSpec;
         windowSpec.Title        = spec.Name;
@@ -79,6 +84,12 @@ namespace Kans
 
             if (!m_Minimized)
             {
+                RenderHardware::BeginWindowFrame(*m_Window);
+                if (!m_CapturePath.empty() && ++m_CaptureFrame >= m_CaptureAfter)
+                {
+                    RenderHardware::RequestFrameCapture(*m_Window, m_CapturePath);
+                    m_CapturePath.clear();
+                }
                 {
                     PROFILE_SCOPE("application_layerstark_update");
                     // 普通layer进行渲染

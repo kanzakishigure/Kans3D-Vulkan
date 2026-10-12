@@ -9,6 +9,9 @@ namespace Kans::RenderHardware
     // validation and synchronization validation; applications use Debug validation.
     struct VulkanDeviceOptions
     {
+        void*                                   NativeWindow              = nullptr;
+        bool                                    HeadlessSurface           = false;
+        bool                                    AsynchronousWindowFrames  = false;
         bool                                    RequireCpuDevice          = true;
         bool                                    Validation                = false;
         bool                                    SynchronizationValidation = false;

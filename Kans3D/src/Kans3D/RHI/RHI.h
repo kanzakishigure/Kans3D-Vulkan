@@ -438,12 +438,14 @@ namespace Kans::RenderHardware
         virtual Handle<CommandList> CreateCommandList()                      = 0;
         virtual void                BeginFrame()                             = 0;
         // Submit seals a list, inside or outside a frame. Resources remain retained
-        // until EndFrame or WaitIdle. Standalone work must eventually call WaitIdle.
+        // until frame retirement or WaitIdle. Window frames retire at slot reuse;
+        // standalone work must eventually call WaitIdle.
         virtual void      Submit(const Handle<CommandList>& commands)             = 0;
         virtual void      EndFrame()                                              = 0;
         virtual void      WaitIdle()                                              = 0;
         // Optional sampling configures the UI texture view; ordinary RHI draws use independent samplers.
-        // Exports during an ImGui frame retain the image until all platform windows finish rendering.
+        // Exports during an ImGui frame retain the image through all platform draws
+        // and presentation; asynchronous window frames keep it through GPU completion.
         virtual uintptr_t GetImGuiTextureID(const Handle<Texture>& texture,
                                             const SamplerDesc*     sampling = nullptr) const = 0;
     };

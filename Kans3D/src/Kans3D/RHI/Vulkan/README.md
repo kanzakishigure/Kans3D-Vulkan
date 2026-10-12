@@ -309,11 +309,10 @@ colour-1 keeps the identical GL hash. Comparing emitted `runtime-gl-*.bin` and
 The complete before/after test list and mutation targets are in
 [`test/README.md`](../../../../../test/README.md#phase-3b-test-change-audit).
 
-### Phase 4 gaps
+### Gaps at the phase 3 boundary
 
-Surface/swapchain creation, acquire/present synchronization, editor backend
-selection and the ImGui Vulkan renderer/export remain phase 4. Frames still
-retire synchronously; overlap needs upload-arena/frame-slot review. Pipeline-cache
+Surface/swapchain creation, acquire/present synchronization, editor selection,
+ImGui and window frame overlap are implemented in phase 4 below. Pipeline-cache
 persistence remains optional later work. Compute, multisampling, binding/texture
 arrays, storage images and framebuffer feedback extensions remain the previously
 stated outside-scope RHI features, not conformance skips.
@@ -339,3 +338,153 @@ The CMake cache/presets/configuration are unchanged. Ninja dependency metadata
 was recompacted to repair a pre-existing truncated log. Editor outputs, sources,
 resources/assets, user files and reference PNGs remain untouched. No editor
 launch, hardware GPU, network, commits or pushes.
+
+## Phase 4: windowed application and ImGui
+
+`Application` resolves `RenderBackend=OpenGL|Vulkan` in its existing configuration
+before creating the window. Missing settings default to **OpenGL**. The engine
+entry point supplies `--render-backend=opengl|vulkan`; this overrides a valid ini
+setting. Invalid/empty settings and duplicate CLI selections throw a diagnostic.
+The filesystem's configuration rewrite preserves `RenderBackend`. Editor sources
+and their settings UI need no changes.
+
+Selecting Vulkan in the application is the explicit hardware opt-in. Tests and
+default headless construction still require a CPU device. `KANS_VULKAN_REQUIRE_CPU=1`
+overrides **every** construction policy before physical-device selection. Pin both
+loader variables to lavapipe for smoke runs; the CPU gate alone does not select
+between multiple installed software drivers. Debug application builds enable
+Khronos and synchronization validation. Tests use an error sink that fails gtest.
+
+`VulkanContext` requests GLFW's instance extensions and creates the surface before
+choosing a graphics queue with presentation support. GLFW owns platform details
+(X11/Wayland/Windows). Vulkan windows use `GLFW_NO_API`. The test-only private
+`HeadlessSurface` option requests `VK_EXT_headless_surface` instead of a native
+window and runs the same swapchain code. No editor is launched by tests.
+
+`VulkanPresentation.cpp` implements both main and detached-window swapchains.
+It retains the useful old swapchain choices (FIFO for VSync, mailbox then immediate
+for VSync off, capabilities-based image count/current transform) and replaces the
+unfinished retained implementation's ownership and synchronization. Extents are
+clamped; all image views, framebuffers and per-image render-complete semaphores
+are destroyed before the old swapchain. Recreation waits idle, preserving render
+pass compatibility. Zero extent defers acquisition/recreation/capture. Acquisition
+and presentation handle out-of-date/suboptimal results by scheduling recreation.
+VSync changes also schedule recreation and propagate to detached windows.
+
+A frame slot owns an acquire semaphore, command pool/buffer and fence. Rendering
+waits for the acquired image, then signals its **per-image** presentation semaphore.
+Reacquiring that image guarantees the previous presentation consumed that
+semaphore. A slot fence alone does not guarantee presentation semaphore reuse is
+safe; this is why completion semaphores are not per-slot. Presentation waits on
+the corresponding completion semaphore.
+
+Window RHI `EndFrame` no longer waits. `Application` calls `BeginWindowFrame`
+before layer updates: it waits only for the reused slot, retires that slot's
+command/resource/ImGui-image ownership and resets its command pool. Main-window
+presentation submits a tail fence covering preceding scene, UI and platform work,
+then advances the ring (`DeviceDesc::FramesInFlight`, default 2). Standalone window
+commands use the current slot too, so preview/picking work cannot be reset while
+pending. `WaitIdle` still retires everything. Headless RHI `EndFrame` retains its
+synchronous readback contract. Native deletion queues drain after safe ownership
+retirement. Scene uniforms and sprite vertices are fresh allocations per frame;
+caller-owned upload buffers must still obey the existing no-overwrite contract.
+Readback/picking, thumbnail generation, resize and capture may deliberately wait.
+
+The pinned ImGui backend has no dynamic-rendering initialization API. A conventional
+render pass is used **only for UI**; scene rendering remains dynamic. GLFW's Vulkan
+platform integration supplies input/window callbacks. Engine renderer callbacks
+own detached swapchains and use the pinned backend's per-viewport vertex/index
+buffers. Fonts upload once on renderer creation. A CMake-generated Vulkan adapter removes
+immutable font samplers from its descriptor layouts: otherwise user texture samplers
+are ignored and RHI descriptor layouts are incompatible. The vendored submodule and OpenGL backend source
+are unchanged; configuration checks that both adapter patch sites still exist.
+
+ImGui texture IDs are native descriptor sets cached by texture and sampler description
+in device-owned pools. Their layouts match ImGui's combined sampler binding. Texture
+ownership includes the sampled view, sets and samplers; native frees are deferred.
+Exports retain images through intervening `WaitIdle`, scene retirement and platform
+draws. Main presentation transfers exports into the frame slot until its GPU fence
+completes. Draw-data preparation also retains persistent IDs, uses the RHI access
+tracker for every sampled mip, and inserts upload/attachment-to-sampling dependencies
+before the render pass. There are no UI-issued texture barriers.
+
+The editor's unchanged viewport and preview use OpenGL-style `(0,1)->(1,0)` UVs.
+The Vulkan renderer adjusts **render-target exports** while copying ImGui vertices
+and restores the draw lists immediately afterwards. Authored/uploaded icons retain
+their UVs. RHI images, renderer coordinates, numerical readbacks and references do
+not change. Offscreen ImGui construction (`CreateImGuiRenderer(Vulkan, nullptr)`)
+uses the same shader/font/descriptor path for display-independent tests.
+
+Surface selection explicitly requires BGRA8 or RGBA8 **UNORM** with
+`VK_COLOR_SPACE_SRGB_NONLINEAR_KHR`. This describes how already encoded UI bytes
+are presented; an SRGB attachment would encode those bytes again. The GL UI boundary
+disables `GL_FRAMEBUFFER_SRGB`, and this path matches that behaviour. An unsupported
+surface fails explicitly instead of silently changing UI colours. Solid colours
+are checked byte-for-byte; authored SRGB textures still decode during sampling.
+
+`RequestFrameCapture(window, path)` in `RHI/Backend.h` writes a binary PPM (P6 RGB8,
+top-left rows) after the next successful main-window present. It works when requested
+before or after UI rendering. Minimized/out-of-date frames keep the request pending.
+GL reads the main default back buffer before swapping and restores context/readback
+state. Vulkan copies the **acquired/rendered** swapchain image, with layout and host
+visibility dependencies, before presenting it. Capture adds blocking readback and
+file IO only when requested; ordinary frames allocate no capture objects.
+Application CLI `--frame-capture=/tmp/editor.ppm --frame-capture-after=60` requests
+capture after 60 non-minimized application frames (60 is the default). The path is
+resolved relative to the startup working directory. Capture errors are explicit.
+Only the main window is captured; detached windows have independent presentations.
+
+Run a freshly linked editor **from your temporary project**, with its copied ini,
+resources and mono layout:
+
+```sh
+cd /path/to/temporary/project
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
+VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
+KANS_VULKAN_REQUIRE_CPU=1 VK_LOADER_LAYERS_DISABLE='~implicit~' \
+/path/to/fresh/KansEditor --render-backend=vulkan \
+  --frame-capture=/tmp/editor-vulkan.ppm --frame-capture-after=60
+
+LIBGL_ALWAYS_SOFTWARE=1 MESA_LOADER_DRIVER_OVERRIDE=llvmpipe GALLIUM_DRIVER=llvmpipe \
+/path/to/fresh/KansEditor --render-backend=opengl \
+  --frame-capture=/tmp/editor-opengl.ppm --frame-capture-after=60
+```
+
+A fresh Debug executable is linked at `/tmp/kans-phase4-editor/KansEditor` from all
+21 unchanged editor translation units, compiled two at a time. Substitute that
+path for `/path/to/fresh/KansEditor` above. It has not been launched. No resource
+copy/post-build step or protected editor-output write is performed. Window icon,
+events, input, resize and time already use GLFW and are backend-neutral. No active
+editor engine path still requires native GL; retained `Platform/OpenGL` classes
+remain legacy implementations. No Windows or compositor smoke run is claimed.
+
+
+### Phase 4 final verification
+
+Fresh `linux-gcc` Debug builds use `-j2`; CMake presets/cache settings are unchanged.
+Final serial runs: CPU **408 passed / 0 skipped** (48.01 s); OpenGL **156 passed /
+5 skipped** among 161 registered cases (164.52 s); Vulkan **142 passed / 0 skipped**
+(103.30 s). The five GL WSI cases explicitly skip without an accessible display.
+Vulkan WSI, resize, capture, minimized restoration and detached renderer callbacks
+run on lavapipe `VK_EXT_headless_surface`. Offscreen UI additionally runs with
+ordinary Vulkan image tracking. No test has both GPU labels. All twelve references
+and existing assertions/scene bounds are unchanged, with zero unexpected Khronos or
+synchronization validation errors.
+
+The direct UI parity test compares every RGBA8 byte for opaque colours, alpha
+blending and font coverage between real EGL/llvmpipe GL and offscreen lavapipe
+Vulkan: **byte-identical**. This is synthetic renderer parity, not a claim that
+an unlaunched editor screenshot or compositor/DPI configuration was tested.
+The headless 24-frame retirement microbenchmark reports mean EndFrame times of
+**0.169 / 0.199 / 0.218 microseconds** at slot counts **1 / 2 / 3**; slot wait,
+retirement and pool reset average **107.5 / 78.5 / 76.3 microseconds**. These are
+Debug/validation timings for 256x256 clears and released allocations, not editor
+FPS. They substantiate moving completion out of EndFrame and bounding retained
+work by the ring; two slots remain the default memory/latency choice.
+
+All 21 editor translation units compile and link into `/tmp/kans-phase4-editor/KansEditor`
+using their existing Debug command lines, two compilers at a time. The protected
+editor binary/output, editor source/assets/resources, user files and reference
+images are untouched. Changed-line `git clang-format` uses temporary Git metadata
+under `/tmp`; `git diff --check` passes. No editor launch, real GPU, network,
+commits or pushes.

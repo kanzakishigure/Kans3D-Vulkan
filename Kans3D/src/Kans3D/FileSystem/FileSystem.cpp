@@ -186,7 +186,15 @@ namespace Kans
             {
                 std::string key   = config_line.substr(0, spos);
                 std::string value = config_line.substr(spos + 1, config_line.length());
-                if ("WorkSpace" == key)
+                auto        renderKey = key;
+                if (renderKey.compare(0, 3, "\xef\xbb\xbf") == 0)
+                    renderKey.erase(0, 3);
+                auto first = renderKey.find_first_not_of(" \t");
+                if (first != std::string::npos)
+                    renderKey = renderKey.substr(first, renderKey.find_last_not_of(" \t") - first + 1);
+                if ("RenderBackend" == renderKey)
+                    m_RenderBackend = value;
+                else if ("WorkSpace" == key)
                 {
                     m_WorkSpace = value;
                 }
@@ -239,6 +247,7 @@ namespace Kans
             return;
         }
 
+        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(RenderBackend, m_RenderBackend, out_config_file);
         DESERIALIZE_FILESYSTEMSPEC_PROPERTY(WorkSpace, m_WorkSpace.string(), out_config_file);
         DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ResoucesDir, m_ResoucesDir.string(), out_config_file);
         DESERIALIZE_FILESYSTEMSPEC_PROPERTY(FontsDir, m_FontsPath.string(), out_config_file);

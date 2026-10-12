@@ -17,4 +17,5 @@ namespace Kans::RenderHardware
     void RetainImGuiTexture(const Handle<Texture>& texture);
     void BeginImGuiTextures();
     void EndImGuiTextures();
+    std::vector<Handle<Texture>> TakeImGuiTextures();
 } // namespace Kans::RenderHardware

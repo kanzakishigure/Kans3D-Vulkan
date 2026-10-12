@@ -1,5 +1,6 @@
 #pragma once
 #include "Kans3D/Core/Base/Base.h"
+#include "Kans3D/RHI/Backend.h"
 
 extern Kans::Application* Kans::createApplication(int argc, char** argv);
 
@@ -8,6 +9,7 @@ namespace Kans
     int Main(int argc, char** argv)
     {
         Log::Init();
+        RenderHardware::SetStartupArguments(argc, argv);
 
         PROFILE_BEGIN_SESSION("startup", "ProfileSpecication/startup-profile.json");
         Application* app = Kans::createApplication(argc, argv);

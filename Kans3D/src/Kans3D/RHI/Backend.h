@@ -13,6 +13,20 @@ namespace Kans::RenderHardware
         OpenGL,
         Vulkan
     };
+    // Startup parsing is independent of native window/device initialization.
+    Backend ResolveBackend(const std::string& configPath, const std::vector<std::string>& arguments = {});
+    struct StartupFrameCapture
+    {
+        std::string Path;
+        uint32_t    AfterFrames = 60;
+    };
+    StartupFrameCapture ResolveFrameCaptureArguments(const std::vector<std::string>& arguments);
+    StartupFrameCapture GetStartupFrameCapture();
+    void                SetStartupArguments(int argc, char** argv);
+    Backend             ResolveStartupBackend(const std::string& configPath);
+    void                BeginWindowFrame(Window& window);
+    // PPM, top-left rows, next successfully presented main-window image.
+    void    RequestFrameCapture(Window& window, const std::string& path);
     void    SetBackend(Backend backend);
     Backend GetBackend();
     // Creates the native surface/context using backend-owned API hints.

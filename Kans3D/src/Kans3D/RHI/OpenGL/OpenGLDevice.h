@@ -11,6 +11,7 @@ namespace Kans::RenderHardware
     std::unique_ptr<Device> CreateOpenGLDevice(const DeviceDesc& desc = {});
     std::unique_ptr<Device> CreateOpenGLDevice(Window* window, const DeviceDesc& desc = {});
     void*                   CreateOpenGLWindow(const WindowSpecification& specification);
+    void                    RequestOpenGLFrameCapture(Window& window, const std::string& path);
     void                    PresentOpenGLWindow(Window& window);
     void                    SetOpenGLWindowVSync(Window& window, bool enabled);
     using OpenGLLoadProc = void* (*)(const char*);

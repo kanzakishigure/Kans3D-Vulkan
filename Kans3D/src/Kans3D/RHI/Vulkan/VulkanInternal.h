@@ -29,6 +29,7 @@ namespace Kans::RenderHardware::VulkanDetail
     }
     struct Context
     {
+        VkSurfaceKHR               Surface   = VK_NULL_HANDLE;
         VkInstance                 Instance  = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT   Messenger = VK_NULL_HANDLE;
         VkPhysicalDevice           Physical  = VK_NULL_HANDLE;
@@ -45,6 +46,7 @@ namespace Kans::RenderHardware::VulkanDetail
     };
     // Kept backend-private so selection can be tested against synthetic properties
     // without enumerating or ever opening a hardware device.
+    bool ResolveCpuRequirement(bool requested, const char* forceCpu);
     bool AcceptDeviceType(VkPhysicalDeviceType type, bool requireCpu);
     struct Access
     {

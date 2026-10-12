@@ -1,11 +1,18 @@
 #include "kspch.h"
+// GLFW exposes its surface API only when Vulkan declarations are present.
+#define GLFW_INCLUDE_VULKAN
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <GLFW/glfw3.h>
 #include "VulkanInternal.h"
 
 namespace Kans::RenderHardware::VulkanDetail
 {
+    bool ResolveCpuRequirement(bool requested, const char* forceCpu)
+    {
+        return requested || (forceCpu && std::strcmp(forceCpu, "1") == 0);
+    }
     bool AcceptDeviceType(VkPhysicalDeviceType type, bool requireCpu)
     {
         return !requireCpu || type == VK_PHYSICAL_DEVICE_TYPE_CPU;
@@ -30,6 +37,8 @@ namespace Kans::RenderHardware::VulkanDetail
     } // namespace
     Context::Context(const VulkanDeviceOptions& options) : Options(options)
     {
+        const char* forceCpu     = std::getenv("KANS_VULKAN_REQUIRE_CPU");
+        Options.RequireCpuDevice = ResolveCpuRequirement(Options.RequireCpuDevice, forceCpu);
         try
         {
             VkApplicationInfo app {VK_STRUCTURE_TYPE_APPLICATION_INFO};
@@ -37,7 +46,23 @@ namespace Kans::RenderHardware::VulkanDetail
             app.pEngineName          = "Kans3D";
             app.apiVersion           = VK_API_VERSION_1_3;
             const char* layer        = "VK_LAYER_KHRONOS_validation";
-            const char* extensions[] = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME};
+            std::vector<const char*> extensions;
+            if (Options.NativeWindow)
+            {
+                uint32_t glfwCount      = 0;
+                auto     glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwCount);
+                Require(glfwExtensions && glfwCount, "GLFW Vulkan surface extensions unavailable");
+                extensions.assign(glfwExtensions, glfwExtensions + glfwCount);
+            }
+            if (Options.HeadlessSurface)
+            {
+                extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+                extensions.push_back(VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME);
+            }
+            if (Options.Validation)
+                extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            if (Options.Validation && Options.SynchronizationValidation)
+                extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
             VkDebugUtilsMessengerCreateInfoEXT debug {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
             debug.messageSeverity                        = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
             debug.messageType                            = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
@@ -64,12 +89,24 @@ namespace Kans::RenderHardware::VulkanDetail
                         "Vulkan validation layer is required");
                 instance.enabledLayerCount       = 1;
                 instance.ppEnabledLayerNames     = &layer;
-                instance.enabledExtensionCount   = Options.SynchronizationValidation ? 2 : 1;
-                instance.ppEnabledExtensionNames = extensions;
+
                 instance.pNext = Options.SynchronizationValidation ? static_cast<const void*>(&features) :
                                                                      static_cast<const void*>(&debug);
             }
+            instance.enabledExtensionCount   = uint32_t(extensions.size());
+            instance.ppEnabledExtensionNames = extensions.data();
             Check(vkCreateInstance(&instance, nullptr, &Instance));
+            if (Options.NativeWindow)
+                Check(glfwCreateWindowSurface(
+                    Instance, static_cast<GLFWwindow*>(Options.NativeWindow), nullptr, &Surface));
+            if (Options.HeadlessSurface)
+            {
+                auto createHeadless = reinterpret_cast<PFN_vkCreateHeadlessSurfaceEXT>(
+                    vkGetInstanceProcAddr(Instance, "vkCreateHeadlessSurfaceEXT"));
+                Require(createHeadless != nullptr, "VK_EXT_headless_surface is unavailable");
+                VkHeadlessSurfaceCreateInfoEXT headless {VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT};
+                Check(createHeadless(Instance, &headless, nullptr, &Surface));
+            }
             if (Options.Validation)
             {
                 auto create = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
@@ -102,6 +139,11 @@ namespace Kans::RenderHardware::VulkanDetail
                 for (uint32_t i = 0; i < families; ++i)
                     if (queues[i].queueCount && (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
                     {
+                        VkBool32 present = VK_TRUE;
+                        if (Surface)
+                            Check(vkGetPhysicalDeviceSurfaceSupportKHR(physical, i, Surface, &present));
+                        if (!present)
+                            continue;
                         Physical    = physical;
                         Properties  = properties;
                         QueueFamily = i;
@@ -156,11 +198,13 @@ namespace Kans::RenderHardware::VulkanDetail
             VkDeviceCreateInfo device {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
             device.pNext                = &enabled;
             device.pEnabledFeatures     = &graphics;
+            std::vector<const char*> enabledExtensions;
             if (BresenhamLines)
-            {
-                device.enabledExtensionCount   = 1;
-                device.ppEnabledExtensionNames = &lineExtension;
-            }
+                enabledExtensions.push_back(lineExtension);
+            if (Surface)
+                enabledExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+            device.enabledExtensionCount   = uint32_t(enabledExtensions.size());
+            device.ppEnabledExtensionNames = enabledExtensions.data();
             device.queueCreateInfoCount = 1;
             device.pQueueCreateInfos    = &queue;
             Check(vkCreateDevice(Physical, &device, nullptr, &Logical));
@@ -197,6 +241,11 @@ namespace Kans::RenderHardware::VulkanDetail
                 vkGetInstanceProcAddr(Instance, "vkDestroyDebugUtilsMessengerEXT"));
             destroy(Instance, Messenger, nullptr);
             Messenger = VK_NULL_HANDLE;
+        }
+        if (Surface)
+        {
+            vkDestroySurfaceKHR(Instance, Surface, nullptr);
+            Surface = VK_NULL_HANDLE;
         }
         if (Instance)
         {

@@ -14,6 +14,7 @@ function(kans_copy_test_runtime target)
     endif()
 endfunction()
 add_executable(Kans3DTests
+    BackendSelectionTests.cpp
     RenderGraphTests.cpp
     RenderViewTests.cpp
     ReferenceImageTests.cpp
@@ -134,18 +135,28 @@ gtest_discover_tests(OpenGLTextureTests TEST_FILTER "*Vulkan*" PROPERTIES
 
 # The conformance suite uses only the neutral interface; backend construction is
 # provided by GpuTestContext. Future backends instantiate the same tests.
-add_executable(RHIConformanceTests GpuTestContext.cpp RHIConformanceTests.cpp OpenGLRHILifetimeTests.cpp VulkanSafetyTests.cpp)
+add_executable(RHIConformanceTests GpuTestContext.cpp RHIConformanceTests.cpp OpenGLRHILifetimeTests.cpp VulkanSafetyTests.cpp VulkanImGuiTests.cpp)
 target_link_libraries(RHIConformanceTests PRIVATE Kans3D GTest::gtest_main)
 if(UNIX AND NOT APPLE)
     target_link_libraries(RHIConformanceTests PRIVATE OpenGL::EGL)
     target_compile_definitions(RHIConformanceTests PRIVATE KANS_TEST_USE_EGL)
 endif()
 kans_copy_test_runtime(RHIConformanceTests)
-gtest_discover_tests(RHIConformanceTests TEST_FILTER "*OpenGL*" PROPERTIES
+gtest_discover_tests(RHIConformanceTests TEST_FILTER "*OpenGL*-*Vulkan*" PROPERTIES
     LABELS "OpenGL"
     RUN_SERIAL TRUE
     ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1;MESA_LOADER_DRIVER_OVERRIDE=llvmpipe;GALLIUM_DRIVER=llvmpipe")
 gtest_discover_tests(RHIConformanceTests TEST_FILTER "*Vulkan*" PROPERTIES
     LABELS "Vulkan"
     RUN_SERIAL TRUE
-    ENVIRONMENT "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json;VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json;VK_LOADER_LAYERS_DISABLE=~implicit~")
+    ENVIRONMENT "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json;VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json;VK_LOADER_LAYERS_DISABLE=~implicit~;LIBGL_ALWAYS_SOFTWARE=1;MESA_LOADER_DRIVER_OVERRIDE=llvmpipe;GALLIUM_DRIVER=llvmpipe")
+
+add_executable(WindowPresentationTests WindowPresentationTests.cpp)
+target_link_libraries(WindowPresentationTests PRIVATE Kans3D GTest::gtest_main)
+kans_copy_test_runtime(WindowPresentationTests)
+gtest_discover_tests(WindowPresentationTests TEST_FILTER "*OpenGL*-*Vulkan*" PROPERTIES
+    LABELS "OpenGL" RUN_SERIAL TRUE
+    ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1;MESA_LOADER_DRIVER_OVERRIDE=llvmpipe;GALLIUM_DRIVER=llvmpipe")
+gtest_discover_tests(WindowPresentationTests TEST_FILTER "*Vulkan*" PROPERTIES
+    LABELS "Vulkan" RUN_SERIAL TRUE
+    ENVIRONMENT "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json;VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json;KANS_VULKAN_REQUIRE_CPU=1;VK_LOADER_LAYERS_DISABLE=~implicit~")

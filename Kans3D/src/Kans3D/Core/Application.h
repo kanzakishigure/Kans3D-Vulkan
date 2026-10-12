@@ -61,6 +61,8 @@ namespace Kans
 
         Scope<Window> m_Window;
         ImGuiLayer*   m_ImGuiLayer;
+        std::string   m_CapturePath;
+        uint32_t      m_CaptureAfter = 0, m_CaptureFrame = 0;
         bool          m_Running   = true;
         bool          m_Minimized = false;
 

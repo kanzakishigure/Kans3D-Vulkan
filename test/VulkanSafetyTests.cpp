@@ -46,3 +46,16 @@ TEST(VulkanSafety, ValidationErrorsReachTheTestSink)
     ASSERT_EQ(errors.size(), 1u);
     EXPECT_EQ(errors[0], "phase3a validation sink probe");
 }
+
+TEST(VulkanSafety, CpuForcingOverridesTheEditorsExplicitHardwareOptIn)
+{
+    // Synthetic types test the production override without enumerating hardware.
+    EXPECT_FALSE(VulkanDetail::ResolveCpuRequirement(false, nullptr));
+    EXPECT_FALSE(VulkanDetail::ResolveCpuRequirement(false, "0"));
+    EXPECT_TRUE(VulkanDetail::ResolveCpuRequirement(true, nullptr));
+    const bool required = VulkanDetail::ResolveCpuRequirement(false, "1");
+    EXPECT_TRUE(required);
+    EXPECT_TRUE(VulkanDetail::AcceptDeviceType(VK_PHYSICAL_DEVICE_TYPE_CPU, required));
+    EXPECT_FALSE(VulkanDetail::AcceptDeviceType(VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU, required));
+    EXPECT_FALSE(VulkanDetail::AcceptDeviceType(VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU, required));
+}

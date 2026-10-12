@@ -376,3 +376,41 @@ test-target variants), two at a time, without linking or editing editor outputs.
 An audit of all 46 original conformance bodies finds no change beyond removing
 skips and formatting. Changed-line `git clang-format` and `git diff --check` are
 clean; original untracked user content is preserved.
+
+## Phase 4 window and UI tests
+
+Existing conformance assertions, reference images and scene bounds are unchanged.
+New test sources are additive. All Vulkan processes pin both loader variables to
+lavapipe, refuse unintended device types, enable Khronos/synchronization validation
+and route every error to gtest. Window tests prefer `VK_EXT_headless_surface`; if
+unavailable they use hidden GLFW windows, otherwise explicitly skip. OpenGL WSI
+requires an accessible display; existing EGL/llvmpipe UI coverage does not.
+
+| New test | Concrete plausible regression caught |
+| --- | --- |
+| `BackendSelection.DefaultsToOpenGLAndCommandLineOverridesTheIni` | Startup ignores the ini or CLI override, or defaults to Vulkan on the user's machine. |
+| `BackendSelection.RejectsInvalidEmptyAndDuplicateSelections` | Typo/empty backend values silently fall back; conflicting CLI flags are accepted. |
+| `BackendSelection.CaptureArgumentsReachApplicationStartupAndRejectMalformedSchedules` | Entry-point arguments never reach Application, capture count silently accepts trailing text/overflow, or capture scheduling lacks a path. |
+| `BackendSelection.FilesystemStartupRewritePreservesTheBackendSetting` | Computing the startup root hash drops a BOM/whitespace backend key and silently returns to OpenGL on the next startup. Exercises the real filesystem rewrite in a temporary project. |
+| `VulkanSafety.CpuForcingOverridesTheEditorsExplicitHardwareOptIn` | CPU-forcing environment policy loses to application hardware opt-in; uses synthetic device types, no hardware enumeration. |
+| `WindowPresentation.ResizeVSyncAndCaptureReadTheCurrentImageWithUnencodedUIColours/{OpenGL,Vulkan}` | Recreation leaks or keeps stale views, presentation misses rendering completion (sync validation), SRGB surface attachment shifts UI colours, or capture reads another swapchain image/BGRA order/wrong rows. Twelve distinct frames/resizes/VSync changes; requests alternate before/after UI rendering. |
+| `WindowPresentation.ReleasedTextureSurvivesUIEndAndInterveningIdleUntilPresent/{OpenGL,Vulkan}` | Exported texture/descriptor is released before Vulkan main presentation, or upload-to-UI sampling layout is missing. Real captured pixels and weak lifetime before/after GPU completion. GL keeps its existing completion boundary. |
+| `WindowPresentation.RenderTargetExportPreservesTheEditorsOpenGLUVConvention/{OpenGL,Vulkan}` | Viewport and material preview become vertically mirrored with the editor's unchanged UVs. Distinct native upper/lower rows are normalized from device coordinates. |
+| `WindowPresentation.MinimizedSurfaceDefersCaptureUntilTheRestoredFrame/{OpenGL,Vulkan}` | Acquiring/recreating at zero extent, writing an old frame while minimized, or losing a pending capture/VSync change. Requires headless surface for deterministic zero extent. |
+| `WindowPresentation.HeadlessPlatformWindowsShareTextureIDsAcrossResizeAndPresentation/{OpenGL,Vulkan}` | Detached windows use incompatible pipelines, free shared descriptors early, keep stale views on resize, or leave renderer callbacks pointing at destroyed state. Drives the production renderer callbacks with independent headless surfaces; GLFW-specific behavior still needs a compositor smoke run. |
+| `VulkanImGui.DescriptorsRetainReleasedImagesAndTrackUploadAndAttachmentLayouts` | Native IDs use incompatible layouts/views/samplers, or textures die across intermediate WaitIdle; exact linear/attachment pixels and existing one-byte SRGB decode allowance. |
+| `VulkanImGui.FontsAndUnencodedUIColoursRenderToTheExpectedRows` | Missing font upload, encoded UI attachment, inverted rows, or native scene state bleeding into ImGui. |
+| `VulkanImGui.RenderTargetUVAdaptationRestoresDrawListsAndPreservesUploadedIcons` | Render-target adjustment mirrors authored icons, mutates persistent draw lists, or ignores nearest sampling. Exact independent upper/lower pixels; redraw of the same data. |
+| `VulkanImGuiParity.OpaqueAlphaAndFontPixelsMatchTheOpenGLUI` | UI colour/blend/font-coverage/origin differs between the actual GL and Vulkan backends. Renders both serially with pinned llvmpipe/lavapipe and compares every RGBA8 byte exactly. |
+| `VulkanWindowFrames.SlotReuseRetiresOnlyCompletedResourcesAtBoundsOneTwoAndThree` | EndFrame still retires synchronously, ring slots reset pools before completion, resources retire too early or leak. 24 frames each at bounds 1/2/3 using production asynchronous retirement; weak lifetimes, live allocation count and validation. Timings are reported without load-dependent thresholds. |
+
+Tests never launch KansEditor. A freshly compiled/linked editor may be produced in
+`/tmp/kans-phase4-editor` from the unchanged editor source commands, two translation
+units at a time, without executing the protected editor target's post-build resource
+copies or modifying its existing executable/project directory.
+
+
+Final phase-4 label counts: CPU 408 passed; OpenGL 156 passed + 5 explicit
+WSI skips (161 registered); Vulkan 142 passed, including headless swapchains,
+offscreen UI and exact cross-backend UI parity. Zero unexpected validation errors.
+All original renderer references and assertions pass unchanged.

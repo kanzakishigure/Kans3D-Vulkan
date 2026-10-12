@@ -14,6 +14,24 @@ add_library(Kans3D STATIC
     ${KANS3D_SOURCES}
 )
 
+# The pinned ImGui Vulkan backend uses immutable font samplers for user images.
+# Compile an adapter copy with ordinary samplers, keeping the vendored submodule
+# untouched. Fail configuration if an ImGui upgrade changes these patch sites.
+set(KANS_IMGUI_VULKAN_SOURCE "${KANS3D_VENDOR}/imgui/backends/imgui_impl_vulkan.cpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${KANS_IMGUI_VULKAN_SOURCE}")
+file(READ "${KANS_IMGUI_VULKAN_SOURCE}" KANS_IMGUI_VULKAN_TEXT)
+string(REGEX MATCHALL "pImmutableSamplers = sampler" KANS_IMGUI_SAMPLER_SITES "${KANS_IMGUI_VULKAN_TEXT}")
+list(LENGTH KANS_IMGUI_SAMPLER_SITES KANS_IMGUI_SAMPLER_SITE_COUNT)
+if(NOT KANS_IMGUI_SAMPLER_SITE_COUNT EQUAL 2)
+    message(FATAL_ERROR "Review Kans3D's ImGui Vulkan sampler adapter for this ImGui version")
+endif()
+string(REPLACE "pImmutableSamplers = sampler;" "pImmutableSamplers = nullptr;"
+    KANS_IMGUI_VULKAN_TEXT "${KANS_IMGUI_VULKAN_TEXT}")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imgui-vulkan")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/imgui-vulkan/imgui_impl_vulkan_kans.cpp" "${KANS_IMGUI_VULKAN_TEXT}")
+target_include_directories(Kans3D PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/imgui-vulkan" "${KANS3D_VENDOR}/imgui/backends")
+
 # ---- Precompiled header ----
 target_precompile_headers(Kans3D PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:${KANS3D_SRC}/kspch.h>

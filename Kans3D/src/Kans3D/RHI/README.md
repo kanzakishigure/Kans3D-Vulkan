@@ -74,9 +74,9 @@ have equivalents in the planned DirectX backends.
 
 ## Frames, destruction and readback
 
-`FramesInFlight` defaults to 2 and specifies the allowed upper bound. Both
-current backends complete each frame synchronously, which is within any positive
-bound; future implementations may keep that many frames pending. `BeginFrame`/`EndFrame` must
+`FramesInFlight` defaults to 2 and specifies the allowed upper bound. OpenGL and
+headless Vulkan complete each frame synchronously. Windowed Vulkan keeps up to
+that many frame slots pending and retires them on slot reuse. `BeginFrame`/`EndFrame` must
 pair. Submission is allowed inside or outside a frame, always outside a rendering
 scope. Standalone submissions retain resources and keep readbacks inaccessible
 until `WaitIdle` or a later `EndFrame`; they do not implicitly start/end a frame.
@@ -278,3 +278,18 @@ and the [test-by-test change audit](../../../../test/README.md#phase-3b-test-cha
 The phase-3a numbers above are historical results at 485f40e. Phase 3b has no
 Vulkan conformance skips. Its final validation counts are recorded in the Vulkan
 report. Editor/ImGui remain OpenGL and reference PNGs are unchanged.
+
+## Window application startup and capture
+
+See [Vulkan phase 4](Vulkan/README.md#phase-4-windowed-application-and-imgui).
+Application startup defaults to OpenGL, with `RenderBackend=OpenGL|Vulkan` in the
+existing ini and `--render-backend=opengl|vulkan` as an override. Vulkan windowed
+applications opt into hardware, while `KANS_VULKAN_REQUIRE_CPU=1` overrides this.
+Window frame loops call `BeginWindowFrame` before rendering and `PresentWindow`
+after ImGui; this is wired in Application. Asynchronous Vulkan window resources
+retire on frame-slot reuse; the headless synchronous contract is unchanged.
+
+`RequestFrameCapture(window, "/tmp/frame.ppm")` captures the next main presentation
+in RGB8 PPM with top-left rows. Both backends also accept the application CLI
+`--frame-capture=/tmp/frame.ppm --frame-capture-after=60`. Capture is dormant when
+unused. Minimized Vulkan frames defer it until restoration.

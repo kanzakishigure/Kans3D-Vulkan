@@ -1,14 +1,18 @@
 #include "kspch.h"
+#include <imgui.h>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <set>
+#include <backends/imgui_impl_vulkan.h>
 #include <spirv-tools/libspirv.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 #include "Kans3D/Asset/Runtime/ShaderData.h"
+#include "Kans3D/Core/Window.h"
 #include "Kans3D/RHI/PipelineKey.h"
 #include "VulkanInternal.h"
+#include "VulkanPresentation.h"
 #include "VulkanTestProbes.h"
 
 namespace Kans::RenderHardware
@@ -18,9 +22,12 @@ namespace Kans::RenderHardware
         using namespace VulkanDetail;
         struct Commands;
         struct VKSet;
+        struct VKTexture;
         struct State
         {
             Context         Native;
+            VkDescriptorSetLayout                                   UITextureLayout = VK_NULL_HANDLE;
+            std::unordered_map<uintptr_t, std::weak_ptr<VKTexture>> UITextures;
             VkPipelineCache                                       PipelineCache = VK_NULL_HANDLE;
             std::vector<VkDescriptorPool>                         DescriptorPools;
             std::unordered_map<std::string, std::weak_ptr<VKSet>> DescriptorCache;
@@ -32,6 +39,8 @@ namespace Kans::RenderHardware
             {
                 VkCommandPool Pool  = VK_NULL_HANDLE;
                 VkFence       Fence = VK_NULL_HANDLE;
+                std::vector<std::shared_ptr<Commands>> Lists;
+                std::vector<Handle<Texture>>           UIImages;
             };
             std::vector<Frame>                     Frames;
             Frame                                  Standalone;
@@ -46,6 +55,12 @@ namespace Kans::RenderHardware
                     for (auto& frame : Frames)
                         CreateFrame(frame);
                     CreateFrame(Standalone);
+                    VkDescriptorSetLayoutBinding binding {
+                        0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+                    VkDescriptorSetLayoutCreateInfo layout {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+                    layout.bindingCount = 1;
+                    layout.pBindings    = &binding;
+                    Check(vkCreateDescriptorSetLayout(Native.Logical, &layout, nullptr, &UITextureLayout));
                     VkPipelineCacheCreateInfo cache {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
                     Check(vkCreatePipelineCache(Native.Logical, &cache, nullptr, &PipelineCache));
                 }
@@ -84,6 +99,7 @@ namespace Kans::RenderHardware
             ~State()
             {
                 DestroyFrames();
+                vkDestroyDescriptorSetLayout(Native.Logical, UITextureLayout, nullptr);
                 for (auto pool : DescriptorPools)
                     vkDestroyDescriptorPool(Native.Logical, pool, nullptr);
                 if (PipelineCache)
@@ -124,7 +140,10 @@ namespace Kans::RenderHardware
                 DescriptorPools.push_back(native);
                 return AllocateSet(layout);
             }
-            Frame& Current() { return InFrame ? Frames[FrameIndex] : Standalone; }
+            Frame& Current()
+            {
+                return (InFrame || Native.Options.AsynchronousWindowFrames) ? Frames[FrameIndex] : Standalone;
+            }
             void   Drain()
             {
                 // Destructors may enqueue more work while retained command captures
@@ -142,6 +161,8 @@ namespace Kans::RenderHardware
                 }
             }
             void Retire();
+            void BeginWindowFrame();
+            void FinishWindowFrame();
         };
         struct Allocation
         {
@@ -239,6 +260,13 @@ namespace Kans::RenderHardware
         }
         struct VKTexture final : Texture
         {
+            struct UIView
+            {
+                SamplerDesc     Desc;
+                Handle<Sampler> Sampling;
+                VkDescriptorSet Set;
+            };
+            std::vector<UIView>      UIViews;
             Allocation               Memory;
             TextureDesc              Desc;
             VkImage                  Native = VK_NULL_HANDLE;
@@ -1207,8 +1235,49 @@ namespace Kans::RenderHardware
                 });
             }
         };
+        void State::BeginWindowFrame()
+        {
+            CheckThread();
+            auto& frame = Frames[FrameIndex];
+            Check(vkWaitForFences(Native.Logical, 1, &frame.Fence, VK_TRUE, UINT64_MAX));
+            for (auto& list : frame.Lists)
+                list->Retire();
+            frame.Lists.clear();
+            frame.UIImages.clear();
+            Drain();
+            for (auto it = UITextures.begin(); it != UITextures.end();)
+                if (it->second.expired())
+                    it = UITextures.erase(it);
+                else
+                    ++it;
+            for (auto it = DescriptorCache.begin(); it != DescriptorCache.end();)
+                if (it->second.expired())
+                    it = DescriptorCache.erase(it);
+                else
+                    ++it;
+            Check(vkResetCommandPool(Native.Logical, frame.Pool, 0));
+        }
+        void State::FinishWindowFrame()
+        {
+            Require(!InFrame, "Present inside an active scene frame");
+            auto& frame = Frames[FrameIndex];
+            frame.Lists = std::move(Submitted);
+            Submitted.clear();
+            frame.UIImages = TakeImGuiTextures();
+            Check(vkResetFences(Native.Logical, 1, &frame.Fence));
+            VkSubmitInfo2 tail {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+            Check(vkQueueSubmit2(Native.Queue, 1, &tail, frame.Fence));
+            FrameIndex = (FrameIndex + 1) % Frames.size();
+        }
         void State::Retire()
         {
+            for (auto& frame : Frames)
+            {
+                for (auto& list : frame.Lists)
+                    list->Retire();
+                frame.Lists.clear();
+                frame.UIImages.clear();
+            }
             for (auto& list : Submitted)
                 list->Retire();
             Submitted.clear();
@@ -1243,6 +1312,7 @@ namespace Kans::RenderHardware
             }
             const Context&        GetContext() const { return Owner->Native; }
             const State&          GetState() const { return *Owner; }
+            std::shared_ptr<State> GetOwner() const { return Owner; }
             const DeviceDesc&     GetDesc() const override { return Desc; }
             CoordinateConventions GetCoordinateConventions() const override
             {
@@ -1375,6 +1445,11 @@ namespace Kans::RenderHardware
             {
                 Owner->CheckThread();
                 Require(Owner->InFrame, "No active frame");
+                if (Owner->Native.Options.AsynchronousWindowFrames)
+                {
+                    Owner->InFrame = false;
+                    return;
+                }
                 auto& frame = Owner->Frames[Owner->FrameIndex];
                 Check(vkResetFences(Owner->Native.Logical, 1, &frame.Fence));
                 VkSubmitInfo2 tail {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
@@ -1390,12 +1465,169 @@ namespace Kans::RenderHardware
                 Check(vkDeviceWaitIdle(Owner->Native.Logical));
                 Owner->Retire();
             }
-            uintptr_t GetImGuiTextureID(const Handle<Texture>&, const SamplerDesc*) const override
+            uintptr_t GetImGuiTextureID(const Handle<Texture>& texture, const SamplerDesc* sampling) const override
             {
-                throw std::logic_error("Vulkan GetImGuiTextureID is not implemented until phase 4");
+                Owner->CheckThread();
+                auto image = Cast<VKTexture>(texture, Owner);
+                Require(image->SampledView && image->Desc.Dimension == TextureDimension::Texture2D &&
+                            !Info(image->Desc.PixelFormat).Depth(),
+                        "ImGui requires a sampled 2D colour texture");
+                SamplerDesc desc = sampling ? *sampling : SamplerDesc {};
+                auto        same = [&](const auto& view) {
+                    const auto& d = view.Desc;
+                    return d.Min == desc.Min && d.Mag == desc.Mag && d.Mip == desc.Mip && d.U == desc.U &&
+                           d.V == desc.V && d.W == desc.W && d.MinLod == desc.MinLod && d.MaxLod == desc.MaxLod;
+                };
+                auto found = std::find_if(image->UIViews.begin(), image->UIViews.end(), same);
+                if (found == image->UIViews.end())
+                {
+                    auto sampler     = std::make_shared<VKSampler>(Owner, desc);
+                    auto [pool, set] = Owner->AllocateSet(Owner->UITextureLayout);
+                    VkDescriptorImageInfo info {
+                        sampler->Native, image->SampledView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                    VkWriteDescriptorSet write {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                    write.dstSet          = set;
+                    write.descriptorCount = 1;
+                    write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    write.pImageInfo      = &info;
+                    vkUpdateDescriptorSets(Owner->Native.Logical, 1, &write, 0, nullptr);
+                    image->UIViews.push_back({desc, sampler, set});
+                    auto previous        = std::move(image->Memory.Delete);
+                    image->Memory.Delete = [previous = std::move(previous), device = Owner->Native.Logical, pool, set] {
+                        vkFreeDescriptorSets(device, pool, 1, &set);
+                        previous();
+                    };
+                    found                                               = image->UIViews.end() - 1;
+                    Owner->UITextures[reinterpret_cast<uintptr_t>(set)] = image;
+                }
+                RetainImGuiTexture(texture);
+                return reinterpret_cast<uintptr_t>(found->Set);
             }
         };
     } // namespace
+    const VulkanDetail::Context& GetVulkanContext(Device& device)
+    {
+        return dynamic_cast<VKDevice&>(device).GetContext();
+    }
+    void BeginVulkanDeviceWindowFrame(Device& device)
+    {
+        dynamic_cast<VKDevice&>(device).GetOwner()->BeginWindowFrame();
+    }
+    void FinishVulkanDeviceWindowFrame(Device& device)
+    {
+        dynamic_cast<VKDevice&>(device).GetOwner()->FinishWindowFrame();
+    }
+    Handle<Texture> RenderVulkanImGuiOffscreen(Device& device, ImDrawData* data, VkRenderPass pass)
+    {
+        auto        owner = dynamic_cast<VKDevice&>(device).GetOwner();
+        TextureDesc desc;
+        desc.Width                    = uint32_t(data->DisplaySize.x * data->FramebufferScale.x);
+        desc.Height                   = uint32_t(data->DisplaySize.y * data->FramebufferScale.y);
+        desc.Usage                    = TextureUsage::RenderTarget | TextureUsage::Sampled | TextureUsage::CopySource;
+        auto                    image = std::make_shared<VKTexture>(owner, desc);
+        VkFramebuffer           framebuffer;
+        VkFramebufferCreateInfo create {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        create.renderPass      = pass;
+        create.attachmentCount = 1;
+        create.pAttachments    = &image->Views[0];
+        create.width           = desc.Width;
+        create.height          = desc.Height;
+        create.layers          = 1;
+        Check(vkCreateFramebuffer(owner->Native.Logical, &create, nullptr, &framebuffer));
+        auto previous        = std::move(image->Memory.Delete);
+        image->Memory.Delete = [previous = std::move(previous), logical = owner->Native.Logical, framebuffer] {
+            vkDestroyFramebuffer(logical, framebuffer, nullptr);
+            previous();
+        };
+        Execution execution(owner);
+        execution.Use(*image,
+                      {},
+                      {VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+        execution.FlushBarriers();
+        VkClearValue clear {};
+        clear.color.float32[3] = 1;
+        VkRenderPassBeginInfo begin {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        begin.renderPass        = pass;
+        begin.framebuffer       = framebuffer;
+        begin.renderArea.extent = {desc.Width, desc.Height};
+        begin.clearValueCount   = 1;
+        begin.pClearValues      = &clear;
+        vkCmdBeginRenderPass(execution.Native, &begin, VK_SUBPASS_CONTENTS_INLINE);
+        FlipVulkanImGuiRenderTargetUVs(device, data);
+        ImGui_ImplVulkan_RenderDrawData(data, execution.Native);
+        FlipVulkanImGuiRenderTargetUVs(device, data);
+        vkCmdEndRenderPass(execution.Native);
+        execution.Submit();
+        auto retained = std::make_shared<Commands>(owner);
+        retained->Temporary.push_back(image);
+        owner->Submitted.push_back(retained);
+        return image;
+    }
+    void FlipVulkanImGuiRenderTargetUVs(Device& device, ImDrawData* data)
+    {
+        auto owner = dynamic_cast<VKDevice&>(device).GetOwner();
+        for (int i = 0; i < data->CmdListsCount; ++i)
+        {
+            auto*              list = data->CmdLists[i];
+            std::set<unsigned> flipped;
+            for (const auto& command : list->CmdBuffer)
+            {
+                auto found = owner->UITextures.find(reinterpret_cast<uintptr_t>(command.TextureId));
+                if (found == owner->UITextures.end())
+                    continue;
+                auto image = found->second.lock();
+                if (!image || !Has(image->Desc.Usage, TextureUsage::RenderTarget))
+                    continue;
+                for (unsigned index = 0; index < command.ElemCount; ++index)
+                {
+                    unsigned vertex = command.VtxOffset + list->IdxBuffer[command.IdxOffset + index];
+                    if (flipped.insert(vertex).second)
+                        list->VtxBuffer[vertex].uv.y = 1 - list->VtxBuffer[vertex].uv.y;
+                }
+            }
+        }
+    }
+    void PrepareVulkanImGuiTextures(Device& device, ImDrawData* data)
+    {
+        auto                owner = dynamic_cast<VKDevice&>(device).GetOwner();
+        Execution           execution(owner);
+        std::set<uintptr_t> seen;
+        for (int i = 0; i < data->CmdListsCount; ++i)
+            for (const auto& command : data->CmdLists[i]->CmdBuffer)
+            {
+                auto id = reinterpret_cast<uintptr_t>(command.TextureId);
+                if (!seen.insert(id).second)
+                    continue;
+                auto found = owner->UITextures.find(id);
+                if (found == owner->UITextures.end())
+                    continue; // ImGui-owned font descriptor.
+                auto image = found->second.lock();
+                Require(bool(image), "Expired ImGui texture ID");
+                RetainImGuiTexture(image);
+                for (uint32_t mip = 0; mip < image->Desc.MipLevels; ++mip)
+                    execution.Use(*image,
+                                  {mip, 0},
+                                  {VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                   VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+            }
+        execution.Submit();
+    }
+    std::unique_ptr<Device> CreateVulkanWindowDevice(Window& window, const DeviceDesc& desc)
+    {
+        VulkanDeviceOptions options;
+        options.NativeWindow             = window.GetNativeWindow();
+        options.AsynchronousWindowFrames = true;
+        const char* force                = std::getenv("KANS_VULKAN_REQUIRE_CPU");
+        options.RequireCpuDevice         = force && std::strcmp(force, "1") == 0;
+#if defined(KS_DEBUG) || !defined(NDEBUG)
+        options.Validation                = true;
+        options.SynchronizationValidation = true;
+#endif
+        return CreateVulkanDevice(desc, options);
+    }
     std::unique_ptr<Device> CreateVulkanDevice(const DeviceDesc& desc, const VulkanDeviceOptions& options)
     {
         return std::make_unique<VKDevice>(desc, options);
@@ -1408,6 +1640,9 @@ namespace Kans::RenderHardware
 #endif
         const char* allow        = std::getenv("KANS_VULKAN_ALLOW_NON_CPU");
         options.RequireCpuDevice = !allow || std::strcmp(allow, "1") != 0;
+        const char* force        = std::getenv("KANS_VULKAN_REQUIRE_CPU");
+        if (force && std::strcmp(force, "1") == 0)
+            options.RequireCpuDevice = true;
         return CreateVulkanDevice(desc, options);
     }
 } // namespace Kans::RenderHardware

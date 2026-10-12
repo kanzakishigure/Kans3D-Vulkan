@@ -13,6 +13,7 @@
 #include <spirv_cross/spirv_glsl.hpp>
 #include "Kans3D/Asset/Runtime/ShaderData.h"
 #include "Kans3D/Core/Window.h"
+#include "Kans3D/RHI/FrameCapture.h"
 #include "Kans3D/RHI/ImGuiRenderer.h"
 #include "Kans3D/RHI/PipelineKey.h"
 #include "OpenGLTestProbes.h"
@@ -1687,7 +1688,67 @@ namespace Kans::RenderHardware
         }
         return CreateOpenGLDevice(desc);
     }
-    void PresentOpenGLWindow(Window& window) { glfwSwapBuffers(static_cast<GLFWwindow*>(window.GetNativeWindow())); }
+    namespace
+    {
+        std::unordered_map<void*, std::string> Captures;
+    }
+    void RequestOpenGLFrameCapture(Window& window, const std::string& path)
+    {
+        Captures[window.GetNativeWindow()] = path;
+    }
+    void PresentOpenGLWindow(Window& window)
+    {
+        auto native = static_cast<GLFWwindow*>(window.GetNativeWindow());
+        if (Captures.empty())
+        {
+            glfwSwapBuffers(native);
+            return;
+        }
+        auto found = Captures.find(native);
+        if (found == Captures.end())
+        {
+            glfwSwapBuffers(native);
+            return;
+        }
+        int width, height;
+        glfwGetFramebufferSize(native, &width, &height);
+        if (width <= 0 || height <= 0)
+            return;
+        auto previousContext = glfwGetCurrentContext();
+        glfwMakeContextCurrent(native);
+        GLint framebuffer, readBuffer, packBuffer, alignment, rowLength, skipRows, skipPixels;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &framebuffer);
+        glGetIntegerv(GL_READ_BUFFER, &readBuffer);
+        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &packBuffer);
+        glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+        glGetIntegerv(GL_PACK_ROW_LENGTH, &rowLength);
+        glGetIntegerv(GL_PACK_SKIP_ROWS, &skipRows);
+        glGetIntegerv(GL_PACK_SKIP_PIXELS, &skipPixels);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        GLint defaultRead;
+        glGetIntegerv(GL_READ_BUFFER, &defaultRead);
+        glReadBuffer(GL_BACK);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+        glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+        glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+        std::vector<uint8_t> pixels(size_t(width) * height * 4);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        glReadBuffer(defaultRead);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+        glReadBuffer(readBuffer);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, packBuffer);
+        glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+        glPixelStorei(GL_PACK_ROW_LENGTH, rowLength);
+        glPixelStorei(GL_PACK_SKIP_ROWS, skipRows);
+        glPixelStorei(GL_PACK_SKIP_PIXELS, skipPixels);
+        auto path = std::move(found->second);
+        Captures.erase(found);
+        glfwSwapBuffers(native);
+        glfwMakeContextCurrent(previousContext);
+        WriteFrameCapture(path, width, height, pixels.data(), true);
+    }
     void SetOpenGLWindowVSync(Window& window, bool enabled)
     {
         glfwMakeContextCurrent(static_cast<GLFWwindow*>(window.GetNativeWindow()));
