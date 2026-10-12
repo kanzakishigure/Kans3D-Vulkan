@@ -33,6 +33,10 @@ namespace Kans
             throw std::invalid_argument("RenderPipeline: factory returned null");
         return pipeline;
     }
+    void RenderPipeline::Inject(RenderExtensionPoint point, const RenderFeatureContext& context)
+    {
+        context.Renderer->GetFeatures().Inject(point, context);
+    }
     void ForwardPipeline::Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer)
     {
         using namespace RenderHardware;
@@ -62,12 +66,11 @@ namespace Kans
                               GraphAccess::ColorReadWrite});
         const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.m_Depth);
         target.push_back({depth, GraphAccess::DepthReadWrite});
-        GraphPass previous = 0; // Clear, executed at BeginScene for direct RHI target callers.
         // Preserve deterministic legacy order, even when two passes have disjoint writes.
         auto append = [&](std::string name, std::vector<GraphUse> uses, RenderGraph::Record record) {
             auto pass = graph.AddPass(std::move(name), std::move(uses), std::move(record));
-            graph.DependsOn(pass, previous);
-            previous = pass;
+            if (pass)
+                graph.OrderAfter(pass, pass - 1);
             return pass;
         };
         auto sampled =
@@ -78,16 +81,21 @@ namespace Kans
                 if (std::none_of(uses.begin(), uses.end(), [&](auto use) { return use.Texture == texture; }))
                     uses.push_back({texture, GraphAccess::SampledRead});
             };
-        for (auto immediate : view.ImmediateOrder)
+        RenderFeatureContext featureContext {graph, view, target, &renderer};
+        for (const auto& immediate : view.ImmediateOrder)
         {
+            featureContext.Immediate = &immediate;
+            Inject(RenderExtensionPoint::Immediate, featureContext);
+            if (immediate.Kind == ViewImmediateKind::Grid)
+                continue; // This intent is consumed by the registered immediate features.
             auto uses = target;
             if (immediate.Kind == ViewImmediateKind::RecordedSprites)
             {
                 const auto& batch = view.SpriteBatches.at(immediate.Index);
                 sampled(uses, batch.Texture, "SpriteTexture");
                 auto pass = graph.AddRecordedPass("Renderer2D batch", std::move(uses), batch.Commands);
-                graph.DependsOn(pass, previous);
-                previous = pass;
+                if (pass)
+                    graph.OrderAfter(pass, pass - 1);
             }
             else if (immediate.Kind == ViewImmediateKind::Sprites)
             {
@@ -98,8 +106,8 @@ namespace Kans
                     auto batchUses = target;
                     sampled(batchUses, image, "SpriteTexture");
                     auto pass = graph.AddRecordedPass("Renderer2D sprites", std::move(batchUses), std::move(commands));
-                    graph.DependsOn(pass, previous);
-                    previous = pass;
+                    if (pass)
+                        graph.OrderAfter(pass, pass - 1);
                 });
                 Renderer2D::BeginScene(view.Scene.sceneCamera.camera, view.Scene.sceneCamera.viewMatrix);
                 for (const auto& sprite : view.Sprites)
@@ -107,10 +115,6 @@ namespace Kans
                 Renderer2D::EndScene();
                 Renderer2D::SetSubmissionSink({});
             }
-            else if (immediate.Kind == ViewImmediateKind::Grid)
-                append("Grid", std::move(uses), [&renderer, &view, immediate](auto& context) {
-                    renderer.DrawGrid(view.Grids.at(immediate.Index), context.Commands);
-                });
             else
             {
                 sampled(uses, view.Skyboxes.at(immediate.Index).Texture, "Skybox");
@@ -119,6 +123,8 @@ namespace Kans
                 });
             }
         }
+        featureContext.Immediate = nullptr;
+        Inject(RenderExtensionPoint::BeforeOpaque, featureContext);
         if (!view.MaterialOrder.empty())
         {
             auto uses = target;
@@ -131,51 +137,11 @@ namespace Kans
             renderer.DrawShaderMaterials(*commands,
                                          [&](const auto& image) { sampled(uses, image, "MaterialTexture"); });
             auto pass = graph.AddRecordedPass("Materials (opaque/mask, blend)", std::move(uses), commands);
-            graph.DependsOn(pass, previous);
-            previous = pass;
+            if (pass)
+                graph.OrderAfter(pass, pass - 1);
         }
-        if (!view.Geometry.empty())
-            append("Legacy geometry", target, [&renderer](auto& context) {
-                for (const auto& draw : renderer.m_View.Geometry)
-                    renderer.DrawModelGeometry(draw, context.Commands);
-            });
-        auto outline = [&](std::string name, bool preview, glm::vec4 color) {
-            TextureDesc desc;
-            desc.Width       = view.Viewport.x;
-            desc.Height      = view.Viewport.y;
-            desc.PixelFormat = Format::R8Unorm;
-            desc.Usage       = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::RenderTarget;
-            auto mask        = graph.CreateTexture(name + " mask", desc);
-            append(name + " mask", {{mask, GraphAccess::ColorWrite}}, [&renderer, &view, preview, mask](auto& context) {
-                // Resolve at consumption, preserving phase one's cache replacement safety.
-                std::vector<MeshDraw> draws;
-                if (preview)
-                    renderer.AppendModelDraws(view.Preview->Model, view.Preview->Transform, 0, draws);
-                else
-                    for (const auto& model : view.Highlight)
-                        renderer.AppendModelDraws(model.Model, model.Transform, 0, draws);
-                renderer.m_Outline.RecordMask(context.Commands,
-                                              context.Texture(mask),
-                                              draws,
-                                              view.Scene.sceneCamera.camera.GetProjectionMatrix() *
-                                                  view.Scene.sceneCamera.viewMatrix,
-                                              view.Viewport);
-            });
-            append(name + " composite",
-                   {{target[0].Texture, GraphAccess::ColorReadWrite},
-                    {depth, GraphAccess::DepthReadWrite},
-                    {mask, GraphAccess::SampledRead}},
-                   [&renderer, &view, mask, color](auto& context) {
-                       renderer.m_Outline.RecordComposite(context.Commands,
-                                                          renderer.SceneTarget(LoadOp::Load),
-                                                          context.Texture(mask),
-                                                          view.Viewport,
-                                                          color);
-                   });
-        };
-        if (!view.Highlight.empty())
-            outline("Selection", false, {1, .62f, .15f, 1});
-        if (view.Preview)
-            outline("Preview", true, {.35f, .7f, 1, 1});
+        Inject(RenderExtensionPoint::AfterTransparent, featureContext);
+        Inject(RenderExtensionPoint::BeforePostProcess, featureContext);
+        Inject(RenderExtensionPoint::Overlay, featureContext);
     }
 } // namespace Kans

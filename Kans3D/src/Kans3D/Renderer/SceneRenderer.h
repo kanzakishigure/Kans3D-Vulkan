@@ -2,6 +2,7 @@
 #include <chrono>
 #include <glm/glm.hpp>
 #include "Graph/RenderGraph.h"
+#include "RenderFeature.h"
 #include "RenderView.h"
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
@@ -85,6 +86,8 @@ namespace Kans
         const RenderGraph& GetRenderGraph() const { return m_Graph; }
         void               SetPipeline(const std::string& name);
         const std::string& GetPipeline() const { return m_PipelineName; }
+        RenderFeatureSet&       GetFeatures() { return m_Features; }
+        const RenderFeatureSet& GetFeatures() const { return m_Features; }
         void SubmitGrid(float size, float scale, glm::mat4 transform, ImmediatePassState state = {});
         void SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state = {});
 
@@ -120,7 +123,12 @@ namespace Kans
         TransientTexturePool m_TransientPool;
         RenderGraph          m_Graph;
         std::string          m_PipelineName = "Forward";
+        RenderFeatureSet     m_Features;
         friend class ForwardPipeline;
+        friend class EditorGridFeature;
+        friend class DebugGeometryFeature;
+        friend class EditorOutlineFeature;
+        friend class EditorPreviewFeature;
         friend class RenderScene;
 
         // SceneRenderer did't handle the life of Scnene;

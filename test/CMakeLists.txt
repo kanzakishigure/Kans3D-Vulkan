@@ -72,6 +72,13 @@ include(GoogleTest)
 kans_copy_test_runtime(Kans3DTests)
 gtest_discover_tests(Kans3DTests)
 
+# Keep the allocation-counting operator new local to the feature CPU tests.
+add_executable(RenderFeatureTests RenderFeatureTests.cpp)
+target_link_libraries(RenderFeatureTests PRIVATE Kans3D GTest::gtest_main)
+target_compile_features(RenderFeatureTests PRIVATE cxx_std_17)
+kans_copy_test_runtime(RenderFeatureTests)
+gtest_discover_tests(RenderFeatureTests)
+
 # Real GL tests run separately from the CPU-only suite.
 add_executable(OpenGLTextureTests
     GpuTestContext.cpp

@@ -671,4 +671,174 @@ namespace
         for (auto entity : {sprite, model, light, camera})
             Logic->DestroyEntity(entity);
     }
+
+    class PointMarkerFeature final : public RenderFeature
+    {
+    public:
+        explicit PointMarkerFeature(std::array<unsigned, 5>& records, unsigned& preparations) :
+            Records(records), Preparations(preparations)
+        {}
+        void Prepare(RenderView&, SceneRenderer&) override { ++Preparations; }
+        bool RunsAt(RenderExtensionPoint) const override { return true; }
+        void AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context) override
+        {
+            const char* name = nullptr;
+            switch (point)
+            {
+                case RenderExtensionPoint::Immediate:
+                    name = "Feature Immediate";
+                    break;
+                case RenderExtensionPoint::BeforeOpaque:
+                    name = "Feature BeforeOpaque";
+                    break;
+                case RenderExtensionPoint::AfterTransparent:
+                    name = "Feature AfterTransparent";
+                    break;
+                case RenderExtensionPoint::BeforePostProcess:
+                    name = "Feature BeforePostProcess";
+                    break;
+                case RenderExtensionPoint::Overlay:
+                    name = "Feature Overlay";
+                    break;
+            }
+            context.Graph.AddPass(name, {}, [this, point](auto&) { ++Records[size_t(point)]; }, true);
+        }
+        std::array<unsigned, 5>& Records;
+        unsigned&                Preparations;
+    };
+    std::vector<std::string> FeaturePassNames(const SceneRenderer& renderer)
+    {
+        std::vector<std::string> names;
+        const auto&              graph = renderer.GetRenderGraph();
+        for (auto pass : graph.ExecutionOrder())
+            names.push_back(graph.PassName(pass));
+        return names;
+    }
+    TEST_F(RendererReferenceGL, FeaturePointsPreserveInterleavedImmediateAndMaterialOverlayOrder)
+    {
+        // Bug: emit all grids together, inject BeforeOpaque before the immediate sequence,
+        // put AfterTransparent before materials, or put Overlay before either outline.
+        std::array<unsigned, 5> records {};
+        unsigned                preparations = 0;
+        Renderer->GetFeatures().Register("point markers", std::make_unique<PointMarkerFeature>(records, preparations));
+        Renderer->SetHighlight({{Sphere, glm::mat4(1)}});
+        Renderer->SetPreview(Quad, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
+        Renderer->BeginScene(Info);
+        Renderer->SubmitGrid(.025f, 16.025f, glm::mat4(1));
+        Renderer->SubmitSkybox(Renderer->GetSkybox());
+        Renderer->SubmitGrid(.05f, 8, glm::mat4(1), {true, false});
+        Renderer->SubmitModel(Sphere, glm::mat4(1));
+        Renderer->SubmitModelGeometry(Sphere, glm::mat4(1), "DebugNormalShader");
+        Renderer->EndScene();
+        // EditorGrid was registered before the marker; both inject at Immediate.
+        // At Skybox entries, only the marker injects before the core Skybox pass.
+        EXPECT_EQ(FeaturePassNames(*Renderer),
+                  (std::vector<std::string> {"Clear",
+                                             "Grid",
+                                             "Feature Immediate",
+                                             "Feature Immediate",
+                                             "Skybox",
+                                             "Grid",
+                                             "Feature Immediate",
+                                             "Feature BeforeOpaque",
+                                             "Materials (opaque/mask, blend)",
+                                             "Legacy geometry",
+                                             "Feature AfterTransparent",
+                                             "Feature BeforePostProcess",
+                                             "Selection mask",
+                                             "Selection composite",
+                                             "Preview mask",
+                                             "Preview composite",
+                                             "Feature Overlay"}));
+        EXPECT_EQ(records, (std::array<unsigned, 5> {3, 1, 1, 1, 1}));
+        EXPECT_EQ(preparations, 1u);
+        Renderer->GetFeatures().SetEnabled("point markers", false);
+    }
+    TEST_F(RendererReferenceGL, DisabledEditorFeaturesSkipGhostPreparationPassesAndTransientResources)
+    {
+        // Bug: gate only AddPasses while still submitting the lit ghost in Prepare,
+        // or let grid/debug/outline passes or masks survive a disabled feature.
+        for (const char* name : {"EditorGrid", "DebugGeometry", "EditorSelection", "EditorPreview"})
+            Renderer->GetFeatures().SetEnabled(name, false);
+        for (int frame = 0; frame < 3; ++frame)
+        {
+            Renderer->SetHighlight({{Sphere, glm::mat4(1)}});
+            Renderer->SetPreview(Quad, glm::mat4(1));
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(Sphere, glm::mat4(1));
+            Renderer->SubmitGrid(.025f, 16.025f, glm::mat4(1));
+            Renderer->SubmitModelGeometry(Sphere, glm::mat4(1), "DebugNormalShader");
+            Renderer->EndScene();
+            EXPECT_EQ(FeaturePassNames(*Renderer),
+                      (std::vector<std::string> {"Clear", "Materials (opaque/mask, blend)"}));
+            EXPECT_EQ(Renderer->GetRenderView().Draws.size(), 1u);
+            EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
+            EXPECT_EQ(Renderer->GetStats().Triangles, 1024u);
+            ASSERT_EQ(Renderer->GetRenderGraph().Resources().size(),
+                      9u); // Three targets, three IBL images, albedo/normal/shared white.
+            for (const auto& resource : Renderer->GetRenderGraph().Resources())
+                EXPECT_TRUE(resource.Imported);
+        }
+        for (const char* name : {"EditorGrid", "DebugGeometry", "EditorSelection", "EditorPreview"})
+            Renderer->GetFeatures().SetEnabled(name, true);
+        Renderer->SetViewMode(SceneViewMode::Normals);
+        Renderer->SetHighlight({{Sphere, glm::mat4(1)}});
+        Renderer->SetPreview(Quad, glm::mat4(1));
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(Sphere, glm::mat4(1));
+        Renderer->SubmitGrid(.025f, 16.025f, glm::mat4(1));
+        Renderer->SubmitModelGeometry(Sphere, glm::mat4(1), "DebugNormalShader");
+        Renderer->EndScene();
+        EXPECT_EQ(FeaturePassNames(*Renderer),
+                  (std::vector<std::string> {"Clear",
+                                             "Grid",
+                                             "Materials (opaque/mask, blend)",
+                                             "Legacy geometry",
+                                             "Selection mask",
+                                             "Selection composite",
+                                             "Preview mask",
+                                             "Preview composite"}));
+        ASSERT_EQ(Renderer->GetRenderView().Draws.size(), 2u);
+        EXPECT_EQ(Renderer->GetRenderView().Draws[0].ViewMode, SceneViewMode::Normals);
+        EXPECT_EQ(Renderer->GetRenderView().Draws[1].ViewMode, SceneViewMode::Lit);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
+        EXPECT_EQ(Renderer->GetStats().Triangles, 2050u);
+        unsigned transients = 0;
+        for (const auto& resource : Renderer->GetRenderGraph().Resources())
+            if (!resource.Imported)
+                ++transients;
+        EXPECT_EQ(transients, 2u);
+        Renderer->SetViewMode(SceneViewMode::Lit);
+    }
+    TEST_F(RendererReferenceGL, FeatureRegistrationAndEnablingAreIsolatedBetweenSceneRenderers)
+    {
+        // Bug: store feature instances/enabled flags globally or in the pipeline registry;
+        // a marker or grid toggle on one view then affects the other renderer.
+        auto                    other = CreateScope<SceneRenderer>(Render.get());
+        std::array<unsigned, 5> records {};
+        unsigned                preparations = 0;
+        Renderer->GetFeatures().Register("private markers",
+                                         std::make_unique<PointMarkerFeature>(records, preparations));
+        Renderer->GetFeatures().SetEnabled("EditorGrid", false);
+        EXPECT_TRUE(other->GetFeatures().IsEnabled("EditorGrid"));
+        EXPECT_THROW(other->GetFeatures().IsEnabled("private markers"), std::invalid_argument);
+        Renderer->BeginScene(Info);
+        Renderer->SubmitGrid(.025f, 16.025f, glm::mat4(1));
+        Renderer->EndScene();
+        EXPECT_EQ(FeaturePassNames(*Renderer),
+                  (std::vector<std::string> {"Clear",
+                                             "Feature Immediate",
+                                             "Feature BeforeOpaque",
+                                             "Feature AfterTransparent",
+                                             "Feature BeforePostProcess",
+                                             "Feature Overlay"}));
+        other->BeginScene(Info);
+        other->SubmitGrid(.025f, 16.025f, glm::mat4(1));
+        other->EndScene();
+        EXPECT_EQ(FeaturePassNames(*other), (std::vector<std::string> {"Clear", "Grid"}));
+        EXPECT_EQ(records, (std::array<unsigned, 5> {1, 1, 1, 1, 1}));
+        EXPECT_EQ(preparations, 1u);
+        Renderer->GetFeatures().SetEnabled("private markers", false);
+        Renderer->GetFeatures().SetEnabled("EditorGrid", true);
+    }
 } // namespace

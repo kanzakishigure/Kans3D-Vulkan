@@ -1,4 +1,4 @@
-# Phase 2a frame structure
+# Frame structure (phase 2b)
 
 `RenderView` owns the camera and engine-coordinate matrices, viewport, the same
 last directional/point light as phase one, model/material IDs and transforms,
@@ -55,10 +55,11 @@ provides `Register` and `Create`, starts with `Forward`, and rejects unknown or
 duplicate names. `SceneRenderer::SetPipeline` validates the name before changing
 it. All existing SceneRenderer entry points remain source-compatible. No editor
 source shim is required. Renderer2D's added submission sink and command-list routing
-are internal compatibility plumbing for its existing static API. No extension
-point mechanism, new lighting, material multipass, HDR or tonemapping is added.
+are internal compatibility plumbing for its existing static API. Phase 2b adds
+per-view features and extension points below; no new lighting, material multipass,
+HDR or tonemapping is added.
 
-## Forward passes and access declarations
+## Frame passes and access declarations
 
 The actual phase-one order differs from the planning summary: sprites, grid and
 skybox submitted immediately, before the deferred material and geometry draws in
@@ -87,7 +88,80 @@ their separate reset/batching semantics. Selection preserves alpha.
 Picking/SurfacePicker, independent MaterialPreviewRenderer/thumbnails, and IBL
 precomputation stay outside the frame graph: they are synchronous on-demand
 operations with existing ownership/readback contracts, not frame dependencies.
-Viewport model preview intent and its outlines **are** inside Forward.
+Viewport model preview intent and its outlines **are** in the frame graph, contributed by editor features.
+
+## Pipeline extension points and per-view features
+
+`RenderPipeline::Inject(point, context)` dispatches the owning SceneRenderer's
+`RenderFeatureSet`. Other pipelines call the same helper at the same semantic
+boundaries, using their own graph targets. Forward's core is Clear, Renderer2D,
+Skybox and the unchanged shared material batch. Feature passes retain their existing
+names, attachment accesses, uniforms, states, stats and relative order.
+
+| Extension point | Contract / reason | Current default feature |
+| --- | --- | --- |
+| `Immediate` | Once per `RenderView::ImmediateOrder` entry, before that entry's core draw; `context.Immediate` identifies the original entry. Needed because grids may be interleaved arbitrarily with sprites and skyboxes, including multiple grids. | `EditorGridFeature`, consuming only Grid entries |
+| `BeforeOpaque` | Once after all immediate submissions and before material rendering. | None |
+| `AfterTransparent` | Once after the opaque/mask/blend batch, before post-processing. | `DebugGeometryFeature` (StencilShader / OutLineShader shells and DebugNormalShader draws, in original per-model order) |
+| `BeforePostProcess` | Once after scene/debug geometry, at the future post-process input boundary. Forward currently has no post-process pass; default features add nothing here. | None |
+| `Overlay` | Once after any post-processing, in final viewport color space. | `EditorSelectionFeature` (orange selection mask/composite), then `EditorPreviewFeature` (blue preview mask/composite) |
+
+There is deliberately no `AfterOpaque` point yet: opaque/mask and blend share one
+immutable recorded command list. Exposing a boundary inside that batch would imply
+splitting recording and changing allocation/batching behavior. A future pipeline
+with separate opaque/transparent passes can add that boundary; existing features
+use the common points above. NPR outlines on scene geometry can use
+`AfterTransparent`; final viewport annotations use `Overlay`.
+
+`RenderFeature` has three callbacks:
+
+- `Prepare(RenderView&, SceneRenderer&)`: optional, once before draw-list preparation;
+  features may extract intent or contribute model draws to the shared material batch.
+- `RunsAt(RenderExtensionPoint) const`: selects one or multiple points.
+- `AddPasses(RenderExtensionPoint, const RenderFeatureContext&)`: receives the graph,
+  immutable view, target `GraphUse` declarations, owning renderer and (at Immediate)
+  the original submission. Add passes/resources with ordinary graph accesses;
+  export outputs or mark real side effects when appropriate. CPU-only features may
+  omit the renderer in their context. The context is borrowed during the callback;
+  recorders capture the view/renderer or values, never that stack context.
+
+`Target` lists loaded scene colors followed by loaded depth/stencil, all with
+read/write attachment access. The editor outline features need SceneColor0 and the
+final depth entry; future pipelines supply compatible targets. No interface uses a
+concrete device backend. Device work is recorded with neutral RHI commands through
+renderer helpers and graph callbacks.
+
+Register with `renderer.GetFeatures().Register(name, unique_ptr<RenderFeature>,
+enabled = true)`; use `SetEnabled(name, bool)` / `IsEnabled(name)` between frames.
+Empty names, null instances, duplicate names and unknown toggle names are errors.
+Each SceneRenderer owns its instances and flags; pipeline selection does not reset
+them. Preparation and injection use registration order. Disabling skips **all**
+callbacks, including Prepare and RunsAt; re-enabling restores the original slot.
+Dispatch/toggling never constructs an active list, copies callbacks or allocates.
+Registration is a one-time allocation, outside rendering.
+
+Passes added by a feature are declared in intended execution order. Pipeline core
+passes and feature additions use `RenderGraph::OrderAfter` (one replaceable scheduling
+predecessor per pass) to preserve point and registration order even for disjoint
+outputs. Unlike `DependsOn`, these ordering edges do not retain dead passes or their
+textures. Graph resource producers/explicit prerequisites still control liveness;
+contradictory ordering/resource dependencies are rejected as cycles. Ordering lives
+in a scalar pass field, avoiding a new per-pass dependency-vector allocation.
+
+All four built-in features live in `Renderer/Features/Editor/EditorRenderFeatures.*`.
+The preview feature's Prepare submits its **lit ghost** into the core material batch
+at the same point as before, preserving mixed-material distance sorting and immutable
+uniform allocation. Disabling it removes both that draw and its blue outline.
+The orange selection composite still precedes the blue preview composite, and the
+two masks still alias one stable R8 texture.
+
+The one temporary compatibility policy is `RegisterDefaultEditorFeatures`, called
+only in the **SceneRenderer constructor**. Move that call into editor view setup
+later; no editor source changes are needed now. This policy intentionally applies
+to runtime cameras too: `OnRenderRuntime` still displays the grid when
+`EnableGridShader` is true, and uses the same enabled features as the editor camera.
+Open policy question: should game views later register no editor features, while
+play mode in an editor viewport retains them? No behavior change is made here.
 
 ## Pool and future explicit backend
 
@@ -152,10 +226,41 @@ representable distances). The transient GPU clear uses exact normalized RGBA8
 rounding (64,128,191,255), readback of every pixel, 12 stable frames then four
 resized frames. Existing justified reference tolerances are untouched.
 
-Validation on `asset-development`, `linux-gcc` Debug, builds with `-j2`:
+Phase 2a validation on `asset-development`, `linux-gcc` Debug, builds with `-j2`:
 CPU **391/391** (40.44 s); serial llvmpipe GPU **133/133** (123.55 s), including
 the GL 4.3 extension bundle and all 12 unchanged references. The 13 new CPU and
 three new GPU cases pass. All 21 editor object targets compile with unchanged
 editor sources; only affected objects rebuild. No editor link/launch, real GPU,
 protected-path changes, cache/configuration edits, commits or pushes. Changed-line
 `git clang-format` and `git diff --check` are clean.
+
+## Phase 2b regression additions
+
+All pre-existing test bodies, pass-name expectations, SHA-256 values, the 12
+reference files and their tolerances are unchanged. `test/CMakeLists.txt` adds a
+separate CPU executable so allocation instrumentation cannot affect the other
+CPU tests. The GPU test file only appends three cases and their helpers.
+
+| New case | Concrete bug caught |
+| --- | --- |
+| RenderFeatureCpu.SamePointKeepsRegistrationOrderAndRestoresPositionAfterToggle | Name-sorted/reversed dispatch, or re-enabled features moved to the end; exact unsorted pass lists across enabled/disabled/re-enabled frames |
+| RenderFeatureCpu.PointOrderSurvivesAnEarlierFeatureWaitingForItsProducer | Reliance on declaration-order ties lets a ready Overlay execute before a blocked BeforeOpaque feature; exact producer/feature execution order |
+| RenderFeatureCpu.UnusedFeatureChainIsCulledAcrossLivePointBoundaries | Using liveness dependencies for point order retains dead feature outputs; exact surviving passes, empty resource accesses, no physical slots and zero factory calls |
+| RenderFeatureCpu.LiveFeatureResourcesReuseStableFramesAndDisabledGap | Fresh pools per frame or clearing the cache on disable; two exact handles and exactly two allocation requests over 24 frames with a disabled gap |
+| RenderFeatureCpu.StableDispatchAndTogglesAllocateNothingAndSkipDisabledCallbacks | Registry/callback copies, active-list allocation or registration rebuilt on toggle; exact zero heap allocations across 1,000 frames with all default empty editor features, and exact enabled/disabled callback counts |
+| RenderFeatureCpu.RejectsInvalidRegistrationsAndUnknownToggleNames | Duplicate replacement, null/empty registrations, or typos silently ignored |
+| RendererReferenceGL.FeaturePointsPreserveInterleavedImmediateAndMaterialOverlayOrder | Grids batched at the wrong point, core/immediate/material/overlay boundaries misplaced; exact full compiled pass list, seven marker recordings and one Prepare |
+| RendererReferenceGL.DisabledEditorFeaturesSkipGhostPreparationPassesAndTransientResources | Disabled Prepare still submits the ghost; grid/debug/outline passes or transients survive disable; exact passes, draw/triangle/resource counts for three disabled frames and re-enable, and ghost stays Lit in Normals mode |
+| RendererReferenceGL.FeatureRegistrationAndEnablingAreIsolatedBetweenSceneRenderers | Global feature instances or enable flags leak to another renderer; exact independent pass lists and callback counts |
+
+Phase 2b validation on `asset-development`, `linux-gcc` Debug, builds with `-j2`:
+CPU **397/397** (40.23 s); serial llvmpipe GPU **136/136** (132.73 s), including
+all six new CPU cases, all three new GPU cases, the unchanged full-frame byte
+oracle, all 12 references and the GL 4.3 extension bundle. Dispatch/toggling with
+all default empty editor features makes zero measured heap allocations over
+1,000 frames; feature transient handles/pool counts remain stable across 24
+frames and a disabled gap. Existing full-frame mask reuse assertions also pass.
+Changed-line `git clang-format` (including new files) and `git diff --check` are
+clean. Editor sources/resources/assets, references and their tolerances, presets
+and build configuration are unchanged. No editor launch, hardware GPU use,
+commits or pushes.

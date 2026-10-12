@@ -6,6 +6,7 @@
 #include "Kans3D/Asset/Importer/TextureSource.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/RHI/Backend.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/RenderPipeline.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
@@ -75,6 +76,7 @@ namespace Kans
         m_RenderScene(scene), m_Specification(spec)
     {
 
+        RegisterDefaultEditorFeatures(m_Features);
         Init();
     }
 
@@ -89,6 +91,7 @@ namespace Kans
         m_Graph         = {};
         m_TransientPool = {};
         m_View          = {};
+        m_Features      = {};
         m_Device->WaitIdle();
     }
 
@@ -659,13 +662,7 @@ namespace Kans
     {
         m_View.Highlight = std::move(m_Highlight);
         m_View.Preview   = std::move(m_Preview);
-        if (m_View.Preview)
-        {
-            const SceneViewMode viewMode = m_ViewMode;
-            m_ViewMode = SceneViewMode::Lit;
-            SubmitModel(m_View.Preview->Model, m_View.Preview->Transform);
-            m_ViewMode = viewMode;
-        }
+        m_Features.Prepare(m_View, *this);
         PrepareDrawLists();
         auto pipeline = RenderPipelineRegistry::Create(m_PipelineName);
         pipeline->Build(m_Graph, m_View, *this);

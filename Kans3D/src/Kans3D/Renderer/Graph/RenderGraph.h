@@ -70,6 +70,8 @@ namespace Kans
                                      std::vector<GraphUse>                               uses,
                                      RenderHardware::Handle<RenderHardware::CommandList> commands);
         void         DependsOn(GraphPass pass, GraphPass prerequisite);
+        // A single scheduling predecessor, without keeping its output alive. Replaces the previous one.
+        void         OrderAfter(GraphPass pass, GraphPass predecessor);
         void         ExportTexture(GraphTexture texture);
         // Throws invalid_argument for invalid use or a cycle, including in culled passes.
         // No device calls: scheduling, culling, access sequences and alias plan are CPU only.
@@ -102,6 +104,7 @@ namespace Kans
             std::vector<GraphPass>                              Dependencies;
             RenderHardware::Handle<RenderHardware::CommandList> Commands;
             bool                                                Submitted = false;
+            GraphPass                                           OrderPredecessor = GraphPass(-1);
         };
         std::vector<Resource>                    m_Resources;
         std::vector<Pass>                        m_Passes;

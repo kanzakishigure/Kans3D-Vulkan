@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include "Graph/RenderGraph.h"
+#include "RenderFeature.h"
 #include "RenderView.h"
 
 namespace Kans
@@ -14,6 +15,10 @@ namespace Kans
         virtual ~RenderPipeline() = default;
         virtual void Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) {}
         virtual void Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) = 0;
+
+    protected:
+        // Other pipelines use the same per-view features and extension-point contract.
+        static void Inject(RenderExtensionPoint point, const RenderFeatureContext& context);
     };
     class ForwardPipeline final : public RenderPipeline
     {

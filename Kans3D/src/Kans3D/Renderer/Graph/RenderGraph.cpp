@@ -114,6 +114,13 @@ namespace Kans
         m_Compiled                    = false;
         m_Resources[texture].Exported = true;
     }
+    void RenderGraph::OrderAfter(GraphPass pass, GraphPass predecessor)
+    {
+        if (pass >= m_Passes.size() || predecessor >= m_Passes.size() || pass == predecessor)
+            throw std::invalid_argument("RenderGraph: invalid ordering predecessor");
+        m_Compiled                      = false;
+        m_Passes[pass].OrderPredecessor = predecessor;
+    }
     void RenderGraph::Compile()
     {
         m_Compiled = false;
@@ -145,6 +152,7 @@ namespace Kans
         };
         for (uint32_t p = 0; p < count; ++p)
         {
+            edge(m_Passes[p].OrderPredecessor, p);
             for (auto dependency : m_Passes[p].Dependencies)
             {
                 if (dependency == p)
