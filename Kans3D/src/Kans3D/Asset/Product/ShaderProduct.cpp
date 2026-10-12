@@ -7,8 +7,8 @@ namespace Kans
 {
     namespace
     {
-        // v2 defaults, v3 hints, v4 sampler fallbacks, v5 ordered groups. Readers retain v1-v4.
-        constexpr uint32_t Magic = 0x4448534b, Version = 5, TargetVulkan12 = 1;
+        // v2 defaults, v3 hints, v4 sampler fallbacks, v5 ordered groups, v6 material passes. Readers retain v1-v5.
+        constexpr uint32_t Magic = 0x4448534b, Version = 6, TargetVulkan12 = 1;
         constexpr size_t   MaximumDefaults = 4096, MaximumDefaultValues = 4096;
         constexpr size_t   MaximumBytes = 16 * 1024 * 1024;
         void               Write(std::vector<std::byte>& bytes, uint32_t word)
@@ -56,8 +56,12 @@ namespace Kans
                         const ShaderParameterDefaults&             defaults,
                         const ShaderParameterHints&                hints,
                         const ShaderTextureFallbacks&              fallbacks,
-                        const std::vector<MaterialParameterGroup>& groups)
+                        const std::vector<MaterialParameterGroup>& groups,
+                        const std::vector<ShaderPass>&             passes)
     {
+        auto validPasses = ValidateMaterialShaderPasses(code, passes);
+        if (auto* error = std::get_if<AssetError>(&validPasses))
+            return *error;
         if (hints.size() > MaximumDefaults)
             return AssetError {AssetErrorCode::InvalidArgument, "Too many Shader parameter hints"};
         for (const auto& [name, hint] : hints)
@@ -138,6 +142,33 @@ namespace Kans
             Write(bytes, uint32_t(group.Members.size()));
             for (const auto& member : group.Members)
                 writeString(member);
+        }
+        Write(bytes, uint32_t(passes.size()));
+        for (const auto& pass : passes)
+        {
+            writeString(pass.Name);
+            writeString(pass.Tag);
+            const auto& state = pass.State;
+            for (uint32_t word : {uint32_t(state.Cull),
+                                  uint32_t(state.DepthTest),
+                                  uint32_t(state.DepthCompare),
+                                  uint32_t(state.DepthWrite),
+                                  uint32_t(state.Blend),
+                                  uint32_t(state.SourceColor),
+                                  uint32_t(state.DestinationColor),
+                                  uint32_t(state.SourceAlpha),
+                                  uint32_t(state.DestinationAlpha),
+                                  state.ColorWriteMask})
+                Write(bytes, word);
+            auto encoded = EncodeShaderProduct(pass.Code);
+            if (auto* error = std::get_if<AssetError>(&encoded))
+                return *error;
+            auto payload = std::get<std::vector<std::byte>>(std::move(encoded));
+            // A bounded v5 code-only record: forbids recursive pass records on read.
+            payload.resize(payload.size() - 4);
+            payload[4] = std::byte {5};
+            Write(bytes, uint32_t(payload.size()));
+            bytes.insert(bytes.end(), payload.begin(), payload.end());
         }
         if (bytes.size() > MaximumBytes)
             return AssetError {AssetErrorCode::InvalidArgument, "Shader Product exceeds byte budget"};
@@ -285,6 +316,61 @@ namespace Kans
                 result.Groups.push_back(std::move(group));
             }
         }
+        if (version >= 6)
+        {
+            const auto remaining  = [&] { return size - size_t(cursor - bytes); };
+            const auto readString = [&](std::string& text) {
+                if (remaining() < 4)
+                    return false;
+                const auto length = Read(cursor);
+                if (!length || length > 256 || length > remaining())
+                    return false;
+                text.assign(reinterpret_cast<const char*>(cursor), length);
+                cursor += length;
+                return true;
+            };
+            if (remaining() < 4)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Shader passes"};
+            const auto count = Read(cursor);
+            if (count > 32)
+                return AssetError {AssetErrorCode::InvalidData, "Too many Shader passes"};
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                ShaderPass pass;
+                if (!readString(pass.Name) || !readString(pass.Tag) || remaining() < 44)
+                    return AssetError {AssetErrorCode::InvalidData, "Truncated Shader pass"};
+                auto& state           = pass.State;
+                state.Cull            = ShaderCullMode(Read(cursor));
+                const auto depthTest  = Read(cursor);
+                state.DepthCompare    = ShaderDepthCompare(Read(cursor));
+                const auto depthWrite = Read(cursor), blend = Read(cursor);
+                if (depthTest > 1 || depthWrite > 1 || blend > 1)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader pass boolean"};
+                state.DepthTest        = depthTest;
+                state.DepthWrite       = depthWrite;
+                state.Blend            = blend;
+                state.SourceColor      = ShaderBlendFactor(Read(cursor));
+                state.DestinationColor = ShaderBlendFactor(Read(cursor));
+                state.SourceAlpha      = ShaderBlendFactor(Read(cursor));
+                state.DestinationAlpha = ShaderBlendFactor(Read(cursor));
+                state.ColorWriteMask   = Read(cursor);
+                const auto length      = Read(cursor);
+                if (length < 24 || length > remaining())
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid Shader pass code length"};
+                auto header = cursor + 4;
+                if (Read(header) != 5)
+                    return AssetError {AssetErrorCode::InvalidData,
+                                       "Shader pass code must be a nonrecursive v5 record"};
+                auto decoded = DecodeShaderProduct(cursor, length);
+                if (auto* error = std::get_if<AssetError>(&decoded))
+                    return *error;
+                auto data       = std::get<ShaderData>(std::move(decoded));
+                pass.Code       = std::move(data.Code);
+                pass.Reflection = std::move(data.Reflection);
+                cursor += length;
+                result.Passes.push_back(std::move(pass));
+            }
+        }
         if (size_t(cursor - bytes) != size)
             return AssetError {AssetErrorCode::InvalidData, "Trailing Shader Product bytes"};
         auto reflected = InspectShaderProgram(result.Code);
@@ -293,6 +379,9 @@ namespace Kans
         result.Reflection = std::get<std::vector<ShaderStageReflection>>(std::move(reflected));
         auto validGroups  = ValidateMaterialParameterGroups(result.Groups, result.Reflection);
         if (auto* error = std::get_if<AssetError>(&validGroups))
+            return *error;
+        auto validPasses = ValidateMaterialShaderPasses(result.Code, result.Passes);
+        if (auto* error = std::get_if<AssetError>(&validPasses))
             return *error;
         return result;
     }

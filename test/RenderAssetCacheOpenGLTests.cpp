@@ -21,6 +21,7 @@
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/ImGuiRenderer.h"
 #include "Kans3D/RHI/OpenGL/OpenGLTestProbes.h"
+#include "Kans3D/Renderer/Features/MaterialPassFeature.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
@@ -29,6 +30,7 @@
 #include "Kans3D/Scene/Entity.h"
 #include "GpuTestContext.h"
 #include "MaterialShaderTestUtilities.h"
+#include "MultiPassTestUtilities.h"
 
 namespace
 {
@@ -1335,6 +1337,383 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         std::vector<ProductRecord> Records;
         std::vector<AssetID>       Models, Meshes, Materials;
     };
+
+    class MultiPassSceneGL : public MaterialSceneGL
+    {
+    protected:
+        static constexpr uint32_t Size = 128;
+        void                      SetUp() override
+        {
+            MaterialSceneGL::SetUp();
+            Render->OnViewportResize(Size, Size);
+            Renderer->SetViewportSize(Size, Size);
+            Info.sceneCamera.camera     = Camera(glm::ortho(-1.f, 1.f, -1.f, 1.f, .1f, 10.f));
+            Info.sceneCamera.viewMatrix = glm::lookAt(glm::vec3(0, 0, 3), glm::vec3(0), glm::vec3(0, 1, 0));
+            Info.sceneCamera.Position   = {0, 0, 3};
+            Custom                      = MultiPassShader();
+            ShaderID = Add(AssetType::Shader,
+                           EncodeShaderProduct(Custom.Code, Custom.ParameterDefaults, {}, {}, {}, Custom.Passes));
+        }
+        ProductModelComponent Sphere(AssetID material)
+        {
+            MeshData mesh;
+            mesh.Material                = material;
+            constexpr uint32_t latitudes = 48, longitudes = 96;
+            for (uint32_t i = 0; i <= latitudes; ++i)
+                for (uint32_t j = 0; j <= longitudes; ++j)
+                {
+                    const float    theta = glm::pi<float>() * float(i) / latitudes;
+                    const float    phi   = 2 * glm::pi<float>() * float(j) / longitudes;
+                    MeshVertexData vertex;
+                    vertex.Position = {
+                        std::sin(theta) * std::cos(phi), std::sin(theta) * std::sin(phi), std::cos(theta)};
+                    vertex.Normal  = vertex.Position;
+                    vertex.Color   = {1, 1, 1, 1};
+                    vertex.Tangent = {1, 0, 0, 1};
+                    mesh.Vertices.push_back(vertex);
+                }
+            for (uint32_t i = 0; i < latitudes; ++i)
+                for (uint32_t j = 0; j < longitudes; ++j)
+                {
+                    auto a = i * (longitudes + 1) + j, b = a + longitudes + 1;
+                    mesh.Indices.insert(mesh.Indices.end(), {a, b, b + 1, a, b + 1, a + 1});
+                }
+            const auto meshID = Add(AssetType::StaticMesh, EncodeMeshProduct(mesh));
+            Meshes.push_back(meshID);
+            ModelData model;
+            model.Nodes.push_back({"Root", -1, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, {meshID}});
+            ProductModelComponent component;
+            component.Model = Add(AssetType::Model, EncodeModelProduct(model));
+            Models.push_back(component.Model);
+            return component;
+        }
+        std::vector<uint8_t> Image(uint32_t attachment = 0)
+        {
+            using namespace RenderHardware;
+            auto texture = attachment == 2 ? Renderer->GetRenderTarget().Depth.Target :
+                                             Renderer->GetRenderTarget().Colors.at(attachment).Target;
+            auto device  = Renderer->GetDevice();
+            auto buffer  = device->CreateBuffer({Size * Size * 4, BufferUsage::CopyDestination, MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(texture, {}, buffer, 0);
+            device->Submit(commands);
+            device->WaitIdle();
+            return buffer->Read(0, Size * Size * 4);
+        }
+        static std::array<uint8_t, 4> At(const std::vector<uint8_t>& image, uint32_t x, uint32_t y)
+        {
+            std::array<uint8_t, 4> pixel;
+            for (size_t i = 0; i < 4; ++i)
+                pixel[i] = image.at((y * Size + x) * 4 + i);
+            return pixel;
+        }
+        static glm::mat4 Transform(float x, float y = 0, float z = 0)
+        {
+            return glm::scale(glm::translate(glm::mat4(1), {x, y, z}), {.28f, .28f, .28f});
+        }
+        size_t TagPasses() const
+        {
+            size_t      count = 0;
+            const auto& graph = Renderer->GetRenderGraph();
+            for (auto pass : graph.ExecutionOrder())
+                count += graph.PassName(pass) == "Material passes: Outline";
+            return count;
+        }
+    };
+
+    TEST_F(MultiPassSceneGL, InvertedHullSphereHasExteriorRingAndExactUnchangedInteriorAndDepth)
+    {
+        // Bugs: wrong cull/depth/write state, outline before opaque, lost material width or object transform/normal
+        // matrix.
+        const auto left  = Sphere(Color({1, 0, 0, 1}));
+        const auto right = Sphere(Color({0, 1, 0, 1}));
+        Ready();
+        auto draw = [&] {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(left, glm::rotate(Transform(-.45f, .12f), glm::half_pi<float>(), glm::vec3(0, 0, 1)));
+            Renderer->SubmitModel(right, Transform(.45f, -.12f));
+            Renderer->EndScene();
+        };
+        Renderer->GetFeatures().SetEnabled("MaterialOutline", false);
+        draw();
+        const auto baseline = Image(), baselineDepth = Image(2);
+        const auto materialGroup = Renderer->GetAssetCache()->GetMaterialBindings(Materials.front())->Group;
+        ASSERT_NE(materialGroup, nullptr);
+        EXPECT_EQ(TagPasses(), 0u);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 2u);
+        Renderer->GetFeatures().SetEnabled("MaterialOutline", true);
+        draw();
+        const auto outlined = Image();
+        EXPECT_EQ(Renderer->GetAssetCache()->GetMaterialBindings(Materials.front())->Group, materialGroup);
+        EXPECT_EQ(Image(2), baselineDepth); // depth_write=off, exact D24S8 bytes
+        ASSERT_EQ(TagPasses(), 1u);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
+        size_t red = 0, green = 0, ring = 0;
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+            {
+                auto before = At(baseline, x, y), after = At(outlined, x, y);
+                if (before[0] == 255 || before[1] == 255)
+                {
+                    EXPECT_EQ(after, before) << x << "," << y;
+                    red += before[0] == 255;
+                    green += before[1] == 255;
+                }
+                else if (after != before)
+                {
+                    EXPECT_EQ(before, (std::array<uint8_t, 4> {5, 5, 5, 255}));
+                    EXPECT_EQ(after, (std::array<uint8_t, 4> {0, 0, 0, 255}));
+                    const float px = 2.f * (x + .5f) / Size - 1, py = 2.f * (y + .5f) / Size - 1;
+                    const float distance = std::min(glm::length(glm::vec2(px + .45f, py - .12f)),
+                                                    glm::length(glm::vec2(px - .45f, py + .12f)));
+                    EXPECT_GT(distance, .275f); // outside the polygonal surface; 0.005 allowance for tessellation
+                    EXPECT_LT(distance, .365f); // .28 radius + .08 width, plus 0.005 tessellation/pixel allowance
+                    ++ring;
+                }
+            }
+        EXPECT_GT(red, 950u);
+        EXPECT_GT(green, 950u);
+        EXPECT_GT(ring, 1200u);
+        EXPECT_LT(ring, 1450u); // analytic two annuli ~1318 pixels, polygon silhouette allowance
+        const auto& graph    = Renderer->GetRenderGraph();
+        auto        material = std::find_if(graph.ExecutionOrder().begin(), graph.ExecutionOrder().end(), [&](auto p) {
+            return graph.PassName(p) == "Materials (opaque/mask, blend)";
+        });
+        auto        outline  = std::find_if(graph.ExecutionOrder().begin(), graph.ExecutionOrder().end(), [&](auto p) {
+            return graph.PassName(p) == "Material passes: Outline";
+        });
+        ASSERT_NE(material, graph.ExecutionOrder().end());
+        ASSERT_NE(outline, graph.ExecutionOrder().end());
+        EXPECT_LT(material, outline); // independently catches pre-opaque injection even if pixels happen to match
+        const auto* bindings = Renderer->GetAssetCache()->GetMaterialBindings(Materials.front());
+        const auto* shader   = Renderer->GetAssetCache()->GetShader(bindings->Shader);
+        ASSERT_EQ(shader->Passes.size(), 1u);
+        ASSERT_EQ(shader->Passes[0].Pipelines.size(), 1u);
+        const auto& state = shader->Passes[0].Pipelines.begin()->second->GetDesc();
+        EXPECT_EQ(state.GroupLayouts,
+                  (std::vector<RenderHardware::Handle<RenderHardware::BindGroupLayout>> {shader->EngineLayout,
+                                                                                         shader->MaterialLayout}));
+        EXPECT_EQ(state.Rasterizer.Cull, RenderHardware::CullMode::Front);
+        EXPECT_TRUE(state.DepthStencil.DepthTest);
+        EXPECT_FALSE(state.DepthStencil.DepthWrite);
+        EXPECT_EQ(state.DepthStencil.DepthCompare, RenderHardware::CompareOp::LessEqual);
+        EXPECT_FALSE(state.Blends[0].Enabled);
+        EXPECT_EQ(state.Blends[0].WriteMask, 7u);
+    }
+
+    TEST_F(MultiPassSceneGL, ForegroundOpaqueOccludesHullAndUnTaggedMaterialsAddNoPass)
+    {
+        // Bugs: no tag filter, missing depth test, or feature draws cached but unsubmitted models.
+        auto       tagged       = Sphere(Color({1, 0, 0, 1}));
+        const auto taggedShader = ShaderID;
+        auto       single       = Custom;
+        single.Passes.clear();
+        ShaderID      = Add(AssetType::Shader, EncodeShaderProduct(single.Code));
+        auto untagged = Sphere(Color({0, 1, 0, 1}));
+        auto occluder = Quad(Color({0, 0, 1, 1}), .6f, false, -.16f, .16f);
+        Ready();
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(untagged, Transform(.45f));
+        Renderer->EndScene();
+        EXPECT_EQ(TagPasses(), 0u);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
+        const auto alone = Image();
+        EXPECT_EQ(At(alone, 116, 64), (std::array<uint8_t, 4> {5, 5, 5, 255}));
+        auto draw = [&] {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(tagged, Transform(-.45f));
+            Renderer->SubmitModel(untagged, Transform(.45f));
+            Renderer->SubmitModel(occluder, glm::translate(glm::mat4(1), {-.13f, 0, 0}));
+            Renderer->EndScene();
+        };
+        Renderer->GetFeatures().SetEnabled("MaterialOutline", false);
+        draw();
+        const auto baseline = Image();
+        Renderer->GetFeatures().SetEnabled("MaterialOutline", true);
+        draw();
+        const auto outlined = Image();
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u); // exactly three surfaces, only one shell
+        EXPECT_EQ(TagPasses(), 1u);
+        size_t occluded = 0, ring = 0;
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+            {
+                const auto before = At(baseline, x, y), after = At(outlined, x, y);
+                if (before[2] == 255)
+                {
+                    EXPECT_EQ(after, before);
+                    ++occluded;
+                }
+                if (x >= Size / 2)
+                    EXPECT_EQ(after, before); // no outline around the untagged sphere
+                ring += after != before;
+            }
+        EXPECT_GT(occluded, 2000u);
+        EXPECT_GT(ring, 300u);
+        auto* shader = Renderer->GetAssetCache()->GetShader(taggedShader);
+        ASSERT_NE(shader, nullptr);
+        EXPECT_FALSE(shader->Passes[0].Pipelines.empty());
+    }
+
+    TEST_F(MultiPassSceneGL, FeatureHonorsPreparedOrderAndUnreadyDrawsAtConfigurablePoint)
+    {
+        // Bug: feature scans View.Draws or cache contents and reintroduces draws culled by a pipeline.
+        auto left = Sphere(Color({1, 0, 0, 1})), right = Sphere(Color({0, 1, 0, 1}));
+        Ready();
+        Renderer->GetFeatures().SetEnabled("MaterialOutline", false);
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(left, Transform(-.45f));
+        Renderer->SubmitModel(right, Transform(.45f));
+        Renderer->EndScene();
+        const auto baseline = Image();
+        RenderView view     = Renderer->GetRenderView();
+        ASSERT_EQ(view.Draws.size(), 2u);
+        ASSERT_EQ(view.MaterialOrder.size(), 2u);
+        view.MaterialOrder.erase(view.MaterialOrder.begin() + 1); // the second ready draw is culled by this pipeline
+        auto                  device = Renderer->GetDevice();
+        RenderGraph           graph;
+        std::vector<GraphUse> target;
+        for (auto color : Renderer->GetRenderTarget().Colors)
+        {
+            auto resource = graph.ImportTexture("color", color.Target);
+            target.push_back({resource, GraphAccess::ColorReadWrite});
+            graph.ExportTexture(resource);
+        }
+        const auto depth = graph.ImportTexture("depth", Renderer->GetRenderTarget().Depth.Target);
+        target.push_back({depth, GraphAccess::DepthReadWrite});
+        graph.ExportTexture(depth);
+        MaterialPassFeature feature("Outline", RenderExtensionPoint::BeforePostProcess);
+        EXPECT_TRUE(feature.RunsAt(RenderExtensionPoint::BeforePostProcess));
+        EXPECT_FALSE(feature.RunsAt(RenderExtensionPoint::BeforeOpaque));
+        RenderFeatureContext context {graph, view, target, Renderer.get()};
+        feature.AddPasses(RenderExtensionPoint::BeforePostProcess, context);
+        ASSERT_EQ(graph.PassCount(), 1u);
+        graph.Compile();
+        TransientTexturePool pool;
+        graph.Execute(*device, pool);
+        const auto outlined = Image();
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
+        size_t ring = 0;
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+            {
+                if (x >= Size / 2)
+                    EXPECT_EQ(At(outlined, x, y), At(baseline, x, y));
+                else
+                    ring += At(outlined, x, y) != At(baseline, x, y);
+            }
+        EXPECT_GT(ring, 600u);
+        view.Draws[0].Ready = false; // stale order entry must not make an unavailable/invisible draw visible
+        RenderGraph          unready;
+        RenderFeatureContext none {unready, view, target, Renderer.get()};
+        feature.AddPasses(RenderExtensionPoint::BeforePostProcess, none);
+        EXPECT_EQ(unready.PassCount(), 0u);
+        view.MaterialOrder.clear();
+        feature.AddPasses(RenderExtensionPoint::BeforePostProcess, none);
+        EXPECT_EQ(unready.PassCount(), 0u);
+    }
+
+    TEST_F(MultiPassSceneGL, ExtraPassReceivesEachObjectsMaterialRenderDataAndOnlyMatchingTagsRun)
+    {
+        // Bug: the extra pass gets an old/short object block or the previous object's alpha mode/cutoff/double-sided
+        // values.
+        Custom.Passes[0].Code.Modules[1].Words = CompileTestStage(R"(#version 450
+#include <Kans3D/Engine.glsl>
+layout(location=0) out vec4 Color;
+void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z, u_Object.MaterialRender.x / 2, 1); }
+)",
+                                                                  shaderc_fragment_shader);
+        // A second tag must remain inactive without its own feature.
+        auto shadow = Custom.Passes[0];
+        shadow.Name = "Shadow";
+        shadow.Tag  = "ShadowCaster";
+        Custom.Passes.push_back(shadow);
+        ShaderID = Add(AssetType::Shader, EncodeShaderProduct(Custom.Code, {}, {}, {}, {}, Custom.Passes));
+        MaterialSource first;
+        first.Render.AlphaMode           = MaterialAlphaMode::Mask;
+        first.Render.AlphaCutoff         = .25f;
+        first.Render.DoubleSided         = true;
+        first.Parameters["Tint"]         = {1, 0, 0, 1};
+        first.Parameters["OutlineWidth"] = {.08};
+        MaterialSource second            = first;
+        second.Render.AlphaMode          = MaterialAlphaMode::Opaque;
+        second.Render.AlphaCutoff        = .75f;
+        second.Render.DoubleSided        = false;
+        auto left = Sphere(Material(first)), right = Sphere(Material(second));
+        Ready();
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(left, Transform(-.45f));
+        Renderer->SubmitModel(right, Transform(.45f));
+        Renderer->EndScene();
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
+        auto* shader = Renderer->GetAssetCache()->GetShader(ShaderID);
+        ASSERT_NE(shader, nullptr);
+        ASSERT_EQ(shader->Passes.size(), 2u);
+        EXPECT_FALSE(shader->Passes[0].Pipelines.empty());
+        EXPECT_TRUE(shader->Passes[1].Pipelines.empty());
+        const auto image = Image();
+        // Pixel centres at radius 0.33 sit safely within the .28-.36 shell ring, away from tessellation edges.
+        const auto a = At(image, 14, 64), b = At(image, 113, 64);
+        EXPECT_EQ(a, (std::array<uint8_t, 4> {64, 255, 128, 255}));
+        EXPECT_EQ(b, (std::array<uint8_t, 4> {191, 0, 0, 255}));
+        Renderer->GetFeatures().Register(
+            "ShadowTest",
+            std::make_unique<MaterialPassFeature>("ShadowCaster", RenderExtensionPoint::BeforePostProcess));
+        Renderer->BeginScene(Info);
+        Renderer->SubmitModel(left, Transform(-.45f));
+        Renderer->EndScene();
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u); // main + outline + explicitly registered shadow tag
+        EXPECT_FALSE(shader->Passes[1].Pipelines.empty());
+    }
+
+    TEST_F(MultiPassSceneGL, RuntimeUsesEveryPassStateAndCachesIndependentlyOfMainMaterial)
+    {
+        // Bug: extra pipelines inherit main cull/depth/blend state, or share its cached pipeline.
+        Custom.Passes[0].State = {ShaderCullMode::None,
+                                  false,
+                                  true,
+                                  ShaderDepthCompare::GreaterEqual,
+                                  true,
+                                  ShaderBlendFactor::SourceAlpha,
+                                  ShaderBlendFactor::OneMinusSourceAlpha,
+                                  ShaderBlendFactor::DestinationAlpha,
+                                  ShaderBlendFactor::OneMinusDestinationAlpha,
+                                  9};
+        ShaderID   = Add(AssetType::Shader, EncodeShaderProduct(Custom.Code, {}, {}, {}, {}, Custom.Passes));
+        auto model = Sphere(Color({1, 0, 0, 1}, MaterialAlphaMode::Blend, true));
+        Ready();
+        for (unsigned frame = 0; frame < 2; ++frame)
+        {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(model, Transform(0));
+            Renderer->EndScene();
+        }
+        auto* shader = Renderer->GetAssetCache()->GetShader(ShaderID);
+        ASSERT_NE(shader, nullptr);
+        ASSERT_EQ(shader->Pipelines.size(), 1u);
+        ASSERT_EQ(shader->Passes.size(), 1u);
+        ASSERT_EQ(shader->Passes[0].Pipelines.size(), 1u);
+        auto pipeline = shader->Passes[0].Pipelines.begin()->second;
+        EXPECT_NE(pipeline, shader->Pipelines.begin()->second);
+        EXPECT_EQ(pipeline->GetDesc().Program, shader->Passes[0].Program);
+        const auto& state = pipeline->GetDesc();
+        EXPECT_EQ(state.Rasterizer.Cull, RenderHardware::CullMode::None);
+        EXPECT_FALSE(state.DepthStencil.DepthTest);
+        EXPECT_TRUE(state.DepthStencil.DepthWrite);
+        EXPECT_EQ(state.DepthStencil.DepthCompare, RenderHardware::CompareOp::GreaterEqual);
+        for (const auto& blend : state.Blends)
+        {
+            EXPECT_TRUE(blend.Enabled);
+            EXPECT_EQ(blend.WriteMask, 9u);
+            EXPECT_EQ(blend.SourceColor, RenderHardware::BlendFactor::SourceAlpha);
+            EXPECT_EQ(blend.DestinationColor, RenderHardware::BlendFactor::OneMinusSourceAlpha);
+            EXPECT_EQ(blend.SourceAlpha, RenderHardware::BlendFactor::DestinationAlpha);
+            EXPECT_EQ(blend.DestinationAlpha, RenderHardware::BlendFactor::OneMinusDestinationAlpha);
+        }
+        // Green/blue masked writes stay exactly as they were in the transparent main surface.
+        EXPECT_EQ(At(Image(), 64, 64)[1], 0u);
+        EXPECT_EQ(At(Image(), 64, 64)[2], 0u);
+    }
 
     TEST_F(MaterialSceneGL, RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel)
     {

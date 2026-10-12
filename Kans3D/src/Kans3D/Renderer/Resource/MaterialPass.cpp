@@ -8,7 +8,8 @@ namespace Kans
                             const GpuShader&             shader,
                             const GpuMaterialBindings&   bindings,
                             const GpuMesh&               mesh,
-                            const MaterialPassData&      data)
+                            const MaterialPassData&      data,
+                            const GpuShaderPass*         extraPass)
     {
         using namespace RenderHardware;
         auto       device      = cache.GetDevice();
@@ -17,11 +18,11 @@ namespace Kans
         const uint32_t key      = uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
                                   (uint32_t(data.Wireframe) << 2) | (uint32_t(data.WriteStencil) << 3) |
                                   (uint32_t(data.ColorFormats.size()) << 8);
-        auto&          pipeline = shader.Pipelines[key];
+        auto& pipeline = extraPass ? extraPass->Pipelines[key] : shader.Pipelines[key];
         if (!pipeline)
         {
             PipelineDesc desc;
-            desc.Program                      = shader.Program;
+            desc.Program                      = extraPass ? extraPass->Program : shader.Program;
             desc.GroupLayouts                 = {shader.EngineLayout, shader.MaterialLayout};
             desc.VertexBindings               = mesh.VertexBindings;
             desc.Attributes                   = mesh.Attributes;
@@ -45,6 +46,22 @@ namespace Kans
             blend.DestinationColor = BlendFactor::OneMinusSourceAlpha;
             blend.SourceAlpha      = BlendFactor::Zero;
             blend.DestinationAlpha = BlendFactor::One;
+            if (extraPass)
+            {
+                const auto& state              = extraPass->State;
+                desc.Rasterizer.Cull           = static_cast<CullMode>(state.Cull);
+                desc.Rasterizer.Polygon        = PolygonMode::Fill;
+                desc.DepthStencil.DepthTest    = state.DepthTest;
+                desc.DepthStencil.DepthCompare = static_cast<CompareOp>(state.DepthCompare);
+                desc.DepthStencil.DepthWrite   = state.DepthWrite;
+                desc.DepthStencil.StencilTest  = false;
+                blend.Enabled                  = state.Blend;
+                blend.SourceColor              = static_cast<BlendFactor>(state.SourceColor);
+                blend.DestinationColor         = static_cast<BlendFactor>(state.DestinationColor);
+                blend.SourceAlpha              = static_cast<BlendFactor>(state.SourceAlpha);
+                blend.DestinationAlpha         = static_cast<BlendFactor>(state.DestinationAlpha);
+                blend.WriteMask                = state.ColorWriteMask;
+            }
             desc.Blends.resize(data.ColorFormats.size(), blend);
             pipeline = device->CreatePipeline(desc);
         }

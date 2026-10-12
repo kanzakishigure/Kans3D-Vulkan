@@ -40,6 +40,9 @@ namespace Kans
         auto        contract   = ValidateMaterialShaderInterface(reflection);
         if (auto* error = std::get_if<AssetError>(&contract))
             return *error;
+        auto validPasses = ValidateMaterialShaderPasses(data.Code, data.Passes);
+        if (auto* error = std::get_if<AssetError>(&validPasses))
+            return *error;
         const auto resources = MaterialShaderResources(reflection);
         for (const auto& [name, role] : data.TextureFallbacks)
             if (std::none_of(resources.begin(), resources.end(), [&](const auto& resource) {
@@ -51,6 +54,12 @@ namespace Kans
         try
         {
             shader.Program = shader.m_Device->CreateShader(data);
+            for (const auto& pass : data.Passes)
+            {
+                ShaderData passData;
+                passData.Code = pass.Code;
+                shader.Passes.push_back({pass.Name, pass.Tag, pass.State, shader.m_Device->CreateShader(passData), {}});
+            }
         }
         catch (const std::exception& e)
         {

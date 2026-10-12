@@ -118,9 +118,58 @@ namespace Kans
         std::vector<std::string> Members;
     };
 
+    enum class ShaderCullMode : uint32_t
+    {
+        None,
+        Front,
+        Back
+    };
+    enum class ShaderDepthCompare : uint32_t
+    {
+        Never,
+        Less,
+        Equal,
+        LessEqual,
+        Greater,
+        NotEqual,
+        GreaterEqual,
+        Always
+    };
+    enum class ShaderBlendFactor : uint32_t
+    {
+        Zero,
+        One,
+        SourceColor,
+        OneMinusSourceColor,
+        SourceAlpha,
+        OneMinusSourceAlpha,
+        DestinationColor,
+        OneMinusDestinationColor,
+        DestinationAlpha,
+        OneMinusDestinationAlpha
+    };
+    // Material-owned state, independent of a device or frame's main-pass state.
+    struct ShaderPassState
+    {
+        ShaderCullMode     Cull      = ShaderCullMode::Back;
+        bool               DepthTest = true, DepthWrite = true;
+        ShaderDepthCompare DepthCompare = ShaderDepthCompare::Less;
+        bool               Blend        = false;
+        ShaderBlendFactor  SourceColor = ShaderBlendFactor::One, DestinationColor = ShaderBlendFactor::Zero;
+        ShaderBlendFactor  SourceAlpha = ShaderBlendFactor::One, DestinationAlpha = ShaderBlendFactor::Zero;
+        uint32_t           ColorWriteMask = 7; // RGBA bits; preserve scene alpha by default.
+    };
+    struct ShaderPass
+    {
+        std::string                        Name, Tag;
+        ShaderProgramCode                  Code;
+        ShaderPassState                    State;
+        std::vector<ShaderStageReflection> Reflection;
+    };
     struct ShaderData
     {
         ShaderProgramCode       Code;
+        std::vector<ShaderPass> Passes;
         ShaderParameterDefaults ParameterDefaults;
         ShaderParameterHints    ParameterHints;
         // Derived from validated bytecode, never trusted caller-supplied metadata.

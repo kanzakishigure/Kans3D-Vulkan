@@ -153,7 +153,13 @@ namespace Kans
             if (!primary)
                 return AssetError {AssetErrorCode::NotFound, "Cannot read Shader source"};
 
-            std::vector<std::pair<ShaderProductStage, std::string>> modules;
+            struct ModuleSource
+            {
+                ShaderProductStage Stage;
+                std::string        Name;
+                ShaderProgramCode* Code;
+            };
+            std::vector<ModuleSource>                               modules;
             ShaderData                                              shader;
             if (extension == ".shaderprog")
             {
@@ -177,17 +183,33 @@ namespace Kans
                 shader.Groups           = std::get<std::vector<MaterialParameterGroup>>(std::move(groups));
                 shader.TextureFallbacks = std::get<ShaderTextureFallbacks>(std::move(fallbacks));
                 for (const auto& stage : std::get<std::vector<ShaderStageSource>>(parsed))
-                    modules.emplace_back(
-                        stage.Stage, (fs::u8path(primaryName).parent_path() / stage.Path.GetPath()).generic_u8string());
+                    modules.push_back(
+                        {stage.Stage,
+                         (fs::u8path(primaryName).parent_path() / stage.Path.GetPath()).generic_u8string(),
+                         &shader.Code});
+                auto passes = ParseShaderProgramPasses(*primary);
+                if (auto* error = std::get_if<AssetError>(&passes))
+                    return *error;
+                const auto& sources = std::get<std::vector<ShaderPassSource>>(passes);
+                shader.Passes.reserve(sources.size());
+                for (const auto& source : sources)
+                {
+                    shader.Passes.push_back({source.Name, source.Tag, {}, source.State, {}});
+                    for (const auto& stage : source.Stages)
+                        modules.push_back(
+                            {stage.Stage,
+                             (fs::u8path(primaryName).parent_path() / stage.Path.GetPath()).generic_u8string(),
+                             &shader.Passes.back().Code});
+                }
             }
             else
-                modules.emplace_back(extension == ".vert" ? ShaderProductStage::Vertex :
-                                     extension == ".frag" ? ShaderProductStage::Fragment :
-                                                            ShaderProductStage::Compute,
-                                     primaryName);
+                modules.push_back({extension == ".vert" ? ShaderProductStage::Vertex :
+                                   extension == ".frag" ? ShaderProductStage::Fragment :
+                                                          ShaderProductStage::Compute,
+                                   primaryName,
+                                   &shader.Code});
 
-            auto& code = shader.Code;
-            for (const auto& [stage, name] : modules)
+            for (const auto& [stage, name, code] : modules)
             {
                 const auto* text = inputs.Find(name);
                 if (!text)
@@ -209,8 +231,11 @@ namespace Kans
                     return AssetError {AssetErrorCode::InvalidData,
                                        "Shader compilation failed: " + compiled.GetErrorMessage().substr(0, 4096)};
                 }
-                code.Modules.push_back({stage, "main", {compiled.cbegin(), compiled.cend()}});
+                code->Modules.push_back({stage, "main", {compiled.cbegin(), compiled.cend()}});
             }
+            auto valid = ValidateMaterialShaderPasses(shader.Code, shader.Passes);
+            if (auto* error = std::get_if<AssetError>(&valid))
+                return *error;
             return shader;
         }
 
@@ -235,8 +260,12 @@ namespace Kans
         if (auto* error = std::get_if<AssetError>(&compiled))
             return *error;
         const auto& shader = std::get<ShaderData>(compiled);
-        auto        encoded = EncodeShaderProduct(
-            shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks, shader.Groups);
+        auto        encoded = EncodeShaderProduct(shader.Code,
+                                                  shader.ParameterDefaults,
+                                                  shader.ParameterHints,
+                                                  shader.TextureFallbacks,
+                                                  shader.Groups,
+                                                  shader.Passes);
         if (auto* error = std::get_if<AssetError>(&encoded))
             return *error;
         const auto& bytes = std::get<std::vector<std::byte>>(encoded);
@@ -269,8 +298,12 @@ namespace Kans
             if (auto* error = std::get_if<AssetError>(&compiled))
                 return std::move(*error);
             const auto& shader  = std::get<ShaderData>(compiled);
-            auto        encoded = EncodeShaderProduct(
-                shader.Code, shader.ParameterDefaults, shader.ParameterHints, shader.TextureFallbacks, shader.Groups);
+            auto        encoded = EncodeShaderProduct(shader.Code,
+                                                      shader.ParameterDefaults,
+                                                      shader.ParameterHints,
+                                                      shader.TextureFallbacks,
+                                                      shader.Groups,
+                                                      shader.Passes);
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return std::move(*error);
             auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, {"shader:root"});

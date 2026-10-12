@@ -256,6 +256,110 @@ vec4 KansToneMap(vec3 color)
         return std::monostate {};
     }
 
+    namespace
+    {
+        bool MemberSubset(const ShaderUniformMember& a, const ShaderUniformMember& b)
+        {
+            if (a.Name != b.Name || a.Offset != b.Offset || a.Type != b.Type || a.Components != b.Components ||
+                a.Columns != b.Columns || a.ArrayCount != b.ArrayCount || a.ArrayStride != b.ArrayStride ||
+                a.MatrixStride != b.MatrixStride || a.RowMajor != b.RowMajor || a.Bytes > b.Bytes)
+                return false;
+            if (a.Type != ShaderUniformType::Struct && a.Bytes != b.Bytes)
+                return false;
+            for (const auto& member : a.Members)
+            {
+                auto found = std::find_if(
+                    b.Members.begin(), b.Members.end(), [&](const auto& want) { return want.Name == member.Name; });
+                if (found == b.Members.end() || !MemberSubset(member, *found))
+                    return false;
+            }
+            return true;
+        }
+        bool BindingSubset(const ShaderResourceBinding& a, const ShaderResourceBinding& b)
+        {
+            if (a.Kind != b.Kind || a.Set != b.Set || a.Binding != b.Binding || a.Count != b.Count ||
+                a.Dimension != b.Dimension || a.Name != b.Name || a.BlockBytes > b.BlockBytes)
+                return false;
+            for (const auto& member : a.Members)
+            {
+                auto found = std::find_if(
+                    b.Members.begin(), b.Members.end(), [&](const auto& want) { return want.Name == member.Name; });
+                if (found == b.Members.end() || !MemberSubset(member, *found))
+                    return false;
+            }
+            return true;
+        }
+    } // namespace
+    std::variant<std::monostate, AssetError> ValidateMaterialShaderPasses(const ShaderProgramCode&       main,
+                                                                          const std::vector<ShaderPass>& passes)
+    {
+        if (passes.empty())
+            return std::monostate {}; // Generic single-stage products retain their existing contract.
+        auto inspected = InspectShaderProgram(main);
+        if (auto* error = std::get_if<AssetError>(&inspected))
+            return *error;
+        const auto& reflection = std::get<std::vector<ShaderStageReflection>>(inspected);
+        auto        valid      = ValidateMaterialShaderInterface(reflection);
+        if (auto* error = std::get_if<AssetError>(&valid))
+            return *error;
+        std::map<std::pair<uint32_t, uint32_t>, ShaderResourceBinding> bindings;
+        for (const auto& stage : reflection)
+            for (const auto& binding : stage.Bindings)
+            {
+                auto [found, inserted] = bindings.emplace(std::make_pair(binding.Set, binding.Binding), binding);
+                if (!inserted && (!BindingSubset(binding, found->second) || !BindingSubset(found->second, binding)))
+                    return Contract("main pass has inconsistent resource names/layouts across stages");
+            }
+        std::set<std::string> names;
+        if (passes.size() > 32)
+            return Contract("too many additional passes");
+        for (const auto& pass : passes)
+        {
+            const auto fail = [&](const std::string& message) {
+                return Contract("pass '" + pass.Name + "': " + message);
+            };
+            const auto token = [](const std::string& value) {
+                return !value.empty() && value.size() <= 256 &&
+                       std::all_of(
+                           value.begin(), value.end(), [](unsigned char c) { return std::isalnum(c) || c == '_'; });
+            };
+            const auto& state = pass.State;
+            if (!token(pass.Name) || pass.Name == "Main" || !token(pass.Tag) || !names.insert(pass.Name).second)
+                return fail("invalid/duplicate name or tag");
+            if (uint32_t(state.Cull) > 2 || uint32_t(state.DepthCompare) > 7 || state.ColorWriteMask > 15 ||
+                uint32_t(state.SourceColor) > 9 || uint32_t(state.DestinationColor) > 9 ||
+                uint32_t(state.SourceAlpha) > 9 || uint32_t(state.DestinationAlpha) > 9)
+                return fail("invalid render state");
+            auto extra = InspectShaderProgram(pass.Code);
+            if (auto* error = std::get_if<AssetError>(&extra))
+                return fail(error->Message);
+            const auto& stages   = std::get<std::vector<ShaderStageReflection>>(extra);
+            auto        contract = ValidateMaterialShaderInterface(stages);
+            if (auto* error = std::get_if<AssetError>(&contract))
+                return fail(error->Message);
+            std::set<uint32_t> engine;
+            for (const auto& stage : stages)
+                for (const auto& binding : stage.Bindings)
+                {
+                    auto found = bindings.find({binding.Set, binding.Binding});
+                    if (found == bindings.end() || !BindingSubset(binding, found->second))
+                        return fail("set " + std::to_string(binding.Set) + " binding " +
+                                    std::to_string(binding.Binding) + " ('" + binding.Name +
+                                    "') is not a subset of the main pass layout");
+                    if (binding.Set == 0)
+                    {
+                        if (!BindingSubset(found->second, binding))
+                            return fail("set 0 contract differs from main pass");
+                        engine.insert(binding.Binding);
+                    }
+                }
+            for (const auto& [key, binding] : bindings)
+                if (key.first == 0 && !engine.count(key.second))
+                    return fail("set 0 contract omits main pass binding " + std::to_string(key.second));
+        }
+        return std::monostate {};
+    }
+
     std::vector<ShaderResourceBinding> MaterialShaderResources(const std::vector<ShaderStageReflection>& reflection)
     {
         std::map<uint32_t, ShaderResourceBinding> merged;

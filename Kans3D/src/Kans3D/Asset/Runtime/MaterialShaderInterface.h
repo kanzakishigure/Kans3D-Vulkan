@@ -63,6 +63,10 @@ namespace Kans
     ValidateMaterialParameterGroups(const std::vector<MaterialParameterGroup>& groups,
                                     const std::vector<ShaderStageReflection>&  reflection);
 
+    // Re-inspects bytecode and checks shared descriptor layouts for extra passes.
+    [[nodiscard]] std::variant<std::monostate, AssetError>
+    ValidateMaterialShaderPasses(const ShaderProgramCode& main, const std::vector<ShaderPass>& passes);
+
     // Material-set descriptors of a validated program, merged across stages and
     // ordered by binding.
     [[nodiscard]] std::vector<ShaderResourceBinding>

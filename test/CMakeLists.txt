@@ -38,6 +38,7 @@ add_executable(Kans3DTests
     AssetManagerTests.cpp
     RenderAssetCacheTests.cpp
     TextureProductTests.cpp
+    MultiPassShaderTests.cpp
     ShaderProductTests.cpp
     ShaderImporterTests.cpp
     InternalShaderTests.cpp
@@ -67,6 +68,7 @@ find_package(PNG REQUIRED)
 target_link_libraries(Kans3DTests PRIVATE Kans3D GTest::gtest_main PNG::PNG)
 target_compile_features(Kans3DTests PRIVATE cxx_std_17)
 target_compile_definitions(Kans3DTests PRIVATE
+    KANS_TEST_MULTIPASS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/multipass"
     KANS_TEST_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../KansEditor/assets/model")
 include(GoogleTest)
 kans_copy_test_runtime(Kans3DTests)
@@ -93,6 +95,7 @@ add_executable(OpenGLTextureTests
     RenderAssetCacheOpenGLTests.cpp)
 target_link_libraries(OpenGLTextureTests PRIVATE Kans3D GTest::gtest_main PNG::PNG)
 target_compile_definitions(OpenGLTextureTests PRIVATE
+    KANS_TEST_MULTIPASS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/multipass"
     KANS_TEST_REFERENCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/references"
     KANS_TEST_OUTPUT_DIR="${CMAKE_CURRENT_BINARY_DIR}/reference-output"
     KANS_TEST_ICON_DIR="${PROJECT_SOURCE_DIR}/KansEditor/Resources/Editor/ContentBrowser"

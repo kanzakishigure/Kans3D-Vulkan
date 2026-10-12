@@ -20,5 +20,6 @@ namespace Kans
                             const GpuShader&             shader,
                             const GpuMaterialBindings&   bindings,
                             const GpuMesh&               mesh,
-                            const MaterialPassData&      data);
+                            const MaterialPassData&      data,
+                            const GpuShaderPass*         extraPass = nullptr);
 } // namespace Kans

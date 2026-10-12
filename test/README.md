@@ -47,3 +47,40 @@ must log and yield an uploaded checker/built-in font instead of terminating.
 Generated RGB PNM, 16-bit PNG with gAMA, HDR, empty and malformed files catch
 channel padding, byte truncation, metadata policy, half precision and recovery
 regressions. No test launches KansEditor or writes to its resources.
+
+Phase 2c's sample and published-v5 input live in `data/multipass`; no shipped
+material or pixel reference is changed. The new cases use the production importer,
+KSHD codec, asset cache and render feature rather than a test-only pass parser or
+outline renderer.
+
+| New case (suite prefix omitted) | Concrete bug caught |
+| --- | --- |
+| ImportAndCodecPreserveNamesTagsStagesAndEveryStateField | Parse extra passes but drop modules, tags, declaration order or state fields while encoding/decoding |
+| PublishedVersionFiveFixtureLoadsAsMainOnly | Reject a single-pass product actually encoded by the original v5 codec after bumping to v6 |
+| ParserRejectsMalformedDuplicateNestedAndIncompletePasses | Silently accept duplicate state, unknown fields, unfinished/nested blocks, invalid paths or passes on compute programs |
+| ImportRejectsChangedMaterialBindingsNamesTypesOffsetsAndSamplers | Accept incompatible set-1 block/member/sampler names, offsets, types, bindings or descriptor counts |
+| StrictMaterialSubsetImportsButChangedEngineAndVertexContractsFail | Reject a correctly offset subset, allow incompatible engine vertex inputs or set-0 layouts (including an individually valid legacy frame layout differing from main) |
+| DiscoveryIncludesExtraStagesAndTheirIncludesAndRequiresDeclaredInputs | Publish only main stages, omit hull includes, or allow an undeclared extra-stage input |
+| DecoderRejectsTruncatedStateInvalidEnumsAndIncompatibleBytecode | Trust product metadata, read truncated pass fields/code, accept invalid state or load pass bytecode incompatible with main |
+| InvertedHullSphereHasExteriorRingAndExactUnchangedInteriorAndDepth | Use back culling, omit depth testing, write depth, draw before opaque, lose material width, per-object transform/normal matrix or shared binding layout/group |
+| ForegroundOpaqueOccludesHullAndUnTaggedMaterialsAddNoPass | Outline untagged or cached/unsubmitted models, or paint a hull over foreground depth |
+| FeatureHonorsPreparedOrderAndUnreadyDrawsAtConfigurablePoint | Reintroduce pipeline-culled draws by scanning all draws/cache contents, or draw stale unready entries |
+| ExtraPassReceivesEachObjectsMaterialRenderDataAndOnlyMatchingTagsRun | Bind a short/stale object block, lose alpha mode/cutoff/double-sided values, ignore pass tags, or fail explicitly registered tags |
+| RuntimeUsesEveryPassStateAndCachesIndependentlyOfMainMaterial | Use main material depth/cull/blend/mask state or reuse its pipeline for an extra pass |
+
+The sphere test compares every surface pixel and all packed depth/stencil bytes
+exactly between enabled/disabled outline frames. Every changed colour pixel must
+be black outside the red/green silhouettes with alpha unchanged. The two analytic
+annuli occupy about 1318 pixels; the accepted 1200–1450 area and ±0.005 world-unit
+silhouette allowance cover the 48×96 polygonal sphere tessellation and raster
+coverage, not interior colour or depth errors. One sphere rotates 90 degrees so
+using an identity normal matrix instead of per-object data fails. A separate graph
+order assertion catches an outline-before-opaque mutation even if final colour
+happens to match. Foreground and untagged pixels, and per-object RGBA8 uniform
+outputs, use exact comparisons.
+
+Existing test changes only account for v6's appended four-byte pass count: legacy
+v1–v4 slices strip that word too; the group corruption test targets the same final
+member eight bytes before the new word. Its truncation coverage expands by four
+bytes. The unsupported-future-version input moves from 6 to 7 while keeping the
+`UnsupportedVersion` assertion. No assertion or reference tolerance was weakened.

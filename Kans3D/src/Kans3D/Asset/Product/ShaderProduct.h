@@ -7,6 +7,7 @@ namespace Kans
                         const ShaderParameterDefaults&             defaults  = {},
                         const ShaderParameterHints&                hints     = {},
                         const ShaderTextureFallbacks&              fallbacks = {},
-                        const std::vector<MaterialParameterGroup>& groups    = {});
+                        const std::vector<MaterialParameterGroup>& groups    = {},
+                        const std::vector<ShaderPass>&             passes    = {});
     std::variant<ShaderData, AssetError>             DecodeShaderProduct(const std::byte* bytes, size_t size);
 } // namespace Kans

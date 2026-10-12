@@ -102,7 +102,7 @@ names, attachment accesses, uniforms, states, stats and relative order.
 | --- | --- | --- |
 | `Immediate` | Once per `RenderView::ImmediateOrder` entry, before that entry's core draw; `context.Immediate` identifies the original entry. Needed because grids may be interleaved arbitrarily with sprites and skyboxes, including multiple grids. | `EditorGridFeature`, consuming only Grid entries |
 | `BeforeOpaque` | Once after all immediate submissions and before material rendering. | None |
-| `AfterTransparent` | Once after the opaque/mask/blend batch, before post-processing. | `DebugGeometryFeature` (StencilShader / OutLineShader shells and DebugNormalShader draws, in original per-model order) |
+| `AfterTransparent` | Once after the opaque/mask/blend batch, before post-processing. | `MaterialPassFeature("Outline")` after `DebugGeometryFeature` (StencilShader / OutLineShader shells and DebugNormalShader draws, in original per-model order) |
 | `BeforePostProcess` | Once after scene/debug geometry, at the future post-process input boundary. Forward currently has no post-process pass; default features add nothing here. | None |
 | `Overlay` | Once after any post-processing, in final viewport color space. | `EditorSelectionFeature` (orange selection mask/composite), then `EditorPreviewFeature` (blue preview mask/composite) |
 
@@ -110,8 +110,8 @@ There is deliberately no `AfterOpaque` point yet: opaque/mask and blend share on
 immutable recorded command list. Exposing a boundary inside that batch would imply
 splitting recording and changing allocation/batching behavior. A future pipeline
 with separate opaque/transparent passes can add that boundary; existing features
-use the common points above. NPR outlines on scene geometry can use
-`AfterTransparent`; final viewport annotations use `Overlay`.
+use the common points above. NPR outlines on scene geometry use
+`AfterTransparent` through the engine `MaterialPassFeature`; final viewport annotations use `Overlay`.
 
 `RenderFeature` has three callbacks:
 
@@ -264,3 +264,34 @@ Changed-line `git clang-format` (including new files) and `git diff --check` are
 clean. Editor sources/resources/assets, references and their tolerances, presets
 and build configuration are unchanged. No editor launch, hardware GPU use,
 commits or pushes.
+
+## Phase 2c material passes
+
+The engine `Features/MaterialPassFeature.*` registers `MaterialOutline` by default,
+for the `Outline` tag at `AfterTransparent`. It follows the compatibility debug
+geometry and precedes post-processing and editor overlays. Opaque depth is already
+populated; Forward's shared opaque/transparent command list and existing allocation
+order are preserved. A view with no matching prepared material draw adds no graph
+pass or GPU allocations. The feature records once, declaring the actual sampled
+material images and environment textures, with loaded colour/depth attachments.
+It uses only `context.View.MaterialOrder` and rejects stale unready entries; future
+pipeline culling does not get bypassed by a second scene traversal. The existing
+renderer still submits offscreen objects because it has no frustum/visibility flag.
+
+See [shader syntax and product contract](../../Asset/Importer/ShaderREADME.md)
+and the self-contained `test/data/multipass` inverted-hull sample. Shipped samples,
+user content and the twelve pixel references remain untouched.
+
+Phase 2c validation, `linux-gcc` Debug, builds with `-j2`: CPU **404/404**
+(47.30 s); serial llvmpipe GPU **141/141** (160.33 s), including the unchanged
+full-frame byte oracle, all twelve unchanged reference comparisons, and the
+GL 4.3 extension bundle. Seven new CPU cases and five new GPU cases pass; their
+individual mutation targets and exact/tessellation tolerances are recorded in
+`test/README.md`. All **21/21** existing editor translation units pass
+`-fsyntax-only` with their existing Debug compile flags, two at a time, without
+linking into the protected editor output directory or launching the editor.
+Changed-line `git clang-format` (using temporary Git metadata under `/tmp` because
+this workspace's `.git` is read-only) and `git diff --check` are clean. Existing
+codec test edits preserve assertions: v6 adds a four-byte count, so legacy slices
+and final-group-member offsets shift by four; the unsupported future version
+moves from 6 to 7. No reference, tolerance, shipped sample or user content changes.

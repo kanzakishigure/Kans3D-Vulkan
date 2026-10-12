@@ -7,6 +7,7 @@
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
+#include "Kans3D/Renderer/Features/MaterialPassFeature.h"
 #include "Kans3D/Renderer/RenderPipeline.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
@@ -77,6 +78,8 @@ namespace Kans
     {
 
         RegisterDefaultEditorFeatures(m_Features);
+        m_Features.Register("MaterialOutline",
+                            std::make_unique<MaterialPassFeature>("Outline", RenderExtensionPoint::AfterTransparent));
         Init();
     }
 
@@ -138,13 +141,36 @@ namespace Kans
         ExtractDrawLists(m_View);
     }
 
+    bool SceneRenderer::HasMaterialPass(const RenderView& view, const std::string& tag)
+    {
+        if (!m_AssetCache)
+            return false;
+        for (const auto& item : view.MaterialOrder)
+        {
+            const auto& draw = view.Draws[item.DrawIndex];
+            if (!draw.Ready)
+                continue;
+            const auto* bindings =
+                m_AssetCache->GetMaterialBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
+            const auto* shader = bindings ? m_AssetCache->GetShader(bindings->Shader) : nullptr;
+            if (shader && std::any_of(shader->Passes.begin(), shader->Passes.end(), [&](const auto& pass) {
+                    return pass.Tag == tag;
+                }))
+                return true;
+        }
+        return false;
+    }
+
     void SceneRenderer::DrawShaderMaterials(
         RenderHardware::CommandList&                                                       commandList,
-        const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled)
+        const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled,
+        const std::string&                                                                 tag,
+        const RenderView*                                                                  suppliedView)
     {
-        if (!m_AssetCache || m_View.MaterialOrder.empty())
+        const auto& view = suppliedView ? *suppliedView : m_View;
+        if (!m_AssetCache || view.MaterialOrder.empty())
             return;
-        const auto&         ready    = m_View.MaterialOrder;
+        const auto&         ready    = view.MaterialOrder;
         auto*               commands = &commandList;
         EngineFrameUniforms frame;
         frame.ViewProjection =
@@ -176,7 +202,7 @@ namespace Kans
         std::optional<float> uploadedDebugView;
         for (const auto& item : ready)
         {
-            const auto& draw = m_View.Draws[item.DrawIndex];
+            const auto& draw = view.Draws[item.DrawIndex];
             // Requests may finish during this pass. Snapshot the state used for sorting,
             // but acquire GPU resources at the draw so a cache replacement cannot dangle a queued pointer.
             const auto* mesh = m_AssetCache->GetMesh(draw.Mesh);
@@ -184,6 +210,11 @@ namespace Kans
                 m_AssetCache->GetMaterialBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
             const auto* shader = bindings ? m_AssetCache->GetShader(bindings->Shader) : nullptr;
             if (!mesh || !bindings || !shader)
+                continue;
+            if (!tag.empty() &&
+                (!draw.Ready || std::none_of(shader->Passes.begin(), shader->Passes.end(), [&](const auto& pass) {
+                    return pass.Tag == tag;
+                })))
                 continue;
             const auto&    render      = item.Render;
             frame.DebugView = draw.ViewMode == SceneViewMode::BaseColor ? 1.0f :
@@ -212,12 +243,24 @@ namespace Kans
             pass.Wireframe          = draw.ViewMode == SceneViewMode::Wireframe;
             pass.WriteStencil       = draw.Stencil == ModelStencilMode::WriteReference;
             pass.Render             = render;
-            RecordMaterialDraw(*m_AssetCache, *commands, *shader, *bindings, *mesh, pass);
+            if (tag.empty())
+                RecordMaterialDraw(*m_AssetCache, *commands, *shader, *bindings, *mesh, pass);
+            else
+                for (const auto& extra : shader->Passes)
+                    if (extra.Tag == tag)
+                    {
+                        RecordMaterialDraw(*m_AssetCache, *commands, *shader, *bindings, *mesh, pass, &extra);
+                        ++m_Stats.DrawCalls;
+                        m_Stats.Triangles += mesh->IndexCount / 3;
+                    }
             if (sampled)
                 for (const auto& image : bindings->Images)
                     sampled(image);
-            ++m_Stats.DrawCalls;
-            m_Stats.Triangles += mesh->IndexCount / 3;
+            if (tag.empty())
+            {
+                ++m_Stats.DrawCalls;
+                m_Stats.Triangles += mesh->IndexCount / 3;
+            }
             ++range;
         }
         commands->EndRendering();

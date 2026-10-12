@@ -23,10 +23,26 @@ namespace Kans
         };
         if (!next() || line != "KansShaderProgram 1")
             return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Shader program header"};
+        auto passes = ParseShaderProgramPasses(text);
+        if (auto* error = std::get_if<AssetError>(&passes))
+            return *error;
+        bool                           inPass = false;
         std::vector<ShaderStageSource> result;
         std::set<ShaderProductStage>   stages;
         while (next())
         {
+            if (line.rfind("pass ", 0) == 0)
+            {
+                inPass = true;
+                continue;
+            }
+            if (line == "endpass")
+            {
+                inPass = false;
+                continue;
+            }
+            if (inPass)
+                continue;
             if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0 || line.rfind("hint ", 0) == 0 ||
                 line.rfind("texture ", 0) == 0 || line.rfind("group ", 0) == 0)
                 continue;
@@ -52,7 +68,149 @@ namespace Kans
              (stages.size() != 2 || !stages.count(ShaderProductStage::Vertex) ||
               !stages.count(ShaderProductStage::Fragment))))
             return AssetError {AssetErrorCode::InvalidData, "Shader program requires vertex+fragment or compute"};
+        if (!std::get<std::vector<ShaderPassSource>>(passes).empty() && stages.count(ShaderProductStage::Compute))
+            return AssetError {AssetErrorCode::InvalidData, "Additional passes require a graphics main pass"};
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.Stage < b.Stage; });
+        return result;
+    }
+
+    std::variant<std::vector<ShaderPassSource>, AssetError> ParseShaderProgramPasses(const std::string& text)
+    {
+        std::vector<ShaderPassSource> result;
+        std::set<std::string>         names, fields;
+        std::istringstream            lines(text);
+        std::string                   line;
+        bool                          open = false;
+        const auto                    failure =
+            [&](const std::string& message) -> std::variant<std::vector<ShaderPassSource>, AssetError> {
+            return AssetError {AssetErrorCode::InvalidData,
+                               "Shader pass " + (open ? "'" + result.back().Name + "': " : "") + message};
+        };
+        if (text.size() > 65536 || text.find('\0') != std::string::npos)
+            return failure("invalid text budget");
+        const auto token = [](const std::string& name) {
+            return !name.empty() && name.size() <= 256 &&
+                   std::all_of(name.begin(), name.end(), [](unsigned char c) { return std::isalnum(c) || c == '_'; });
+        };
+        while (std::getline(lines, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.empty() || line[0] == '#')
+                continue;
+            if (line.rfind("pass ", 0) == 0)
+            {
+                const auto name = line.substr(5);
+                if (open || !token(name) || name == "Main" || !names.insert(name).second || result.size() >= 32)
+                    return failure("invalid, duplicate or nested pass declaration");
+                result.push_back({name, {}, {}, {}});
+                fields.clear();
+                open = true;
+                continue;
+            }
+            if (line == "endpass")
+            {
+                if (!open)
+                    return failure("unexpected endpass");
+                if (result.back().Tag.empty() || !fields.count("vertex") || !fields.count("fragment"))
+                    return failure("requires tag, vertex and fragment");
+                open = false;
+                continue;
+            }
+            if (!open)
+                continue;
+            const auto split = line.find('=');
+            if (split == std::string::npos)
+                return failure("expected key=value");
+            const auto key = line.substr(0, split), value = line.substr(split + 1);
+            if (!fields.insert(key).second)
+                return failure("duplicate field '" + key + "'");
+            auto&      pass      = result.back();
+            auto&      state     = pass.State;
+            const auto enumValue = [&](const std::vector<std::string>& values, auto& target) {
+                auto found = std::find(values.begin(), values.end(), value);
+                if (found == values.end())
+                    return false;
+                target = static_cast<std::decay_t<decltype(target)>>(found - values.begin());
+                return true;
+            };
+            const auto boolean = [&](bool& target) {
+                if (value != "on" && value != "off")
+                    return false;
+                target = value == "on";
+                return true;
+            };
+            bool valid = true;
+            if (key == "vertex" || key == "fragment")
+            {
+                auto stage =
+                    ParseShaderProgramSource("KansShaderProgram 1\nvertex=" + value + "\nfragment=" + value + "\n");
+                if (std::holds_alternative<AssetError>(stage))
+                    return failure("invalid stage path");
+                pass.Stages.push_back({key == "vertex" ? ShaderProductStage::Vertex : ShaderProductStage::Fragment,
+                                       AssetPath(std::filesystem::u8path(value))});
+            }
+            else if (key == "tag")
+            {
+                valid    = token(value);
+                pass.Tag = value;
+            }
+            else if (key == "cull")
+                valid = enumValue({"none", "front", "back"}, state.Cull);
+            else if (key == "depth_test")
+                valid = boolean(state.DepthTest);
+            else if (key == "depth_write")
+                valid = boolean(state.DepthWrite);
+            else if (key == "depth_compare")
+                valid = enumValue(
+                    {"never", "less", "equal", "less_equal", "greater", "not_equal", "greater_equal", "always"},
+                    state.DepthCompare);
+            else if (key == "blend")
+                valid = boolean(state.Blend);
+            else if (key == "src_color" || key == "dst_color" || key == "src_alpha" || key == "dst_alpha")
+            {
+                auto& factor = key == "src_color" ? state.SourceColor :
+                               key == "dst_color" ? state.DestinationColor :
+                               key == "src_alpha" ? state.SourceAlpha :
+                                                    state.DestinationAlpha;
+                valid        = enumValue({"zero",
+                                          "one",
+                                          "src_color",
+                                          "one_minus_src_color",
+                                          "src_alpha",
+                                          "one_minus_src_alpha",
+                                          "dst_color",
+                                          "one_minus_dst_color",
+                                          "dst_alpha",
+                                          "one_minus_dst_alpha"},
+                                         factor);
+            }
+            else if (key == "color_write")
+            {
+                state.ColorWriteMask = 0;
+                if (value != "none")
+                    for (char c : value)
+                    {
+                        auto bit = std::string("rgba").find(c);
+                        if (bit == std::string::npos || (state.ColorWriteMask & (1u << bit)))
+                        {
+                            valid = false;
+                            break;
+                        }
+                        state.ColorWriteMask |= 1u << bit;
+                    }
+                valid &= !value.empty();
+            }
+            else
+                return failure("unknown field '" + key + "'");
+            if (!valid)
+                return failure("invalid value for '" + key + "'");
+        }
+        if (open)
+            return failure("missing endpass");
+        for (auto& pass : result)
+            std::sort(
+                pass.Stages.begin(), pass.Stages.end(), [](const auto& a, const auto& b) { return a.Stage < b.Stage; });
         return result;
     }
 

@@ -27,6 +27,13 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::Buffer> m_Buffer;
     };
 
+    struct GpuShaderPass
+    {
+        std::string                                                                  Name, Tag;
+        ShaderPassState                                                              State;
+        RenderHardware::Handle<RenderHardware::Shader>                               Program;
+        mutable std::map<uint32_t, RenderHardware::Handle<RenderHardware::Pipeline>> Pipelines;
+    };
     // Validated material product backed by an RHI Shader and cached state pipelines.
     class GpuShader
     {
@@ -48,6 +55,8 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::BindGroupLayout>                      EngineLayout, MaterialLayout;
         std::vector<ShaderResourceBinding>                                           EngineResources;
         mutable std::map<uint32_t, RenderHardware::Handle<RenderHardware::Pipeline>> Pipelines;
+
+        std::vector<GpuShaderPass> Passes;
 
         const std::map<uint32_t, ShaderTextureFallback>& MaterialSamplerFallbacks() const { return m_SamplerFallbacks; }
 

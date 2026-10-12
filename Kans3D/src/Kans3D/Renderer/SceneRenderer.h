@@ -112,9 +112,12 @@ namespace Kans
         ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled);
         using ShaderDraw   = ViewShaderDraw;
         using GeometryDraw = ViewGeometryDraw;
+        bool HasMaterialPass(const RenderView& view, const std::string& tag);
         void DrawShaderMaterials(
             RenderHardware::CommandList&                                                       commands,
-            const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled = {});
+            const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled = {},
+            const std::string&                                                                 tag     = {},
+            const RenderView*                                                                  view    = nullptr);
         void                 DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commands);
         void                 DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commands);
         void                 DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
@@ -125,6 +128,7 @@ namespace Kans
         std::string          m_PipelineName = "Forward";
         RenderFeatureSet     m_Features;
         friend class ForwardPipeline;
+        friend class MaterialPassFeature;
         friend class EditorGridFeature;
         friend class DebugGeometryFeature;
         friend class EditorOutlineFeature;

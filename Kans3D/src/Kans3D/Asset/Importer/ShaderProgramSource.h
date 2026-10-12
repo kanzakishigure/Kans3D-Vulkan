@@ -7,6 +7,14 @@ namespace Kans
         ShaderProductStage Stage;
         AssetPath          Path;
     };
+    struct ShaderPassSource
+    {
+        std::string                    Name, Tag;
+        std::vector<ShaderStageSource> Stages;
+        ShaderPassState                State;
+    };
+    [[nodiscard]] std::variant<std::vector<ShaderPassSource>, AssetError>
+    ParseShaderProgramPasses(const std::string& text);
     // Versioned tool manifest:
     //
     //   KansShaderProgram 1
