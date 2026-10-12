@@ -346,4 +346,105 @@ namespace
         EXPECT_EQ(Renderer2D::GetStats().GetTotalIndexCount(), 60006u);
     }
 
+    TEST_F(ScenePassGL, RuntimeWhiteSpriteDeclaresItsActualSampledFallback)
+    {
+        // Pixel checks prove the runtime draw; the independent access declaration
+        // catches omitting the internal white image from whole-frame backend planning.
+        Renderer2D::Init();
+        auto camera = Logic->CreateEntity("camera");
+        camera.AddComponent<CameraComponent>().SceneCamera.SetOrthographic(2, -1, 1);
+        Logic->OnViewportResize(Size, Size);
+        auto sprite                                          = Logic->CreateEntity("white sprite");
+        sprite.AddComponent<SpriteRendererComponent>().Color = {.25f, .5f, .75f, .5f};
+        RenderResource settings {};
+        settings.Piplinestate.EnableGridShader = false;
+        Scene->SetRenderResource(settings);
+        Scene->OnRenderRuntime(Renderer, TimeStep(0));
+        auto pixels = Read(Renderer->GetRenderTarget().Colors[0].Target);
+        EXPECT_EQ(Pixel(pixels, 32, 32), (std::array<uint8_t, 4> {64, 128, 191, 128}));
+        EXPECT_EQ(Pixel(pixels, 4, 4), (std::array<uint8_t, 4> {5, 5, 5, 255}));
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 0u);
+        EXPECT_EQ(Renderer2D::GetStats().QuadCount, 1u);
+        EXPECT_EQ(Renderer2D::GetStats().DrawCalls, 1u);
+        const auto& graph = Renderer->GetRenderGraph();
+        ASSERT_EQ(graph.Resources().size(), 4u); // Two colors, depth/stencil and the actual white image.
+        const auto& image = graph.Resources()[3];
+        EXPECT_TRUE(image.Imported);
+        EXPECT_EQ(image.Description.Width, 1u);
+        EXPECT_EQ(image.Description.Height, 1u);
+        ASSERT_EQ(image.Accesses.size(), 1u);
+        EXPECT_EQ(image.Accesses[0].Access, GraphAccess::SampledRead);
+        EXPECT_EQ(graph.PassName(image.Accesses[0].Pass), "Renderer2D sprites");
+    }
+
+    TEST_F(ScenePassGL, GraphExecutesTransientClearReadbackAndReusesStableViewport)
+    {
+        // Catches graph dropping readbacks, failing to record/submit, or allocating
+        // a new physical image every frame. Exact bytes also catch wrong clears.
+        TransientTexturePool pool;
+        auto                 device = Renderer->GetDevice();
+        Handle<Image>        first;
+        uint32_t             prefixCalls = 0;
+        for (uint32_t frame = 0; frame < 16; ++frame)
+        {
+            const uint32_t size = frame < 12 ? 7 : 9;
+            TextureDesc    desc;
+            desc.Width = desc.Height = size;
+            desc.Usage  = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
+            auto buffer = device->CreateBuffer({size * size * 4, BufferUsage::CopyDestination, MemoryUsage::Readback});
+            RenderGraph graph;
+            auto        imported = graph.ImportTexture("scene", Renderer->GetRenderTarget().Colors[0].Target);
+            graph.ExportTexture(imported);
+            auto prefix = graph.AddPass(
+                "prefix clear", {{imported, GraphAccess::ColorWrite}}, [imported, &prefixCalls](auto& context) {
+                    ++prefixCalls;
+                    RenderingDesc target;
+                    target.Colors = {{context.Texture(imported)}};
+                    context.Commands.BeginRendering(target);
+                    context.Commands.EndRendering();
+                });
+            graph.Compile();
+            device->BeginFrame();
+            graph.ExecuteImportedPrefix(*device);
+            EXPECT_EQ(prefixCalls, frame + 1);
+            auto image = graph.CreateTexture("clear image", desc);
+            graph.AddPass("clear", {{image, GraphAccess::ColorWrite}}, [image](auto& context) {
+                RenderingDesc target;
+                target.Colors = {{context.Texture(image), {}, LoadOp::Clear, StoreOp::Store, {.25f, .5f, .75f, 1}}};
+                context.Commands.BeginRendering(target);
+                context.Commands.EndRendering();
+            });
+            graph.AddPass(
+                "readback",
+                {{image, GraphAccess::TransferRead}},
+                [image, buffer](auto& context) {
+                    context.Commands.CopyTextureToBuffer(context.Texture(image), {}, buffer);
+                },
+                true);
+            graph.Compile();
+            EXPECT_EQ(graph.ExecutionOrder().front(), prefix);
+            ASSERT_EQ(graph.Resources()[imported].Accesses.size(), 1u);
+            EXPECT_EQ(graph.Resources()[imported].Accesses[0].ExecutionIndex, 0u);
+            graph.Execute(*device, pool);
+            device->EndFrame();
+            EXPECT_EQ(prefixCalls, frame + 1); // Prefix remains in metadata but is not submitted twice.
+            auto bytes = buffer->Read(0, size * size * 4);
+            for (size_t pixel = 0; pixel < size * size; ++pixel)
+                EXPECT_EQ((std::array<uint8_t, 4> {
+                              bytes[pixel * 4], bytes[pixel * 4 + 1], bytes[pixel * 4 + 2], bytes[pixel * 4 + 3]}),
+                          (std::array<uint8_t, 4> {64, 128, 191, 255}));
+            if (frame == 0)
+                first = graph.Texture(image);
+            else if (frame < 12)
+                EXPECT_EQ(graph.Texture(image), first);
+            else if (frame == 12)
+            {
+                EXPECT_NE(graph.Texture(image), first);
+                first = graph.Texture(image);
+            }
+            else
+                EXPECT_EQ(graph.Texture(image), first);
+        }
+    }
+
 } // namespace

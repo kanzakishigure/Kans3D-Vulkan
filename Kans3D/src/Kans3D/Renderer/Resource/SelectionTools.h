@@ -70,6 +70,18 @@ namespace Kans
                   const glm::vec4&                     color,
                   float                                width = 2.0f);
 
+        void RecordMask(RenderHardware::CommandList&                           commands,
+                        const RenderHardware::Handle<RenderHardware::Texture>& mask,
+                        const std::vector<MeshDraw>&                           draws,
+                        const glm::mat4&                                       projection,
+                        glm::uvec2                                             viewport);
+        void RecordComposite(RenderHardware::CommandList&                           commands,
+                             const RenderHardware::RenderingDesc&                   target,
+                             const RenderHardware::Handle<RenderHardware::Texture>& mask,
+                             glm::uvec2                                             viewport,
+                             const glm::vec4&                                       color,
+                             float                                                  width = 2.0f);
+
     private:
         void       Resize(glm::uvec2 size);
         std::shared_ptr<RenderHardware::Device>                 m_Device;

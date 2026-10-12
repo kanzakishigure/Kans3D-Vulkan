@@ -82,51 +82,74 @@ namespace Kans
     {
         renderer.SetScene(this);
         renderer.BeginScene(info);
-        SubmitModels(renderer);
-
-        if (!m_LogicScene->m_Registry.view<SpriteRendererComponent>().empty())
+        Extract(renderer.m_View);
+        // Reuse one override vector while preparing parts; no allocation for each model.
+        ProductModelComponent preparation;
+        size_t                maxOverrides = 0;
+        for (const auto& model : renderer.m_View.Models)
+            maxOverrides = std::max(maxOverrides, model.OverrideCount);
+        preparation.Overrides.reserve(maxOverrides);
+        for (const auto& model : renderer.m_View.Models)
         {
-            Renderer2D::ResetStats();
-            Renderer2D::BeginScene(info.sceneCamera.camera.GetProjectionMatrix(), info.sceneCamera.viewMatrix);
-            auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-            for (auto entity : group)
-            {
-                auto [transform, sprite] = group.get(entity);
-                Renderer2D::DrawQuad(
-                    m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()}), sprite.Texture, sprite.Color);
-            }
-            Renderer2D::EndScene();
+            preparation.Model = model.Model;
+            const auto begin  = renderer.m_View.MaterialOverrides.begin() + model.OverrideBegin;
+            preparation.Overrides.assign(begin, begin + model.OverrideCount);
+            renderer.SubmitModel(preparation, model.Transform, model.Stencil);
         }
-
-        // Preserve the editor's legacy immediate order and opaque grid depth writes.
-        if (m_RenderResource.Piplinestate.EnableGridShader)
-            renderer.SubmitGrid(0.025f, 16.025f, glm::scale(glm::mat4(1.0f), glm::vec3(10, 1, 10)));
-
         if (renderer.GetEnvironment().IrradianceMap)
             renderer.SubmitSkybox(renderer.GetEnvironment().IrradianceMap);
-
         renderer.EndScene();
     }
 
-    void RenderScene::SubmitModels(SceneRenderer& renderer)
+    void RenderScene::Extract(RenderView& output) const
     {
+        CollectLights(output.Scene);
+        output.Models.clear();
+        output.MaterialOverrides.clear();
+        output.Geometry.clear();
+        output.Sprites.clear();
+        output.Grids.clear();
+        output.ImmediateOrder.clear();
         const auto& state = m_RenderResource.Piplinestate;
-        auto        view  = m_LogicScene->m_Registry.view<TransformComponent, ProductModelComponent>();
-        for (auto entity : view)
+        auto        models = m_LogicScene->m_Registry.view<TransformComponent, ProductModelComponent>();
+        for (auto entity : models)
         {
-            auto [transformCMP, model] = view.get(entity);
-            const glm::mat4 transform  = m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()});
-            renderer.SubmitModel(
-                model, transform, state.EnableStencil ? ModelStencilMode::WriteReference : ModelStencilMode::Disabled);
+            const auto&     model     = models.get<ProductModelComponent>(entity);
+            const glm::mat4 transform = m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()});
+            output.Models.push_back(
+                {model.Model,
+                 transform,
+                 state.EnableStencil ? ModelStencilMode::WriteReference : ModelStencilMode::Disabled,
+                 output.MaterialOverrides.size(),
+                 model.Overrides.size()});
+            output.MaterialOverrides.insert(
+                output.MaterialOverrides.end(), model.Overrides.begin(), model.Overrides.end());
             if (state.EnableStencil)
-                renderer.SubmitModelGeometry(model,
-                                             transform * glm::scale(glm::mat4(1.0f), glm::vec3(1.007f)),
-                                             "StencilShader",
-                                             ModelGeometryMode::StencilOutline);
+                output.Geometry.push_back({model,
+                                           transform * glm::scale(glm::mat4(1), glm::vec3(1.007f)),
+                                           "StencilShader",
+                                           ModelGeometryMode::StencilOutline});
             if (state.EnableOutline)
-                renderer.SubmitModelGeometry(model, transform, "OutLineShader", ModelGeometryMode::BackFaces);
+                output.Geometry.push_back({model, transform, "OutLineShader", ModelGeometryMode::BackFaces});
             if (state.EnableDebugNormal)
-                renderer.SubmitModelGeometry(model, transform, "DebugNormalShader");
+                output.Geometry.push_back({model, transform, "DebugNormalShader", ModelGeometryMode::Default});
+        }
+        if (!m_LogicScene->m_Registry.view<SpriteRendererComponent>().empty())
+        {
+            auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+            for (auto entity : group)
+            {
+                const auto& sprite = group.get<SpriteRendererComponent>(entity);
+                // Legacy runtime ignores TilingFactor and uses DrawQuad's default 1.
+                output.Sprites.push_back(
+                    {m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()}), sprite.Texture, sprite.Color});
+            }
+            output.ImmediateOrder.push_back({ViewImmediateKind::Sprites, 0});
+        }
+        if (state.EnableGridShader)
+        {
+            output.Grids.push_back({.025f, 16.025f, glm::scale(glm::mat4(1), glm::vec3(10, 1, 10)), {}});
+            output.ImmediateOrder.push_back({ViewImmediateKind::Grid, 0});
         }
     }
 

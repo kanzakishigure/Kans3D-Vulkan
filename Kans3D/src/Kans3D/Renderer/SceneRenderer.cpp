@@ -6,6 +6,7 @@
 #include "Kans3D/Asset/Importer/TextureSource.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/RHI/Backend.h"
+#include "Kans3D/Renderer/RenderPipeline.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
@@ -80,7 +81,14 @@ namespace Kans
     SceneRenderer::~SceneRenderer()
     {
         if (m_Active)
+        {
+            Renderer2D::ClearTarget();
             m_Device->EndFrame();
+        }
+        // Graph lists and pooled textures must release while our device is still alive.
+        m_Graph         = {};
+        m_TransientPool = {};
+        m_View          = {};
         m_Device->WaitIdle();
     }
 
@@ -97,45 +105,44 @@ namespace Kans
         const ModelInstances* instances = m_AssetCache->GetModel(model.Model);
         if (!instances)
             return;
+        // Prepare and extract one part at a time, preserving readiness observed by
+        // the former SubmitModel, even if duplicate mesh requests finish mid-loop.
         for (const auto& instance : instances->Instances)
             if (const auto* mesh = m_AssetCache->GetMesh(instance.Mesh))
-                m_ModelDraws.push_back({instance.Mesh,
-                                        transform * instance.Transform,
-                                        model.ResolveMaterial(instance.Mesh, mesh->Material, mesh->AuthoredMaterial),
-                                        m_ViewMode,
-                                        stencil});
+                ExtractModelPart(m_View,
+                                 model,
+                                 transform,
+                                 stencil,
+                                 m_ViewMode,
+                                 instance,
+                                 {mesh->LocalBounds, mesh->Material, mesh->AuthoredMaterial});
     }
 
-    void SceneRenderer::DrawShaderMaterials(const std::vector<ShaderDraw>& draws)
+    void SceneRenderer::PrepareDrawLists()
     {
-        if (!m_AssetCache || draws.empty())
-            return;
-        struct ReadyDraw
-        {
-            const ShaderDraw*   Draw;
-            MaterialRenderState Render;
-            float               DistanceSquared;
-        };
-        std::vector<ReadyDraw> ready;
-        for (const auto& draw : draws)
+        for (auto& draw : m_View.Draws)
         {
             const auto* mesh = m_AssetCache->GetMesh(draw.Mesh);
             const auto* bindings =
                 m_AssetCache->GetMaterialBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
-            if (!mesh || !bindings)
-                continue;
-            const glm::vec3 center = glm::vec3(draw.Transform * glm::vec4(mesh->LocalBounds.Center(), 1));
-            const glm::vec3 offset = center - m_SceneInfo.sceneCamera.Position;
-            ready.push_back({&draw, bindings->Render, glm::dot(offset, offset)});
+            draw.Ready = mesh && bindings;
+            if (draw.Ready)
+            {
+                draw.LocalBounds = mesh->LocalBounds;
+                draw.Render      = bindings->Render;
+            }
         }
-        std::stable_sort(ready.begin(), ready.end(), [](const ReadyDraw& a, const ReadyDraw& b) {
-            const bool aBlend = a.Render.AlphaMode == MaterialAlphaMode::Blend;
-            const bool bBlend = b.Render.AlphaMode == MaterialAlphaMode::Blend;
-            if (aBlend != bBlend)
-                return !aBlend;
-            return aBlend && a.DistanceSquared > b.DistanceSquared;
-        });
+        ExtractDrawLists(m_View);
+    }
 
+    void SceneRenderer::DrawShaderMaterials(
+        RenderHardware::CommandList&                                                       commandList,
+        const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled)
+    {
+        if (!m_AssetCache || m_View.MaterialOrder.empty())
+            return;
+        const auto&         ready    = m_View.MaterialOrder;
+        auto*               commands = &commandList;
         EngineFrameUniforms frame;
         frame.ViewProjection =
             m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
@@ -158,7 +165,6 @@ namespace Kans
             return;
         auto frames  = m_Device->CreateBuffer({frameStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
         auto objects = m_Device->CreateBuffer({objectStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
-        auto commands = m_Device->CreateCommandList();
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight), 0, 1});
         commands->SetScissor({0, 0, m_ViewportWidth, m_ViewportHeight});
@@ -167,7 +173,7 @@ namespace Kans
         std::optional<float> uploadedDebugView;
         for (const auto& item : ready)
         {
-            const auto& draw = *item.Draw;
+            const auto& draw = m_View.Draws[item.DrawIndex];
             // Requests may finish during this pass. Snapshot the state used for sorting,
             // but acquire GPU resources at the draw so a cache replacement cannot dangle a queued pointer.
             const auto* mesh = m_AssetCache->GetMesh(draw.Mesh);
@@ -204,12 +210,14 @@ namespace Kans
             pass.WriteStencil       = draw.Stencil == ModelStencilMode::WriteReference;
             pass.Render             = render;
             RecordMaterialDraw(*m_AssetCache, *commands, *shader, *bindings, *mesh, pass);
+            if (sampled)
+                for (const auto& image : bindings->Images)
+                    sampled(image);
             ++m_Stats.DrawCalls;
             m_Stats.Triangles += mesh->IndexCount / 3;
             ++range;
         }
         commands->EndRendering();
-        m_Device->Submit(commands);
     }
 
     std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> SceneRenderer::GetMaterialEnvironment()
@@ -258,10 +266,10 @@ namespace Kans
                                             const std::string&           shaderName,
                                             ModelGeometryMode            mode)
     {
-        m_GeometryDraws.push_back({model, transform, shaderName, mode});
+        m_View.Geometry.push_back({model, transform, shaderName, mode});
     }
 
-    void SceneRenderer::DrawModelGeometry(const GeometryDraw& draw)
+    void SceneRenderer::DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commandList)
     {
         using namespace RenderHardware;
         if (!m_AssetCache)
@@ -306,7 +314,7 @@ namespace Kans
                                    {4, 0, 48, VertexFormat::Float4}};
         }
         auto pipeline = m_Device->CreatePipeline(desc);
-        auto commands = m_Device->CreateCommandList();
+        auto* commands = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
         commands->BindPipeline(pipeline);
@@ -331,7 +339,6 @@ namespace Kans
                 m_Stats.Triangles += mesh->IndexCount / 3;
             }
         commands->EndRendering();
-        m_Device->Submit(commands);
     }
 
     RenderHardware::PipelineDesc
@@ -600,16 +607,34 @@ namespace Kans
         m_Active    = true;
         m_SceneInfo = info;
         m_Stats     = {};
-        m_ModelDraws.clear();
-        m_GeometryDraws.clear();
+        m_View.Draws.clear();
+        m_View.MaterialOrder.clear();
+        m_View.Geometry.clear();
+        m_View.Models.clear();
+        m_View.MaterialOverrides.clear();
+        m_View.Sprites.clear();
+        m_View.Grids.clear();
+        m_View.Skyboxes.clear();
+        m_View.SpriteBatches.clear();
+        m_View.ImmediateOrder.clear();
+        m_View.Scene           = info;
+        m_View.Viewport        = {m_ViewportWidth, m_ViewportHeight};
+        m_View.DebugMode       = m_ViewMode;
+        m_View.EnvironmentMaps = {m_Environment.IrradianceMap, m_Environment.RadianceMap};
+        m_View.BrdfLUT         = m_BrdfLUT;
         if (m_AssetCache)
             m_AssetCache->BeginFrame();
         m_Device->BeginFrame();
-        auto              commands = m_Device->CreateCommandList();
-        commands->BeginRendering(SceneTarget(RenderHardware::LoadOp::Clear));
-        commands->EndRendering();
-        m_Device->Submit(commands);
+        m_Graph       = {};
+        auto pipeline = RenderPipelineRegistry::Create(m_PipelineName);
+        pipeline->Begin(m_Graph, m_View, *this);
+        m_Graph.Compile();
+        m_Graph.ExecuteImportedPrefix(*m_Device);
         Renderer2D::SetTarget(m_Device, SceneTarget(RenderHardware::LoadOp::Load));
+        Renderer2D::SetSubmissionSink([this](auto commands, auto texture) {
+            m_View.ImmediateOrder.push_back({ViewImmediateKind::RecordedSprites, m_View.SpriteBatches.size()});
+            m_View.SpriteBatches.push_back({std::move(commands), std::move(texture)});
+        });
     }
 
     void SceneRenderer::AppendModelDraws(const ProductModelComponent& model,
@@ -632,48 +657,40 @@ namespace Kans
 
     void SceneRenderer::EndScene()
     {
-        const glm::mat4 viewProjection =
-            m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
-        if (m_Preview)
+        m_View.Highlight = std::move(m_Highlight);
+        m_View.Preview   = std::move(m_Preview);
+        if (m_View.Preview)
         {
             const SceneViewMode viewMode = m_ViewMode;
             m_ViewMode = SceneViewMode::Lit;
-            SubmitModel(m_Preview->Model, m_Preview->Transform);
+            SubmitModel(m_View.Preview->Model, m_View.Preview->Transform);
             m_ViewMode = viewMode;
         }
-        DrawShaderMaterials(m_ModelDraws);
-        for (const auto& draw : m_GeometryDraws)
-            DrawModelGeometry(draw);
-        m_ModelDraws.clear();
-        m_GeometryDraws.clear();
-        if (!m_Highlight.empty())
-        {
-            // Material/geometry passes may replace cached meshes. Resolve only at the outline draw.
-            std::vector<MeshDraw> draws;
-            for (const auto& model : m_Highlight)
-                AppendModelDraws(model.Model, model.Transform, 0, draws);
-            m_Outline.Draw(SceneTarget(RenderHardware::LoadOp::Load),
-                           draws,
-                           viewProjection,
-                           {m_ViewportWidth, m_ViewportHeight},
-                           {1.0f, 0.62f, 0.15f, 1.0f});
-            m_Highlight.clear();
-        }
-        if (m_Preview)
-        {
-            // Resolve after the highlight too: collecting its models can update the cache.
-            std::vector<MeshDraw> draws;
-            AppendModelDraws(m_Preview->Model, m_Preview->Transform, 0, draws);
-            m_Outline.Draw(SceneTarget(RenderHardware::LoadOp::Load),
-                           draws,
-                           viewProjection,
-                           {m_ViewportWidth, m_ViewportHeight},
-                           {0.35f, 0.7f, 1.0f, 1.0f});
-            m_Preview.reset();
-        }
+        PrepareDrawLists();
+        auto pipeline = RenderPipelineRegistry::Create(m_PipelineName);
+        pipeline->Build(m_Graph, m_View, *this);
+        m_Graph.Compile();
+        m_Graph.Execute(*m_Device, m_TransientPool);
+        m_Highlight.clear();
+        m_Preview.reset();
+        Renderer2D::SetSubmissionSink({});
         Renderer2D::ClearTarget();
         m_Device->EndFrame();
         m_Active = false;
+    }
+
+    void SceneRenderer::SetPipeline(const std::string& name)
+    {
+        // Validate immediately, so an unknown pipeline cannot strand an active frame.
+        RenderPipelineRegistry::Create(name);
+        m_PipelineName = name;
+    }
+
+    void SceneRenderer::SubmitSprites(std::vector<ViewSprite> sprites)
+    {
+        m_View.Sprites = std::move(sprites);
+        if (!m_View.Sprites.empty())
+            m_View.ImmediateOrder.push_back({ViewImmediateKind::Sprites, 0});
     }
 
     PickHit SceneRenderer::PickSurface(const std::vector<MeshDraw>& draws,
@@ -703,6 +720,15 @@ namespace Kans
 
     void SceneRenderer::SubmitGrid(float size, float scale, glm::mat4 transform, ImmediatePassState state)
     {
+        m_View.ImmediateOrder.push_back({ViewImmediateKind::Grid, m_View.Grids.size()});
+        m_View.Grids.push_back({size, scale, transform, state});
+    }
+
+    void SceneRenderer::DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commandList)
+    {
+        const auto  size = grid.Size, scale = grid.Scale;
+        const auto& transform = grid.Transform;
+        const auto& state     = grid.State;
         using namespace RenderHardware;
         auto desc = ScenePipeline("GridShader", SceneShaders::GridVertex, SceneShaders::GridFragment, false);
         if (!desc.Program)
@@ -730,7 +756,7 @@ namespace Kans
         data.ViewProjection = m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
         data.Transform      = transform;
         data.Settings       = {scale, size, 0, 0};
-        auto commands       = m_Device->CreateCommandList();
+        auto* commands      = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
         commands->BindPipeline(m_Device->CreatePipeline(desc));
@@ -739,11 +765,20 @@ namespace Kans
         commands->BindIndexBuffer(ib, IndexType::Uint32);
         commands->DrawIndexed(6);
         commands->EndRendering();
-        m_Device->Submit(commands);
     }
 
     void SceneRenderer::SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state)
     {
+        if (!skybox)
+            return;
+        m_View.ImmediateOrder.push_back({ViewImmediateKind::Skybox, m_View.Skyboxes.size()});
+        m_View.Skyboxes.push_back({std::move(skybox), state});
+    }
+
+    void SceneRenderer::DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commandList)
+    {
+        const auto& skybox = sky.Texture;
+        const auto& state  = sky.State;
         using namespace RenderHardware;
         if (!skybox)
             return;
@@ -771,7 +806,7 @@ namespace Kans
         data.ViewProjection = m_SceneInfo.sceneCamera.camera.GetProjectionMatrix();
         data.Transform      = m_SceneInfo.sceneCamera.viewMatrix;
         GetMaterialEnvironment();
-        auto commands = m_Device->CreateCommandList();
+        auto* commands = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
         commands->BindPipeline(m_Device->CreatePipeline(desc));
@@ -780,7 +815,6 @@ namespace Kans
         commands->BindIndexBuffer(m_Cube->Indices, IndexType::Uint32);
         commands->DrawIndexed(m_Cube->IndexCount);
         commands->EndRendering();
-        m_Device->Submit(commands);
     }
 
 } // namespace Kans

@@ -14,6 +14,8 @@ function(kans_copy_test_runtime target)
     endif()
 endfunction()
 add_executable(Kans3DTests
+    RenderGraphTests.cpp
+    RenderViewTests.cpp
     ReferenceImageTests.cpp
     ReferenceImage.cpp
     CoreIdentityConcurrencyTests.cpp

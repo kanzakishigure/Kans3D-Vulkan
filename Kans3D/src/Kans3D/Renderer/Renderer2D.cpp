@@ -56,6 +56,8 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         // first sprite. Each standalone consumer may explicitly supply an RHI target.
         std::shared_ptr<Device> TargetDevice;
         RenderingDesc           Target;
+        Renderer2D::SubmissionSink Submission;
+        CommandList*               Recording = nullptr;
         uint32_t                Width = 0, Height = 0;
         void                    Append(const glm::mat4&      transform,
                                        const Ref<Texture2D>& texture,
@@ -134,8 +136,12 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         Width             = std::max(1u, desc.Width >> Target.Colors[0].Subresource.Mip);
         Height            = std::max(1u, desc.Height >> Target.Colors[0].Subresource.Mip);
     }
+    void Renderer2D::SetSubmissionSink(SubmissionSink sink) { Submission = std::move(sink); }
+    void Renderer2D::SetCommandList(CommandList* commands) { Recording = commands; }
     void Renderer2D::ClearTarget()
     {
+        Submission = {};
+        Recording  = nullptr;
         Target = {};
         TargetDevice.reset();
     }
@@ -208,7 +214,8 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
             desc.ColorFormats.push_back(color.Target->GetDesc().PixelFormat);
             desc.Blends.push_back(blend);
         }
-        auto commands = device.CreateCommandList();
+        auto  owned    = Recording ? Handle<CommandList> {} : device.CreateCommandList();
+        auto* commands = Recording ? Recording : owned.get();
         commands->BeginRendering(Target);
         commands->SetViewport({0, 0, float(Width), float(Height)});
         commands->BindPipeline(device.CreatePipeline(desc));
@@ -219,7 +226,13 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         commands->BindIndexBuffer(Data.Indices, IndexType::Uint32);
         commands->DrawIndexed(uint32_t(Data.Vertices.size() / 4) * 6);
         commands->EndRendering();
-        device.Submit(commands);
+        if (owned)
+        {
+            if (Submission)
+                Submission(owned, image);
+            else
+                device.Submit(owned);
+        }
         ++Data.Stats.DrawCalls;
         Data.Vertices.clear();
         Data.Texture.reset();

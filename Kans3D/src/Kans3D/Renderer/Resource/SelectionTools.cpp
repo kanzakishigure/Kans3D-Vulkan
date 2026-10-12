@@ -237,6 +237,20 @@ void main()
             if (!m_Device)
                 return;
         }
+        Resize(viewport);
+        auto commands = m_Device->CreateCommandList();
+        RecordMask(*commands, m_Texture, draws, projection, viewport);
+        RecordComposite(*commands, target, m_Texture, viewport, color, width);
+        m_Device->Submit(commands);
+    }
+
+    void SelectionOutline::RecordMask(RenderHardware::CommandList&                           commands,
+                                      const RenderHardware::Handle<RenderHardware::Texture>& maskTexture,
+                                      const std::vector<MeshDraw>&                           draws,
+                                      const glm::mat4&                                       projection,
+                                      glm::uvec2                                             viewport)
+    {
+        using namespace RenderHardware;
         if (!m_Mask)
         {
             auto desc = MeshPipeline(*m_Device, "SelectionMask", MaskFragment, Format::R8Unorm);
@@ -250,6 +264,26 @@ void main()
             sampler.U = sampler.V = sampler.W = AddressMode::ClampToEdge;
             m_Sampler                         = m_Device->CreateSampler(sampler);
         }
+        RenderingDesc mask;
+        mask.Colors = {{maskTexture}};
+        commands.BeginRendering(mask);
+        commands.SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
+        commands.SetScissor({0, 0, viewport.x, viewport.y});
+        DrawMeshes(
+            *m_Device, commands, m_Mask, draws, DeviceProjection(projection, m_Device->GetCoordinateConventions()));
+        commands.EndRendering();
+    }
+
+    void SelectionOutline::RecordComposite(RenderHardware::CommandList&                           commands,
+                                           const RenderHardware::RenderingDesc&                   target,
+                                           const RenderHardware::Handle<RenderHardware::Texture>& maskTexture,
+                                           glm::uvec2                                             viewport,
+                                           const glm::vec4&                                       color,
+                                           float                                                  width)
+    {
+        using namespace RenderHardware;
+        if (!m_Layout)
+            return;
         // Target formats are part of the pipeline, so a different target cannot reuse incompatible state.
         PipelineDesc desc;
         desc.Program = m_Composite ? m_Composite->GetDesc().Program :
@@ -270,34 +304,23 @@ void main()
         blend.DestinationAlpha = BlendFactor::One;
         desc.Blends.resize(desc.ColorFormats.size(), blend);
         m_Composite = m_Device->CreatePipeline(desc);
-        Resize(viewport);
-        auto          commands = m_Device->CreateCommandList();
-        RenderingDesc mask;
-        mask.Colors = {{m_Texture}};
-        commands->BeginRendering(mask);
-        commands->SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
-        commands->SetScissor({0, 0, viewport.x, viewport.y});
-        DrawMeshes(
-            *m_Device, *commands, m_Mask, draws, DeviceProjection(projection, m_Device->GetCoordinateConventions()));
-        commands->EndRendering();
         auto composite = target;
         composite.Colors.resize(1);
         for (auto& attachment : composite.Colors)
             attachment.Load = LoadOp::Load;
         composite.Depth.Load = LoadOp::Load;
-        commands->BeginRendering(composite);
-        commands->SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
-        commands->SetScissor({0, 0, viewport.x, viewport.y});
-        commands->BindPipeline(m_Composite);
+        commands.BeginRendering(composite);
+        commands.SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
+        commands.SetScissor({0, 0, viewport.x, viewport.y});
+        commands.BindPipeline(m_Composite);
         BindGroupEntry entry;
-        entry.TextureResource = m_Texture;
+        entry.TextureResource = maskTexture;
         entry.SamplerResource = m_Sampler;
         const CompositeData data {color, glm::ivec4(std::clamp(int(width + 0.5f), 1, 6), 0, 0, 0)};
         auto parameters = m_Device->CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
         parameters->Write(0, &data, sizeof(data));
-        commands->BindGroup(m_Device->CreateBindGroup({m_Layout, {entry, {1, parameters}}}));
-        commands->Draw(3);
-        commands->EndRendering();
-        m_Device->Submit(commands);
+        commands.BindGroup(m_Device->CreateBindGroup({m_Layout, {entry, {1, parameters}}}));
+        commands.Draw(3);
+        commands.EndRendering();
     }
 } // namespace Kans

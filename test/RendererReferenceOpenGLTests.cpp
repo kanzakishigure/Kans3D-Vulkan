@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <thread>
@@ -551,5 +552,123 @@ namespace
         EXPECT_EQ(Renderer2D::GetStats().DrawCalls, 1u);
         EXPECT_EQ(Renderer2D::GetStats().QuadCount, 1u);
         CompareScene("renderer2d-sprite", {1, 0.0});
+    }
+    TEST_F(RendererReferenceGL, FullRuntimeFrameIsByteIdenticalToPhaseOne)
+    {
+        // Baseline from the unmodified phase-one runtime path. All attachment bytes
+        // detect moving sprites/grid/sky after materials, shell state, or outline order.
+        Renderer2D::Init();
+        SpriteInitialized                                  = true;
+        auto camera                                        = Logic->CreateEntity("frame camera");
+        camera.GetComponent<TransformComponent>().Position = {0, 1.4f, 4};
+        camera.GetComponent<TransformComponent>().Rotation = {-.32f, 0, 0};
+        camera.AddComponent<CameraComponent>().SceneCamera.SetPerspectve(glm::radians(45.0f), .1f, 20);
+        auto light                                        = Logic->CreateEntity("frame light");
+        light.GetComponent<TransformComponent>().Position = Info.pointLight.Position;
+        auto& lighting                                    = light.AddComponent<PointLightComponent>();
+        lighting.Ambient_Intensity                        = Info.pointLight.Ambient_Intensity;
+        lighting.Diffuse_Intensity                        = Info.pointLight.Diffuse_Intensity;
+        lighting.Specular_Intensity                       = Info.pointLight.Specular_Intensity;
+        auto model                                        = Logic->CreateEntity("frame model");
+        model.AddComponent<ProductModelComponent>(Sphere);
+        model.GetComponent<TransformComponent>().Scale     = glm::vec3(.7f);
+        auto sprite                                        = Logic->CreateEntity("frame sprite");
+        sprite.GetComponent<TransformComponent>().Position = {-.3f, .2f, .5f};
+        sprite.GetComponent<TransformComponent>().Scale    = {1.2f, .8f, 1};
+        sprite.AddComponent<SpriteRendererComponent>(glm::vec4(.8f, .4f, .2f, .7f),
+                                                     Renderer->GetAssetCache()->GetTexture(Albedo));
+        auto runtime = CreateRef<SceneRenderer>(Render.get());
+        runtime->SetAssetManager(Assets.get());
+        runtime->PrepareEnvironment({32, 8, 32, 32});
+        // Prewarm the same ready assets; this test isolates frame structure from async loading.
+        for (auto id : Models)
+            ASSERT_TRUE(runtime->GetAssetCache()->GetModel(id));
+        for (auto id : Meshes)
+            ASSERT_TRUE(runtime->GetAssetCache()->GetMesh(id));
+        for (auto id : Materials)
+            ASSERT_TRUE(runtime->GetAssetCache()->GetMaterialBindings(id));
+        RenderResource settings {};
+        settings.Piplinestate.EnableStencil     = true;
+        settings.Piplinestate.EnableOutline     = true;
+        settings.Piplinestate.EnableDebugNormal = true;
+        Render->SetRenderResource(settings);
+        runtime->SetHighlight({{Sphere, glm::scale(glm::mat4(1), glm::vec3(.7f))}});
+        runtime->SetPreview(Quad, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
+        Logic->OnViewportResize(Size, Size);
+        Render->OnRenderRuntime(runtime, TimeStep(0));
+        EXPECT_EQ(runtime->GetStats().DrawCalls, 5u);
+        EXPECT_EQ(runtime->GetStats().Triangles, 4098u);
+        EXPECT_EQ(Renderer2D::GetStats().QuadCount, 1u);
+        EXPECT_EQ(Renderer2D::GetStats().DrawCalls, 1u);
+        auto                                                         target = runtime->GetRenderTarget();
+        std::vector<RenderHardware::Handle<RenderHardware::Texture>> attachments {
+            target.Colors[0].Target, target.Colors[1].Target, target.Depth.Target};
+        for (size_t i = 0; i < attachments.size(); ++i)
+        {
+            auto device = runtime->GetDevice();
+            auto buffer = device->CreateBuffer(
+                {Size * Size * 4, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(attachments[i], {}, buffer);
+            device->Submit(commands);
+            device->WaitIdle();
+            auto                   bytes = buffer->Read(0, Size * Size * 4);
+            std::vector<std::byte> digestBytes(bytes.size());
+            std::memcpy(digestBytes.data(), bytes.data(), bytes.size());
+            const char* expected[] = {"527d5095838ce92fa68ccd0d17a8f019c9e7c6140027255d8d72bd5f9eb04540",
+                                      "d1b4803bb70e5b8e4a1b68ed184ddfd2a8fe31cba2a72561c6870b0da2feb6db",
+                                      "62d92c7f002105fa75ac102c333e394e9b3706a8c5ad7a9da310d49680544988"};
+            EXPECT_EQ(ComputeContentDigest(digestBytes), expected[i]) << "attachment " << i;
+        }
+        const auto&              graph = runtime->GetRenderGraph();
+        std::vector<std::string> passes;
+        for (auto pass : graph.ExecutionOrder())
+            passes.push_back(graph.PassName(pass));
+        EXPECT_EQ(passes,
+                  (std::vector<std::string> {"Clear",
+                                             "Renderer2D sprites",
+                                             "Grid",
+                                             "Skybox",
+                                             "Materials (opaque/mask, blend)",
+                                             "Legacy geometry",
+                                             "Selection mask",
+                                             "Selection composite",
+                                             "Preview mask",
+                                             "Preview composite"}));
+        RenderHardware::Handle<RenderHardware::Texture> mask;
+        size_t                                          maskCount = 0;
+        for (size_t i = 0; i < graph.Resources().size(); ++i)
+            if (!graph.Resources()[i].Imported)
+            {
+                ++maskCount;
+                if (mask)
+                    EXPECT_EQ(graph.Texture(uint32_t(i)), mask); // Selection and preview alias.
+                mask = graph.Texture(uint32_t(i));
+            }
+        EXPECT_EQ(maskCount, 2u);
+        ASSERT_TRUE(mask);
+        // Catches recreating masks each frame even though viewport and lifetimes are stable.
+        for (int frame = 0; frame < 5; ++frame)
+        {
+            if (frame == 2)
+            {
+                // Deselect for one frame; selecting again must reuse the stable-viewport mask.
+                Render->OnRenderRuntime(runtime, TimeStep(0));
+                for (const auto& resource : runtime->GetRenderGraph().Resources())
+                    EXPECT_TRUE(resource.Imported);
+                EXPECT_EQ(runtime->GetStats().DrawCalls, 4u);
+            }
+            runtime->SetHighlight({{Sphere, glm::scale(glm::mat4(1), glm::vec3(.7f))}});
+            runtime->SetPreview(Quad, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
+            Render->OnRenderRuntime(runtime, TimeStep(0));
+            const auto& next = runtime->GetRenderGraph();
+            for (size_t i = 0; i < next.Resources().size(); ++i)
+                if (!next.Resources()[i].Imported)
+                    EXPECT_EQ(next.Texture(uint32_t(i)), mask);
+            EXPECT_EQ(runtime->GetStats().DrawCalls, 5u);
+            EXPECT_EQ(runtime->GetStats().Triangles, 4098u);
+        }
+        for (auto entity : {sprite, model, light, camera})
+            Logic->DestroyEntity(entity);
     }
 } // namespace

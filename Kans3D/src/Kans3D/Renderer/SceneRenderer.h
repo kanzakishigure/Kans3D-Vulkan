@@ -1,7 +1,8 @@
 #pragma once
 #include <chrono>
 #include <glm/glm.hpp>
-#include "ImmediatePassState.h"
+#include "Graph/RenderGraph.h"
+#include "RenderView.h"
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
@@ -11,32 +12,6 @@
 
 namespace Kans
 {
-    struct SceneRendererCamera
-    {
-        Camera    camera;
-        glm::mat4 viewMatrix;
-        glm::vec3 Position;
-    };
-    struct SceneInfo
-    {
-        DirLight            dirLight;
-        PointLight          pointLight;
-        SceneRendererCamera sceneCamera;
-    };
-
-    // Explicit deferred draw intent; submission does not inspect GL state.
-    enum class ModelStencilMode
-    {
-        Disabled,
-        WriteReference, // Write 1 where a material fragment passes depth.
-    };
-    enum class ModelGeometryMode
-    {
-        Default,
-        StencilOutline, // Only outside reference 1, with no stencil writes.
-        BackFaces,      // Inverted hull outline: cull front faces.
-    };
-
     // Default sizes preserve the editor's environment precomputation. Small
     // offscreen clients can select lower resolutions without changing shaders.
     struct EnvironmentPrecomputeSizes
@@ -51,26 +26,10 @@ namespace Kans
 
     class Scene;
 
-    // How the editor viewport shades models.
-    enum class SceneViewMode
-    {
-        Lit,
-        BaseColor,
-        Normals,
-        Wireframe,
-    };
-
     struct SceneRenderStats
     {
         uint32_t DrawCalls = 0;
         uint64_t Triangles = 0;
-    };
-
-    // Deferred model draw intent. GPU resources are resolved when the draw is consumed.
-    struct ModelDraw
-    {
-        ProductModelComponent Model;
-        glm::mat4             Transform {1.0f};
     };
 
     class SceneRenderer : public RefCounter
@@ -121,6 +80,11 @@ namespace Kans
         void                  SetViewportSize(uint32_t width, uint32_t height);
         std::vector<uint32_t> GetViewportSize() { return {m_ViewportWidth, m_ViewportHeight}; }
 
+        void               SubmitSprites(std::vector<ViewSprite> sprites);
+        const RenderView&  GetRenderView() const { return m_View; }
+        const RenderGraph& GetRenderGraph() const { return m_Graph; }
+        void               SetPipeline(const std::string& name);
+        const std::string& GetPipeline() const { return m_PipelineName; }
         void SubmitGrid(float size, float scale, glm::mat4 transform, ImmediatePassState state = {});
         void SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state = {});
 
@@ -143,25 +107,21 @@ namespace Kans
     private:
         RenderHardware::PipelineDesc
         ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled);
-        struct ShaderDraw
-        {
-            AssetID          Mesh;
-            glm::mat4        Transform;
-            AssetID          Material;
-            SceneViewMode    ViewMode;
-            ModelStencilMode Stencil;
-        };
-        struct GeometryDraw
-        {
-            ProductModelComponent Model;
-            glm::mat4             Transform;
-            std::string           ShaderName;
-            ModelGeometryMode     Mode;
-        };
-        void                      DrawShaderMaterials(const std::vector<ShaderDraw>& draws);
-        void                      DrawModelGeometry(const GeometryDraw& draw);
-        std::vector<ShaderDraw>   m_ModelDraws;
-        std::vector<GeometryDraw> m_GeometryDraws;
+        using ShaderDraw   = ViewShaderDraw;
+        using GeometryDraw = ViewGeometryDraw;
+        void DrawShaderMaterials(
+            RenderHardware::CommandList&                                                       commands,
+            const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled = {});
+        void                 DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commands);
+        void                 DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commands);
+        void                 DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
+        void                 PrepareDrawLists();
+        RenderView           m_View;
+        TransientTexturePool m_TransientPool;
+        RenderGraph          m_Graph;
+        std::string          m_PipelineName = "Forward";
+        friend class ForwardPipeline;
+        friend class RenderScene;
 
         // SceneRenderer did't handle the life of Scnene;
         RenderScene*               m_RenderScene;
