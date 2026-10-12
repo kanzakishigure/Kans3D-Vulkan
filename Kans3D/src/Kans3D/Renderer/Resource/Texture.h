@@ -19,7 +19,6 @@ namespace Kans
         virtual uint32_t                                  GetHeight() const         = 0;
         virtual uint32_t                                  GetWidth() const          = 0;
         virtual uintptr_t                                 GetImGuiTextureID() const = 0;
-        [[deprecated("Use GetImGuiTextureID")]] uintptr_t GetRenererID() const { return GetImGuiTextureID(); }
         virtual const std::filesystem::path&              GetPath() const = 0;
     };
     class Texture2D : public Texture

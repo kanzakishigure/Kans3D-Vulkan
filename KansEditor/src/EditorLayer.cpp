@@ -3,7 +3,6 @@
 #include <filesystem>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <Kans3D/Platform/OpenGL/OpenGLShader.h>
 
 #include "ImGuizmo.h"
 // TestInclude
@@ -109,13 +108,7 @@ namespace Kans
             m_History.Reset(*m_ActiveScene);
         }
 
-        // post Init Renderer pipeline
-        {
-            m_ActiveRenderScene = CreateRef<RenderScene>(m_ActiveScene);
-            RenderPipelineSpecification pipline_init_specification;
-            pipline_init_specification.render_scene = m_ActiveRenderScene;
-            Renderer::InitRenderPipline(pipline_init_specification);
-        }
+        m_ActiveRenderScene = CreateRef<RenderScene>(m_ActiveScene);
 
         {
 

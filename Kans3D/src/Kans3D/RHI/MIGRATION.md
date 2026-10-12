@@ -31,13 +31,11 @@ files cannot be read. The statement-level caller audit and regressions are in
 UI-frame exports retain textures through main and secondary viewport rendering,
 including intervening preview/picker retirement. UI-frame completion releases them.
 
-Editor compatibility retained, without editor source edits:
-
-- Empty `Platform/OpenGL/OpenGLShader.h` for EditorLayer's unused include.
-- `RenderPipelineSpecification::render_scene` and no-op
-  `Renderer::InitRenderPipline` for its obsolete pipeline setup.
-- Deprecated `Texture::GetRenererID()` alias, returning the same `uintptr_t` ID.
-- `Renderer::GetWhiteTexture()` for the sprite-creation menu, lazily RHI-owned.
+Phase 1d moved the editor to `GetImGuiTextureID()` and removed the temporary
+editor shims (the empty `OpenGLShader.h`, `RenderPipelineSpecification` with
+`Renderer::InitRenderPipline`, and the `GetRenererID()` alias).
+`Renderer::GetWhiteTexture()` remains a regular, lazily RHI-owned engine API used
+by the sprite-creation menus.
 
 ImGuiLayer uses `CreateImGuiRenderer(backend, window)`. The OpenGL implementation
 owns GLFW/OpenGL3 integration, context restoration for secondary windows and

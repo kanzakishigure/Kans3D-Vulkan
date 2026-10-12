@@ -826,7 +826,7 @@ namespace Kans
         const float scale  = side / std::max(width, height);
         const ImVec2 size(width * scale, height * scale);
         const ImVec2 at(min.x + (side - size.x) * 0.5f, min.y + (side - size.y) * 0.5f);
-        draw->AddImage(reinterpret_cast<ImTextureID>(uintptr_t(texture->GetRenererID())),
+        draw->AddImage(reinterpret_cast<ImTextureID>(uintptr_t(texture->GetImGuiTextureID())),
                        at,
                        {at.x + size.x, at.y + size.y},
                        {0, 1},
@@ -1103,7 +1103,7 @@ namespace Kans
                 // Leave room for the details below in short panels.
                 const float limit = std::clamp(ImGui::GetContentRegionAvail().y * 0.4f, 64.0f, 260.0f);
                 const float scale = std::min(width / w, limit / h);
-                ImGui::Image(reinterpret_cast<ImTextureID>(uintptr_t(texture->GetRenererID())),
+                ImGui::Image(reinterpret_cast<ImTextureID>(uintptr_t(texture->GetImGuiTextureID())),
                              {w * scale, h * scale},
                              {0, 1},
                              {1, 0});

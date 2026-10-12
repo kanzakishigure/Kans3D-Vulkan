@@ -368,7 +368,7 @@ namespace Kans
         }
         // Uploads store the image bottom row first (OpenGL convention).
         const ImVec2 uv0(0, 1), uv1(1, 0);
-        const auto   id = (ImTextureID)(uintptr_t)thumbnail->Texture->GetRenererID();
+        const auto   id = (ImTextureID)(uintptr_t)thumbnail->Texture->GetImGuiTextureID();
         ImGui::Image(id, {size, size}, uv0, uv1);
         if (ImGui::IsItemHovered())
         {

@@ -109,8 +109,8 @@ texture subresource independently.
 
 `GetImGuiTextureID(texture, sampling)` returns a draw ID as `uintptr_t`.
 Optional neutral sampling configures the ImGui view, while RHI draws use
-independent samplers. Texture2D wraps an RHI image and supplies this description;
-its deprecated `GetRenererID` alias returns the identical value. Exports during
+independent samplers. Texture2D wraps an RHI image and supplies this description
+through `Texture::GetImGuiTextureID()`. Exports during
 `ImGuiRenderer::NewFrame` through `EndFrame` retain images across intervening
 `WaitIdle`/scene frame retirement and all platform-window draws. After UI completion,
 normal device retirement can destroy a released image.

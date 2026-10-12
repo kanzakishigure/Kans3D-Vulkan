@@ -455,20 +455,4 @@ namespace
         RenderHardware::SetBackend(RenderHardware::Backend::None);
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
     }
-    TEST(TextureProductUpload, DeprecatedIdAliasKeepsPointerWidth)
-    {
-        // Bug: the compatibility alias narrows a descriptor/pointer-sized ImGui ID to the old uint32 GL name.
-        class TokenTexture final : public Texture
-        {
-            fs::path Path;
-
-        public:
-            uint32_t        GetWidth() const override { return 1; }
-            uint32_t        GetHeight() const override { return 1; }
-            uintptr_t       GetImGuiTextureID() const override { return uintptr_t(UINT64_C(0x12345678abcdef01)); }
-            const fs::path& GetPath() const override { return Path; }
-        } texture;
-        // On 64-bit platforms the high word must survive; 32-bit platforms retain their full pointer width.
-        EXPECT_EQ(texture.GetRenererID(), uintptr_t(UINT64_C(0x12345678abcdef01)));
-    }
 } // namespace

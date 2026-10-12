@@ -104,7 +104,6 @@ namespace
             ASSERT_TRUE(texture);
             auto id = texture->GetImGuiTextureID();
             EXPECT_EQ(id, texture->GetDevice()->GetImGuiTextureID(texture->GetResource()));
-            EXPECT_EQ(texture->GetRenererID(), id);
             ImGui::GetBackgroundDrawList()->AddImage(reinterpret_cast<ImTextureID>(id), {0, 0}, {16, 16});
             DrawUI();
             auto pixel = Pixel();
