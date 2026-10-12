@@ -1,8 +1,8 @@
 #include "kspch.h"
 #include "VulkanShaderCompiler.h"
+#include "Kans3D/RHI/Backend.h"
 
 #include "Kans3D/FileSystem/FileSystem.h"
-#include "Kans3D/Renderer/Renderer.h"
 #include "ShaderPreprocessing/ShaderHeadIncluder.h"
 #include "VulkanShaderCache.h"
 
@@ -16,19 +16,19 @@ namespace Kans
 
     namespace Utils
     {
-        template<RendererAPIType API>
+        template<RenderHardware::Backend API>
         std::filesystem::path GetCacheDirectory()
         {
-            if constexpr (API == RendererAPIType::Vulkan)
+            if constexpr (API == RenderHardware::Backend::Vulkan)
             {
                 return KansFileSystem::GetShaderCacheFolder() / "Vulkan";
             }
-            if constexpr (API == RendererAPIType::OPENGL)
+            if constexpr (API == RenderHardware::Backend::OpenGL)
             {
                 return KansFileSystem::GetShaderCacheFolder() / "OpenGL";
             }
         }
-        template<RendererAPIType API>
+        template<RenderHardware::Backend API>
         bool CreateCacheDirectoryIfNeeded()
         {
             std::filesystem::path cachePath = GetCacheDirectory<API>();
@@ -143,7 +143,7 @@ namespace Kans
         m_SPIRVDebugData.clear();
         m_SPIRVData.clear();
 
-        Utils::CreateCacheDirectoryIfNeeded<RendererAPIType::Vulkan>();
+        Utils::CreateCacheDirectoryIfNeeded<RenderHardware::Backend::Vulkan>();
         std::string source = KansFileSystem::ReadFileSkipBOM(m_ShaderSourcePath);
 
         m_ShaderSource = Preprocess(source);
@@ -208,10 +208,6 @@ namespace Kans
             options.SetIncluder(std::unique_ptr<GLSLHeadIncluder>(headIncluder));
 
             // options.SetGenerateDebugInfo();
-            const auto& globalMacros = Renderer::GetGlobalShaderMacros();
-            for (const auto& [name, value] : globalMacros)
-                options.AddMacroDefinition(name, value);
-
             // we can generate shader hash from shaderSource
             shaderc::PreprocessedSourceCompilationResult result = compiler.PreprocessGlsl(
                 shaderSource, ShaderUtils::ShaderStageToShaderc(stage), m_ShaderSourcePath.string().c_str(), options);
@@ -265,7 +261,7 @@ namespace Kans
     {
 
         PROFILE_SCOPE_LOG("compile")
-        std::filesystem::path cacheDir  = Utils::GetCacheDirectory<RendererAPIType::Vulkan>();
+        std::filesystem::path cacheDir  = Utils::GetCacheDirectory<RenderHardware::Backend::Vulkan>();
         const auto            extention = ShaderUtils::ShaderStageCachedFileExtension(stage, debug);
 
         bool needCompile = stage & changedStages;

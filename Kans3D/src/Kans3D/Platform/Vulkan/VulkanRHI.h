@@ -2,8 +2,7 @@
 #include <vulkan/vulkan.h>
 #include "Kans3D/Platform/Vulkan/VulkanDevice.h"
 #include "Kans3D/Platform/Vulkan/VulkanSwapChain.h"
-#include "Kans3D/Renderer/RHI/RHI.h"
-#include "Kans3D/Renderer/Renderer.h"
+#include "Kans3D/Renderer/RHI/Vulkan/RHI.h"
 
 namespace Kans
 {
@@ -11,7 +10,7 @@ namespace Kans
     {
     public:
         static VkInstance        GetInstance() { return s_VulkanInstance; }
-        static Ref<VulkanRHI>    Get() { return std::dynamic_pointer_cast<VulkanRHI>(Renderer::GetRHI()); }
+        static VulkanRHI*        Get() { return s_Current; }
         static Ref<VulkanDevice> GetCurrentDevice() { return VulkanRHI::Get()->GetDevice(); }
 
         virtual void Init() override;
@@ -36,6 +35,7 @@ namespace Kans
 
     private:
         // Vulkan instance
+        inline static VulkanRHI* s_Current = nullptr;
         inline static VkInstance s_VulkanInstance;
         // Devices
         Ref<VulkanPhysicalDevice> m_PhysicalDevice;

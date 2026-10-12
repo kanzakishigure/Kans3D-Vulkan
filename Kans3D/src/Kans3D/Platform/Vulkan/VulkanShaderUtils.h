@@ -1,7 +1,7 @@
 #pragma once
-#include <shaderc/shaderc.h>
 #include <vulkan/vulkan.h>
-#include "Kans3D/Renderer/Resource/Shader.h"
+#include <shaderc/shaderc.h>
+#include "Kans3D/Platform/Vulkan/VulkanShaderTypes.h"
 namespace Kans
 {
     namespace ShaderUtils

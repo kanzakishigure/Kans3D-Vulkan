@@ -4,7 +4,6 @@
 #include "Kans3D/RHI/RHI.h"
 #include "Resource/Camera.h"
 #include "Resource/OrthographicCamera.h"
-#include "Resource/Shader.h"
 #include "Resource/SubTexture2D.h"
 #include "Resource/Texture.h"
 

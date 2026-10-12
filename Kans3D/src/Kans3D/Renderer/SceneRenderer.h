@@ -1,7 +1,6 @@
 #pragma once
 #include <chrono>
 #include <glm/glm.hpp>
-#include "Kans3D/Renderer/RHI/FrameBuffer.h"
 #include "ImmediatePassState.h"
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
@@ -24,7 +23,6 @@ namespace Kans
         PointLight          pointLight;
         SceneRendererCamera sceneCamera;
     };
-    class ShaderLibrary;
 
     // Explicit deferred draw intent; submission does not inspect GL state.
     enum class ModelStencilMode
@@ -49,10 +47,6 @@ namespace Kans
     struct SceneRendererSpecification
     {
         bool SwapChainTarget = false;
-        // Source-compatible legacy fields. Built-in passes now use engine-owned shaders.
-        Ref<ShaderLibrary> GeometryShaders;
-        // Accepted for existing offscreen clients; no resource-folder dependency.
-        Ref<ShaderLibrary> AuxiliaryShaders;
     };
 
     class Scene;

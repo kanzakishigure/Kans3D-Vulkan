@@ -86,10 +86,10 @@ namespace Kans
         resourcePath /= relativePath;
 
         TextureSpecification spec;
-        spec.Format       = RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB;
-        spec.Minf         = RHIFilter::RHI_FILTER_LINEAR;
-        spec.Maxf         = RHIFilter::RHI_FILTER_LINEAR;
-        spec.Wrap         = RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        spec.Format       = RenderHardware::Format::RGBA8Unorm;
+        spec.Minf         = RenderHardware::Filter::Linear;
+        spec.Maxf         = RenderHardware::Filter::Linear;
+        spec.Wrap         = RenderHardware::AddressMode::ClampToEdge;
         spec.GenerateMips = true;
         return Texture2D::Create(spec, resourcePath.string());
     }

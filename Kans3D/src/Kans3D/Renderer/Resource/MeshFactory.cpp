@@ -23,28 +23,4 @@ namespace Kans
         return mesh;
     }
 
-    Ref<VertexArray> MeshFactory::CreatQuad(const glm::vec2 size)
-    {
-        struct QuadVertex
-        {
-            glm::vec3 Position;
-            glm::vec2 TextureCroods;
-        };
-        const QuadVertex vertices[4] = {{{-size.x / 2.0f, 0.0f, -size.y / 2.0f}, {0.0f, 0.0f}},
-                                        {{size.x / 2.0f, 0.0f, -size.y / 2.0f}, {1.0f, 0.0f}},
-                                        {{size.x / 2.0f, 0.0f, size.y / 2.0f}, {1.0f, 1.0f}},
-                                        {{-size.x / 2.0f, 0.0f, size.y / 2.0f}, {0.0f, 1.0f}}};
-        uint32_t         indices[6]  = {0, 1, 2, 2, 3, 0};
-
-        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create((float*)vertices, uint32_t(sizeof(vertices)));
-        vertexBuffer->SetBufferLayout({
-            {ShaderDataType::Float3, "a_Position"},
-            {ShaderDataType::Float2, "a_TextureCroods"},
-        });
-        Ref<VertexArray> array = VertexArray::Create();
-        array->AddVertexBuffer(vertexBuffer);
-        array->SetIndexBuffer(IndexBuffer::Create(indices, 6));
-        array->Unbind();
-        return array;
-    }
 } // namespace Kans

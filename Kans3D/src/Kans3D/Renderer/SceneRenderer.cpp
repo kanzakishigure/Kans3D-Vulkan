@@ -5,7 +5,7 @@
 #include <glm/gtc/packing.hpp>
 #include "Kans3D/Asset/Importer/TextureSource.h"
 #include "Kans3D/Core/Log/Log.h"
-#include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
@@ -366,8 +366,7 @@ namespace Kans
     {
         m_ViewportWidth  = m_RenderScene->m_ViewportWidth;
         m_ViewportHeight = m_RenderScene->m_ViewportHeight;
-        // RHI-MIGRATION: acquire the device once alongside this context's scene renderer.
-        m_Device = RenderHardware::OpenGLInterop::AcquireDevice();
+        m_Device         = RenderHardware::GetSharedDevice();
         m_Picker.SetDevice(m_Device);
         m_Outline.SetDevice(m_Device);
         ResizeTarget();

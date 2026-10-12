@@ -3,7 +3,7 @@
 
 namespace Kans
 {
-    class VulkanTexture2D : public Texture2D
+    class VulkanTexture2D : public Texture
     {
     public:
         VulkanTexture2D(const TextureSpecification& specification, const std::filesystem::path& filepath);
@@ -13,10 +13,9 @@ namespace Kans
         virtual uint32_t GetWidth() const override { return m_Specification.Width; }
         virtual uint32_t GetHeight() const override { return m_Specification.Height; }
 
-        void                         Bind(uint32_t slot = 0) const override;
         const std::filesystem::path& GetPath() const override;
 
-        uint32_t GetRenererID() const override;
+        uintptr_t GetImGuiTextureID() const override;
 
     private:
         std::filesystem::path m_Path;
@@ -24,6 +23,4 @@ namespace Kans
         Buffer                m_Buffer;
     };
 
-    class VulkanTextureCube : public TextureCube
-    {};
 } // namespace Kans

@@ -89,7 +89,7 @@ namespace Kans
                 TextureSpecification spec;
                 spec.Width    = 1;
                 spec.Height   = 1;
-                spec.Format   = RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB;
+                spec.Format   = RenderHardware::Format::RGBA8Unorm;
                 uint32_t data = 0xffffffff;
                 Texture       = Texture2D::Create(spec, Buffer(&data, sizeof(uint32_t)));
             }

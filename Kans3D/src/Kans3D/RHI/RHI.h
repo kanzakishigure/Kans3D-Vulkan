@@ -441,7 +441,10 @@ namespace Kans::RenderHardware
         virtual void      Submit(const Handle<CommandList>& commands)             = 0;
         virtual void      EndFrame()                                              = 0;
         virtual void      WaitIdle()                                              = 0;
-        virtual uintptr_t GetImGuiTextureID(const Handle<Texture>& texture) const = 0;
+        // Optional sampling configures the UI texture view; ordinary RHI draws use independent samplers.
+        // Exports during an ImGui frame retain the image until all platform windows finish rendering.
+        virtual uintptr_t GetImGuiTextureID(const Handle<Texture>& texture,
+                                            const SamplerDesc*     sampling = nullptr) const = 0;
     };
     // Objects belong to one device. All calls require its owning thread. Resource
     // handles must be released before the device, and its context must outlive it.

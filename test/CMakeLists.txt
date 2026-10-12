@@ -76,6 +76,10 @@ add_executable(OpenGLTextureTests
     ReferenceImage.cpp
     RendererReferenceOpenGLTests.cpp
     ScenePassOpenGLTests.cpp
+    EditorTextureOpenGLTests.cpp
+    EditorStartupOpenGLTests.cpp
+    ../KansEditor/src/Panels/ContentBrowser/BrowserModel.cpp
+    ../KansEditor/src/Panels/ContentBrowser/ThumbnailCache.cpp
     OpenGLTextureTests.cpp
     RenderAssetCacheOpenGLTests.cpp)
 target_link_libraries(OpenGLTextureTests PRIVATE Kans3D GTest::gtest_main PNG::PNG)

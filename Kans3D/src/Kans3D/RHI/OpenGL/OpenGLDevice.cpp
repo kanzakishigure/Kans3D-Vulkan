@@ -8,10 +8,13 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <GLFW/glfw3.h>
 #include <spirv-tools/libspirv.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
 #include "Kans3D/Asset/Runtime/ShaderData.h"
-#include "OpenGLInterop.h"
+#include "Kans3D/Core/Window.h"
+#include "Kans3D/RHI/ImGuiRenderer.h"
+#include "OpenGLTestProbes.h"
 
 namespace Kans::RenderHardware
 {
@@ -37,14 +40,9 @@ namespace Kans::RenderHardware
         {
             DeviceStats                        Stats;
             bool                               InFrame = false, Alive = true, PendingShaderWrites = false;
-            struct Deletion
-            {
-                std::function<void()> Destroy;
-                std::function<bool()> Bound;
-            };
-            std::vector<Deletion>              Deletions;
+            std::vector<std::function<void()>> Deletions;
             std::vector<std::function<void()>> Retentions;
-            void                               Retire(bool preserveBound = false)
+            void                               Retire()
             {
                 glFinish();
                 PendingShaderWrites = false;
@@ -57,12 +55,7 @@ namespace Kans::RenderHardware
                 Deletions.clear();
                 for (auto& destroy : work)
                 {
-                    if (preserveBound && destroy.Bound && destroy.Bound())
-                    {
-                        Deletions.push_back(std::move(destroy));
-                        continue;
-                    }
-                    destroy.Destroy();
+                    destroy();
                     --Stats.LiveResources;
                     --Stats.PendingDestructions;
                 }
@@ -73,12 +66,8 @@ namespace Kans::RenderHardware
             std::shared_ptr<State>      Owner;
             GLuint                      ID = 0;
             std::function<void(GLuint)> Delete;
-            std::function<bool(GLuint)> Bound;
-            Native(std::shared_ptr<State>      state,
-                   GLuint                      id,
-                   std::function<void(GLuint)> destroy,
-                   std::function<bool(GLuint)> bound = {}) :
-                Owner(std::move(state)), ID(id), Delete(std::move(destroy)), Bound(std::move(bound))
+            Native(std::shared_ptr<State> state, GLuint id, std::function<void(GLuint)> destroy) :
+                Owner(std::move(state)), ID(id), Delete(std::move(destroy))
             {
                 ++Owner->Stats.LiveResources;
             }
@@ -89,10 +78,7 @@ namespace Kans::RenderHardware
                 // Device teardown drains the queue; handles outliving it violate the contract.
                 if (Owner->Alive)
                 {
-                    Owner->Deletions.push_back({[id, destroy] { destroy(id); },
-                                                Bound ?
-                                                    std::function<bool()>([id, bound = Bound] { return bound(id); }) :
-                                                    std::function<bool()>()});
+                    Owner->Deletions.push_back([id, destroy] { destroy(id); });
                     ++Owner->Stats.PendingDestructions;
                 }
             }
@@ -140,66 +126,6 @@ namespace Kans::RenderHardware
                     "Invalid texture subresource");
             return size_t(Width(d, sub.Mip)) * Height(d, sub.Mip) * Info(d.PixelFormat).Bytes;
         }
-        bool BoundProgram(GLuint id)
-        {
-            GLint n;
-            glGetIntegerv(GL_CURRENT_PROGRAM, &n);
-            return GLuint(n) == id;
-        }
-        bool BoundTexture(GLuint id)
-        {
-            GLint active, count, n;
-            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-            glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
-            bool bound = false;
-            for (int i = 0; i < count; ++i)
-            {
-                glActiveTexture(GL_TEXTURE0 + i);
-                for (auto target : {GL_TEXTURE_BINDING_2D, GL_TEXTURE_BINDING_CUBE_MAP})
-                {
-                    glGetIntegerv(target, &n);
-                    bound |= GLuint(n) == id;
-                }
-            }
-            glActiveTexture(active);
-            return bound;
-        }
-        bool BoundBuffer(GLuint id)
-        {
-            GLint n, count;
-            for (auto target : {GL_ARRAY_BUFFER_BINDING,
-                                GL_ELEMENT_ARRAY_BUFFER_BINDING,
-                                GL_UNIFORM_BUFFER_BINDING,
-                                GL_PIXEL_PACK_BUFFER_BINDING,
-                                GL_PIXEL_UNPACK_BUFFER_BINDING,
-                                GL_COPY_READ_BUFFER_BINDING,
-                                GL_COPY_WRITE_BUFFER_BINDING,
-                                GL_DRAW_INDIRECT_BUFFER_BINDING,
-                                GL_DISPATCH_INDIRECT_BUFFER_BINDING,
-                                GL_SHADER_STORAGE_BUFFER_BINDING,
-                                GL_ATOMIC_COUNTER_BUFFER_BINDING,
-                                GL_TRANSFORM_FEEDBACK_BUFFER_BINDING,
-                                GL_TEXTURE_BUFFER_BINDING})
-            {
-                glGetIntegerv(target, &n);
-                if (GLuint(n) == id)
-                    return true;
-            }
-            for (auto pair : {std::pair {GL_UNIFORM_BUFFER_BINDING, GL_MAX_UNIFORM_BUFFER_BINDINGS},
-                              std::pair {GL_SHADER_STORAGE_BUFFER_BINDING, GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS},
-                              std::pair {GL_ATOMIC_COUNTER_BUFFER_BINDING, GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS},
-                              std::pair {GL_TRANSFORM_FEEDBACK_BUFFER_BINDING, GL_MAX_TRANSFORM_FEEDBACK_BUFFERS}})
-            {
-                glGetIntegerv(pair.second, &count);
-                for (int i = 0; i < count; ++i)
-                {
-                    glGetIntegeri_v(pair.first, i, &n);
-                    if (GLuint(n) == id)
-                        return true;
-                }
-            }
-            return false;
-        }
         struct BufferBindingGuard
         {
             GLenum Target;
@@ -216,244 +142,27 @@ namespace Kans::RenderHardware
             VertexArrayGuard() { glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &Previous); }
             ~VertexArrayGuard() { glBindVertexArray(Previous); }
         };
-        // Isolate replay from remaining immediate consumers and ImGui. This backend
-        // boundary, rather than individual renderers, owns native state preservation.
-        struct SubmissionState
+        // Replay establishes deterministic state; no native caller-state snapshot is needed.
+        void PrepareSubmission(GLint clips)
         {
-            GLint DrawFBO, ReadFBO, Program, Array, ArrayBuffer, UniformBuffer, StorageBuffer, Renderbuffer,
-                ActiveTexture;
-            GLint                        Viewport[4], Scissor[4], Polygon[2], DepthFunc, CullFace, FrontFace;
-            GLboolean                    DepthWrite;
-            GLdouble                     DepthRange[2];
-            const std::array<GLenum, 12> Caps {GL_DEPTH_TEST,
-                                               GL_CULL_FACE,
-                                               GL_SCISSOR_TEST,
-                                               GL_STENCIL_TEST,
-                                               GL_FRAMEBUFFER_SRGB,
-                                               GL_RASTERIZER_DISCARD,
-                                               GL_COLOR_LOGIC_OP,
-                                               GL_POLYGON_OFFSET_FILL,
-                                               GL_PRIMITIVE_RESTART,
-                                               GL_DITHER,
-                                               GL_POLYGON_SMOOTH,
-                                               GL_POLYGON_OFFSET_LINE};
-            std::array<GLboolean, 12>    Enabled;
-            struct Unit
-            {
-                GLint Texture2D, Cube, Sampler;
-            };
-            std::vector<Unit> Units;
-            struct Block
-            {
-                GLint   Buffer;
-                GLint64 Start, Size;
-            };
-            std::vector<Block>           Blocks;
-            const std::array<GLenum, 12> Stores {GL_PACK_ALIGNMENT,
-                                                 GL_PACK_ROW_LENGTH,
-                                                 GL_PACK_SKIP_ROWS,
-                                                 GL_PACK_SKIP_PIXELS,
-                                                 GL_PACK_SWAP_BYTES,
-                                                 GL_PACK_LSB_FIRST,
-                                                 GL_UNPACK_ALIGNMENT,
-                                                 GL_UNPACK_ROW_LENGTH,
-                                                 GL_UNPACK_SKIP_ROWS,
-                                                 GL_UNPACK_SKIP_PIXELS,
-                                                 GL_UNPACK_SWAP_BYTES,
-                                                 GL_UNPACK_LSB_FIRST};
-            std::array<GLint, 12>        PixelStore;
-            GLint                        PackBuffer, UnpackBuffer, ClipCount;
-            std::vector<GLboolean>       Clips;
-            struct StencilState
-            {
-                GLint Function, Reference, ValueMask, WriteMask, Fail, DepthFail, DepthPass;
-            };
-            StencilState Front, Back;
-            struct ColorState
-            {
-                GLint     SrcRGB, DstRGB, SrcAlpha, DstAlpha, EqRGB, EqAlpha;
-                GLboolean Mask[4], Blend;
-            };
-            std::vector<ColorState> Colors;
-            std::vector<Block>      Storage;
-            GLfloat                 BiasFactor, BiasUnits;
-            SubmissionState()
-            {
-                GLint count;
-                glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &count);
-                Units.resize(count);
-                glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &count);
-                Blocks.resize(count);
-
-                glGetIntegerv(GL_MAX_DRAW_BUFFERS, &count);
-                Colors.resize(count);
-                for (size_t i = 0; i < Colors.size(); ++i)
-                {
-                    auto& c = Colors[i];
-                    glGetIntegeri_v(GL_BLEND_SRC_RGB, i, &c.SrcRGB);
-                    glGetIntegeri_v(GL_BLEND_DST_RGB, i, &c.DstRGB);
-                    glGetIntegeri_v(GL_BLEND_SRC_ALPHA, i, &c.SrcAlpha);
-                    glGetIntegeri_v(GL_BLEND_DST_ALPHA, i, &c.DstAlpha);
-                    glGetIntegeri_v(GL_BLEND_EQUATION_RGB, i, &c.EqRGB);
-                    glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA, i, &c.EqAlpha);
-                    glGetBooleani_v(GL_COLOR_WRITEMASK, i, c.Mask);
-                    c.Blend = glIsEnabledi(GL_BLEND, i);
-                }
-                glGetIntegerv(GL_STENCIL_FUNC, &Front.Function);
-                glGetIntegerv(GL_STENCIL_REF, &Front.Reference);
-                glGetIntegerv(GL_STENCIL_VALUE_MASK, &Front.ValueMask);
-                glGetIntegerv(GL_STENCIL_WRITEMASK, &Front.WriteMask);
-                glGetIntegerv(GL_STENCIL_FAIL, &Front.Fail);
-                glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &Front.DepthFail);
-                glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &Front.DepthPass);
-                glGetIntegerv(GL_STENCIL_BACK_FUNC, &Back.Function);
-                glGetIntegerv(GL_STENCIL_BACK_REF, &Back.Reference);
-                glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &Back.ValueMask);
-                glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &Back.WriteMask);
-                glGetIntegerv(GL_STENCIL_BACK_FAIL, &Back.Fail);
-                glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_FAIL, &Back.DepthFail);
-                glGetIntegerv(GL_STENCIL_BACK_PASS_DEPTH_PASS, &Back.DepthPass);
-                glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &BiasFactor);
-                glGetFloatv(GL_POLYGON_OFFSET_UNITS, &BiasUnits);
-                glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &count);
-                Storage.resize(count);
-                for (size_t i = 0; i < Storage.size(); ++i)
-                {
-                    glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, i, &Storage[i].Buffer);
-                    glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_START, i, &Storage[i].Start);
-                    glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_SIZE, i, &Storage[i].Size);
-                }
-                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &DrawFBO);
-                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &ReadFBO);
-                glGetIntegerv(GL_CURRENT_PROGRAM, &Program);
-                glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &Array);
-                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &ArrayBuffer);
-                glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &UniformBuffer);
-                glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING, &StorageBuffer);
-                glGetIntegerv(GL_RENDERBUFFER_BINDING, &Renderbuffer);
-                glGetIntegerv(GL_ACTIVE_TEXTURE, &ActiveTexture);
-                glGetIntegerv(GL_VIEWPORT, Viewport);
-                glGetIntegerv(GL_SCISSOR_BOX, Scissor);
-                glGetIntegerv(GL_POLYGON_MODE, Polygon);
-                glGetIntegerv(GL_DEPTH_FUNC, &DepthFunc);
-                glGetIntegerv(GL_CULL_FACE_MODE, &CullFace);
-                glGetIntegerv(GL_FRONT_FACE, &FrontFace);
-                glGetBooleanv(GL_DEPTH_WRITEMASK, &DepthWrite);
-                glGetDoublev(GL_DEPTH_RANGE, DepthRange);
-                for (size_t i = 0; i < Caps.size(); ++i)
-                    Enabled[i] = glIsEnabled(Caps[i]);
-                for (size_t i = 0; i < Units.size(); ++i)
-                {
-                    glActiveTexture(GL_TEXTURE0 + GLuint(i));
-                    glGetIntegerv(GL_TEXTURE_BINDING_2D, &Units[i].Texture2D);
-                    glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &Units[i].Cube);
-                    glGetIntegeri_v(GL_SAMPLER_BINDING, GLuint(i), &Units[i].Sampler);
-                }
-                for (size_t i = 0; i < Blocks.size(); ++i)
-                {
-                    glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, GLuint(i), &Blocks[i].Buffer);
-                    glGetInteger64i_v(GL_UNIFORM_BUFFER_START, GLuint(i), &Blocks[i].Start);
-                    glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, GLuint(i), &Blocks[i].Size);
-                }
-                glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &PackBuffer);
-                glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &UnpackBuffer);
-                for (size_t i = 0; i < Stores.size(); ++i)
-                    glGetIntegerv(Stores[i], &PixelStore[i]);
-                glGetIntegerv(GL_MAX_CLIP_DISTANCES, &ClipCount);
-                for (int i = 0; i < ClipCount; ++i)
-                    Clips.push_back(glIsEnabled(GL_CLIP_DISTANCE0 + i));
-            }
-            void Prepare()
-            {
-                for (auto cap : Caps)
-                    glDisable(cap);
-                for (int i = 0; i < ClipCount; ++i)
-                    glDisable(GL_CLIP_DISTANCE0 + i);
-                for (size_t i = 0; i < Units.size(); ++i)
-                    glBindSampler(GLuint(i), 0);
-                glActiveTexture(GL_TEXTURE0);
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                for (auto store : Stores)
-                    glPixelStorei(store, store == GL_PACK_ALIGNMENT || store == GL_UNPACK_ALIGNMENT ? 1 : 0);
-                glDisablei(GL_BLEND, 0);
-                glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-                glDepthMask(GL_TRUE);
-                glDepthRange(0, 1);
-                glDepthFunc(GL_LESS);
-                glCullFace(GL_BACK);
-                glFrontFace(GL_CCW);
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            }
-            ~SubmissionState()
-            {
-                const auto stencil = [](GLenum face, const StencilState& state) {
-                    glStencilFuncSeparate(face, state.Function, state.Reference, state.ValueMask);
-                    glStencilMaskSeparate(face, state.WriteMask);
-                    glStencilOpSeparate(face, state.Fail, state.DepthFail, state.DepthPass);
-                };
-                stencil(GL_FRONT, Front);
-                stencil(GL_BACK, Back);
-                glPolygonOffset(BiasFactor, BiasUnits);
-                for (size_t i = 0; i < Colors.size(); ++i)
-                {
-                    const auto& c = Colors[i];
-                    glBlendFuncSeparatei(i, c.SrcRGB, c.DstRGB, c.SrcAlpha, c.DstAlpha);
-                    glBlendEquationSeparatei(i, c.EqRGB, c.EqAlpha);
-                    glColorMaski(i, c.Mask[0], c.Mask[1], c.Mask[2], c.Mask[3]);
-                    c.Blend ? glEnablei(GL_BLEND, i) : glDisablei(GL_BLEND, i);
-                }
-                for (size_t i = 0; i < Storage.size(); ++i)
-                {
-                    const auto& b = Storage[i];
-                    if (b.Buffer && b.Size)
-                        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, i, b.Buffer, b.Start, b.Size);
-                    else
-                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i, b.Buffer);
-                }
-
-                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, DrawFBO);
-                glBindFramebuffer(GL_READ_FRAMEBUFFER, ReadFBO);
-                glUseProgram(Program);
-                glBindVertexArray(Array);
-                glBindBuffer(GL_ARRAY_BUFFER, ArrayBuffer);
-                glBindRenderbuffer(GL_RENDERBUFFER, Renderbuffer);
-                glViewport(Viewport[0], Viewport[1], Viewport[2], Viewport[3]);
-                glScissor(Scissor[0], Scissor[1], Scissor[2], Scissor[3]);
-                glPolygonMode(GL_FRONT_AND_BACK, Polygon[0]);
-                glDepthFunc(DepthFunc);
-                glDepthMask(DepthWrite);
-                glDepthRange(DepthRange[0], DepthRange[1]);
-                glCullFace(CullFace);
-                glFrontFace(FrontFace);
-                for (size_t i = 0; i < Caps.size(); ++i)
-                    Enabled[i] ? glEnable(Caps[i]) : glDisable(Caps[i]);
-                for (int i = 0; i < ClipCount; ++i)
-                    Clips[i] ? glEnable(GL_CLIP_DISTANCE0 + i) : glDisable(GL_CLIP_DISTANCE0 + i);
-                for (size_t i = 0; i < Units.size(); ++i)
-                {
-                    glActiveTexture(GL_TEXTURE0 + GLuint(i));
-                    glBindTexture(GL_TEXTURE_2D, Units[i].Texture2D);
-                    glBindTexture(GL_TEXTURE_CUBE_MAP, Units[i].Cube);
-                    glBindSampler(GLuint(i), Units[i].Sampler);
-                }
-                glActiveTexture(ActiveTexture);
-                for (size_t i = 0; i < Blocks.size(); ++i)
-                {
-                    const auto& b = Blocks[i];
-                    if (b.Buffer && b.Size)
-                        glBindBufferRange(GL_UNIFORM_BUFFER, GLuint(i), b.Buffer, b.Start, b.Size);
-                    else
-                        glBindBufferBase(GL_UNIFORM_BUFFER, GLuint(i), b.Buffer);
-                }
-                glBindBuffer(GL_UNIFORM_BUFFER, UniformBuffer);
-                glBindBuffer(GL_SHADER_STORAGE_BUFFER, StorageBuffer);
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, PackBuffer);
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, UnpackBuffer);
-                for (size_t i = 0; i < Stores.size(); ++i)
-                    glPixelStorei(Stores[i], PixelStore[i]);
-            }
-        };
+            for (auto cap : {GL_DEPTH_TEST,
+                             GL_CULL_FACE,
+                             GL_SCISSOR_TEST,
+                             GL_STENCIL_TEST,
+                             GL_FRAMEBUFFER_SRGB,
+                             GL_RASTERIZER_DISCARD,
+                             GL_COLOR_LOGIC_OP,
+                             GL_POLYGON_OFFSET_FILL,
+                             GL_PRIMITIVE_RESTART,
+                             GL_DITHER,
+                             GL_POLYGON_SMOOTH,
+                             GL_POLYGON_OFFSET_LINE})
+                glDisable(cap);
+            for (GLint i = 0; i < clips; ++i)
+                glDisable(GL_CLIP_DISTANCE0 + i);
+            glActiveTexture(GL_TEXTURE0);
+            glDepthRange(0, 1);
+        }
 
         struct TransferState
         {
@@ -502,7 +211,7 @@ namespace Kans::RenderHardware
             Native     Name;
             size_t     PendingWrites = 0;
             GLBuffer(const std::shared_ptr<State>& state, BufferDesc desc, GLuint id) :
-                Desc(desc), Name(state, id, [](GLuint n) { glDeleteBuffers(1, &n); }, BoundBuffer)
+                Desc(desc), Name(state, id, [](GLuint n) { glDeleteBuffers(1, &n); })
             {}
             const BufferDesc& GetDesc() const override { return Desc; }
             void              Write(size_t offset, const void* data, size_t bytes) override
@@ -535,11 +244,10 @@ namespace Kans::RenderHardware
         };
         struct GLTexture final : Texture
         {
-            std::shared_ptr<void> BorrowedOwner;
             TextureDesc Desc;
             Native      Name;
             GLTexture(const std::shared_ptr<State>& state, TextureDesc desc, GLuint id) :
-                Desc(desc), Name(state, id, [](GLuint n) { glDeleteTextures(1, &n); }, BoundTexture)
+                Desc(desc), Name(state, id, [](GLuint n) { glDeleteTextures(1, &n); })
             {}
             const TextureDesc& GetDesc() const override { return Desc; }
             GLenum             Target() const
@@ -684,7 +392,7 @@ namespace Kans::RenderHardware
             std::vector<TextureUnit>   Units;
             std::map<uint64_t, uint32_t> UniformPoints, StoragePoints, CombinedUnits;
             GLShader(const std::shared_ptr<State>& state, GLuint id) :
-                Name(state, id, [](GLuint n) { glDeleteProgram(n); }, BoundProgram)
+                Name(state, id, [](GLuint n) { glDeleteProgram(n); })
             {}
             uint32_t GetPushConstantBytes() const override { return PushBytes; }
         };
@@ -1407,6 +1115,7 @@ namespace Kans::RenderHardware
         class GLDevice final : public Device
         {
             DeviceDesc             m_Desc;
+            GLint                  m_ClipCount = 0;
             std::shared_ptr<State> m_State = std::make_shared<State>();
             std::unordered_map<size_t, std::vector<std::pair<std::string, std::weak_ptr<GLPipeline>>>> m_Cache;
 
@@ -1415,6 +1124,7 @@ namespace Kans::RenderHardware
             {
                 Require(desc.FramesInFlight > 0, "FramesInFlight must be positive");
                 Require(glGetString && glGetString(GL_VERSION), "Device needs a current context");
+                glGetIntegerv(GL_MAX_CLIP_DISTANCES, &m_ClipCount);
             }
             ~GLDevice() override
             {
@@ -1887,8 +1597,7 @@ namespace Kans::RenderHardware
                 auto list = std::dynamic_pointer_cast<GLCommands>(commands);
                 Require(list && list->Owner == m_State && !list->Sealed && !list->Rendering,
                         "Invalid command submission");
-                SubmissionState state;
-                state.Prepare();
+                PrepareSubmission(m_ClipCount);
                 list->Sealed = true;
                 Execution execution;
                 execution.Owner = m_State;
@@ -1910,33 +1619,47 @@ namespace Kans::RenderHardware
                 m_State->Retire();
                 m_State->InFrame = false;
             }
-            void            WaitIdle() override { m_State->Retire(true); }
-            Handle<Texture> Borrow(GLuint id, const TextureDesc& desc)
+            void      WaitIdle() override { m_State->Retire(); }
+            uintptr_t GetImGuiTextureID(const Handle<Texture>& texture, const SamplerDesc* sampling) const override
             {
-                auto texture         = std::make_shared<GLTexture>(m_State, desc, id);
-                texture->Name.Delete = [](GLuint) {};
-                return texture;
-            }
-            uintptr_t GetImGuiTextureID(const Handle<Texture>& texture) const override
-            {
-                return Cast<GLTexture>(texture, m_State)->Name.ID;
+                auto t = Cast<GLTexture>(texture, m_State);
+                if (sampling)
+                {
+                    GLint previous = 0;
+                    glGetIntegerv(t->Target() == GL_TEXTURE_2D ? GL_TEXTURE_BINDING_2D : GL_TEXTURE_BINDING_CUBE_MAP,
+                                  &previous);
+                    glBindTexture(t->Target(), t->Name.ID);
+                    const bool mips = sampling->MaxLod > 0 && t->Desc.MipLevels > 1;
+                    glTexParameteri(t->Target(),
+                                    GL_TEXTURE_MIN_FILTER,
+                                    mips ? (sampling->Min == Filter::Nearest ?
+                                                (sampling->Mip == Filter::Nearest ? GL_NEAREST_MIPMAP_NEAREST :
+                                                                                    GL_NEAREST_MIPMAP_LINEAR) :
+                                                (sampling->Mip == Filter::Nearest ? GL_LINEAR_MIPMAP_NEAREST :
+                                                                                    GL_LINEAR_MIPMAP_LINEAR)) :
+                                           (sampling->Min == Filter::Nearest ? GL_NEAREST : GL_LINEAR));
+                    glTexParameteri(
+                        t->Target(), GL_TEXTURE_MAG_FILTER, sampling->Mag == Filter::Nearest ? GL_NEAREST : GL_LINEAR);
+                    glTexParameteri(t->Target(),
+                                    GL_TEXTURE_WRAP_S,
+                                    (sampling->U == AddressMode::Repeat      ? GL_REPEAT :
+                                     sampling->U == AddressMode::ClampToEdge ? GL_CLAMP_TO_EDGE :
+                                                                               GL_MIRRORED_REPEAT));
+                    glTexParameteri(t->Target(),
+                                    GL_TEXTURE_WRAP_T,
+                                    (sampling->V == AddressMode::Repeat      ? GL_REPEAT :
+                                     sampling->V == AddressMode::ClampToEdge ? GL_CLAMP_TO_EDGE :
+                                                                               GL_MIRRORED_REPEAT));
+                    glBindTexture(t->Target(), previous);
+                }
+                RetainImGuiTexture(texture);
+                return t->Name.ID;
             }
         };
     } // namespace
     std::unique_ptr<Device> CreateOpenGLDevice(const DeviceDesc& desc) { return std::make_unique<GLDevice>(desc); }
-    namespace OpenGLInterop
+    namespace OpenGLTestProbes
     {
-        std::shared_ptr<Device> AcquireDevice()
-        {
-            static std::weak_ptr<Device> current;
-            auto                         device = current.lock();
-            if (!device)
-            {
-                device  = CreateOpenGLDevice();
-                current = device;
-            }
-            return device;
-        }
         uint32_t BufferName(const Handle<Buffer>& b) { return std::dynamic_pointer_cast<GLBuffer>(b)->Name.ID; }
         uint32_t TextureName(const Handle<Texture>& t) { return std::dynamic_pointer_cast<GLTexture>(t)->Name.ID; }
         uint32_t PipelineVertexArrayName(const Handle<Pipeline>& p)
@@ -1959,88 +1682,89 @@ namespace Kans::RenderHardware
             glBindSampler(unit, 0);
             glBindTexture(native->Target(), native->Name.ID);
         }
-        class TextureAdapter final : public Kans::Texture2D
+    } // namespace OpenGLTestProbes
+} // namespace Kans::RenderHardware
+
+namespace Kans::RenderHardware
+{
+    static void EnsureDSAFunctionsLoaded(OpenGLLoadProc load)
+    {
+        // GLAD already loaded DSA via GL 4.5 core — nothing to do
+        if (glad_glCreateTextures != nullptr && glad_glGenerateTextureMipmap != nullptr)
+            return;
+
+        GLint numExt = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &numExt);
+        for (GLint i = 0; i < numExt; ++i)
         {
-        public:
-            std::shared_ptr<Device>         GPU;
-            Handle<RenderHardware::Texture> Image;
-            std::filesystem::path           Path;
-            TextureAdapter(std::shared_ptr<Device> gpu, Handle<RenderHardware::Texture> image) :
-                GPU(std::move(gpu)), Image(std::move(image))
+            const char* ext = (const char*)glGetStringi(GL_EXTENSIONS, i);
+            if (ext && strcmp(ext, "GL_ARB_direct_state_access") == 0)
             {
-                auto  native = std::dynamic_pointer_cast<GLTexture>(Image);
-                GLint previous;
-                glGetIntegerv(native->Desc.Dimension == TextureDimension::Cube ? GL_TEXTURE_BINDING_CUBE_MAP :
-                                                                                 GL_TEXTURE_BINDING_2D,
-                              &previous);
-                glBindTexture(native->Target(), native->Name.ID);
-                glTexParameteri(native->Target(), GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-                glTexParameteri(native->Target(), GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glBindTexture(native->Target(), previous);
+                // Load all DSA (GL_ARB_direct_state_access) entry points.
+
+                // -- Buffers --
+                glad_glCreateBuffers   = (PFNGLCREATEBUFFERSPROC)load("glCreateBuffers");
+                glad_glNamedBufferData = (PFNGLNAMEDBUFFERDATAPROC)load("glNamedBufferData");
+
+                // -- Textures --
+                glad_glCreateTextures        = (PFNGLCREATETEXTURESPROC)load("glCreateTextures");
+                glad_glTextureStorage2D      = (PFNGLTEXTURESTORAGE2DPROC)load("glTextureStorage2D");
+                glad_glTextureSubImage2D     = (PFNGLTEXTURESUBIMAGE2DPROC)load("glTextureSubImage2D");
+                glad_glTextureParameteri     = (PFNGLTEXTUREPARAMETERIPROC)load("glTextureParameteri");
+                glad_glGenerateTextureMipmap = (PFNGLGENERATETEXTUREMIPMAPPROC)load("glGenerateTextureMipmap");
+                glad_glBindTextureUnit       = (PFNGLBINDTEXTUREUNITPROC)load("glBindTextureUnit");
+
+                // -- Vertex Arrays --
+                glad_glCreateVertexArrays = (PFNGLCREATEVERTEXARRAYSPROC)load("glCreateVertexArrays");
+
+                // -- Framebuffers --
+                glad_glCreateFramebuffers = (PFNGLCREATEFRAMEBUFFERSPROC)load("glCreateFramebuffers");
+
+                break;
             }
-            uint32_t GetWidth() const override { return Image->GetDesc().Width; }
-            uint32_t GetHeight() const override { return Image->GetDesc().Height; }
-            uint32_t GetRenererID() const override { return uint32_t(GPU->GetImGuiTextureID(Image)); }
-            void     Bind(uint32_t unit) const override { BindTexture(Image, unit); }
-            const std::filesystem::path& GetPath() const override { return Path; }
-        };
-        Ref<Kans::Texture2D> TextureView(std::shared_ptr<Device> gpu, Handle<Texture> texture)
-        {
-            return CreateRef<TextureAdapter>(std::move(gpu), std::move(texture));
         }
-        Handle<Texture> TextureResource(const Ref<Kans::Texture2D>& texture)
+    }
+
+    void LoadOpenGLEntryPoints(OpenGLLoadProc load)
+    {
+        if (!gladLoadGLLoader(load))
+            throw std::runtime_error("Cannot load OpenGL entry points");
+        EnsureDSAFunctionsLoaded(load);
+    }
+    void* CreateOpenGLWindow(const WindowSpecification& specification)
+    {
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        if (specification.Fullscreen)
         {
-            if (auto view = std::dynamic_pointer_cast<TextureAdapter>(texture))
-                return view->Image;
-            auto        device = AcquireDevice();
-            TextureDesc desc;
-            desc.Width     = texture->GetWidth();
-            desc.Height    = texture->GetHeight();
-            desc.Dimension = TextureDimension::Texture2D;
-            GLint previous = 0;
-            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
-            glBindTexture(GL_TEXTURE_2D, texture->GetRenererID());
-            desc.MipLevels = 0;
-            for (int mip = 0; mip < 32; ++mip)
-            {
-                GLint width = 0;
-                glGetTexLevelParameteriv(GL_TEXTURE_2D, mip, GL_TEXTURE_WIDTH, &width);
-                if (!width)
-                    break;
-                ++desc.MipLevels;
-            }
-            glBindTexture(GL_TEXTURE_2D, previous);
-            auto image = dynamic_cast<GLDevice&>(*device).Borrow(texture->GetRenererID(), desc);
-            std::dynamic_pointer_cast<GLTexture>(image)->BorrowedOwner = texture;
-            return image;
+            auto* monitor = glfwGetPrimaryMonitor();
+            auto* mode    = glfwGetVideoMode(monitor);
+            glfwWindowHint(GLFW_DECORATED, false);
+            glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+            glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+            glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+            glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+            return glfwCreateWindow(mode->width, mode->height, specification.Title.c_str(), monitor, nullptr);
         }
-        SamplerDesc TextureSampling(const Ref<Kans::Texture2D>& texture)
+        return glfwCreateWindow(
+            specification.Width, specification.Height, specification.Title.c_str(), nullptr, nullptr);
+    }
+    std::unique_ptr<Device> CreateOpenGLDevice(Window* window, const DeviceDesc& desc)
+    {
+        if (window)
         {
-            GLint previous = 0, min = 0, mag = 0, u = 0, v = 0;
-            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
-            glBindTexture(GL_TEXTURE_2D, texture->GetRenererID());
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &min);
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &mag);
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &u);
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, &v);
-            glBindTexture(GL_TEXTURE_2D, previous);
-            SamplerDesc desc;
-            desc.Min = min == GL_NEAREST || min == GL_NEAREST_MIPMAP_NEAREST || min == GL_NEAREST_MIPMAP_LINEAR ?
-                           Filter::Nearest :
-                           Filter::Linear;
-            desc.Mag = mag == GL_NEAREST ? Filter::Nearest : Filter::Linear;
-            desc.Mip =
-                min == GL_NEAREST_MIPMAP_NEAREST || min == GL_LINEAR_MIPMAP_NEAREST ? Filter::Nearest : Filter::Linear;
-            if (min == GL_NEAREST || min == GL_LINEAR)
-                desc.MaxLod = 0;
-            auto address = [](GLint wrap) {
-                return wrap == GL_CLAMP_TO_EDGE   ? AddressMode::ClampToEdge :
-                       wrap == GL_MIRRORED_REPEAT ? AddressMode::MirrorRepeat :
-                                                    AddressMode::Repeat;
-            };
-            desc.U = address(u);
-            desc.V = address(v);
-            return desc;
+            glfwMakeContextCurrent(static_cast<GLFWwindow*>(window->GetNativeWindow()));
+            LoadOpenGLEntryPoints(reinterpret_cast<OpenGLLoadProc>(glfwGetProcAddress));
+            SetOpenGLWindowVSync(*window, window->IsVSync());
         }
-    } // namespace OpenGLInterop
+        return CreateOpenGLDevice(desc);
+    }
+    void PresentOpenGLWindow(Window& window) { glfwSwapBuffers(static_cast<GLFWwindow*>(window.GetNativeWindow())); }
+    void SetOpenGLWindowVSync(Window& window, bool enabled)
+    {
+        glfwMakeContextCurrent(static_cast<GLFWwindow*>(window.GetNativeWindow()));
+        glfwSwapInterval(enabled ? 1 : 0);
+    }
 } // namespace Kans::RenderHardware

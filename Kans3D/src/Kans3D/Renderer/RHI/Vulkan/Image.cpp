@@ -1,15 +1,16 @@
 #include "kspch.h"
 #include "Image.h"
 #include "Kans3D/Platform/Vulkan/VulkanImage.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Renderer.h"
 
 namespace Kans
 {
     Ref<Image2D> Image2D::Create(ImageSpecification spec)
     {
-        switch (RendererAPI::Current())
+        switch (RenderHardware::GetBackend())
         {
-            case RendererAPIType::Vulkan:
+            case RenderHardware::Backend::Vulkan:
                 return CreateScope<VulkanImage2D>(spec);
         }
 

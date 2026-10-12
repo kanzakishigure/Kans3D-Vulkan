@@ -19,10 +19,6 @@
 //------UI---------------
 #include "Kans3D/ImGui/KansUI.h"
 //------Renderer---------------
-#include "Kans3D/Renderer/RHI/Buffer.h"
-#include "Kans3D/Renderer/RHI/FrameBuffer.h"
-#include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h"
-#include "Kans3D/Renderer/RHI/OpenGL/VertexArray.h"
 
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
@@ -31,7 +27,6 @@
 //-------Render Resource-----
 #include "Kans3D/Renderer/Resource/OrthographicCamera.h"
 #include "Kans3D/Renderer/Resource/OrthographicCameraController.h"
-#include "Kans3D/Renderer/Resource/Shader.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 
 //-----script---------------

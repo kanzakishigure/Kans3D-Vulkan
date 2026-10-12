@@ -20,7 +20,6 @@ namespace Kans
         Bool,
         Color4,
         Color3
-
     };
     static uint32_t ShaderTypeToSize(ShaderDataType type)
     {
@@ -98,11 +97,53 @@ namespace Kans
             return 0;
         }
     };
-    class BufferLayout
+    namespace ShaderUtils
+    {
+        enum class ShaderLang
+        {
+            NONE,
+            GLSL,
+            HLSL,
+        };
+    } // namespace ShaderUtils
+
+    class ShaderUniform
     {
     public:
-        BufferLayout() {}
-        BufferLayout(const std::initializer_list<BufferElement>& elements) : m_Elements(elements)
+        ShaderUniform() = default;
+        ShaderUniform(const std::string& name, uint32_t size, uint32_t offset, ShaderDataType type) :
+            Name(name), Size(size), Offset(offset), Type(type)
+        {}
+
+        std::string&       GetName() { return Name; }
+        const std::string& GetName() const { return Name; }
+
+        uint32_t       GetSize() { return Size; }
+        const uint32_t GetSize() const { return Size; }
+
+        uint32_t       GetOffset() { return Offset; }
+        const uint32_t GetOffset() const { return Offset; }
+
+        ShaderDataType       GetType() { return Type; }
+        const ShaderDataType GetType() const { return Type; }
+
+    private:
+        std::string    Name;
+        uint32_t       Size   = 0;
+        uint32_t       Offset = 0;
+        ShaderDataType Type   = ShaderDataType::NONE;
+    };
+    struct ShaderBuffer
+    {
+        std::string                                    Name;
+        uint32_t                                       Size = 0;
+        std::unordered_map<std::string, ShaderUniform> ShaderUniforms;
+    };
+    class ShaderBufferLayout
+    {
+    public:
+        ShaderBufferLayout() {}
+        ShaderBufferLayout(const std::initializer_list<BufferElement>& elements) : m_Elements(elements)
         {
             CalculateOffsetAndStride();
         }
@@ -132,31 +173,4 @@ namespace Kans
         std::vector<BufferElement> m_Elements;
         uint32_t                   m_Stride = 0;
     };
-
-    class VertexBuffer : public RefCounter
-    {
-    public:
-        virtual ~VertexBuffer() {}
-        virtual void Bind() const   = 0;
-        virtual void Unbind() const = 0;
-
-        static Ref<VertexBuffer> Create(float* vertices, uint32_t size);
-        static Ref<VertexBuffer> Create(uint32_t size);
-
-        virtual void                SetData(const void* data, uint32_t size)    = 0;
-        virtual void                SetBufferLayout(const BufferLayout& layout) = 0;
-        virtual const BufferLayout& GetLayout() const                           = 0;
-    };
-    // 目前只支持32位的index索引
-    class IndexBuffer : public RefCounter
-    {
-    public:
-        virtual ~IndexBuffer() {}
-        virtual void            Bind() const   = 0;
-        virtual void            Unbind() const = 0;
-        static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t count);
-
-        virtual uint32_t GetCount() const = 0;
-    };
-
 } // namespace Kans

@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "Renderer2D.h"
 #include <iostream>
-#include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Resource/InternalShader.h"
 
 namespace Kans
@@ -40,7 +40,7 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
 )";
         struct Renderer2DData
         {
-            std::shared_ptr<Device>         DeviceLease;
+            std::shared_ptr<Device>         GPU;
             Handle<RenderHardware::Shader>  Program;
             Handle<BindGroupLayout>         Layout;
             Handle<RenderHardware::Texture> White;
@@ -84,15 +84,14 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
 
     void Renderer2D::Init(std::shared_ptr<Device> device)
     {
-        if (Data.DeviceLease)
+        if (Data.GPU)
             return;
-        Data.DeviceLease = device ? std::move(device) : TargetDevice;
-        if (!Data.DeviceLease)
+        Data.GPU = device ? std::move(device) : TargetDevice;
+        if (!Data.GPU)
         {
-            // RHI-MIGRATION: standalone editor/particle clients acquire the current context device.
-            Data.DeviceLease = RenderHardware::OpenGLInterop::AcquireDevice();
+            Data.GPU = RenderHardware::GetSharedDevice();
         }
-        auto result = CreateInternalShader(*Data.DeviceLease, "Renderer2D", Vertex, Fragment);
+        auto result = CreateInternalShader(*Data.GPU, "Renderer2D", Vertex, Fragment);
         if (auto* error = std::get_if<AssetError>(&result))
         {
             if (Log::GetCoreLogger())
@@ -102,26 +101,26 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
             return;
         }
         Data.Program = std::get<Handle<RenderHardware::Shader>>(std::move(result));
-        Data.Layout  = Data.DeviceLease->CreateBindGroupLayout(
+        Data.Layout  = Data.GPU->CreateBindGroupLayout(
             {0, {{0, BindingType::UniformBuffer}, {1, BindingType::CombinedTextureSampler}}});
         std::vector<uint32_t> indices;
         indices.reserve(MaxQuads * 6);
         for (uint32_t i = 0; i < MaxQuads; ++i)
             for (uint32_t n : {0u, 1u, 2u, 2u, 3u, 0u})
                 indices.push_back(i * 4 + n);
-        Data.Indices = Data.DeviceLease->CreateBuffer(
-            {indices.size() * sizeof(uint32_t), BufferUsage::Index, MemoryUsage::Upload});
+        Data.Indices =
+            Data.GPU->CreateBuffer({indices.size() * sizeof(uint32_t), BufferUsage::Index, MemoryUsage::Upload});
         Data.Indices->Write(0, indices.data(), indices.size() * sizeof(uint32_t));
         TextureDesc desc;
         desc.Usage      = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
-        Data.White      = Data.DeviceLease->CreateTexture(desc);
-        auto     buffer = Data.DeviceLease->CreateBuffer({4, BufferUsage::CopySource, MemoryUsage::Upload});
+        Data.White      = Data.GPU->CreateTexture(desc);
+        auto     buffer = Data.GPU->CreateBuffer({4, BufferUsage::CopySource, MemoryUsage::Upload});
         uint32_t white  = 0xffffffff;
         buffer->Write(0, &white, 4);
-        auto copy = Data.DeviceLease->CreateCommandList();
+        auto copy = Data.GPU->CreateCommandList();
         copy->CopyBufferToTexture(buffer, 0, Data.White);
-        Data.DeviceLease->Submit(copy);
-        Data.DeviceLease->WaitIdle();
+        Data.GPU->Submit(copy);
+        Data.GPU->WaitIdle();
         Data.Vertices.reserve(MaxQuads * 4);
     }
     void Renderer2D::SetTarget(std::shared_ptr<Device> device, const RenderingDesc& target)
@@ -150,14 +149,14 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         Data.Texture.reset();
         Data.State = state;
         Data.ViewProjection =
-            DeviceProjection(camera.GetProjectionMatrix() * view, Data.DeviceLease->GetCoordinateConventions());
+            DeviceProjection(camera.GetProjectionMatrix() * view, Data.GPU->GetCoordinateConventions());
     }
     void Renderer2D::EndScene() { Flush(); }
     void Renderer2D::Shutdown()
     {
         ClearTarget();
-        if (Data.DeviceLease)
-            Data.DeviceLease->WaitIdle();
+        if (Data.GPU)
+            Data.GPU->WaitIdle();
         Data = {};
     }
     void Renderer2D::Flush()
@@ -166,16 +165,15 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
             return;
         if (!Data.Program || Target.Colors.empty())
             throw std::logic_error("Renderer2D requires an RHI target and initialized shader");
-        if (TargetDevice != Data.DeviceLease)
+        if (TargetDevice != Data.GPU)
             throw std::logic_error("Renderer2D target belongs to another device");
-        auto&       device = *Data.DeviceLease;
+        auto&       device = *Data.GPU;
         auto        image  = Data.White;
         SamplerDesc sampling;
         if (Data.Texture)
         {
-            // RHI-MIGRATION: bridge editor Texture2D inputs through the existing texture view.
-            image    = OpenGLInterop::TextureResource(Data.Texture);
-            sampling = OpenGLInterop::TextureSampling(Data.Texture);
+            image    = Data.Texture->GetResource();
+            sampling = Data.Texture->GetSampling();
         }
         auto vertices =
             device.CreateBuffer({Data.Vertices.size() * sizeof(QuadVertex), BufferUsage::Vertex, MemoryUsage::Upload});

@@ -1,10 +1,20 @@
 # Render hardware interface
 
-The core API is `RHI.h`, in `Kans::RenderHardware`. The namespace avoids the
-existing `Kans::RHI` class. The asset cache, scene target, material pass, picking, selection outline and material previews/thumbnails use this interface as of phase 1c-2. Remaining immediate passes use the temporary backend-only `OpenGLInterop.h` (see [MIGRATION.md](MIGRATION.md)).
-`OpenGL/OpenGLDevice.h` is the backend construction entry point, separate from
-the neutral core header. Creating that device requires a current, loaded 4.3
-core context; all calls use its owning thread.
+The core API is `RHI.h`, in `Kans::RenderHardware`. All engine rendering and
+resources use it; native OpenGL is confined to `OpenGL/`.
+See [MIGRATION.md](MIGRATION.md) for retirement and editor compatibility details.
+
+`Backend.h` is the neutral application entry point: `SetBackend`,
+`CreateWindowSurface`, `InitializeDevice(backend, window)`, `GetSharedDevice` and
+`ShutdownDevice`. Initialization is explicit and idempotent for the same window;
+all rendering consumers share its device. Backend window hints, context binding,
+entry-point loading, presentation and VSync live in `OpenGL/`. Calls use the
+context's owning thread. Headless conformance fixtures supply their own context.
+The retained older Vulkan framework is separate from this device implementation.
+
+`ImGuiRenderer.h` provides `CreateImGuiRenderer(backend, window)` with `NewFrame`,
+`Render`, `RenderPlatformWindows` and `EndFrame`. Its OpenGL implementation owns
+the current ImGui GLFW/OpenGL3 integration; ImGuiLayer contains no native GL.
 
 ## Public types
 
@@ -70,9 +80,12 @@ pair. Submission is allowed inside or outside a frame, always outside a renderin
 scope. Standalone submissions retain resources and keep readbacks inaccessible
 until `WaitIdle` or a later `EndFrame`; they do not implicitly start/end a frame.
 `WaitIdle` can retire submitted work inside a frame without ending it.
-The OpenGL backend isolates command replay from native caller state. Its idle
-retirement defers deletion of native objects still bound by immediate callers;
-frame retirement or a later idle after unbinding releases those objects.
+Command replay establishes deterministic native state without per-submit
+save/restore. ImGui sets its own draw state; its renderer boundary additionally
+handles framebuffer bindings, colour masks, sRGB, raster discard, logic operations
+and clip distances. Transfer-local guards preserve pixel-store/PBO bindings.
+Native bindings alone confer no resource ownership; recorded commands and active
+UI texture exports retain their resources.
 
 A recorded list owns every referenced resource. Submission transfers retention
 to the device until retirement, even when the caller releases the list. Safe
@@ -94,8 +107,13 @@ later binding use; transfer/readback paths insert the appropriate memory barrier
 An explicit backend can infer accesses from these same commands and track each
 texture subresource independently.
 
-`GetImGuiTextureID` returns the texture's native draw ID as `uintptr_t`. Its
-lifetime follows the texture's frame-retirement contract.
+`GetImGuiTextureID(texture, sampling)` returns a draw ID as `uintptr_t`.
+Optional neutral sampling configures the ImGui view, while RHI draws use
+independent samplers. Texture2D wraps an RHI image and supplies this description;
+its deprecated `GetRenererID` alias returns the identical value. Exports during
+`ImGuiRenderer::NewFrame` through `EndFrame` retain images across intervening
+`WaitIdle`/scene frame retirement and all platform-window draws. After UI completion,
+normal device retirement can destroy a released image.
 
 ## Coordinates
 
@@ -178,3 +196,33 @@ blocks/combined samplers), which currently excludes push-data and storage.
 `test/InternalShaderTests.cpp` checks descriptor reflection/cache reuse, diagnostic
 propagation and source-sensitive failure caching, and projection/row conversions
 for downward-Y/zero-to-one/upper-left conventions.
+
+`test/EditorTextureOpenGLTests.cpp` drives the real ImGui renderer on llvmpipe:
+
+| Test (prefix `EditorTextureGL.`) | Concrete regression caught |
+| --- | --- |
+| ConsumersReuseTheInitializedDeviceAndItsResources | Duplicate device creation by repeated initialization or a lazy resource consumer; the shared device also copies an uploaded wrapper image and checks exact bytes. |
+| ImGuiSamplesLinearAndSrgbProductsThroughTheExportedId | Lost colour space, mismatched/truncated ID or incomplete native view; real sampled pixels compare linear bytes exactly and IEC sRGB decoding within one byte. |
+| ReleasedThumbnailSurvivesInterveningRetirementUntilImGuiDraws | Texture replacement after AddImage releases its allocation before draw-list execution; checks native lifetime, exact sampled RGB and actual deletion after UI completion. |
+| RealImGuiDrawIgnoresTheLastRhiTargetMaskSrgbAndWireframe | UI inherits offscreen target, colour mask or sRGB conversion, or fails to set filled rasterization/dithering; exact UI RGB, every offscreen-target RGBA byte and draw-time dither state are checked. |
+
+Existing native-state tests now exercise actual ImGui rendering. Their complete
+native-state/byte assertions survive at this renderer boundary; engine pass
+pixel/depth/unprojection/statistics assertions and reference tolerances remain.
+No test is deleted. Tests of the retired native texture class are ported to
+Texture2D with the same checks, including the GL 4.3 extension loader run.
+
+`TextureProductUpload.DeprecatedIdAliasKeepsPointerWidth` uses a CPU texture with
+a descriptor-sized ID containing a nonzero high word. Exact pointer-width
+comparison catches restoring the old uint32 narrowing in the deprecated alias;
+it does not depend on OpenGL's inherently 32-bit texture names.
+
+`test/EditorStartupOpenGLTests.cpp` exercises the actual editor resource/font
+startup loaders from a changed CWD and relative INI directories, compares every
+icon/border base-level byte and sampler/mip setting, checks actual merged font
+glyphs and draws text through OpenGL3. It also invokes the unedited browser
+thumbnail worker and covers missing/corrupt file fallback, odd-width RGB,
+legacy 16-bit LDR byte truncation/metadata handling and linear half HDR.
+See [RESOURCE_COMPATIBILITY.md](RESOURCE_COMPATIBILITY.md) for the operation-by-operation
+comparison with the deleted implementations. Runtime display decoding has its
+own private stb instance; strict asset importing remains independent.

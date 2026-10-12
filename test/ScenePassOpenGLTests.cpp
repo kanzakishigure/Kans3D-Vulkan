@@ -8,7 +8,7 @@
 #include <glm/gtc/packing.hpp>
 #include <gtest/gtest.h>
 #include "Kans3D/Core/Log/Log.h"
-#include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
@@ -30,15 +30,15 @@ namespace
         Scope<RenderScene>              Scene;
         Ref<SceneRenderer>              Renderer;
         SceneInfo                       Info {};
-        RendererAPIType                 PreviousAPI = RendererAPIType::NONE;
+        RenderHardware::Backend         PreviousAPI = RenderHardware::Backend::None;
         void                            SetUp() override
         {
             if (!Log::GetCoreLogger())
                 Log::Init();
             Context = std::make_unique<GpuTestContext>(GpuTestBackend::OpenGL);
             ASSERT_NO_FATAL_FAILURE(Context->SetUp());
-            PreviousAPI = RendererAPI::Current();
-            RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+            PreviousAPI = RenderHardware::GetBackend();
+            RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
             Logic = CreateRef<Kans::Scene>();
             Scene = CreateScope<RenderScene>(Logic);
             Scene->OnViewportResize(Size, Size);
@@ -53,7 +53,7 @@ namespace
             Scene.reset();
             Logic.reset();
             Context.reset();
-            RendererAPI::SetBackEnd(PreviousAPI);
+            RenderHardware::SetBackend(PreviousAPI);
         }
         std::vector<uint8_t> Read(const Handle<Image>& image, TextureSubresource sub = {})
         {
@@ -270,7 +270,7 @@ namespace
         {
             TextureSpecification desc;
             desc.Width = desc.Height = 1;
-            desc.Format              = RHI_FORMAT_R8G8B8A8_SRGB;
+            desc.Format              = RenderHardware::Format::RGBA8Unorm;
             std::array<uint8_t, 4> color {uint8_t(17 + i * 5), uint8_t(239 - i * 5), uint8_t(31 + i * 3), 255};
             images.push_back(Texture2D::Create(desc, Kans::Buffer(color.data(), 4)));
             float x = -1 + (i % 8 + .5f) * .25f, y = -1 + (i / 8 + .5f) * .4f;

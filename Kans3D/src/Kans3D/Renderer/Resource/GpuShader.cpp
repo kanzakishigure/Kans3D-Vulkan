@@ -1,12 +1,11 @@
 #include "kspch.h"
 #include "GpuShader.h"
-#include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
+#include "Kans3D/RHI/Backend.h"
 namespace Kans
 {
     GpuUniformBuffer::GpuUniformBuffer(size_t bytes, const void* data, std::shared_ptr<RenderHardware::Device> device)
     {
-        // RHI-MIGRATION: standalone buffers acquire a context device; cache/preview inject one.
-        m_Device = device ? std::move(device) : RenderHardware::OpenGLInterop::AcquireDevice();
+        m_Device = device ? std::move(device) : RenderHardware::GetSharedDevice();
         m_Buffer =
             m_Device->CreateBuffer({bytes, RenderHardware::BufferUsage::Uniform, RenderHardware::MemoryUsage::Upload});
         if (data)
@@ -27,8 +26,7 @@ namespace Kans
         {
             try
             {
-                // RHI-MIGRATION: standalone shader clients obtain the current context's shared device.
-                device = RenderHardware::OpenGLInterop::AcquireDevice();
+                device = RenderHardware::GetSharedDevice();
             }
             catch (const std::exception&)
             {

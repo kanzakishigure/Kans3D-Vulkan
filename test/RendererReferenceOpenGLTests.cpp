@@ -16,9 +16,8 @@
 #include "Kans3D/Asset/Product/TextureProduct.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/FileSystem/FileSystem.h"
-#include "Kans3D/Platform/OpenGL/OpenGLShader.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
-#include "Kans3D/Renderer/RHI/OpenGL/OpenGLRenderCommand.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
 #include "Kans3D/Scene/Entity.h"
@@ -64,8 +63,7 @@ namespace
         inline static Ref<Scene>                      Logic;
         inline static Scope<RenderScene>              Render;
         inline static Scope<SceneRenderer>            Renderer;
-        inline static Ref<ShaderLibrary>              Library;
-        inline static RendererAPIType                 PreviousBackend;
+        inline static RenderHardware::Backend         PreviousBackend;
         inline static SceneInfo                       Info {};
         inline static AssetID                         Albedo, Normal, Textured, Emissive, Toon, ToonShader;
         inline static ProductModelComponent           Sphere, Quad, EmissionSphere, ToonSphere;
@@ -238,18 +236,10 @@ namespace
                 Log::Init();
             Context = std::make_unique<GpuTestContext>(GpuTestBackend::OpenGL);
             ASSERT_NO_FATAL_FAILURE(Context->SetUp());
-            PreviousBackend = RendererAPI::Current();
-            RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+            PreviousBackend = RenderHardware::GetBackend();
+            RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
             Directory = fs::temp_directory_path() / ("kans-render-reference-" + SourceAssetID::Generate().ToString());
             fs::create_directories(Directory / "stage");
-            Library = CreateRef<ShaderLibrary>();
-            for (const auto* path : {"PBR/HdrToCubeMap.glsl",
-                                     "PBR/genIrradiance.glsl",
-                                     "PBR/prefilter.glsl",
-                                     "PBR/brdf.glsl",
-                                     "PBR/skybox.glsl",
-                                     "GridShader.glsl"})
-                Library->Add(CreateRef<OpenGLShader>((fs::path(KANS_TEST_SHADER_DIR) / path).string()));
             Provider = CreateRef<ReferenceProvider>();
             Source   = SourceAssetID::Generate();
             Assets = CreateScope<AssetManager>(Provider,
@@ -258,7 +248,6 @@ namespace
             Render = CreateScope<RenderScene>(Logic);
             Render->OnViewportResize(Size, Size);
             SceneRendererSpecification spec;
-            spec.AuxiliaryShaders = Library;
             Renderer              = CreateScope<SceneRenderer>(Render.get(), spec);
             Renderer->SetAssetManager(Assets.get());
             Info.sceneCamera.Position   = {0, 0, 4};
@@ -268,7 +257,11 @@ namespace
             Info.pointLight.Ambient_Intensity  = {30, 24, 20};
             Info.pointLight.Diffuse_Intensity  = {1, 1, 1};
             Info.pointLight.Specular_Intensity = {1, 1, 1};
-            OpenGLRenderCommand::Init();
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LEQUAL);
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+            glDisable(GL_CULL_FACE);
             glDisable(GL_FRAMEBUFFER_SRGB); // Material shaders explicitly encode the LDR output.
             ASSERT_NO_FATAL_FAILURE(WriteEnvironment());
             Render->PrepareEnvironment(Directory / "environment.hdr");
@@ -329,7 +322,6 @@ namespace
             Logic.reset();
             Assets.reset();
             Provider.reset();
-            Library.reset();
             if (SpriteInitialized)
             {
                 Renderer2D::Shutdown();
@@ -337,7 +329,7 @@ namespace
             }
             if (!Directory.empty())
                 fs::remove_all(Directory);
-            RendererAPI::SetBackEnd(PreviousBackend);
+            RenderHardware::SetBackend(PreviousBackend);
             Context.reset();
         }
         void SetUp() override

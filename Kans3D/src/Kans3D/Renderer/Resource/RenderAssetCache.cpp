@@ -5,9 +5,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
-#include "Kans3D/RHI/OpenGL/OpenGLInterop.h"
-
-#include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/RHI/Backend.h"
 
 namespace Kans
 {
@@ -18,13 +16,11 @@ namespace Kans
             return *error;
         if (!device)
         {
-            // RHI-MIGRATION: preserve legacy standalone backend selection and context-error behavior.
-            if (RendererAPI::Current() != RendererAPIType::OPENGL)
+            if (RenderHardware::GetBackend() != RenderHardware::Backend::OpenGL)
                 return AssetError {AssetErrorCode::NotImplemented, "Mesh upload is unavailable for this backend"};
             try
             {
-                // RHI-MIGRATION: standalone upload compatibility obtains the context device lease.
-                device = RenderHardware::OpenGLInterop::AcquireDevice();
+                device = RenderHardware::GetSharedDevice();
             }
             catch (const std::exception& e)
             {
@@ -182,76 +178,10 @@ namespace Kans
         });
     }
 
-    namespace
-    {
-        std::variant<Ref<Texture2D>, AssetError> UploadTexture(const TextureData&                      data,
-                                                               std::shared_ptr<RenderHardware::Device> device)
-        {
-            auto valid = ValidateTextureData(data);
-            if (auto* error = std::get_if<AssetError>(&valid))
-                return *error;
-            if (data.Kind != TextureKind::Texture2D)
-                return AssetError {AssetErrorCode::NotImplemented, "Only 2D product textures are supported"};
-            using namespace RenderHardware;
-            TextureDesc desc;
-            desc.Width     = data.Width;
-            desc.Height    = data.Height;
-            desc.MipLevels = uint32_t(data.Mips.size());
-            desc.Usage     = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
-            switch (data.Format)
-            {
-                case TexturePixelFormat::R8:
-                    desc.PixelFormat = Format::R8Unorm;
-                    break;
-                case TexturePixelFormat::RG8:
-                    desc.PixelFormat = Format::RG8Unorm;
-                    break;
-                case TexturePixelFormat::RGBA8:
-                    desc.PixelFormat =
-                        data.ColorSpace == TextureColorSpace::SRGB ? Format::RGBA8Srgb : Format::RGBA8Unorm;
-                    break;
-                case TexturePixelFormat::RGBA32Float:
-                    desc.PixelFormat = Format::RGBA32Float;
-                    break;
-            }
-            auto image    = device->CreateTexture(desc);
-            auto commands = device->CreateCommandList();
-            for (uint32_t mip = 0; mip < desc.MipLevels; ++mip)
-            {
-                const auto&            source = data.Mips[mip].Pixels;
-                std::vector<std::byte> bytes(source.size());
-                const size_t           height = std::max(1u, data.Height >> mip), row = source.size() / height;
-                const bool             lowerLeft =
-                    device->GetCoordinateConventions().Origin == RenderHardware::FramebufferOrigin::LowerLeft;
-                const bool flip = (data.Origin == TextureOrigin::TopLeft) == lowerLeft;
-                for (size_t y = 0; y < height; ++y)
-                {
-                    const auto* input = source.data() + (flip ? height - 1 - y : y) * row;
-                    if (data.Format != TexturePixelFormat::RGBA32Float)
-                        std::memcpy(bytes.data() + y * row, input, row);
-                    else
-                        for (size_t x = 0; x < row; x += 4)
-                        {
-                            uint32_t bits = 0;
-                            for (size_t b = 0; b < 4; ++b)
-                                bits |= uint32_t(std::to_integer<uint8_t>(input[x + b])) << (b * 8);
-                            std::memcpy(bytes.data() + y * row + x, &bits, 4);
-                        }
-                }
-                auto upload = device->CreateBuffer({bytes.size(), BufferUsage::CopySource, MemoryUsage::Upload});
-                upload->Write(0, bytes.data(), bytes.size());
-                commands->CopyBufferToTexture(upload, 0, image, {mip, 0});
-            }
-            device->Submit(commands);
-            // RHI-MIGRATION: editor-compatible Texture2D view, owns the RHI image.
-            return OpenGLInterop::TextureView(std::move(device), std::move(image));
-        }
-    } // namespace
     std::shared_ptr<RenderHardware::Device> RenderAssetCache::GetDevice()
     {
-        // RHI-MIGRATION: lazy standalone caches share the context's device with SceneRenderer.
         if (!m_Device)
-            m_Device = RenderHardware::OpenGLInterop::AcquireDevice();
+            m_Device = RenderHardware::GetSharedDevice();
         return m_Device;
     }
     void RenderAssetCache::SetTextureSampler(AssetID id, const RenderHardware::SamplerDesc& desc)
@@ -265,7 +195,7 @@ namespace Kans
     Ref<Texture2D> RenderAssetCache::GetTexture(AssetID id)
     {
         auto* texture = Resolve(m_Textures, id, [&](const TextureAsset& asset) {
-            auto uploaded = UploadTexture(asset.GetData(), GetDevice());
+            auto uploaded = Texture2D::CreateFromProduct(asset.GetData(), GetDevice());
             if (std::holds_alternative<Ref<Texture2D>>(uploaded))
             {
                 // Drop obsolete cached descriptors. Recorded commands still retain their snapshots.
@@ -284,8 +214,7 @@ namespace Kans
     RenderHardware::Handle<RenderHardware::Texture> RenderAssetCache::GetTextureResource(AssetID id)
     {
         auto view = GetTexture(id);
-        // RHI-MIGRATION: unwrap the editor-compatible texture shim.
-        return view ? RenderHardware::OpenGLInterop::TextureResource(view) : nullptr;
+        return view ? view->GetResource() : nullptr;
     }
 
     const GpuShader* RenderAssetCache::GetShader(AssetID id)
@@ -430,7 +359,7 @@ namespace Kans
                     image.Usage                = TextureUsage::Data;
                     image.Mips.push_back({std::vector<std::byte>(sizeof(pixel))});
                     std::memcpy(image.Mips[0].Pixels.data(), pixel.data(), sizeof(pixel));
-                    auto uploaded = UploadTexture(image, GetDevice());
+                    auto uploaded = Texture2D::CreateFromProduct(image, GetDevice());
                     if (auto* error = std::get_if<AssetError>(&uploaded))
                     {
                         CORE_ERROR("Material fallback texture: {}", error->Message);
@@ -441,8 +370,7 @@ namespace Kans
                 }
                 texture = fallback;
             }
-            // RHI-MIGRATION: unwrap the Texture2D compatibility view.
-            auto image = RenderHardware::OpenGLInterop::TextureResource(texture);
+            auto image = texture->GetResource();
             images.push_back(image);
             RenderHardware::BindGroupEntry entry;
             entry.Slot            = binding;

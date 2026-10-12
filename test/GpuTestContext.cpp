@@ -8,7 +8,7 @@
 #else
 #include <GLFW/glfw3.h>
 #endif
-#include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/OpenGL/OpenGLDevice.h"
 
 struct GpuTestContext::State
@@ -41,8 +41,20 @@ void GpuTestContext::SetUp()
     ASSERT_NE(display, EGL_NO_DISPLAY);
     ASSERT_TRUE(eglInitialize(display, nullptr, nullptr));
     ASSERT_TRUE(eglBindAPI(EGL_OPENGL_API));
-    const EGLint configAttributes[] = {
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT, EGL_NONE};
+    // Real ImGui pixel checks require RGBA8; unconstrained EGL often selects RGB565.
+    const EGLint configAttributes[] = {EGL_SURFACE_TYPE,
+                                       EGL_PBUFFER_BIT,
+                                       EGL_RENDERABLE_TYPE,
+                                       EGL_OPENGL_BIT,
+                                       EGL_RED_SIZE,
+                                       8,
+                                       EGL_GREEN_SIZE,
+                                       8,
+                                       EGL_BLUE_SIZE,
+                                       8,
+                                       EGL_ALPHA_SIZE,
+                                       8,
+                                       EGL_NONE};
     EGLConfig config;
     EGLint    count = 0;
     ASSERT_TRUE(eglChooseConfig(display, configAttributes, &config, 1, &count));
@@ -60,8 +72,8 @@ void GpuTestContext::SetUp()
     surface                          = eglCreatePbufferSurface(display, config, surfaceAttributes);
     ASSERT_NE(surface, EGL_NO_SURFACE);
     ASSERT_TRUE(eglMakeCurrent(display, surface, surface, context));
-    ASSERT_TRUE(gladLoadGLLoader(reinterpret_cast<GLADloadproc>(eglGetProcAddress)));
-    Kans::OpenGLRHI::EnsureDSAFunctionsLoaded(reinterpret_cast<GLADloadproc>(eglGetProcAddress));
+    Kans::RenderHardware::LoadOpenGLEntryPoints(
+        reinterpret_cast<Kans::RenderHardware::OpenGLLoadProc>(eglGetProcAddress));
 #else
     ASSERT_TRUE(glfwInit());
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -71,14 +83,16 @@ void GpuTestContext::SetUp()
     window = glfwCreateWindow(16, 16, "GPU test", nullptr, nullptr);
     ASSERT_NE(window, nullptr);
     glfwMakeContextCurrent(window);
-    ASSERT_TRUE(gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)));
-    Kans::OpenGLRHI::EnsureDSAFunctionsLoaded(reinterpret_cast<GLADloadproc>(glfwGetProcAddress));
+    Kans::RenderHardware::LoadOpenGLEntryPoints(
+        reinterpret_cast<Kans::RenderHardware::OpenGLLoadProc>(glfwGetProcAddress));
 #endif
+    Kans::RenderHardware::InitializeDevice(Kans::RenderHardware::Backend::OpenGL);
 }
 void GpuTestContext::TearDown()
 {
     if (!m_State)
         return;
+    Kans::RenderHardware::ShutdownDevice();
 #ifdef KANS_TEST_USE_EGL
     auto& display = m_State->display;
     auto& context = m_State->context;

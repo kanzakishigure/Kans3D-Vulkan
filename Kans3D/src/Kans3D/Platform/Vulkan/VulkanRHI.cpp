@@ -133,6 +133,7 @@ namespace Kans
 
     void VulkanRHI::Init()
     {
+        s_Current = this;
 
         CreateInstance();
         SelectPhysicalDevice();
@@ -178,7 +179,12 @@ namespace Kans
         viewport.maxDepth = 1.0f;
     }
 
-    void VulkanRHI::Shutdown() { m_SwapChain.Cleanup(); }
+    void VulkanRHI::Shutdown()
+    {
+        m_SwapChain.Cleanup();
+        if (s_Current == this)
+            s_Current = nullptr;
+    }
     void VulkanRHI::CreateInstance()
     {
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -29,7 +29,7 @@ namespace Kans
         s_Instance = this;
 
         //-------------create application Surface and init the render context-----------------//
-        RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
 
         WindowSpecification windowSpec;
         windowSpec.Title        = spec.Name;
@@ -149,11 +149,6 @@ namespace Kans
             return false;
         }
         m_Minimized = false;
-        {
-            // this is temp for the openGL
-            Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
-        }
-        Renderer::GetRHI()->RecreateSwapchain();
         return false;
     }
 

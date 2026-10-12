@@ -14,9 +14,7 @@ namespace Kans
 
     VulkanTexture2D::~VulkanTexture2D() {}
 
-    uint32_t VulkanTexture2D::GetRenererID() const { return 0; }
-
-    void VulkanTexture2D::Bind(uint32_t slot /*= 0*/) const {}
+    uintptr_t VulkanTexture2D::GetImGuiTextureID() const { return 0; }
 
     const std::filesystem::path& VulkanTexture2D::GetPath() const { return m_Path; }
 

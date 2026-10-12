@@ -3,12 +3,12 @@
 ## OpenGL mipmap 回归测试
 
 ```sh
-cmake --build --preset linux-gcc-debug --target OpenGLTextureTests KansEditor -j2
-ctest --test-dir build/linux-gcc -C Debug -R '^OpenGLTextureMipmap\.' --output-on-failure
+cmake --build --preset linux-gcc-debug --target OpenGLTextureTests RHIConformanceTests -j2
+LIBGL_ALWAYS_SOFTWARE=1 MESA_LOADER_DRIVER_OVERRIDE=llvmpipe GALLIUM_DRIVER=llvmpipe ctest --test-dir build/linux-gcc -C Debug -L OpenGL --timeout 300
 ```
 
 `OpenGLTextureTests` 独立于 CPU 测试，实际创建 OpenGL 上下文并调用引擎的
-`OpenGLTexture2D` 文件加载构造函数和 `OpenGLRHI::EnsureDSAFunctionsLoaded`。
+`Texture2D::Create` 文件加载及后端的 `LoadOpenGLEntryPoints`。
 Linux 需要 EGL 开发库和支持离屏 OpenGL 的驱动（Mesa llvmpipe 可用，无需 DISPLAY）；
 其他平台使用 GLFW 隐藏窗口。上下文或函数入口不可用时测试失败，不静默跳过。
 
@@ -19,7 +19,7 @@ Linux 需要 EGL 开发库和支持离屏 OpenGL 的驱动（Mesa llvmpipe 可�
 Linux 额外运行 `GL43ExtensionPath`，使用 Mesa 软件驱动并设置
 `MESA_GL_VERSION_OVERRIDE=4.3`，防止驱动自动返回 4.5 而掩盖扩展入口加载遗漏。
 测试输出 XML 中记录实际 renderer 和 version。曾复现 GL 4.3 路径没有加载
-`glGenerateTextureMipmap`、函数指针为空的问题；修复位于 OpenGLRHI 的 DSA 加载列表。
+`glGenerateTextureMipmap`、函数指针为空的问题；修复位于 RHI/OpenGL 后端的 DSA 加载列表。
 
 ## 资源系统测试
 
@@ -33,6 +33,17 @@ Linux 额外运行 `GL43ExtensionPath`，使用 Mesa 软件驱动并设置
 串行运行全部 OpenGL 测试；在硬件驱动上并行运行 GL 测试曾导致 GPU 挂起。
 
 ```sh
-ctest --test-dir build/linux-gcc -C Debug -LE OpenGL -j2   # CPU
+ctest --test-dir build/linux-gcc -C Debug -LE OpenGL -j1 --timeout 300   # CPU
 ctest --test-dir build/linux-gcc -C Debug -L OpenGL        # OpenGL（串行，llvmpipe）
 ```
+
+`EditorStartupGL` calls the real `EditorResources::Init`, the font helper used by
+`ImGuiLayer::OnAttach`, and the unedited content-browser thumbnail worker from a
+temporary CWD with `ResoucesDir=Resources/` and `FontsDir=Resources/Fonts/`.
+All 17 real icon/border textures are checked against independent stb bytes,
+including row orientation, linear format and mip/sampler settings. Actual Roboto
+and FontAwesome glyphs and an OpenGL3 text draw are checked. Missing resources
+must log and yield an uploaded checker/built-in font instead of terminating.
+Generated RGB PNM, 16-bit PNG with gAMA, HDR, empty and malformed files catch
+channel padding, byte truncation, metadata policy, half precision and recovery
+regressions. No test launches KansEditor or writes to its resources.

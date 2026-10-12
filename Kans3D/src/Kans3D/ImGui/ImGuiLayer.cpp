@@ -1,9 +1,8 @@
 #include "kspch.h"
 #include "ImGuiLayer.h"
+#include "EditorFonts.h"
 
 #include <imgui.h>
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_opengl3.h>
 
 #include "Kans3D/Core/Application.h"
 
@@ -11,8 +10,6 @@
 #include "Kans3D/ImGui/Colors.h"
 #include "ImGuizmo.h"
 // Temp
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
 
 namespace Kans
 {
@@ -36,32 +33,7 @@ namespace Kans
         // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoTaskBarIcons;
         // io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoMerge;
 
-        // Kans:
-        // Set the default font
-        {
-
-            // Font Awesome (solid) icons are merged into each text font when present.
-            static const ImWchar  iconRanges[] = {0xe000, 0xf8ff, 0};
-            std::filesystem::path iconPath = KansFileSystem::GetFontsFolder() / "FontAwesome/fa-solid-900.ttf";
-            std::error_code       missing;
-            const bool            icons     = std::filesystem::exists(iconPath, missing);
-            const auto            mergeIcons = [&] {
-                if (!icons)
-                    return;
-                ImFontConfig config;
-                config.MergeMode        = true;
-                config.PixelSnapH       = true;
-                config.GlyphMinAdvanceX = 16.0f;
-                io.Fonts->AddFontFromFileTTF(iconPath.generic_string().c_str(), 14.0f, &config, iconRanges);
-            };
-
-            std::filesystem::path Dfontpath = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Regular.ttf";
-            io.FontDefault                  = io.Fonts->AddFontFromFileTTF(Dfontpath.generic_string().c_str(), 16.0f);
-            mergeIcons();
-            std::filesystem::path fontpath = KansFileSystem::GetFontsFolder() / "Roboto/Roboto-Bold.ttf";
-            io.Fonts->AddFontFromFileTTF(fontpath.generic_string().c_str(), 16.0f);
-            mergeIcons();
-        }
+        LoadEditorFonts();
 
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();
@@ -80,21 +52,14 @@ namespace Kans
 
         SetDarkThemeColors();
 
-        Application& app    = Application::Get();
-        GLFWwindow*  window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
-
-        // Setup Platform/Renderer bindings
-        ImGui_ImplGlfw_InitForOpenGL(window, true);
-        // ImGui_ImplGlfw_InitForVulkan(window, true);
-        ImGui_ImplOpenGL3_Init("#version 410");
+        m_Renderer = RenderHardware::CreateImGuiRenderer(RenderHardware::GetBackend(), &Application::Get().GetWindow());
     }
 
     void ImGuiLayer::OnDetach()
     {
         PROFILE_FUCTION();
 
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
+        m_Renderer.reset();
         ImGui::DestroyContext();
     }
 
@@ -102,8 +67,7 @@ namespace Kans
     {
         PROFILE_FUCTION();
 
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
+        m_Renderer->NewFrame();
         ImGui::NewFrame();
         ImGuizmo::BeginFrame();
     }
@@ -118,15 +82,13 @@ namespace Kans
 
         // Rendering
         ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        m_Renderer->Render(ImGui::GetDrawData());
 
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {
-            GLFWwindow* backup_current_context = glfwGetCurrentContext();
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
-            glfwMakeContextCurrent(backup_current_context);
+            m_Renderer->RenderPlatformWindows();
         }
+        m_Renderer->EndFrame();
     }
 
     void ImGuiLayer::OnImGuiRender() {}

@@ -12,10 +12,8 @@
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Product/TextureProduct.h"
-#include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
-#include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
-#include "Kans3D/Platform/OpenGL/OpenGLTexture.h"
-#include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/RHI/Backend.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
 #include "GpuTestContext.h"
 
 namespace
@@ -46,9 +44,9 @@ namespace
         Kans::TextureSpecification Specification(bool mips = true)
         {
             Kans::TextureSpecification spec;
-            spec.Format = Kans::RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB;
-            spec.Minf = spec.Maxf = Kans::RHIFilter::RHI_FILTER_LINEAR;
-            spec.Wrap             = Kans::RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            spec.Format = Kans::RenderHardware::Format::RGBA8Unorm;
+            spec.Minf = spec.Maxf = Kans::RenderHardware::Filter::Linear;
+            spec.Wrap             = Kans::RenderHardware::AddressMode::ClampToEdge;
             spec.GenerateMips     = mips;
             return spec;
         }
@@ -108,9 +106,9 @@ namespace
     TEST_F(OpenGLTextureMipmap, FileGeneratesCompleteChainAndAveragedPixels)
     {
         ASSERT_NO_FATAL_FAILURE(WriteCheckerboard());
-        Kans::OpenGLTexture2D texture(Specification(), temp);
+        auto texture = Kans::Texture2D::Create(Specification(), temp);
         ASSERT_EQ(glGetError(), GL_NO_ERROR);
-        CheckChain(texture.GetRenererID(), 8, 4);
+        CheckChain(texture->GetImGuiTextureID(), 8, 4);
         std::array<unsigned char, 4> pixel {};
         glGetTexImage(GL_TEXTURE_2D, 3, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data());
         ASSERT_EQ(glGetError(), GL_NO_ERROR);
@@ -122,9 +120,9 @@ namespace
     TEST_F(OpenGLTextureMipmap, DisabledKeepsOnlyBaseLevel)
     {
         ASSERT_NO_FATAL_FAILURE(WriteCheckerboard());
-        Kans::OpenGLTexture2D texture(Specification(false), temp);
+        auto                  texture = Kans::Texture2D::Create(Specification(false), temp);
         GLint                 levels = 0, filter = 0;
-        glBindTexture(GL_TEXTURE_2D, texture.GetRenererID());
+        glBindTexture(GL_TEXTURE_2D, texture->GetImGuiTextureID());
         glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
         glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &filter);
         EXPECT_EQ(levels, 1);
@@ -154,9 +152,9 @@ namespace
             SCOPED_TRACE(name);
             const auto path = std::filesystem::path(KANS_TEST_ICON_DIR) / (std::string(name) + ".png");
             ASSERT_TRUE(std::filesystem::exists(path));
-            Kans::OpenGLTexture2D texture(Specification(), path);
+            auto texture = Kans::Texture2D::Create(Specification(), path);
             ASSERT_EQ(glGetError(), GL_NO_ERROR);
-            CheckChain(texture.GetRenererID(), texture.GetWidth(), texture.GetHeight());
+            CheckChain(texture->GetImGuiTextureID(), texture->GetWidth(), texture->GetHeight());
             GLint levels = 0;
             glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
             std::array<unsigned char, 4> pixel {};
@@ -200,10 +198,10 @@ namespace
         const GLint  values[] = {8, 9, 11, 2, 3, 1, GL_TRUE, GL_TRUE};
         for (size_t i = 0; i < 8; ++i)
             glPixelStorei(names[i], values[i]);
-        const auto previousBackend = RendererAPI::Current();
-        RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+        const auto previousBackend = RenderHardware::GetBackend();
+        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
         auto uploaded = Texture2D::CreateFromProduct(std::get<Ref<TextureAsset>>(loaded)->GetData());
-        RendererAPI::SetBackEnd(previousBackend);
+        RenderHardware::SetBackend(previousBackend);
         for (size_t i = 0; i < 8; ++i)
         {
             GLint restored = 0;
@@ -218,7 +216,7 @@ namespace
         glDeleteBuffers(1, &pbo);
         ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(uploaded));
         const auto& texture = std::get<Ref<Texture2D>>(uploaded);
-        glBindTexture(GL_TEXTURE_2D, texture->GetRenererID());
+        glBindTexture(GL_TEXTURE_2D, texture->GetImGuiTextureID());
         GLint internal = 0, levels = 0, maximum = 0;
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &internal);
         glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
@@ -266,9 +264,9 @@ namespace
                 else
                     data.Mips[0].Pixels.push_back(std::byte(i * 9 + 1));
             }
-            auto uploaded = OpenGLTexture2D::UploadProduct(data);
-            ASSERT_TRUE(std::holds_alternative<Ref<OpenGLTexture2D>>(uploaded));
-            glBindTexture(GL_TEXTURE_2D, std::get<Ref<OpenGLTexture2D>>(uploaded)->GetRenererID());
+            auto uploaded = Texture2D::CreateFromProduct(data);
+            ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(uploaded));
+            glBindTexture(GL_TEXTURE_2D, std::get<Ref<Texture2D>>(uploaded)->GetImGuiTextureID());
             const GLenum external = components == 1 ? GL_RED : components == 2 ? GL_RG : GL_RGBA;
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             if (format == TexturePixelFormat::RGBA32Float)
@@ -293,12 +291,12 @@ namespace
     {
         using namespace Kans;
         TextureData data;
-        EXPECT_EQ(std::get<AssetError>(OpenGLTexture2D::UploadProduct(data)).Code, AssetErrorCode::InvalidData);
+        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidData);
         data.Kind  = TextureKind::Array2D;
         data.Width = data.Height = 1;
         data.Layers              = 2;
         data.Mips                = {{std::vector<std::byte>(8)}};
-        EXPECT_EQ(std::get<AssetError>(OpenGLTexture2D::UploadProduct(data)).Code, AssetErrorCode::NotImplemented);
+        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
         EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 } // namespace
