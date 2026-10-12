@@ -48,6 +48,16 @@ namespace Kans::RenderHardware
         Shared      = std::move(device);
         return Shared;
     }
+    void InitializeHeadlessDevice(Backend backend, std::shared_ptr<Device> device)
+    {
+        if (!device || backend == Backend::None)
+            throw std::invalid_argument("A headless device and backend are required");
+        if (Shared)
+            throw std::logic_error("A shared device is already initialized");
+        Selected = backend;
+        Surface  = nullptr;
+        Shared   = std::move(device);
+    }
     std::shared_ptr<Device> GetSharedDevice()
     {
         if (!Shared)

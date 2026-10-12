@@ -108,6 +108,7 @@ namespace Kans
         const RenderHardware::Handle<RenderHardware::Texture> GetSkybox() { return m_SkyBox; }
 
     private:
+        RenderHardware::Handle<RenderHardware::Pipeline> CachedPipeline(const RenderHardware::PipelineDesc& desc);
         RenderHardware::PipelineDesc
         ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled);
         using ShaderDraw   = ViewShaderDraw;
@@ -147,6 +148,7 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::Sampler>              m_IBLSampler;
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> m_BlackEnvironment;
         std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Shader>> m_InternalPrograms;
+        std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Pipeline>> m_InternalPipelines;
         std::optional<GpuMesh>                                                          m_Cube;
         void                          ResizeTarget();
         RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load) const;

@@ -295,3 +295,17 @@ this workspace's `.git` is read-only) and `git diff --check` are clean. Existing
 codec test edits preserve assertions: v6 adds a four-byte count, so legacy slices
 and final-group-member offsets shift by four; the unsupported future version
 moves from 6 to 7. No reference, tolerance, shipped sample or user content changes.
+
+
+## Phase 3b Vulkan execution
+
+The same graph/view/material/feature recording now runs on headless Vulkan.
+Command inference batches resource uses before native rendering scopes and
+handles sampled/attachment transitions, native depth conventions and read-only
+depth. The graph does not expose native barriers or descriptor offsets. Scene and
+sprite owners retain warmed pipelines; immutable per-draw buffer ranges map to
+shared native sets on Vulkan. Offscreen preview/thumbnail output is a neutral
+image, independent of editor UI export. All scene, material-pass and feature
+assertions run on both backends; all twelve original reference PNGs are preserved.
+See the [backend design and measured validation](../../RHI/Vulkan/README.md#phase-3b-graphics-and-renderer)
+and [test change audit](../../../../../test/README.md#phase-3b-test-change-audit).

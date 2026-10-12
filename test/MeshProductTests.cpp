@@ -200,7 +200,7 @@ namespace
         EXPECT_EQ(std::get<AssetError>(UploadMesh(data)).Code, AssetErrorCode::InvalidData);
         EXPECT_TRUE(std::holds_alternative<std::monostate>(ValidateMeshData(Triangle())));
     }
-    TEST(MeshProductUpload, RejectsAbsentContextAndUnsupportedBackends)
+    TEST(MeshProductUpload, RejectsAbsentDeviceAndUnselectedBackend)
     {
         struct BackendRestore
         {
@@ -210,7 +210,7 @@ namespace
         RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
         EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::InvalidArgument);
         RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
-        EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::NotImplemented);
+        EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::InvalidArgument);
         RenderHardware::SetBackend(RenderHardware::Backend::None);
         EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::NotImplemented);
     }

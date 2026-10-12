@@ -2,6 +2,7 @@
 #include "Renderer2D.h"
 #include <iostream>
 #include "Kans3D/RHI/Backend.h"
+#include "Kans3D/RHI/PipelineKey.h"
 #include "Resource/InternalShader.h"
 
 namespace Kans
@@ -43,6 +44,7 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
             std::shared_ptr<Device>         GPU;
             Handle<RenderHardware::Shader>  Program;
             Handle<BindGroupLayout>         Layout;
+            std::unordered_map<std::string, Handle<Pipeline>> Pipelines;
             Handle<RenderHardware::Texture> White;
             Handle<RenderHardware::Buffer>  Indices;
             std::vector<QuadVertex>         Vertices;
@@ -218,7 +220,10 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         auto* commands = Recording ? Recording : owned.get();
         commands->BeginRendering(Target);
         commands->SetViewport({0, 0, float(Width), float(Height)});
-        commands->BindPipeline(device.CreatePipeline(desc));
+        auto& pipeline = Data.Pipelines[Detail::PipelineKey(desc)];
+        if (!pipeline)
+            pipeline = device.CreatePipeline(desc);
+        commands->BindPipeline(pipeline);
         commands->BindGroup(device.CreateBindGroup(
             {Data.Layout,
              {{0, frame, 0, sizeof(glm::mat4), {}, {}}, {1, {}, 0, 0, image, device.CreateSampler(sampling)}}}));

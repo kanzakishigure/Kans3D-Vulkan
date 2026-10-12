@@ -110,22 +110,27 @@ kans_copy_test_runtime(OpenGLTextureTests)
 if(UNIX AND NOT APPLE)
     # Use Mesa's software rasterizer one test at a time: parallel GL tests on a
     # hardware driver have hung the GPU.
-    gtest_discover_tests(OpenGLTextureTests PROPERTIES
+    gtest_discover_tests(OpenGLTextureTests TEST_FILTER "-*Vulkan*" PROPERTIES
         LABELS "OpenGL"
         RUN_SERIAL TRUE
         ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1;MESA_LOADER_DRIVER_OVERRIDE=llvmpipe;GALLIUM_DRIVER=llvmpipe")
 else()
-    gtest_discover_tests(OpenGLTextureTests PROPERTIES LABELS "OpenGL" RUN_SERIAL TRUE)
+    gtest_discover_tests(OpenGLTextureTests TEST_FILTER "-*Vulkan*" PROPERTIES LABELS "OpenGL" RUN_SERIAL TRUE)
 endif()
 if(UNIX AND NOT APPLE)
     # Mesa otherwise returns its highest supported core version, masking the
     # editor's GL 4.3 + ARB_direct_state_access loader path.
-    add_test(NAME OpenGLTextureMipmap.GL43ExtensionPath COMMAND OpenGLTextureTests)
+    add_test(NAME OpenGLTextureMipmap.GL43ExtensionPath COMMAND OpenGLTextureTests --gtest_filter=-*Vulkan*)
     set_tests_properties(OpenGLTextureMipmap.GL43ExtensionPath PROPERTIES
         ENVIRONMENT "MESA_GL_VERSION_OVERRIDE=4.3;LIBGL_ALWAYS_SOFTWARE=1;MESA_LOADER_DRIVER_OVERRIDE=llvmpipe"
         RUN_SERIAL TRUE
         LABELS "OpenGL")
 endif()
+
+gtest_discover_tests(OpenGLTextureTests TEST_FILTER "*Vulkan*" PROPERTIES
+    LABELS "Vulkan"
+    RUN_SERIAL TRUE
+    ENVIRONMENT "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json;VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json;VK_LOADER_LAYERS_DISABLE=~implicit~")
 
 # The conformance suite uses only the neutral interface; backend construction is
 # provided by GpuTestContext. Future backends instantiate the same tests.

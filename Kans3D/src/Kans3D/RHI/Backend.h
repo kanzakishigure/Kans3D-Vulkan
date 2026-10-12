@@ -18,6 +18,8 @@ namespace Kans::RenderHardware
     // Creates the native surface/context using backend-owned API hints.
     void*                   CreateWindowSurface(Backend backend, const WindowSpecification& specification);
     std::shared_ptr<Device> InitializeDevice(Backend backend, Window* window = nullptr, const DeviceDesc& desc = {});
+    // Installs a caller-created headless device (including test validation policy).
+    void                    InitializeHeadlessDevice(Backend backend, std::shared_ptr<Device> device);
     std::shared_ptr<Device> GetSharedDevice();
     void                    ShutdownDevice();
     void                    PresentWindow(Window& window);

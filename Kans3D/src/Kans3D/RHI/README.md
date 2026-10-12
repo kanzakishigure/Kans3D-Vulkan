@@ -10,8 +10,8 @@ See [MIGRATION.md](MIGRATION.md) for retirement and editor compatibility details
 all rendering consumers share its device. Backend window hints, context binding,
 entry-point loading, presentation and VSync live in `OpenGL/`. Calls use the
 context's owning thread. Headless conformance fixtures supply their own context.
-The headless Vulkan foundation lives beside OpenGL in `Vulkan/`; see
-[Vulkan foundation](Vulkan/README.md) for implementation and migration details.
+The headless Vulkan graphics backend lives beside OpenGL in `Vulkan/`; see
+[Vulkan backend](Vulkan/README.md) for implementation, measurements and migration details.
 
 `ImGuiRenderer.h` provides `CreateImGuiRenderer(backend, window)` with `NewFrame`,
 `Render`, `RenderPlatformWindows` and `EndFrame`. Its OpenGL implementation owns
@@ -118,11 +118,11 @@ normal device retirement can destroy a released image.
 
 ## Coordinates
 
-`GetCoordinateConventions()` returns `ClipY`, `Depth`, and `Origin`. The current
-backend reports upward clip Y, [-1, 1] clip depth, and a lower-left framebuffer
-origin. Viewports, scissors and texture-copy row zero use `Origin`. A later
-renderer migration must derive projection and picking conversions from this
-query rather than spreading backend conditionals across callers. The conformance
+`GetCoordinateConventions()` returns `ClipY`, `Depth`, and `Origin`. OpenGL
+reports upward clip Y, [-1, 1] depth and lower-left origin; Vulkan reports downward
+clip Y, [0, 1] depth and upper-left origin. Viewports, scissors and texture-copy row
+zero use `Origin`. Renderer projection and picking conversions derive from this
+query; authored texture UVs retain their independent image convention. The conformance
 fixture likewise centralizes native depth conversion and clip-to-copy row
 conversion, and derives facing expectations from the queried clip Y direction.
 
@@ -132,7 +132,7 @@ conversion, and derives facing expectations from the queried clip Y direction.
 `GpuTestContext::CreateDevice` knows backend construction. GPU tests are
 labelled `OpenGL` or `Vulkan`, run serially, and use llvmpipe or lavapipe.
 Vulkan enables validation and synchronization validation, with errors failing
-gtest; drawing cases explicitly skip with “phase 3b”. Shader compilation uses
+gtest; every conformance case runs on both backends. Shader compilation uses
 `MaterialShaderTestUtilities.h`, as the material tests do.
 
 | Test (prefix `RHIConformance.`) | Regression caught |
@@ -262,3 +262,19 @@ passes again (17 active/31 skipped), and the affected OpenGL case passes its
 additional serial recheck. A lavapipe-only standalone smoke check also verifies
 neutral shared-device initialization, all buffer usage flags, sampler creation,
 coordinate queries, byte copies and zero live allocations after retirement.
+
+
+## Phase 3b Vulkan graphics validation
+
+Every conformance case and the renderer's scene, material, pass, feature, picker,
+preview and twelve reference-image cases run on both backends. Vulkan consumes
+original SPIR-V and uses native push constants, dynamic rendering, an in-memory
+pipeline cache and pooled descriptor sets. Internal group-0 offsets preserve
+the neutral range API while sharing native descriptors. Warming retains scene
+and sprite pipelines across retirement. See the [complete design, performance
+measurements, convention fixes, tolerance rationale and phase-4 gaps](Vulkan/README.md#phase-3b-graphics-and-renderer)
+and the [test-by-test change audit](../../../../test/README.md#phase-3b-test-change-audit).
+
+The phase-3a numbers above are historical results at 485f40e. Phase 3b has no
+Vulkan conformance skips. Its final validation counts are recorded in the Vulkan
+report. Editor/ImGui remain OpenGL and reference PNGs are unchanged.

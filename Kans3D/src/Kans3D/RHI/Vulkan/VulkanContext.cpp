@@ -120,8 +120,47 @@ namespace Kans::RenderHardware::VulkanDetail
             VkPhysicalDeviceVulkan13Features enabled {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
             enabled.dynamicRendering = VK_TRUE;
             enabled.synchronization2 = VK_TRUE;
+            VkPhysicalDeviceFeatures supportedFeatures {};
+            vkGetPhysicalDeviceFeatures(Physical, &supportedFeatures);
+            Require(supportedFeatures.fillModeNonSolid && supportedFeatures.independentBlend &&
+                        supportedFeatures.vertexPipelineStoresAndAtomics && supportedFeatures.fragmentStoresAndAtomics,
+                    "Required graphics features are unavailable");
+            VkPhysicalDeviceFeatures graphics {};
+            graphics.fillModeNonSolid               = VK_TRUE;
+            graphics.independentBlend               = VK_TRUE;
+            graphics.vertexPipelineStoresAndAtomics = VK_TRUE;
+            graphics.fragmentStoresAndAtomics       = VK_TRUE;
+            // Match the neutral one-pixel line contract used by the GL path.
+            // The optional extension supplies diamond-exit/Bresenham rasterization.
+            uint32_t extensionCount = 0;
+            Check(vkEnumerateDeviceExtensionProperties(Physical, nullptr, &extensionCount, nullptr));
+            std::vector<VkExtensionProperties> deviceExtensions(extensionCount);
+            Check(vkEnumerateDeviceExtensionProperties(Physical, nullptr, &extensionCount, deviceExtensions.data()));
+            const char* lineExtension = VK_EXT_LINE_RASTERIZATION_EXTENSION_NAME;
+            bool hasLines = std::any_of(deviceExtensions.begin(), deviceExtensions.end(), [&](const auto& extension) {
+                return std::strcmp(extension.extensionName, lineExtension) == 0;
+            });
+            VkPhysicalDeviceLineRasterizationFeaturesEXT lines {
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT};
+            if (hasLines)
+            {
+                VkPhysicalDeviceFeatures2 lineSupport {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                lineSupport.pNext = &lines;
+                vkGetPhysicalDeviceFeatures2(Physical, &lineSupport);
+                BresenhamLines       = lines.bresenhamLines;
+                lines                = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT};
+                lines.bresenhamLines = BresenhamLines;
+                if (BresenhamLines)
+                    enabled.pNext = &lines;
+            }
             VkDeviceCreateInfo device {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
             device.pNext                = &enabled;
+            device.pEnabledFeatures     = &graphics;
+            if (BresenhamLines)
+            {
+                device.enabledExtensionCount   = 1;
+                device.ppEnabledExtensionNames = &lineExtension;
+            }
             device.queueCreateInfoCount = 1;
             device.pQueueCreateInfos    = &queue;
             Check(vkCreateDevice(Physical, &device, nullptr, &Logical));

@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/RHI/Backend.h"
+#include "Kans3D/RHI/Vulkan/VulkanTestProbes.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
@@ -22,7 +23,7 @@ namespace
     using namespace Kans::RenderHardware;
     using Image             = RenderHardware::Texture;
     constexpr uint32_t Size = 64;
-    class ScenePassGL : public testing::Test
+    class ScenePassGL : public testing::TestWithParam<GpuTestBackend>
     {
     protected:
         std::unique_ptr<GpuTestContext> Context;
@@ -35,10 +36,9 @@ namespace
         {
             if (!Log::GetCoreLogger())
                 Log::Init();
-            Context = std::make_unique<GpuTestContext>(GpuTestBackend::OpenGL);
+            Context = std::make_unique<GpuTestContext>(GetParam());
             ASSERT_NO_FATAL_FAILURE(Context->SetUp());
             PreviousAPI = RenderHardware::GetBackend();
-            RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
             Logic = CreateRef<Kans::Scene>();
             Scene = CreateScope<RenderScene>(Logic);
             Scene->OnViewportResize(Size, Size);
@@ -129,7 +129,7 @@ namespace
         }
     };
 
-    TEST_F(ScenePassGL, EquirectangularCaptureKeepsEveryFaceAndBothAxes)
+    TEST_P(ScenePassGL, EquirectangularCaptureKeepsEveryFaceAndBothAxes)
     {
         Environment();
         auto cube = Renderer->GetSkybox();
@@ -152,7 +152,7 @@ namespace
         }
     }
 
-    TEST_F(ScenePassGL, PrefilterRoughnessMipsActuallyBroadenTheDirectionalLobe)
+    TEST_P(ScenePassGL, PrefilterRoughnessMipsActuallyBroadenTheDirectionalLobe)
     {
         Environment();
         auto image = Renderer->GetEnvironment().RadianceMap;
@@ -206,7 +206,7 @@ namespace
         }
         return sum / 1024.0;
     }
-    TEST_F(ScenePassGL, BrdfLutMatchesIntegrationAtAsymmetricCoordinates)
+    TEST_P(ScenePassGL, BrdfLutMatchesIntegrationAtAsymmetricCoordinates)
     {
         // Catches a V flip, swapped NdotV/roughness or a lost integration channel.
         Environment();
@@ -223,7 +223,7 @@ namespace
         }
     }
 
-    TEST_F(ScenePassGL, ExplicitGridOverlayLeavesDepthAndBlendsAlphaWhileSkyboxStaysBehindSprites)
+    TEST_P(ScenePassGL, ExplicitGridOverlayLeavesDepthAndBlendsAlphaWhileSkyboxStaysBehindSprites)
     {
         Renderer2D::Init();
         // Projection maps the XZ grid to screen XY, with constant depth 0.
@@ -259,7 +259,7 @@ namespace
         EXPECT_EQ(Pixel(color, 4, 4), (std::array<uint8_t, 4> {0, 230, 0, 255}));
     }
 
-    TEST_F(ScenePassGL, SpriteTextureChangesBeyond32SlotsPreserveBindingsAndBlendOrder)
+    TEST_P(ScenePassGL, SpriteTextureChangesBeyond32SlotsPreserveBindingsAndBlendOrder)
     {
         Renderer2D::Init();
         Renderer->BeginScene(Info);
@@ -303,7 +303,7 @@ namespace
         EXPECT_NEAR(actual[3], 143, 1);
         EXPECT_EQ(Renderer2D::GetStats().DrawCalls, 3u);
     }
-    TEST_F(ScenePassGL, DefaultSpritesKeepLegacyAlphaDepthWritesAndEqualDepthOrder)
+    TEST_P(ScenePassGL, DefaultSpritesKeepLegacyAlphaDepthWritesAndEqualDepthOrder)
     {
         // Catches accidental straight-alpha blending, LESS instead of LEQUAL,
         // or disabled depth writes in the runtime/editor sprite defaults.
@@ -323,7 +323,7 @@ namespace
         EXPECT_EQ(word >> 8, 0x800000u);
     }
 
-    TEST_F(ScenePassGL, SpriteCapacityFlushKeepsTheLastQuadAndStatistics)
+    TEST_P(ScenePassGL, SpriteCapacityFlushKeepsTheLastQuadAndStatistics)
     {
         // Catches an overflowing vertex/index batch, lost final quad, or reuse of
         // an already submitted upload range when the 10000-quad capacity is hit.
@@ -346,7 +346,7 @@ namespace
         EXPECT_EQ(Renderer2D::GetStats().GetTotalIndexCount(), 60006u);
     }
 
-    TEST_F(ScenePassGL, RuntimeWhiteSpriteDeclaresItsActualSampledFallback)
+    TEST_P(ScenePassGL, RuntimeWhiteSpriteDeclaresItsActualSampledFallback)
     {
         // Pixel checks prove the runtime draw; the independent access declaration
         // catches omitting the internal white image from whole-frame backend planning.
@@ -377,7 +377,7 @@ namespace
         EXPECT_EQ(graph.PassName(image.Accesses[0].Pass), "Renderer2D sprites");
     }
 
-    TEST_F(ScenePassGL, GraphExecutesTransientClearReadbackAndReusesStableViewport)
+    TEST_P(ScenePassGL, GraphExecutesTransientClearReadbackAndReusesStableViewport)
     {
         // Catches graph dropping readbacks, failing to record/submit, or allocating
         // a new physical image every frame. Exact bytes also catch wrong clears.
@@ -447,4 +447,44 @@ namespace
         }
     }
 
+    TEST_P(ScenePassGL, WarmFramesKeepSpriteGridAndSkyPipelinesAfterRetirement)
+    {
+        // Bug: relying only on the device's weak cache recreates each immediate
+        // pipeline after EndFrame releases the last command-list reference.
+        Renderer2D::Init();
+        auto sky   = Solid({0, 4, 0, 1}, TextureDimension::Cube);
+        auto frame = [&] {
+            Renderer->BeginScene(Info);
+            Renderer2D::ResetStats();
+            Renderer2D::BeginScene(Info.sceneCamera.camera, glm::mat4(1));
+            Renderer2D::DrawQuad(glm::vec3(0), glm::vec2(1), glm::vec4(1, 0, 0, 1));
+            Renderer2D::EndScene();
+            Renderer->SubmitGrid(.5f, 4, glm::mat4(1), {true, false});
+            Renderer->SubmitSkybox(sky);
+            Renderer->EndScene();
+            auto color = Read(Renderer->GetRenderTarget().Colors[0].Target);
+            EXPECT_EQ(Pixel(color, 32, 32), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+            EXPECT_EQ(Pixel(color, 4, 4), (std::array<uint8_t, 4> {0, 230, 0, 255}));
+            EXPECT_EQ(Renderer2D::GetStats().DrawCalls, 1u);
+        };
+        frame();
+        if (GetParam() == GpuTestBackend::Vulkan)
+        {
+            auto before = VulkanTestProbes::Inspect(*Renderer->GetDevice());
+            for (uint32_t i = 0; i < 3; ++i)
+                frame();
+            auto after = VulkanTestProbes::Inspect(*Renderer->GetDevice());
+            EXPECT_EQ(after.PipelineCreations, before.PipelineCreations);
+        }
+        else
+            for (uint32_t i = 0; i < 3; ++i)
+                frame();
+    }
+
+    INSTANTIATE_TEST_SUITE_P(Backends,
+                             ScenePassGL,
+                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
+                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
+                             });
 } // namespace

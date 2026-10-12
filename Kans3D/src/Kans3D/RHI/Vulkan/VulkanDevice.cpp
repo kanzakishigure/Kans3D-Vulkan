@@ -1,7 +1,13 @@
 #include "kspch.h"
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <set>
+#include <spirv-tools/libspirv.hpp>
+#include <spirv_cross/spirv_cross.hpp>
+#include "Kans3D/Asset/Runtime/ShaderData.h"
+#include "Kans3D/RHI/PipelineKey.h"
 #include "VulkanInternal.h"
 #include "VulkanTestProbes.h"
 
@@ -11,9 +17,14 @@ namespace Kans::RenderHardware
     {
         using namespace VulkanDetail;
         struct Commands;
+        struct VKSet;
         struct State
         {
             Context         Native;
+            VkPipelineCache                                       PipelineCache = VK_NULL_HANDLE;
+            std::vector<VkDescriptorPool>                         DescriptorPools;
+            std::unordered_map<std::string, std::weak_ptr<VKSet>> DescriptorCache;
+            uint64_t        PipelineCreations = 0, DescriptorAllocations = 0, GroupCreationNanoseconds = 0;
             DeviceStats     Stats;
             bool            InFrame = false, Alive = true;
             std::thread::id Thread = std::this_thread::get_id();
@@ -35,6 +46,8 @@ namespace Kans::RenderHardware
                     for (auto& frame : Frames)
                         CreateFrame(frame);
                     CreateFrame(Standalone);
+                    VkPipelineCacheCreateInfo cache {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+                    Check(vkCreatePipelineCache(Native.Logical, &cache, nullptr, &PipelineCache));
                 }
                 catch (...)
                 {
@@ -68,7 +81,49 @@ namespace Kans::RenderHardware
                     destroy(frame);
                 destroy(Standalone);
             }
-            ~State() { DestroyFrames(); }
+            ~State()
+            {
+                DestroyFrames();
+                for (auto pool : DescriptorPools)
+                    vkDestroyDescriptorPool(Native.Logical, pool, nullptr);
+                if (PipelineCache)
+                    vkDestroyPipelineCache(Native.Logical, PipelineCache, nullptr);
+            }
+            std::pair<VkDescriptorPool, VkDescriptorSet> AllocateSet(VkDescriptorSetLayout layout)
+            {
+                for (auto pool : DescriptorPools)
+                {
+                    VkDescriptorSetAllocateInfo allocation {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+                    allocation.descriptorPool     = pool;
+                    allocation.descriptorSetCount = 1;
+                    allocation.pSetLayouts        = &layout;
+                    VkDescriptorSet set;
+                    auto            result = vkAllocateDescriptorSets(Native.Logical, &allocation, &set);
+                    if (result == VK_SUCCESS)
+                    {
+                        ++DescriptorAllocations;
+                        return {pool, set};
+                    }
+                    if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL)
+                        Check(result);
+                }
+                VkDescriptorPoolSize       sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4096},
+                                                      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 4096},
+                                                      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 4096},
+                                                      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4096},
+                                                      {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
+                                                      {VK_DESCRIPTOR_TYPE_SAMPLER, 4096},
+                                                      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096}};
+                VkDescriptorPoolCreateInfo pool {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+                pool.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+                pool.maxSets       = 1024;
+                pool.poolSizeCount = 7;
+                pool.pPoolSizes    = sizes;
+                VkDescriptorPool native;
+                Check(vkCreateDescriptorPool(Native.Logical, &pool, nullptr, &native));
+                DescriptorPools.push_back(native);
+                return AllocateSet(layout);
+            }
             Frame& Current() { return InFrame ? Frames[FrameIndex] : Standalone; }
             void   Drain()
             {
@@ -187,6 +242,7 @@ namespace Kans::RenderHardware
             Allocation               Memory;
             TextureDesc              Desc;
             VkImage                  Native = VK_NULL_HANDLE;
+            VkImageView              SampledView = VK_NULL_HANDLE;
             VmaAllocation            Alloc  = VK_NULL_HANDLE;
             std::vector<VkImageView> Views;
             std::vector<Access>      Last;
@@ -256,14 +312,33 @@ namespace Kans::RenderHardware
                                 Check(vkCreateImageView(device, &view, nullptr, &Views[Index({mip, face})]));
                             }
                     }
-                    Memory.Delete = [allocator, device, image = Native, alloc = Alloc, views = Views] {
-                        for (auto view : views)
-                            vkDestroyImageView(device, view, nullptr);
-                        vmaDestroyImage(allocator, image, alloc);
-                    };
+                    if (Has(desc.Usage, TextureUsage::Sampled))
+                    {
+                        VkImageViewCreateInfo view {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+                        view.image = Native;
+                        view.viewType =
+                            desc.Dimension == TextureDimension::Cube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+                        view.format           = f.Native;
+                        view.subresourceRange = {f.Depth() ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : f.Aspects,
+                                                 0,
+                                                 desc.MipLevels,
+                                                 0,
+                                                 image.arrayLayers};
+                        Check(vkCreateImageView(device, &view, nullptr, &SampledView));
+                    }
+                    Memory.Delete =
+                        [allocator, device, image = Native, alloc = Alloc, views = Views, sampled = SampledView] {
+                            if (sampled)
+                                vkDestroyImageView(device, sampled, nullptr);
+                            for (auto view : views)
+                                vkDestroyImageView(device, view, nullptr);
+                            vmaDestroyImage(allocator, image, alloc);
+                        };
                 }
                 catch (...)
                 {
+                    if (SampledView)
+                        vkDestroyImageView(device, SampledView, nullptr);
                     for (auto view : Views)
                         if (view)
                             vkDestroyImageView(device, view, nullptr);
@@ -316,12 +391,20 @@ namespace Kans::RenderHardware
             Require(value && value->Memory.Owner == state, "Resource belongs to another device or backend");
             return value;
         }
+#include "VulkanGraphics.inl"
         constexpr Access TransferRead {VK_PIPELINE_STAGE_2_COPY_BIT,
                                        VK_ACCESS_2_TRANSFER_READ_BIT,
                                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL};
         constexpr Access TransferWrite {VK_PIPELINE_STAGE_2_COPY_BIT,
                                         VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL};
+        bool             Writes(VkAccessFlags2 access)
+        {
+            return (access & (VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT |
+                              VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |
+                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                              VK_ACCESS_2_MEMORY_WRITE_BIT)) != 0;
+        }
         constexpr Access HostRead {VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT};
         struct Execution
         {
@@ -390,6 +473,12 @@ namespace Kans::RenderHardware
             }
             void Use(VKBuffer& buffer, Access next)
             {
+                if (!Writes(buffer.Last.Mask) && !Writes(next.Mask))
+                {
+                    buffer.Last.Stage |= next.Stage;
+                    buffer.Last.Mask |= next.Mask;
+                    return;
+                }
                 VkBufferMemoryBarrier2 barrier {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
                 barrier.srcStageMask        = buffer.Last.Stage;
                 barrier.srcAccessMask       = buffer.Last.Mask;
@@ -404,6 +493,12 @@ namespace Kans::RenderHardware
             void Use(VKTexture& texture, TextureSubresource sub, Access next)
             {
                 auto&                 last = texture.Last.at(texture.Index(sub));
+                if (last.Layout == next.Layout && !Writes(last.Mask) && !Writes(next.Mask))
+                {
+                    last.Stage |= next.Stage;
+                    last.Mask |= next.Mask;
+                    return;
+                }
                 VkImageMemoryBarrier2 barrier {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
                 barrier.srcStageMask        = last.Stage;
                 barrier.srcAccessMask       = last.Mask;
@@ -536,7 +631,41 @@ namespace Kans::RenderHardware
             }
             throw std::invalid_argument("Invalid store operation");
         }
-        [[noreturn]] void Phase3b() { throw std::logic_error("Vulkan graphics is not implemented: phase 3b"); }
+        struct ScopeUses
+        {
+            std::map<VKBuffer*, std::pair<std::shared_ptr<VKBuffer>, Access>> Buffers;
+            std::map<VKTexture*, std::shared_ptr<VKTexture>>                  Textures;
+            bool DepthWrites = false, PreserveAttachments = false;
+            void Buffer(const std::shared_ptr<VKBuffer>& buffer, Access access)
+            {
+                auto& value = Buffers[buffer.get()];
+                value.first = buffer;
+                value.second.Stage |= access.Stage;
+                value.second.Mask |= access.Mask;
+            }
+            void Prepare(Execution& execution, const DepthAttachment& depth)
+            {
+                for (auto& [key, value] : Buffers)
+                    execution.Use(*value.first, value.second);
+                for (auto& [key, texture] : Textures)
+                    for (uint32_t face = 0; face < (texture->Desc.Dimension == TextureDimension::Cube ? 6u : 1u);
+                         ++face)
+                        for (uint32_t mip = 0; mip < texture->Desc.MipLevels; ++mip)
+                        {
+                            if (texture.get() == depth.Target.get() && face == depth.Subresource.Face &&
+                                mip == depth.Subresource.Mip)
+                                continue;
+                            execution.Use(
+                                *texture,
+                                {mip, face},
+                                {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                 VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+                                 Info(texture->Desc.PixelFormat).Depth() ?
+                                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :
+                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+                        }
+            }
+        };
         struct Commands final : CommandList
         {
             std::shared_ptr<State>                       Owner;
@@ -545,6 +674,19 @@ namespace Kans::RenderHardware
             std::vector<std::function<void(Execution&)>> Recorded;
             std::vector<std::shared_ptr<VKBuffer>>       Readbacks;
             std::vector<Handle<Resource>>                Temporary;
+            std::vector<Handle<Resource>>                RetainedBindings;
+            std::shared_ptr<VKPipeline>                  BoundPipeline;
+            std::shared_ptr<VKBuffer>                    BoundIndex;
+            IndexType                                    IndexFormat = IndexType::Uint32;
+            size_t                                       IndexOffset = 0;
+            std::map<uint32_t, std::shared_ptr<VKGroup>> Groups;
+            std::map<uint32_t, VertexBufferView>         Vertices;
+            std::array<uint8_t, 128>                     PushData {};
+            RenderingDesc                                RenderingInfo;
+            std::shared_ptr<ScopeUses>                   Uses;
+            bool                                         StorageWritten = false;
+            Viewport                                     CurrentViewport;
+            Scissor                                      CurrentScissor;
             explicit Commands(std::shared_ptr<State> owner) : Owner(std::move(owner)) {}
             ~Commands() { Retire(); }
             void Retire()
@@ -554,6 +696,13 @@ namespace Kans::RenderHardware
                 Readbacks.clear();
                 Recorded.clear();
                 Temporary.clear();
+                BoundPipeline.reset();
+                BoundIndex.reset();
+                Groups.clear();
+                Vertices.clear();
+                Uses.reset();
+                RenderingInfo = {};
+                RetainedBindings.clear();
             }
             void Mutable()
             {
@@ -611,11 +760,16 @@ namespace Kans::RenderHardware
                     Store(desc.Depth.Store);
                     Require(desc.Depth.ClearDepth >= 0 && desc.Depth.ClearDepth <= 1, "Invalid depth clear");
                 }
-                Recorded.push_back([state = Owner, desc, width, height](Execution& e) {
+                Uses           = std::make_shared<ScopeUses>();
+                RenderingInfo  = desc;
+                StorageWritten = false;
+                Recorded.push_back([state = Owner, desc, width, height, uses = Uses](Execution& e) {
+                    uses->Prepare(e, desc.Depth);
                     std::vector<VkRenderingAttachmentInfo> colors;
                     for (const auto& a : desc.Colors)
                     {
                         auto t = Cast<VKTexture>(a.Target, state);
+                        Require(!uses->Textures.count(t.get()), "Sampling a color attachment is unsupported");
                         e.Use(*t,
                               a.Subresource,
                               {VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -625,7 +779,7 @@ namespace Kans::RenderHardware
                         attachment.imageView   = t->Views[t->Index(a.Subresource)];
                         attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                         attachment.loadOp      = Load(a.Load);
-                        attachment.storeOp     = Store(a.Store);
+                        attachment.storeOp = uses->PreserveAttachments ? VK_ATTACHMENT_STORE_OP_STORE : Store(a.Store);
                         if (t->Desc.PixelFormat == Format::R32Uint)
                             attachment.clearValue.color.uint32[0] = a.ClearUint;
                         else
@@ -638,17 +792,27 @@ namespace Kans::RenderHardware
                     {
                         const auto& a = desc.Depth;
                         auto        t = Cast<VKTexture>(a.Target, state);
-                        e.Use(
-                            *t,
-                            a.Subresource,
-                            {VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                             VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-                                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL});
+                        const bool  sampled = uses->Textures.count(t.get()) != 0;
+                        Require(!sampled || (!uses->DepthWrites && a.Load == LoadOp::Load),
+                                "Sampled depth attachment must be loaded and read-only");
+                        const auto layout = sampled ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :
+                                                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                        Access     access {VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                                               VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                                           VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                               VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                           layout};
+                        if (sampled)
+                        {
+                            access.Stage |=
+                                VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                            access.Mask |= VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+                        }
+                        e.Use(*t, a.Subresource, access);
                         depth.imageView               = t->Views[t->Index(a.Subresource)];
-                        depth.imageLayout             = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                        depth.imageLayout             = layout;
                         depth.loadOp                  = Load(a.Load);
-                        depth.storeOp                 = Store(a.Store);
+                        depth.storeOp = uses->PreserveAttachments ? VK_ATTACHMENT_STORE_OP_STORE : Store(a.Store);
                         depth.clearValue.depthStencil = {a.ClearDepth, a.ClearStencil};
                         stencil                       = Info(t->Desc.PixelFormat).Stencil();
                     }
@@ -661,7 +825,13 @@ namespace Kans::RenderHardware
                     rendering.pStencilAttachment   = stencil ? &depth : nullptr;
                     e.FlushBarriers();
                     vkCmdBeginRendering(e.Native, &rendering);
+                    VkViewport viewport {0, 0, float(width), float(height), 0, 1};
+                    VkRect2D   scissor {{0, 0}, {width, height}};
+                    vkCmdSetViewport(e.Native, 0, 1, &viewport);
+                    vkCmdSetScissor(e.Native, 0, 1, &scissor);
                 });
+                CurrentViewport = {0, 0, float(width), float(height), 0, 1};
+                CurrentScissor  = {0, 0, width, height};
                 RenderingWidth  = width;
                 RenderingHeight = height;
                 Rendering       = true;
@@ -679,6 +849,7 @@ namespace Kans::RenderHardware
                 Require(Rendering && v.Width > 0 && v.Height > 0 && v.MinDepth >= 0 && v.MaxDepth <= 1 &&
                             v.MinDepth <= v.MaxDepth,
                         "Invalid viewport");
+                CurrentViewport = v;
                 Recorded.push_back([v](Execution& e) {
                     VkViewport native {v.X, v.Y, v.Width, v.Height, v.MinDepth, v.MaxDepth};
                     vkCmdSetViewport(e.Native, 0, 1, &native);
@@ -696,15 +867,237 @@ namespace Kans::RenderHardware
                 const int64_t  right  = std::clamp<int64_t>(int64_t(s.X) + s.Width, x, RenderingWidth);
                 const int64_t  bottom = std::clamp<int64_t>(int64_t(s.Y) + s.Height, y, RenderingHeight);
                 const VkRect2D native {{int32_t(x), int32_t(y)}, {uint32_t(right - x), uint32_t(bottom - y)}};
+                CurrentScissor = s;
                 Recorded.push_back([native](Execution& e) { vkCmdSetScissor(e.Native, 0, 1, &native); });
             }
-            void BindPipeline(const Handle<Pipeline>&) override { Phase3b(); }
-            void BindGroup(const Handle<RenderHardware::BindGroup>&) override { Phase3b(); }
-            void PushConstants(uint32_t, const void*, uint32_t) override { Phase3b(); }
-            void BindVertexBuffers(const std::vector<VertexBufferView>&) override { Phase3b(); }
-            void BindIndexBuffer(const Handle<Buffer>&, IndexType, size_t) override { Phase3b(); }
-            void Draw(uint32_t, uint32_t, uint32_t, uint32_t) override { Phase3b(); }
-            void DrawIndexed(uint32_t, uint32_t, uint32_t, int32_t, uint32_t) override { Phase3b(); }
+            void Inside()
+            {
+                Mutable();
+                Require(Rendering, "Draw state requires a rendering scope");
+            }
+            void BindPipeline(const Handle<Pipeline>& pipeline) override
+            {
+                Inside();
+                BoundPipeline = Cast<VKPipeline>(pipeline, Owner);
+                RetainedBindings.push_back(pipeline);
+            }
+            void BindGroup(const Handle<RenderHardware::BindGroup>& group) override
+            {
+                Inside();
+                auto g                                  = Cast<VKGroup>(group, Owner);
+                Groups[g->Desc.Layout->GetDesc().Group] = g;
+                RetainedBindings.push_back(g);
+            }
+            void PushConstants(uint32_t offset, const void* data, uint32_t bytes) override
+            {
+                Inside();
+                Require(BoundPipeline && data && offset % 4 == 0 && bytes % 4 == 0, "Invalid push constant write");
+                Range(BoundPipeline->Desc.PushConstantBytes, offset, bytes);
+                std::memcpy(PushData.data() + offset, data, bytes);
+            }
+            void BindVertexBuffers(const std::vector<VertexBufferView>& buffers) override
+            {
+                Inside();
+                for (auto view : buffers)
+                {
+                    auto b = Cast<VKBuffer>(view.Resource, Owner);
+                    Require(Has(b->Desc.Usage, BufferUsage::Vertex) && view.Offset < b->Desc.Bytes && view.Slot < 16,
+                            "Invalid vertex buffer view");
+                    Vertices[view.Slot] = view;
+                    RetainedBindings.push_back(b);
+                }
+            }
+            void BindIndexBuffer(const Handle<Buffer>& buffer, IndexType type, size_t offset) override
+            {
+                Inside();
+                auto b = Cast<VKBuffer>(buffer, Owner);
+                Require(Has(b->Desc.Usage, BufferUsage::Index) && offset < b->Desc.Bytes &&
+                            offset % (type == IndexType::Uint16 ? 2 : 4) == 0,
+                        "Invalid index buffer view");
+                BoundIndex  = b;
+                IndexFormat = type;
+                IndexOffset = offset;
+                RetainedBindings.push_back(b);
+            }
+            void PrepareDraw(bool indexed)
+            {
+                Inside();
+                Require(bool(BoundPipeline), "Draw requires pipeline");
+                const auto& d = BoundPipeline->Desc;
+                Require(d.ColorFormats.size() == RenderingInfo.Colors.size(), "Pipeline target count mismatch");
+                for (size_t i = 0; i < d.ColorFormats.size(); ++i)
+                    Require(d.ColorFormats[i] == RenderingInfo.Colors[i].Target->GetDesc().PixelFormat,
+                            "Pipeline target format mismatch");
+                Require(d.HasDepthStencil == bool(RenderingInfo.Depth.Target), "Pipeline depth target mismatch");
+                if (d.HasDepthStencil)
+                    Require(d.DepthStencilFormat == RenderingInfo.Depth.Target->GetDesc().PixelFormat,
+                            "Pipeline depth format mismatch");
+                for (const auto& layout : d.GroupLayouts)
+                {
+                    const auto& expected = layout->GetDesc();
+                    Require(Groups.count(expected.Group), "Missing bind group");
+                    const auto& actual = Groups.at(expected.Group)->Desc.Layout->GetDesc();
+                    Require(actual.Entries.size() == expected.Entries.size(), "Bind group layout mismatch");
+                    for (size_t i = 0; i < expected.Entries.size(); ++i)
+                        Require(actual.Entries[i].Slot == expected.Entries[i].Slot &&
+                                    actual.Entries[i].Type == expected.Entries[i].Type,
+                                "Bind group layout mismatch");
+                }
+                auto       shader        = Cast<VKShader>(d.Program, Owner);
+                const auto stencilWrites = [](const StencilFaceState& face) {
+                    return face.WriteMask && (face.Fail != StencilOp::Keep || face.DepthFail != StencilOp::Keep ||
+                                              face.Pass != StencilOp::Keep);
+                };
+                const bool writesDepth  = d.DepthStencil.DepthWrite ||
+                                          (d.DepthStencil.StencilTest &&
+                                           (stencilWrites(d.DepthStencil.Front) || stencilWrites(d.DepthStencil.Back)));
+                bool       sampledDepth = false;
+                for (auto binding : shader->Bindings)
+                    if (binding.Type == BindingType::SampledTexture ||
+                        binding.Type == BindingType::CombinedTextureSampler)
+                    {
+                        const auto& group = Groups.at(binding.Group);
+                        const auto  entry = std::find_if(group->Desc.Entries.begin(),
+                                                         group->Desc.Entries.end(),
+                                                         [&](const auto& e) { return e.Slot == binding.Slot; });
+                        Require(entry != group->Desc.Entries.end(), "Missing shader binding");
+                        for (const auto& color : RenderingInfo.Colors)
+                            Require(entry->TextureResource != color.Target,
+                                    "Sampling a color attachment is unsupported");
+                        sampledDepth |= entry->TextureResource == RenderingInfo.Depth.Target;
+                    }
+                Require(!sampledDepth || !writesDepth, "Attached sampled depth must be read-only");
+                const bool changeDepthLayout =
+                    RenderingInfo.Depth.Target &&
+                    ((sampledDepth && (Uses->DepthWrites || RenderingInfo.Depth.Load != LoadOp::Load)) ||
+                     (writesDepth && Uses->Textures.count(Cast<VKTexture>(RenderingInfo.Depth.Target, Owner).get())));
+                if (StorageWritten || changeDepthLayout)
+                {
+                    // Dynamic rendering does not permit buffer barriers inside the
+                    // scope. Preserve attachments and begin a new native segment.
+                    auto info = RenderingInfo;
+                    for (auto& a : info.Colors)
+                        a.Load = LoadOp::Load;
+                    if (info.Depth.Target)
+                        info.Depth.Load = LoadOp::Load;
+                    Uses->PreserveAttachments = true;
+                    auto width = RenderingWidth, height = RenderingHeight;
+                    auto viewport = CurrentViewport;
+                    auto scissor  = CurrentScissor;
+                    Recorded.push_back([](Execution& e) { vkCmdEndRendering(e.Native); });
+                    Rendering = false;
+                    BeginRendering(info);
+                    RenderingWidth  = width;
+                    RenderingHeight = height;
+                    // Viewport/scissor are restored below from the recorded values.
+                    SetViewport(viewport);
+                    SetScissor(scissor);
+                }
+                Uses->DepthWrites |= writesDepth;
+                for (auto binding : shader->Bindings)
+                {
+                    const auto& group = Groups.at(binding.Group);
+                    auto        entry = std::find_if(group->Desc.Entries.begin(),
+                                                     group->Desc.Entries.end(),
+                                                     [&](const auto& e) { return e.Slot == binding.Slot; });
+                    Require(entry != group->Desc.Entries.end(), "Missing shader binding");
+                    if (entry->BufferResource)
+                    {
+                        auto b = Cast<VKBuffer>(entry->BufferResource, Owner);
+                        Require((entry->Bytes ? entry->Bytes : b->Desc.Bytes - entry->Offset) >= binding.Bytes,
+                                "Binding range is smaller than the shader block");
+                        Access access {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                                       binding.Type == BindingType::StorageBuffer ?
+                                           VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT :
+                                           VK_ACCESS_2_UNIFORM_READ_BIT};
+                        Uses->Buffer(b, access);
+                        StorageWritten |= binding.Type == BindingType::StorageBuffer;
+                    }
+                    if (entry->TextureResource)
+                    {
+                        auto texture = Cast<VKTexture>(entry->TextureResource, Owner);
+                        Require(texture->Desc.Dimension == binding.Dimension,
+                                "Texture dimension disagrees with shader binding");
+                        Uses->Textures[texture.get()] = texture;
+                    }
+                }
+                for (auto b : d.VertexBindings)
+                {
+                    Require(Vertices.count(b.Slot), "Missing vertex buffer");
+                    Uses->Buffer(
+                        Cast<VKBuffer>(Vertices.at(b.Slot).Resource, Owner),
+                        {VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT, VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT});
+                }
+                if (indexed)
+                {
+                    Require(bool(BoundIndex), "Indexed draw requires index buffer");
+                    Uses->Buffer(BoundIndex, {VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT});
+                }
+                Recorded.push_back([pipeline    = BoundPipeline,
+                                    groups      = Groups,
+                                    vertices    = Vertices,
+                                    index       = indexed ? BoundIndex : nullptr,
+                                    indexFormat = IndexFormat,
+                                    indexOffset = IndexOffset,
+                                    push        = PushData](Execution& e) {
+                    vkCmdBindPipeline(e.Native, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->Native);
+                    for (const auto& layout : pipeline->Desc.GroupLayouts)
+                    {
+                        auto        slot  = layout->GetDesc().Group;
+                        const auto& group = groups.at(slot);
+                        auto        set   = group->Set->Native;
+                        vkCmdBindDescriptorSets(e.Native,
+                                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                pipeline->Layout,
+                                                slot,
+                                                1,
+                                                &set,
+                                                uint32_t(group->DynamicOffsets.size()),
+                                                group->DynamicOffsets.data());
+                    }
+                    if (pipeline->Desc.PushConstantBytes)
+                        vkCmdPushConstants(e.Native,
+                                           pipeline->Layout,
+                                           VK_SHADER_STAGE_ALL_GRAPHICS,
+                                           0,
+                                           pipeline->Desc.PushConstantBytes,
+                                           push.data());
+                    for (auto b : pipeline->Desc.VertexBindings)
+                    {
+                        const auto&  view   = vertices.at(b.Slot);
+                        auto         buffer = Cast<VKBuffer>(view.Resource, e.Owner)->Native;
+                        VkDeviceSize offset = view.Offset;
+                        vkCmdBindVertexBuffers(e.Native, b.Slot, 1, &buffer, &offset);
+                    }
+                    if (index)
+                        vkCmdBindIndexBuffer(e.Native,
+                                             index->Native,
+                                             indexOffset,
+                                             indexFormat == IndexType::Uint16 ? VK_INDEX_TYPE_UINT16 :
+                                                                                VK_INDEX_TYPE_UINT32);
+                });
+            }
+            void Draw(uint32_t vertices, uint32_t instances, uint32_t firstVertex, uint32_t firstInstance) override
+            {
+                PrepareDraw(false);
+                Recorded.push_back(
+                    [=](Execution& e) { vkCmdDraw(e.Native, vertices, instances, firstVertex, firstInstance); });
+            }
+            void DrawIndexed(uint32_t indices,
+                             uint32_t instances,
+                             uint32_t firstIndex,
+                             int32_t  baseVertex,
+                             uint32_t firstInstance) override
+            {
+                Require(bool(BoundIndex), "Indexed draw requires index buffer");
+                Range(BoundIndex->Desc.Bytes,
+                      IndexOffset + size_t(firstIndex) * (IndexFormat == IndexType::Uint16 ? 2 : 4),
+                      size_t(indices) * (IndexFormat == IndexType::Uint16 ? 2 : 4));
+                PrepareDraw(true);
+                Recorded.push_back([=](Execution& e) {
+                    vkCmdDrawIndexed(e.Native, indices, instances, firstIndex, baseVertex, firstInstance);
+                });
+            }
             void CopyBuffer(const Handle<Buffer>& source,
                             size_t                from,
                             const Handle<Buffer>& destination,
@@ -819,6 +1212,11 @@ namespace Kans::RenderHardware
             for (auto& list : Submitted)
                 list->Retire();
             Submitted.clear();
+            for (auto it = DescriptorCache.begin(); it != DescriptorCache.end();)
+                if (it->second.expired())
+                    it = DescriptorCache.erase(it);
+                else
+                    ++it;
             Drain();
             // Reset only after all submitted command buffers are known complete.
             for (auto& frame : Frames)
@@ -844,6 +1242,7 @@ namespace Kans::RenderHardware
                 Owner->Alive = false;
             }
             const Context&        GetContext() const { return Owner->Native; }
+            const State&          GetState() const { return *Owner; }
             const DeviceDesc&     GetDesc() const override { return Desc; }
             CoordinateConventions GetCoordinateConventions() const override
             {
@@ -881,10 +1280,60 @@ namespace Kans::RenderHardware
                 Owner->CheckThread();
                 return std::make_shared<VKSampler>(Owner, d);
             }
-            Handle<Shader>          CreateShader(const Kans::ShaderData&) override { Phase3b(); }
-            Handle<BindGroupLayout> CreateBindGroupLayout(const BindGroupLayoutDesc&) override { Phase3b(); }
-            Handle<BindGroup>       CreateBindGroup(const BindGroupDesc&) override { Phase3b(); }
-            Handle<Pipeline>        CreatePipeline(const PipelineDesc&) override { Phase3b(); }
+            Handle<Shader> CreateShader(const Kans::ShaderData& data) override
+            {
+                Owner->CheckThread();
+                return std::make_shared<VKShader>(Owner, data);
+            }
+            Handle<BindGroupLayout> CreateBindGroupLayout(const BindGroupLayoutDesc& desc) override
+            {
+                Owner->CheckThread();
+                auto canonical = desc;
+                std::sort(
+                    canonical.Entries.begin(), canonical.Entries.end(), [](auto a, auto b) { return a.Slot < b.Slot; });
+                std::string key(reinterpret_cast<const char*>(&canonical.Group), sizeof(canonical.Group));
+                for (auto entry : canonical.Entries)
+                {
+                    key.append(reinterpret_cast<const char*>(&entry.Slot), sizeof(entry.Slot));
+                    key.append(reinterpret_cast<const char*>(&entry.Type), sizeof(entry.Type));
+                }
+                if (auto layout = LayoutCache[key].lock())
+                    return layout;
+                auto layout      = std::make_shared<VKLayout>(Owner, std::move(canonical));
+                LayoutCache[key] = layout;
+                return layout;
+            }
+            Handle<BindGroup> CreateBindGroup(const BindGroupDesc& desc) override
+            {
+                Owner->CheckThread();
+                const auto start = std::chrono::steady_clock::now();
+                auto       group = std::make_shared<VKGroup>(Owner, desc);
+                Owner->GroupCreationNanoseconds += uint64_t(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start)
+                        .count());
+                return group;
+            }
+            std::unordered_map<std::string, std::weak_ptr<VKLayout>>                                   LayoutCache;
+            std::unordered_map<size_t, std::vector<std::pair<std::string, std::weak_ptr<VKPipeline>>>> Cache;
+            Handle<Pipeline> CreatePipeline(const PipelineDesc& desc) override
+            {
+                Owner->CheckThread();
+                ValidatePipeline(Owner, desc);
+                auto  key    = Detail::PipelineKey(desc);
+                auto& bucket = Cache[std::hash<std::string> {}(key)];
+                for (auto it = bucket.begin(); it != bucket.end();)
+                    if (auto pipeline = it->second.lock())
+                    {
+                        if (it->first == key)
+                            return pipeline;
+                        ++it;
+                    }
+                    else
+                        it = bucket.erase(it);
+                auto pipeline = std::make_shared<VKPipeline>(Owner, desc);
+                bucket.emplace_back(std::move(key), pipeline);
+                return pipeline;
+            }
             Handle<CommandList>     CreateCommandList() override
             {
                 Owner->CheckThread();
@@ -967,11 +1416,16 @@ namespace Kans::RenderHardware::VulkanTestProbes
 {
     Diagnostics Inspect(const Device& device)
     {
-        const auto& context = dynamic_cast<const VKDevice&>(device).GetContext();
+        const auto& state   = dynamic_cast<const VKDevice&>(device).GetState();
+        const auto& context = state.Native;
         return {context.Properties.deviceType,
                 context.Properties.apiVersion,
                 context.Options.Validation,
-                context.Options.SynchronizationValidation};
+                context.Options.SynchronizationValidation,
+                state.PipelineCreations,
+                state.DescriptorAllocations,
+                state.DescriptorPools.size(),
+                state.GroupCreationNanoseconds};
     }
     void EmitValidationError(const Device& device, const char* message)
     {

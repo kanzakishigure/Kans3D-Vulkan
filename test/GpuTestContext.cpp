@@ -37,6 +37,7 @@ void GpuTestContext::SetUp()
         ASSERT_NE(legacy, nullptr);
         ASSERT_STREQ(driver, "/usr/share/vulkan/icd.d/lvp_icd.json");
         ASSERT_STREQ(legacy, "/usr/share/vulkan/icd.d/lvp_icd.json");
+        Kans::RenderHardware::InitializeHeadlessDevice(Kans::RenderHardware::Backend::Vulkan, CreateDevice());
         return;
     }
     ASSERT_EQ(m_Backend, GpuTestBackend::OpenGL);
@@ -146,8 +147,7 @@ std::unique_ptr<Kans::RenderHardware::Device> GpuTestContext::CreateDevice(const
             return Kans::RenderHardware::CreateOpenGLDevice(desc);
         case GpuTestBackend::Vulkan: {
             Kans::RenderHardware::VulkanDeviceOptions options;
-            const char*                               allow = std::getenv("KANS_VULKAN_ALLOW_NON_CPU");
-            options.RequireCpuDevice                        = !allow || std::strcmp(allow, "1") != 0;
+            options.RequireCpuDevice                        = true;
             options.Validation                              = true;
             options.SynchronizationValidation               = true;
             // gtest records failures from driver callback threads too. This sink

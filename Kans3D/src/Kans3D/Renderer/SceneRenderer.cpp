@@ -6,6 +6,7 @@
 #include "Kans3D/Asset/Importer/TextureSource.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/RHI/Backend.h"
+#include "Kans3D/RHI/PipelineKey.h"
 #include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/Features/MaterialPassFeature.h"
 #include "Kans3D/Renderer/RenderPipeline.h"
@@ -359,7 +360,7 @@ namespace Kans
                                    {3, 0, 32, VertexFormat::Float4},
                                    {4, 0, 48, VertexFormat::Float4}};
         }
-        auto pipeline = m_Device->CreatePipeline(desc);
+        auto  pipeline = CachedPipeline(desc);
         auto* commands = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
@@ -387,6 +388,15 @@ namespace Kans
         commands->EndRendering();
     }
 
+    RenderHardware::Handle<RenderHardware::Pipeline>
+    SceneRenderer::CachedPipeline(const RenderHardware::PipelineDesc& desc)
+    {
+        auto& pipeline = m_InternalPipelines[RenderHardware::Detail::PipelineKey(desc)];
+        if (!pipeline)
+            pipeline = m_Device->CreatePipeline(desc);
+        return pipeline;
+    }
+
     RenderHardware::PipelineDesc
     SceneRenderer::ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled)
     {
@@ -406,9 +416,9 @@ namespace Kans
         desc.DepthStencilFormat     = Format::Depth24Stencil8;
         desc.DepthStencil.DepthTest = true;
         desc.Rasterizer.Cull        = CullMode::None;
-        desc.Rasterizer.Front       = m_Device->GetCoordinateConventions().ClipY == ClipYDirection::Up ?
-                                          FrontFace::CounterClockwise :
-                                          FrontFace::Clockwise;
+        // DeviceProjection already converts clip Y using the coordinate query.
+        // The converted projection preserves the mesh's visual CCW facing.
+        desc.Rasterizer.Front = FrontFace::CounterClockwise;
         BlendState blend;
         blend.WriteMask = 7;
         desc.Blends     = {blend, blend};
@@ -531,7 +541,10 @@ namespace Kans
         auto sampler                         = m_Device->CreateSampler(sampling);
         auto pipeline = [&](const char* name, const char* vertex, const char* fragment, bool sampled, bool cube) {
             PipelineDesc desc;
-            desc.Program = Build(*m_Device, name, vertex, fragment);
+            auto&        program = m_InternalPrograms[name];
+            if (!program)
+                program = Build(*m_Device, name, vertex, fragment);
+            desc.Program = program;
             if (!desc.Program)
                 return Handle<Pipeline> {};
             BindGroupLayoutDesc layout {0, {{0, BindingType::UniformBuffer}}};
@@ -552,7 +565,7 @@ namespace Kans
             }
             else
                 desc.Primitive = Topology::TriangleStrip;
-            return m_Device->CreatePipeline(desc);
+            return CachedPipeline(desc);
         };
         auto hdrPipeline = pipeline("HdrToCubeMap", SceneShaders::HdrVertex, SceneShaders::HdrFragment, true, true);
         auto irradiancePipeline =
@@ -799,7 +812,7 @@ namespace Kans
         auto* commands      = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
-        commands->BindPipeline(m_Device->CreatePipeline(desc));
+        commands->BindPipeline(CachedPipeline(desc));
         commands->BindGroup(DrawGroup(*m_Device, desc.GroupLayouts[0], data));
         commands->BindVertexBuffers({{0, vb, 0}});
         commands->BindIndexBuffer(ib, IndexType::Uint32);
@@ -849,7 +862,7 @@ namespace Kans
         auto* commands = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load));
         commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight)});
-        commands->BindPipeline(m_Device->CreatePipeline(desc));
+        commands->BindPipeline(CachedPipeline(desc));
         commands->BindGroup(DrawGroup(*m_Device, desc.GroupLayouts[0], data, skybox, m_IBLSampler));
         commands->BindVertexBuffers({{0, m_Cube->Vertices, 0}});
         commands->BindIndexBuffer(m_Cube->Indices, IndexType::Uint32);

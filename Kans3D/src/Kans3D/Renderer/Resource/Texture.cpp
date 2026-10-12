@@ -27,7 +27,7 @@ namespace Kans
             return AssetError {AssetErrorCode::NotImplemented, "Only 2D product textures are supported"};
         if (!device)
         {
-            if (RenderHardware::GetBackend() != RenderHardware::Backend::OpenGL)
+            if (RenderHardware::GetBackend() == RenderHardware::Backend::None)
                 return AssetError {AssetErrorCode::NotImplemented, "Texture upload is unavailable for this backend"};
             try
             {
@@ -70,9 +70,10 @@ namespace Kans
                 const auto&            source = data.Mips[mip].Pixels;
                 std::vector<std::byte> bytes(source.size());
                 const size_t           height = std::max(1u, data.Height >> mip), row = source.size() / height;
-                const bool             lowerLeft =
-                    device->GetCoordinateConventions().Origin == RenderHardware::FramebufferOrigin::LowerLeft;
-                const bool flip = (data.Origin == TextureOrigin::TopLeft) == lowerLeft;
+                // Authored UV v=0 addresses the bottom of an imported image on
+                // every backend. Framebuffer/copy Origin controls rendered image
+                // rows, not the UV convention of mesh/material asset data.
+                const bool flip = data.Origin == TextureOrigin::TopLeft;
                 for (size_t y = 0; y < height; ++y)
                 {
                     const auto* input = source.data() + (flip ? height - 1 - y : y) * row;
@@ -149,8 +150,7 @@ namespace Kans
         {
             // The old file loader stored HDR files at half precision, unlike authored full-float Products.
             auto       device = RenderHardware::GetSharedDevice();
-            const bool flip = (data.Origin == TextureOrigin::TopLeft) == (device->GetCoordinateConventions().Origin ==
-                                                                          RenderHardware::FramebufferOrigin::LowerLeft);
+            const bool            flip   = data.Origin == TextureOrigin::TopLeft;
             std::vector<uint16_t> half(size_t(data.Width) * data.Height * 4);
             for (size_t y = 0; y < data.Height; ++y)
                 for (size_t x = 0; x < size_t(data.Width) * 4; ++x)

@@ -38,6 +38,7 @@ namespace Kans::RenderHardware::VulkanDetail
         uint32_t                   QueueFamily = 0;
         VmaAllocator               Allocator   = VK_NULL_HANDLE;
         VulkanDeviceOptions        Options;
+        bool                       BresenhamLines = false;
         explicit Context(const VulkanDeviceOptions& options);
         ~Context();
         void Destroy();

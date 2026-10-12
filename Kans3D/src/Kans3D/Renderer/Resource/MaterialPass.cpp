@@ -34,9 +34,9 @@ namespace Kans
             desc.DepthStencil.StencilTest     = data.WriteStencil;
             desc.DepthStencil.Front.Reference = desc.DepthStencil.Back.Reference = 1;
             desc.DepthStencil.Front.Pass = desc.DepthStencil.Back.Pass = StencilOp::Replace;
-            desc.Rasterizer.Front   = device->GetCoordinateConventions().ClipY == ClipYDirection::Up ?
-                                          FrontFace::CounterClockwise :
-                                          FrontFace::Clockwise;
+            // DeviceProjection already converts clip Y using the coordinate query.
+            // The converted projection preserves the mesh's visual CCW facing.
+            desc.Rasterizer.Front   = FrontFace::CounterClockwise;
             desc.Rasterizer.Cull    = data.Render.DoubleSided ? CullMode::None : CullMode::Back;
             desc.Rasterizer.Polygon = data.Wireframe ? PolygonMode::Line : PolygonMode::Fill;
             BlendState blend;

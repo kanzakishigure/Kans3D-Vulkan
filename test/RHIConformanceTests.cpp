@@ -3,6 +3,7 @@
 #include <functional>
 #include <gtest/gtest.h>
 #include <spirv_cross/spirv.hpp>
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/RHI.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
@@ -46,8 +47,7 @@ void main() { color = p.Color; })";
             ASSERT_NO_FATAL_FAILURE(Context->SetUp());
             GPU = Context->CreateDevice();
             GPU->BeginFrame();
-            if (GetParam() == GpuTestBackend::OpenGL)
-                Program = ShaderFrom(Vertex, Fragment);
+            Program = ShaderFrom(Vertex, Fragment);
         }
         void TearDown() override
         {
@@ -156,6 +156,24 @@ void main() { color = p.Color; })";
         }
     };
 
+    TEST_P(RHIConformance, HeadlessContextInstallsTheChosenSharedDeviceAndRejectsReplacement)
+    {
+        // Bug: renderer consumers silently keep/use a GL shared device even
+        // though the fixture requested Vulkan, or a live shared device can be replaced.
+        const auto expected = GetParam() == GpuTestBackend::OpenGL ? Backend::OpenGL : Backend::Vulkan;
+        EXPECT_EQ(GetBackend(), expected);
+        const auto shared = GetSharedDevice();
+        ASSERT_TRUE(shared);
+        const auto actualCoordinates   = shared->GetCoordinateConventions();
+        const auto expectedCoordinates = GPU->GetCoordinateConventions();
+        EXPECT_EQ(actualCoordinates.ClipY, expectedCoordinates.ClipY);
+        EXPECT_EQ(actualCoordinates.Depth, expectedCoordinates.Depth);
+        EXPECT_EQ(actualCoordinates.Origin, expectedCoordinates.Origin);
+        EXPECT_THROW(InitializeHeadlessDevice(expected, shared), std::logic_error);
+        EXPECT_THROW(InitializeHeadlessDevice(expected, {}), std::invalid_argument);
+        EXPECT_EQ(GetSharedDevice(), shared);
+    }
+
     TEST_P(RHIConformance, InternalShaderCreationKeepsTheCompilerDiagnostic)
     {
         // Catches CreateInternalShader replacing the compiler message with a generic
@@ -194,8 +212,6 @@ void main() { color = p.Color; })";
 
     TEST_P(RHIConformance, PickerUsesBottomLeftRowsAndClearsResizedTargets)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto     device = std::shared_ptr<Device>(GPU.get(), [](Device*) {});
         MeshData quad;
         for (auto p :
@@ -233,8 +249,6 @@ void main() { color = p.Color; })";
 
     TEST_P(RHIConformance, OutlinePreservesSceneAlphaAndDoesNotKeepOldSelectionOnResize)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto     device = std::shared_ptr<Device>(GPU.get(), [](Device*) {});
         MeshData quad;
         for (auto p : {glm::vec3(-0.75f, -0.75f, 0),
@@ -386,8 +400,6 @@ void main() { color = p.Color; })";
 
     TEST_P(RHIConformance, TriangleCoverageAndExactColor)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program       = ShaderFrom(R"(#version 450
 layout(push_constant) uniform Object { vec4 Color; vec4 Params; } p;
 void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
@@ -405,8 +417,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, DepthTestWritesAndReadback)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         TextureDesc dd;
         dd.Width                  = Size;
         dd.Height                 = Size;
@@ -444,8 +454,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, DepthCompareAndBias)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         TextureDesc dd;
         dd.Width                       = Size;
         dd.Height                      = Size;
@@ -477,8 +485,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, SeparateColorAlphaBlendAndWriteMask)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto  target       = Target();
         auto  d            = Description();
         auto& b            = d.Blends[0];
@@ -496,8 +502,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, BlendEquationsAndDisableTransition)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto  target       = Target();
         auto  d            = Description();
         auto& b            = d.Blends[0];
@@ -521,8 +525,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, CullFrontBackAndWinding)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         // The oversized triangle is CCW when clip Y points up. Each case catches inverted
         // front face, ignored cull mode, or stale enable state after pipeline changes.
         auto target = Target();
@@ -543,8 +545,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, WireframeAndFillTransition)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program              = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                                           Fragment);
@@ -567,8 +567,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, ScissorAndViewportBounds)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto target   = Target();
         auto commands = Begin(Render(target));
         commands->SetViewport({2, 3, 10, 9, 0, 1});
@@ -585,8 +583,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,-.75),vec2(.75,-.75),vec2(0,.75)); gl
 
     TEST_P(RHIConformance, PushConstantsPartialWritesAndRecordedValues)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program            = ShaderFrom(Vertex, R"(#version 450
 layout(push_constant) uniform Object { vec4 Color; vec4 Params; } p;
 layout(location=0) out vec4 color;
@@ -612,8 +608,6 @@ void main() { color=p.Color*p.Params.w; })");
 
     TEST_P(RHIConformance, TwoGroupsWithCollidingSlotsAndCombinedSamplers)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(Vertex, R"(#version 450
 layout(set=0,binding=0,std140) uniform Frame { vec4 Value; } a;
 layout(set=1,binding=0,std140) uniform Material { vec4 Value; } b;
@@ -674,8 +668,6 @@ void main() { color=a.Value*texture(first,vec2(.625,.25))+b.Value*texture(second
 
     TEST_P(RHIConformance, SeparateTextureAndSamplerBindings)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program     = ShaderFrom(Vertex, R"(#version 450
 layout(set=1,binding=2) uniform texture2D image;
 layout(set=1,binding=5) uniform sampler filtering;
@@ -715,8 +707,6 @@ void main() { color=texture(sampler2D(image,filtering),vec2(1.125,.5)); })");
 
     TEST_P(RHIConformance, IntegerPickerTargetAndClear)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program               = ShaderFrom(Vertex, R"(#version 450
 layout(location=0) out uint id;
 void main() { id=0x87654321u; })");
@@ -739,8 +729,6 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, HalfFloatTargetPreservesHDRAndNegative)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto target   = Target(Format::RGBA16Float);
         auto commands = Begin(Render(target));
         Draw(commands, GPU->CreatePipeline(Description(Format::RGBA16Float)), {{2, -0.5f, 0.25f, 1}, {}});
@@ -758,8 +746,6 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, PipelineCacheIncludesEveryStateField)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto base               = Description();
         base.HasDepthStencil    = true;
         base.DepthStencilFormat = Format::Depth24Stencil8;
@@ -813,8 +799,6 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, PipelineCacheIncludesVertexAndBindingLayouts)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto base                                                      = Description();
         base.VertexBindings                                            = {{0, 16, false}};
         base.Attributes                                                = {{0, 0, 0, VertexFormat::Float2}};
@@ -892,8 +876,6 @@ void main() { id=0x87654321u; })");
 
     TEST_P(RHIConformance, CoordinateQueryMatchesCoverageDepthAndRows)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         const auto convention = GPU->GetCoordinateConventions();
         Program               = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-.75,.125),vec2(.75,.125),vec2(0,.875)); gl_Position=vec4(pos[gl_VertexIndex],.25,1); })",
@@ -941,8 +923,6 @@ void main() { vec2 pos[3]=vec2[](vec2(-.75,.125),vec2(.75,.125),vec2(0,.875)); g
 
     TEST_P(RHIConformance, IndexedVertexLayoutOffsetsAndBaseVertex)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(R"(#version 450
 layout(location=0) in vec2 position;
 layout(location=1) in vec4 tint;
@@ -991,8 +971,6 @@ void main() { color=vTint; })");
 
     TEST_P(RHIConformance, AttachmentLoadAndClearIgnorePreviousMasks)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto target           = Target();
         auto d                = Description();
         d.Blends[0].WriteMask = 1;
@@ -1018,8 +996,6 @@ void main() { color=vTint; })");
 
     TEST_P(RHIConformance, IndependentBlendStatesForMultipleTargets)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program    = ShaderFrom(Vertex, R"(#version 450
 layout(location=0) out vec4 a;
 layout(location=1) out vec4 b;
@@ -1048,8 +1024,6 @@ void main() { a=vec4(1,0,0,.25); b=vec4(0,1,0,.25); })");
 
     TEST_P(RHIConformance, StencilReplaceCompareAndWriteMask)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         TextureDesc td;
         td.Width                       = Size;
         td.Height                      = Size;
@@ -1089,8 +1063,6 @@ void main() { a=vec4(1,0,0,.25); b=vec4(0,1,0,.25); })");
 
     TEST_P(RHIConformance, SrgbTargetEncodingAndLinearTransition)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto srgb     = Target(Format::RGBA8Srgb);
         auto commands = Begin(Render(srgb));
         Draw(commands, GPU->CreatePipeline(Description(Format::RGBA8Srgb)), {{0.25f, 0.5f, 1, 1}, {}});
@@ -1129,8 +1101,6 @@ void main() { a=vec4(1,0,0,.25); b=vec4(0,1,0,.25); })");
 
     TEST_P(RHIConformance, StorageWritesFeedUniformsAndReadbackWithoutCallerBarriers)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto writer = ShaderFrom(R"(#version 450
 layout(set=1,binding=2,std430) buffer Storage { vec4 Color; } b;
 void main() {
@@ -1188,8 +1158,6 @@ layout(location=0) out vec4 color; void main() { color=b.Color; })");
 
     TEST_P(RHIConformance, PushConstantsRepackScalarArraysAndMixedTypes)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program             = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-1,-1),vec2(3,-1),vec2(-1,3)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                                          R"(#version 450
@@ -1213,8 +1181,6 @@ void main() { color=vec4(p.channels[0],p.channels[1],p.channels[2],float(p.alpha
 
     TEST_P(RHIConformance, PushConstantsRepackNestedStructArraysAndMatrices)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-1,-1),vec2(3,-1),vec2(-1,3)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                              R"(#version 450
@@ -1248,8 +1214,6 @@ void main() { color=vec4(p.items[1].channels[0]*p.factors[0][0],p.items[0].chann
 
     TEST_P(RHIConformance, PipelineMasksSurviveRenderingScopeClears)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         auto        target = Target();
         TextureDesc td;
         td.Width = td.Height      = Size;
@@ -1312,8 +1276,6 @@ void main() { color=vec4(p.items[1].channels[0]*p.factors[0][0],p.items[0].chann
 
     TEST_P(RHIConformance, PushConstantsRepackRowAndColumnMajorMatrixArrays)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         Program = ShaderFrom(R"(#version 450
 void main() { vec2 pos[3]=vec2[](vec2(-1,-1),vec2(3,-1),vec2(-1,3)); gl_Position=vec4(pos[gl_VertexIndex],0,1); })",
                              R"(#version 450
@@ -1340,8 +1302,6 @@ void main() { color=vec4(p.a[1][0][1],p.b[1][1][0],p.b[1][1][1],1); })");
 
     TEST_P(RHIConformance, FullFloatTargetPreservesValuesBelowHalfPrecision)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         // A mistaken RGBA16F allocation/transfer rounds these binary-exact values.
         const std::array<float, 4> expected {1.0001220703125f, -2.000244140625f, 0.50006103515625f, 1};
         auto                       target   = Target(Format::RGBA32Float);
@@ -1363,8 +1323,6 @@ void main() { color=vec4(p.a[1][0][1],p.b[1][1][0],p.b[1][1][1],1); })");
 
     TEST_P(RHIConformance, OddWidthTwoChannelMipsAndSampledComponents)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         // Detects RG mapped as R/RGBA, padded odd-width rows, wrong mip extent,
         // and a matching upload/readback mistake by independently sampling mip zero.
         TextureDesc desc;
@@ -1419,8 +1377,6 @@ void main() { color=texelFetch(image,ivec2(0),0); })");
 
     TEST_P(RHIConformance, SparsePublishedSlotsAndRecordedPerDrawUniformRanges)
     {
-        if (GetParam() == GpuTestBackend::Vulkan)
-            GTEST_SKIP() << "phase 3b";
         // Slots above 7 must load unchanged. Colliding logical slots in both
         // groups must stay independent; each recorded draw must retain its range.
         ShaderData data;
@@ -1505,6 +1461,237 @@ void main() { color=frame.Value*texture(first,vec2(.5))+material.Value*texture(s
             for (uint32_t x = 0; x < Size; ++x)
                 EXPECT_EQ(At(bytes, x, y), (x < 8 ? Pixel {255, 0, 128, 255} : Pixel {128, 0, 128, 255}))
                     << x << ',' << y;
+    }
+
+    TEST_P(RHIConformance, InstancedTriangleStripUsesBindingDivisorAndFirstInstance)
+    {
+        // Bugs: PerInstance mapped to per-vertex input, firstInstance discarded,
+        // or TriangleStrip mapped to a triangle list (leaving half of each tile clear).
+        Program                 = ShaderFrom(R"(#version 450
+layout(location=0) in vec2 position;
+layout(location=1) in vec2 offset;
+layout(location=2) in vec4 tint;
+layout(location=0) out vec4 vTint;
+void main() { gl_Position=vec4(position*vec2(.5,1)+offset,0,1); vTint=tint; })",
+                                             R"(#version 450
+layout(location=0) in vec4 vTint;
+layout(location=0) out vec4 color;
+void main() { color=vTint; })");
+        const float positions[] = {-1, -1, 1, -1, -1, 1, 1, 1};
+        const float instances[] = {0, 0, 1, 0, 1, 1, -.5f, 0, 1, 0, 0, 1, .5f, 0, 0, 1, 0, 1};
+        auto        d           = Description();
+        d.PushConstantBytes     = 0;
+        d.Primitive             = Topology::TriangleStrip;
+        d.VertexBindings        = {{0, 8, false}, {4, 24, true}};
+        d.Attributes            = {
+            {0, 0, 0, VertexFormat::Float2}, {1, 4, 0, VertexFormat::Float2}, {2, 4, 8, VertexFormat::Float4}};
+        auto target   = Target();
+        auto commands = Begin(Render(target));
+        commands->BindPipeline(GPU->CreatePipeline(d));
+        commands->BindVertexBuffers({{0, Upload(positions, sizeof(positions), BufferUsage::Vertex), 0},
+                                     {4, Upload(instances, sizeof(instances), BufferUsage::Vertex), 0}});
+        commands->Draw(4, 2, 0, 1);
+        auto raw = Finish(commands, target);
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+                ASSERT_EQ(At(raw, x, y), (x < 8 ? Pixel {255, 0, 0, 255} : Pixel {0, 255, 0, 255}));
+    }
+
+    TEST_P(RHIConformance, PointTopologyAndFirstVertexSelectOnlyTheRequestedPoint)
+    {
+        // Bugs: PointList mapped to a line/triangle topology, or firstVertex ignored.
+        Program       = ShaderFrom(R"(#version 450
+void main() { vec2 p[2]=vec2[](vec2(-.9375,-.9375),vec2(.0625,.0625));
+    gl_Position=vec4(p[gl_VertexIndex],0,1); gl_PointSize=1; })",
+                                   Fragment);
+        auto d        = Description();
+        d.Primitive   = Topology::PointList;
+        auto target   = Target();
+        auto commands = Begin(Render(target));
+        commands->BindPipeline(GPU->CreatePipeline(d));
+        Constants constants;
+        commands->PushConstants(0, &constants, sizeof(constants));
+        commands->Draw(1, 1, 1, 0);
+        auto raw = Finish(commands, target);
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+                ASSERT_EQ(At(raw, x, y), (x == 8 && y == ClipRow(8) ? Pixel {255, 0, 0, 255} : Pixel {0, 0, 0, 255}));
+    }
+
+    TEST_P(RHIConformance, RenderedTextureSamplingAndReplacementKeepRecordedDescriptors)
+    {
+        // Bugs: missing attachment -> sampled layout dependency; writing descriptors
+        // to the wrong sparse binding; replacing a texture mutates an older recorded set.
+        TextureDesc sampled;
+        sampled.Width = sampled.Height = Size;
+        sampled.Usage                  = TextureUsage::RenderTarget | TextureUsage::Sampled;
+        auto oldImage = GPU->CreateTexture(sampled), newImage = GPU->CreateTexture(sampled);
+        auto producer = GPU->CreateCommandList();
+        producer->BeginRendering(Render(oldImage, {1, 0, 0, 1}));
+        producer->EndRendering();
+        producer->BeginRendering(Render(newImage, {0, 1, 0, 1}));
+        producer->EndRendering();
+        GPU->Submit(producer);
+        Program      = ShaderFrom(Vertex, R"(#version 450
+layout(set=0,binding=19) uniform sampler2D image;
+layout(location=0) out vec4 color;
+void main() { color=texture(image,vec2(.5)); })");
+        auto layout  = GPU->CreateBindGroupLayout({0, {{19, BindingType::CombinedTextureSampler}}});
+        auto sampler = GPU->CreateSampler();
+        auto group   = [&](const Handle<Texture>& texture) {
+            BindGroupEntry entry;
+            entry.Slot            = 19;
+            entry.TextureResource = texture;
+            entry.SamplerResource = sampler;
+            return GPU->CreateBindGroup({layout, {entry}});
+        };
+        auto d           = Description();
+        d.GroupLayouts   = {layout};
+        auto pipeline    = GPU->CreatePipeline(d);
+        auto target      = Target();
+        auto commands    = Begin(Render(target));
+        auto replacement = group(oldImage);
+        commands->BindGroup(replacement);
+        commands->SetScissor({0, 0, 8, 16});
+        Draw(commands, pipeline);
+        replacement = group(newImage);
+        oldImage.reset();
+        commands->BindGroup(replacement);
+        commands->SetScissor({8, 0, 8, 16});
+        Draw(commands, pipeline);
+        newImage.reset();
+        replacement.reset();
+        auto raw = Finish(commands, target);
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+                ASSERT_EQ(At(raw, x, y), (x < 8 ? Pixel {255, 0, 0, 255} : Pixel {0, 255, 0, 255}));
+    }
+
+    TEST_P(RHIConformance, SampledReadOnlyDepthAttachmentKeepsDepthAndPassesDepthTest)
+    {
+        // Bugs: depth descriptor uses a color view/layout; missing render -> sample
+        // transition; attached sampled depth is transitioned back to a writable layout.
+        TextureDesc depthDesc;
+        depthDesc.Width = depthDesc.Height = Size;
+        depthDesc.PixelFormat              = Format::Depth32Float;
+        depthDesc.Usage     = TextureUsage::DepthStencil | TextureUsage::Sampled | TextureUsage::CopySource;
+        auto          depth = GPU->CreateTexture(depthDesc);
+        auto          clear = GPU->CreateCommandList();
+        RenderingDesc clearScope;
+        clearScope.Depth.Target     = depth;
+        clearScope.Depth.ClearDepth = .5f;
+        clear->BeginRendering(clearScope);
+        clear->EndRendering();
+        GPU->Submit(clear);
+        Program               = ShaderFrom(Vertex, R"(#version 450
+layout(set=0,binding=7) uniform sampler2D depthImage;
+layout(location=0) out vec4 color;
+layout(push_constant) uniform Object { vec4 Color; vec4 Params; } p;
+void main() { color=vec4(texture(depthImage,vec2(.5)).r,1,1,1)*p.Color; })");
+        auto           layout = GPU->CreateBindGroupLayout({0, {{7, BindingType::CombinedTextureSampler}}});
+        BindGroupEntry entry;
+        entry.Slot                = 7;
+        entry.TextureResource     = depth;
+        entry.SamplerResource     = GPU->CreateSampler();
+        auto d                    = Description();
+        d.GroupLayouts            = {layout};
+        d.HasDepthStencil         = true;
+        d.DepthStencil.DepthTest  = true;
+        d.DepthStencil.DepthWrite = false;
+        auto pipeline             = GPU->CreatePipeline(d);
+        auto target               = Target();
+        auto scope                = Render(target, {0, 0, 0, 1}, depth);
+        scope.Depth.Load          = LoadOp::Load;
+        auto commands             = Begin(scope);
+        commands->BindGroup(GPU->CreateBindGroup({layout, {entry}}));
+        Draw(commands, pipeline, {{1, 1, 0, 1}, {-0.5f, 0, 0, 0}});
+        // A draw beyond the stored depth must fail, even though sampling is enabled.
+        Draw(commands, pipeline, {{0, 0, 1, 1}, {0.5f, 0, 0, 0}});
+        commands->EndRendering();
+        auto colors = Readback(Size * Size * 4), depths = Readback(Size * Size * 4);
+        commands->CopyTextureToBuffer(target, {}, colors);
+        commands->CopyTextureToBuffer(depth, {}, depths);
+        GPU->Submit(commands);
+        GPU->WaitIdle();
+        Solid(colors->Read(0, Size * Size * 4), {128, 255, 0, 255});
+        auto raw = depths->Read(0, Size * Size * 4);
+        for (size_t i = 0; i < raw.size(); i += 4)
+        {
+            float value;
+            std::memcpy(&value, raw.data() + i, 4);
+            ASSERT_EQ(value, .5f);
+        }
+    }
+
+    TEST_P(RHIConformance, DepthWritesAndAttachedSamplingWithinOneScopeAreOrdered)
+    {
+        // Bug: treating the whole RHI scope as writable when a later draw samples
+        // attached depth, or emitting a layout barrier inside dynamic rendering.
+        TextureDesc desc;
+        desc.Width = desc.Height = Size;
+        desc.PixelFormat         = Format::Depth32Float;
+        desc.Usage               = TextureUsage::DepthStencil | TextureUsage::Sampled | TextureUsage::CopySource;
+        auto depth = GPU->CreateTexture(desc), target = Target();
+        auto d                       = Description();
+        d.HasDepthStencil            = true;
+        d.DepthStencil.DepthTest     = true;
+        d.DepthStencil.DepthWrite    = true;
+        d.DepthStencil.DepthCompare  = CompareOp::Always;
+        auto           writer        = GPU->CreatePipeline(d);
+        auto           readerProgram = ShaderFrom(Vertex, R"(#version 450
+layout(set=0,binding=9) uniform sampler2D depthImage;
+layout(location=0) out vec4 color;
+void main() { color=vec4(vec3(texelFetch(depthImage,ivec2(gl_FragCoord.xy),0).r),1); })");
+        auto           layout        = GPU->CreateBindGroupLayout({0, {{9, BindingType::CombinedTextureSampler}}});
+        BindGroupEntry entry;
+        entry.Slot                = 9;
+        entry.TextureResource     = depth;
+        entry.SamplerResource     = GPU->CreateSampler();
+        auto group                = GPU->CreateBindGroup({layout, {entry}});
+        d.Program                 = readerProgram;
+        d.GroupLayouts            = {layout};
+        d.DepthStencil.DepthWrite = false;
+        auto reader               = GPU->CreatePipeline(d);
+        auto commands             = Begin(Render(target, {0, 0, 0, 1}, depth));
+        commands->BindGroup(group);
+        // First sample also requires separating the native clear from read-only attachment use.
+        Draw(commands, reader);
+        commands->SetScissor({0, 0, 8, 16});
+        Draw(commands, writer, {{1, 0, 0, 1}, {-0.5f, 0, 0, 0}});
+        Draw(commands, reader);
+        commands->SetScissor({8, 0, 8, 16});
+        Draw(commands, writer, {{0, 1, 0, 1}, {0, 0, 0, 0}});
+        Draw(commands, reader);
+        auto raw = Finish(commands, target);
+        for (uint32_t y = 0; y < Size; ++y)
+            for (uint32_t x = 0; x < Size; ++x)
+                ASSERT_EQ(At(raw, x, y), (x < 8 ? Pixel {64, 64, 64, 255} : Pixel {128, 128, 128, 255}));
+    }
+
+    TEST_P(RHIConformance, CachedPipelinesRenderTheirOwnTargetFormats)
+    {
+        // Bug: the description hash/cache omits attachment format and returns the
+        // RGBA8 pipeline for an HDR target. Actual draws also exercise native compatibility.
+        auto ldrDesc = Description(), hdrDesc = Description(Format::RGBA32Float);
+        auto ldr = GPU->CreatePipeline(ldrDesc), hdr = GPU->CreatePipeline(hdrDesc);
+        ASSERT_NE(ldr, hdr);
+        EXPECT_EQ(GPU->CreatePipeline(ldrDesc), ldr);
+        EXPECT_EQ(GPU->CreatePipeline(hdrDesc), hdr);
+        auto target   = Target();
+        auto commands = Begin(Render(target));
+        Draw(commands, ldr);
+        Solid(Finish(commands, target), {255, 0, 0, 255});
+        target   = Target(Format::RGBA32Float);
+        commands = Begin(Render(target));
+        const std::array<float, 4> expected {2.25f, -.125f, .250123f, 1};
+        Draw(commands, hdr, {expected, {}});
+        auto raw = Finish(commands, target, Size * Size * 16);
+        for (size_t i = 0; i < raw.size(); i += 16)
+        {
+            std::array<float, 4> value;
+            std::memcpy(value.data(), raw.data() + i, 16);
+            ASSERT_EQ(value, expected);
+        }
     }
 
     TEST_P(RHIConformance, ClearOnlyFormatsPreserveTypedValuesAndLoad)

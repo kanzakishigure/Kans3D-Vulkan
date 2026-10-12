@@ -23,6 +23,11 @@ namespace Kans
         uintptr_t Texture  = 0;
         bool     Complete = false;
     };
+    struct MaterialPreviewImageResult
+    {
+        RenderHardware::Handle<RenderHardware::Texture> Target;
+        bool                                            Complete = false;
+    };
     struct MaterialThumbnail
     {
         glm::uvec2 Size {};
@@ -48,14 +53,18 @@ namespace Kans
         MaterialPreviewResult
         Render(const MaterialData& material, const ShaderData* shader, const MaterialPreviewOptions& options = {});
         MaterialPreviewResult Render(AssetID material, const MaterialPreviewOptions& options = {});
+        // Offscreen rendering exposes a neutral image, without exporting it to the UI.
+        MaterialPreviewImageResult
+        RenderImage(const MaterialData& material, const ShaderData* shader, const MaterialPreviewOptions& options = {});
+        MaterialPreviewImageResult RenderImage(AssetID material, const MaterialPreviewOptions& options = {});
         // No image while material/shader/assigned textures are missing, loading or failed.
         std::optional<MaterialThumbnail> RenderThumbnail(AssetID material, const MaterialPreviewOptions& options = {});
 
     private:
-        MaterialPreviewResult                 Draw(const GpuShader&              shader,
-                                                   const GpuMaterialBindings&    bindings,
-                                                   const MaterialPreviewOptions& options,
-                                                   bool                          complete);
+        MaterialPreviewImageResult                       Draw(const GpuShader&              shader,
+                                                              const GpuMaterialBindings&    bindings,
+                                                              const MaterialPreviewOptions& options,
+                                                              bool                          complete);
         bool                                  Resize(glm::uvec2 size);
         SceneRenderer&                        m_Scene;
         glm::uvec2                            m_Size {};

@@ -16,7 +16,7 @@ namespace Kans
             return *error;
         if (!device)
         {
-            if (RenderHardware::GetBackend() != RenderHardware::Backend::OpenGL)
+            if (RenderHardware::GetBackend() == RenderHardware::Backend::None)
                 return AssetError {AssetErrorCode::NotImplemented, "Mesh upload is unavailable for this backend"};
             try
             {

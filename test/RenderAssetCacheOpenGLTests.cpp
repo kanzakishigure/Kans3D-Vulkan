@@ -21,6 +21,7 @@
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/ImGuiRenderer.h"
 #include "Kans3D/RHI/OpenGL/OpenGLTestProbes.h"
+#include "Kans3D/RHI/Vulkan/VulkanTestProbes.h"
 #include "Kans3D/Renderer/Features/MaterialPassFeature.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
@@ -160,21 +161,80 @@ namespace
     class RenderAssetCacheGL : public testing::Test
     {
     protected:
+        virtual GpuTestBackend TestBackend() const { return GpuTestBackend::OpenGL; }
         void SetUp() override
         {
             if (!Log::GetCoreLogger())
                 Log::Init();
-            ASSERT_NO_FATAL_FAILURE(GpuContext.SetUp());
+            GpuContext = std::make_unique<GpuTestContext>(TestBackend());
+            ASSERT_NO_FATAL_FAILURE(GpuContext->SetUp());
             previousBackend = RenderHardware::GetBackend();
-            RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
-            ASSERT_EQ(glGetError(), GL_NO_ERROR);
+            if (TestBackend() == GpuTestBackend::OpenGL)
+                ASSERT_EQ(glGetError(), GL_NO_ERROR);
         }
 
         void TearDown() override
         {
             Provider->SetClosed(false);
+            GpuContext.reset();
             RenderHardware::SetBackend(previousBackend);
-            GpuContext.TearDown();
+        }
+
+        std::vector<uint8_t> ReadImage(const RenderHardware::Handle<RenderHardware::Texture>& image)
+        {
+            auto        device     = RenderHardware::GetSharedDevice();
+            const auto& desc       = image->GetDesc();
+            size_t      pixelBytes = desc.PixelFormat == RenderHardware::Format::RGBA32Float ? 16 : 4;
+            size_t      bytes      = size_t(desc.Width) * desc.Height * pixelBytes;
+            auto        buffer     = device->CreateBuffer(
+                {bytes, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(image, {}, buffer);
+            device->Submit(commands);
+            device->WaitIdle();
+            auto pixels = buffer->Read(0, bytes);
+            if (device->GetCoordinateConventions().Origin == RenderHardware::FramebufferOrigin::UpperLeft)
+                for (uint32_t y = 0; y < desc.Height / 2; ++y)
+                    std::swap_ranges(pixels.begin() + y * desc.Width * pixelBytes,
+                                     pixels.begin() + (y + 1) * desc.Width * pixelBytes,
+                                     pixels.begin() + (desc.Height - 1 - y) * desc.Width * pixelBytes);
+            return pixels;
+        }
+        float ReadUniformFirstFloat(const RenderHardware::Handle<RenderHardware::Buffer>& buffer)
+        {
+            using namespace RenderHardware;
+            auto       device = GetSharedDevice();
+            ShaderData code;
+            code.Code = CompileTestMaterialShader(
+                "#version 450\nvoid main(){vec2 "
+                "p[3]=vec2[](vec2(-1,-1),vec2(3,-1),vec2(-1,3));gl_Position=vec4(p[gl_VertexIndex],0,1);}",
+                "#version 450\nlayout(set=1,binding=0,std140)uniform Value{vec4 First;}p;layout(location=0)out vec4 "
+                "c;void main(){c=p.First;}");
+            auto         layout = device->CreateBindGroupLayout({1, {{0, BindingType::UniformBuffer}}});
+            PipelineDesc pipeline;
+            pipeline.Program         = device->CreateShader(code);
+            pipeline.GroupLayouts    = {layout};
+            pipeline.Rasterizer.Cull = CullMode::None;
+            pipeline.ColorFormats    = {Format::RGBA32Float};
+            pipeline.Blends.resize(1);
+            TextureDesc targetDesc;
+            targetDesc.PixelFormat = Format::RGBA32Float;
+            targetDesc.Usage = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
+            auto          target = device->CreateTexture(targetDesc);
+            RenderingDesc scope;
+            scope.Colors  = {{target}};
+            auto commands = device->CreateCommandList();
+            commands->BeginRendering(scope);
+            commands->SetViewport({0, 0, 1, 1});
+            commands->BindPipeline(device->CreatePipeline(pipeline));
+            commands->BindGroup(device->CreateBindGroup({layout, {{0, buffer}}}));
+            commands->Draw(3);
+            commands->EndRendering();
+            device->Submit(commands);
+            auto  bytes = ReadImage(target);
+            float value;
+            std::memcpy(&value, bytes.data(), sizeof(value));
+            return value;
         }
 
         ProductRecord Store(AssetID id, AssetType type, std::vector<std::byte> bytes)
@@ -236,7 +296,13 @@ namespace
         SourceAssetID      Source   = SourceAssetID::Generate();
         unsigned           Version  = 0;
         RenderHardware::Backend previousBackend {};
-        GpuTestContext     GpuContext {GpuTestBackend::OpenGL};
+        std::unique_ptr<GpuTestContext> GpuContext;
+    };
+
+    class RenderAssetCacheGPU : public RenderAssetCacheGL, public testing::WithParamInterface<GpuTestBackend>
+    {
+    protected:
+        GpuTestBackend TestBackend() const override { return GetParam(); }
     };
 
     TEST_F(RenderAssetCacheGL, UploadMeshCreatesIndexedVertexArrayWithEngineLayout)
@@ -268,7 +334,7 @@ namespace
         EXPECT_EQ(std::get<AssetError>(UploadMesh(data)).Code, AssetErrorCode::InvalidData);
     }
 
-    TEST_F(RenderAssetCacheGL, ResourcesAppearWhenLoadedAndInvalidIDsReturnNothing)
+    TEST_P(RenderAssetCacheGPU, ResourcesAppearWhenLoadedAndInvalidIDsReturnNothing)
     {
         const AssetID    meshID {Source, 1}, textureID {Source, 2};
         AssetManager     assets(Provider, Registry({Mesh(meshID, 1), Texture(textureID, std::byte {200})}));
@@ -294,10 +360,11 @@ namespace
             EXPECT_EQ(cache.GetMesh(textureID), nullptr);
             std::this_thread::sleep_for(1ms);
         }
-        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 
-    TEST_F(RenderAssetCacheGL, ReimportedAssetKeepsLastUploadUntilReplacementIsReady)
+    TEST_P(RenderAssetCacheGPU, ReimportedAssetKeepsLastUploadUntilReplacementIsReady)
     {
         const AssetID    meshID {Source, 1};
         AssetManager     assets(Provider, Registry({Mesh(meshID, 1)}));
@@ -315,10 +382,11 @@ namespace
 
         Provider->SetClosed(false);
         ASSERT_TRUE(Frames(cache, [&] { return cache.GetMesh(meshID)->IndexCount == 12u; }));
-        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 
-    TEST_F(RenderAssetCacheGL, ModelInstancesResolveMeshesAndUnusedEntriesAreEvicted)
+    TEST_P(RenderAssetCacheGPU, ModelInstancesResolveMeshesAndUnusedEntriesAreEvicted)
     {
         const AssetID meshID {Source, 1}, modelID {Source, 2};
         ModelData     model;
@@ -338,58 +406,73 @@ namespace
             cache.BeginFrame(1);
         EXPECT_EQ(assets.CollectUnused(), 2u);
         ASSERT_TRUE(Frames(cache, [&] { return cache.GetMesh(meshID) != nullptr; }));
-        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 
-    class StandardMaterialGL : public RenderAssetCacheGL
+    class StandardMaterialGL : public RenderAssetCacheGL, public testing::WithParamInterface<GpuTestBackend>
     {
     protected:
+        GpuTestBackend TestBackend() const override { return GetParam(); }
         void SetUp() override
         {
-            RenderAssetCacheGL::SetUp();
+            ASSERT_NO_FATAL_FAILURE(RenderAssetCacheGL::SetUp());
             Assets = CreateScope<AssetManager>(Provider, Registry({}));
-            Cache  = CreateScope<RenderAssetCache>(*Assets);
-            glGenFramebuffers(1, &Target);
-            glBindFramebuffer(GL_FRAMEBUFFER, Target);
-            glGenTextures(1, &Color);
-            glBindTexture(GL_TEXTURE_2D, Color);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 16, 16, 0, GL_RGBA, GL_FLOAT, nullptr);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, Color, 0);
-            ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GLenum(GL_FRAMEBUFFER_COMPLETE));
-            glViewport(0, 0, 16, 16);
-            glDisable(GL_DEPTH_TEST);
-            glDisable(GL_CULL_FACE);
-            glDisable(GL_BLEND);
-            glDisable(GL_FRAMEBUFFER_SRGB);
-            glGenTextures(2, Environment);
-            const float black[4] = {0, 0, 0, 1};
-            for (uint32_t unit = 0; unit < 2; ++unit)
-            {
-                glActiveTexture(GL_TEXTURE0 + unit);
-                glBindTexture(GL_TEXTURE_CUBE_MAP, Environment[unit]);
-                for (uint32_t face = 0; face < 6; ++face)
-                    glTexImage2D(
-                        GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGBA32F, 1, 1, 0, GL_RGBA, GL_FLOAT, black);
-                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            }
+            Cache       = CreateScope<RenderAssetCache>(*Assets);
+            auto device = Cache->GetDevice();
+            using namespace RenderHardware;
+            TextureDesc color;
+            color.Width = color.Height = 16;
+            color.PixelFormat          = Format::RGBA32Float;
+            color.Usage = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
+            Color       = device->CreateTexture(color);
+            TextureDesc environment;
+            environment.Dimension   = TextureDimension::Cube;
+            environment.PixelFormat = Format::RGBA32Float;
+            environment.Usage = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+            Environment[0]    = device->CreateTexture(environment);
+            Environment[1]    = device->CreateTexture(environment);
+            SetIrradiance({0, 0, 0, 1});
+            UploadEnvironment(Environment[1], {0, 0, 0, 1});
+            environment.Dimension = TextureDimension::Texture2D;
+            Brdf                  = device->CreateTexture(environment);
+            UploadEnvironment(Brdf, {0, 0, 0, 1});
+            SamplerDesc sampler;
+            sampler.Min = sampler.Mag = sampler.Mip = Filter::Nearest;
+            Sampling                                = device->CreateSampler(sampler);
             Frame.CameraPosition = {0, 0, 2, 1};
             for (auto& light : Frame.LightPositions)
                 light = {0, 0, 1, 1};
             FrameBuffer  = CreateScope<GpuUniformBuffer>(sizeof(Frame));
             ObjectBuffer = CreateScope<GpuUniformBuffer>(sizeof(Object));
-            NativeBind(*FrameBuffer, 0);
-            NativeBind(*ObjectBuffer, 1);
         }
+        void UploadEnvironment(const RenderHardware::Handle<RenderHardware::Texture>& image,
+                               const std::array<float, 4>&                            value)
+        {
+            auto device = Cache->GetDevice();
+            auto buffer = device->CreateBuffer(
+                {sizeof(value), RenderHardware::BufferUsage::CopySource, RenderHardware::MemoryUsage::Upload});
+            buffer->Write(0, value.data(), sizeof(value));
+            auto commands = device->CreateCommandList();
+            for (uint32_t face = 0;
+                 face < (image->GetDesc().Dimension == RenderHardware::TextureDimension::Cube ? 6u : 1u);
+                 ++face)
+                commands->CopyBufferToTexture(buffer, 0, image, {0, face});
+            device->Submit(commands);
+            device->WaitIdle();
+        }
+        void SetIrradiance(const std::array<float, 4>& value) { UploadEnvironment(Environment[0], value); }
         void TearDown() override
         {
+            Pipelines.clear();
             Cache.reset();
             Assets.reset();
             FrameBuffer.reset();
             ObjectBuffer.reset();
-            glDeleteTextures(2, Environment);
-            glDeleteTextures(1, &Color);
-            glDeleteFramebuffers(1, &Target);
+            Color.reset();
+            Environment = {};
+            Brdf.reset();
+            Sampling.reset();
             RenderAssetCacheGL::TearDown();
         }
         AssetID Image(const std::vector<std::array<float, 4>>& pixels)
@@ -407,11 +490,9 @@ namespace
             const auto registry = Assets->SetRegistry(Registry(Records));
             EXPECT_TRUE(std::holds_alternative<ProductChangeSet>(registry));
             EXPECT_TRUE(Frames(*Cache, [&] { return Cache->GetTexture(id) != nullptr; }));
-            NativeProbe::BindTexture(Cache->GetTexture(id)->GetResource(), 12);
-            glActiveTexture(GL_TEXTURE12);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            RenderHardware::SamplerDesc sampling;
+            sampling.Min = sampling.Mag = sampling.Mip = RenderHardware::Filter::Nearest;
+            Cache->SetTextureSampler(id, sampling);
             return id;
         }
         std::array<float, 4> Draw(const MaterialSource& source,
@@ -436,12 +517,12 @@ namespace
             const auto* shader = Cache->GetShader(bindings.Shader);
             if (!shader)
                 throw std::runtime_error("GPU shader failed");
-            NativeBind(*shader);
-            FrameBuffer->Update(&Frame, sizeof(Frame));
+            auto frame = Frame;
+            frame.ViewProjection =
+                DeviceProjection(frame.ViewProjection, Cache->GetDevice()->GetCoordinateConventions());
+            FrameBuffer->Update(&frame, sizeof(frame));
             ObjectBuffer->Update(&Object, sizeof(Object));
-            for (const auto& [binding, buffer] : bindings.Blocks)
-                NativeBind(buffer, MaterialBlockPoint(*shader, binding));
-            BindMaterialTextures(*Cache, *shader, bindings);
+            auto     material = Cache->GetMaterialGroup(*shader, bindings);
             MeshData quad;
             for (auto [px, py] : {std::pair {-1.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {-1.0f, 1.0f}})
             {
@@ -457,14 +538,58 @@ namespace
             auto mesh    = UploadMesh(quad);
             if (const auto* error = std::get_if<AssetError>(&mesh))
                 throw std::runtime_error(error->Message);
-            NativeMeshArray array(std::get<GpuMesh>(mesh));
-            array.Bind();
-            glClearColor(0, 0, 0, 1);
-            glClear(GL_COLOR_BUFFER_BIT);
-            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+            auto        device   = Cache->GetDevice();
+            const auto& geometry = std::get<GpuMesh>(mesh);
+            using namespace RenderHardware;
+            auto& pipeline = Pipelines[shader->Program];
+            if (!pipeline)
+            {
+                PipelineDesc desc;
+                desc.Program          = shader->Program;
+                desc.GroupLayouts     = {shader->EngineLayout, shader->MaterialLayout};
+                desc.VertexBindings   = geometry.VertexBindings;
+                desc.Attributes       = geometry.Attributes;
+                desc.Rasterizer.Cull  = CullMode::None;
+                desc.Rasterizer.Front = FrontFace::CounterClockwise;
+                desc.ColorFormats     = {Format::RGBA32Float};
+                desc.Blends.resize(1);
+                pipeline = device->CreatePipeline(desc);
+            }
+            BindGroupDesc engine;
+            engine.Layout = shader->EngineLayout;
+            for (const auto& binding : shader->EngineResources)
+            {
+                BindGroupEntry entry;
+                entry.Slot = binding.Binding;
+                if (binding.Binding < 2)
+                    entry.BufferResource = binding.Binding == 0 ? FrameBuffer->Resource() : ObjectBuffer->Resource();
+                else
+                {
+                    entry.TextureResource = binding.Binding == 4 ? Brdf : Environment[binding.Binding - 2];
+                    entry.SamplerResource = Sampling;
+                }
+                engine.Entries.push_back(entry);
+            }
+            auto          commands = device->CreateCommandList();
+            RenderingDesc target;
+            target.Colors = {{Color, {}, LoadOp::Clear, StoreOp::Store, {0, 0, 0, 1}}};
+            commands->BeginRendering(target);
+            commands->SetViewport({0, 0, 16, 16, 0, 1});
+            commands->BindPipeline(pipeline);
+            commands->BindGroup(device->CreateBindGroup(engine));
+            commands->BindGroup(material);
+            commands->BindVertexBuffers({{0, geometry.Vertices, 0}});
+            commands->BindIndexBuffer(geometry.Indices, IndexType::Uint32);
+            commands->DrawIndexed(6);
+            commands->EndRendering();
+            auto buffer = device->CreateBuffer({16 * 16 * 16, BufferUsage::CopyDestination, MemoryUsage::Readback});
+            commands->CopyTextureToBuffer(Color, {}, buffer);
+            device->Submit(commands);
+            device->WaitIdle();
+            auto                 bytes = buffer->Read(0, 16 * 16 * 16);
             std::array<float, 4> pixel {};
-            glReadPixels(x, 8, 1, 1, GL_RGBA, GL_FLOAT, pixel.data());
+            auto                 row = DeviceRow(8, 16, device->GetCoordinateConventions());
+            std::memcpy(pixel.data(), bytes.data() + (row * 16 + x) * 16, 16);
             return pixel;
         }
         static float               Encode(float linear) { return std::pow(linear / (linear + 1), 1.0f / 2.2f); }
@@ -475,10 +600,14 @@ namespace
         EngineFrameUniforms        Frame;
         EngineObjectUniforms       Object;
         Scope<GpuUniformBuffer>    FrameBuffer, ObjectBuffer;
-        GLuint                     Target = 0, Color = 0, Environment[2] {};
+        RenderHardware::Handle<RenderHardware::Texture>                Color, Brdf;
+        std::array<RenderHardware::Handle<RenderHardware::Texture>, 2> Environment;
+        RenderHardware::Handle<RenderHardware::Sampler>                Sampling;
+        std::map<RenderHardware::Handle<RenderHardware::Shader>, RenderHardware::Handle<RenderHardware::Pipeline>>
+            Pipelines;
     };
 
-    TEST_F(StandardMaterialGL, PackingFailureLogsOnceDrawsStandardAndRetriesEitherChangedSource)
+    TEST_P(StandardMaterialGL, PackingFailureLogsOnceDrawsStandardAndRetriesEitherChangedSource)
     {
         // A stale recipe can load but fail packing; retrying a null cache value floods logs every frame.
         const AssetID shaderID {Source, 100}, materialID {Source, 101};
@@ -576,7 +705,7 @@ namespace
         EXPECT_EQ(errorCount(), 2);
     }
 
-    TEST_F(StandardMaterialGL, UnassignedNormalIsGeometricAndUnassignedEmissionIsDark)
+    TEST_P(StandardMaterialGL, UnassignedNormalIsGeometricAndUnassignedEmissionIsDark)
     {
         // White in the normal slot rotates +Z toward (1,1,1); flat must stay +Z.
         Frame.DebugView = 2;
@@ -594,7 +723,7 @@ namespace
         EXPECT_EQ(dark[2], 0);
     }
 
-    TEST_F(StandardMaterialGL, VertexColorIsOptInAndStrengthOneAppliesIt)
+    TEST_P(StandardMaterialGL, VertexColorIsOptInAndStrengthOneAppliesIt)
     {
         // Character vertex colors may contain auxiliary data; enabling tint by default changes existing looks.
         Frame.DebugView = 1;
@@ -611,7 +740,7 @@ namespace
         EXPECT_EQ(tinted[2], 0);
     }
 
-    TEST_F(StandardMaterialGL, TangentDirectionHandednessAndDerivativeFallbackOrientNormalMap)
+    TEST_P(StandardMaterialGL, TangentDirectionHandednessAndDerivativeFallbackOrientNormalMap)
     {
         Frame.DebugView = 2;
         MaterialSource source;
@@ -635,7 +764,7 @@ namespace
         EXPECT_NEAR(disabled[2], 1.0f, 1e-6f);
     }
 
-    TEST_F(StandardMaterialGL, UvTilingRepeatsAndOffsetIsAppliedAfterScaling)
+    TEST_P(StandardMaterialGL, UvTilingRepeatsAndOffsetIsAppliedAfterScaling)
     {
         Frame.DebugView = 1;
         MaterialSource source;
@@ -652,7 +781,7 @@ namespace
         }
     }
 
-    TEST_F(StandardMaterialGL, EmissiveFactorAndMapMultiplyBeforeToneMapping)
+    TEST_P(StandardMaterialGL, EmissiveFactorAndMapMultiplyBeforeToneMapping)
     {
         // Zero lighting isolates emission and catches missing factor, intensity, map or gamma.
         MaterialSource source;
@@ -677,7 +806,7 @@ namespace
         EXPECT_EQ(zeroFactor[0] + zeroFactor[1] + zeroFactor[2], 0);
     }
 
-    TEST_F(StandardMaterialGL, StandardFactorsShadeWithSceneLightsAndGltfPackedChannels)
+    TEST_P(StandardMaterialGL, StandardFactorsShadeWithSceneLightsAndGltfPackedChannels)
     {
         for (auto& light : Frame.LightColors)
             light = {2, 2, 2, 1};
@@ -706,14 +835,10 @@ namespace
             EXPECT_NEAR(packed[channel], equivalent[channel], 2e-6f);
     }
 
-    TEST_F(StandardMaterialGL, OcclusionRedChannelAndStrengthOnlyAttenuateIbl)
+    TEST_P(StandardMaterialGL, OcclusionRedChannelAndStrengthOnlyAttenuateIbl)
     {
         // Known diffuse IBL: dielectric kD=0.96, irradiance=0.5, albedo=0.25.
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, Environment[0]);
-        const float irradiance[4] = {0.5f, 0.5f, 0.5f, 1};
-        for (uint32_t face = 0; face < 6; ++face)
-            glTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, 0, 0, 1, 1, GL_RGBA, GL_FLOAT, irradiance);
+        SetIrradiance({0.5f, 0.5f, 0.5f, 1});
         MaterialSource source;
         source.Parameters["BaseColor"]         = {0.25, 0.25, 0.25, 1};
         source.Textures["OcclusionMap"]        = Image({{0.2f, 0.7f, 0.9f, 1}});
@@ -723,11 +848,7 @@ namespace
         source.Parameters["OcclusionStrength"] = {0};
         const auto full                        = Draw(source);
         EXPECT_NEAR(full[0], Encode(0.96f * 0.5f * 0.25f), 2e-6f);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, Environment[0]);
-        const float black[4] = {0, 0, 0, 1};
-        for (uint32_t face = 0; face < 6; ++face)
-            glTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, 0, 0, 1, 1, GL_RGBA, GL_FLOAT, black);
+        SetIrradiance({0, 0, 0, 1});
         for (auto& light : Frame.LightColors)
             light = {2, 2, 2, 1};
         const auto direct                      = Draw(source);
@@ -736,7 +857,7 @@ namespace
         EXPECT_NEAR(direct[0], directOccluded[0], 2e-6f);
     }
 
-    TEST_F(RenderAssetCacheGL, CustomSamplerFallbackBindsBlackAndNormalThroughPublishedProduct)
+    TEST_P(RenderAssetCacheGPU, CustomSamplerFallbackBindsBlackAndNormalThroughPublishedProduct)
     {
         // Project shaders must get their declared role too, even if no texture assignments exist.
         ShaderData shader;
@@ -754,18 +875,19 @@ namespace
             ASSERT_TRUE(std::holds_alternative<GpuShader>(program));
             AssetManager     assets(Provider, Registry({}));
             RenderAssetCache cache(assets);
-            BindMaterialTextures(cache, std::get<GpuShader>(program), {});
-            const auto unit = MaterialSamplerUnit(std::get<GpuShader>(program), 1);
-            glActiveTexture(GL_TEXTURE0 + unit);
+            GpuMaterialBindings bindings;
+            cache.GetMaterialGroup(std::get<GpuShader>(program), bindings);
+            ASSERT_EQ(bindings.Images.size(), 1u);
+            const auto           pixels = ReadImage(bindings.Images[0]);
             std::array<float, 4> pixel {};
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixel.data());
+            std::memcpy(pixel.data(), pixels.data(), sizeof(pixel));
             const auto expected = role == ShaderTextureFallback::Black ? std::array<float, 4> {0, 0, 0, 1} :
                                                                          std::array<float, 4> {0.5f, 0.5f, 1, 1};
             EXPECT_EQ(pixel, expected);
         }
     }
 
-    TEST_F(RenderAssetCacheGL, MissingFailedAndDebugCustomShadersUseStandardBindings)
+    TEST_P(RenderAssetCacheGPU, MissingFailedAndDebugCustomShadersUseStandardBindings)
     {
         // A missing registry entry or invalid custom contract must still produce drawable Standard UBOs.
         const AssetID shaderID {Source, 1}, materialID {Source, 2};
@@ -831,18 +953,13 @@ namespace
                    cache.GetMaterial(materialID)->Shader == StandardShaderID();
         }));
         const auto* legacy = cache.GetMaterialBindings(materialID);
-        NativeBind(legacy->Blocks.at(0).second, 2);
-        GLint buffer = 0;
-        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &buffer);
-        glBindBuffer(GL_UNIFORM_BUFFER, GLuint(buffer));
-        float red = 0;
-        glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(red), &red);
+        const float red    = ReadUniformFirstFloat(legacy->Blocks.at(0).second.Resource());
         EXPECT_FLOAT_EQ(red, 0.125f);
     }
 
     // Draws a quad with a Shader material the way SceneRenderer does: engine data in
     // set 0, the material's packed blocks and textures in set 1.
-    TEST_F(RenderAssetCacheGL, ShaderMaterialDrawsWithItsPackedParametersAndTextures)
+    TEST_P(RenderAssetCacheGPU, ShaderMaterialDrawsWithItsPackedParametersAndTextures)
     {
         const AssetID shaderID {Source, 1}, tintedID {Source, 2}, texturedID {Source, 3}, textureID {Source, 4};
         ShaderData    shader;
@@ -878,17 +995,12 @@ namespace
         const GpuShader* program = cache.GetShader(shaderID);
         ASSERT_NE(program, nullptr);
 
-        constexpr int Size        = 16;
-        GLuint        framebuffer = 0, color = 0;
-        glGenFramebuffers(1, &framebuffer);
-        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        glGenTextures(1, &color);
-        glBindTexture(GL_TEXTURE_2D, color);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Size, Size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
-        ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GLenum(GL_FRAMEBUFFER_COMPLETE));
-        glViewport(0, 0, Size, Size);
-
+        constexpr int               Size   = 16;
+        auto                        device = cache.GetDevice();
+        RenderHardware::TextureDesc colorDesc;
+        colorDesc.Width = colorDesc.Height = Size;
+        colorDesc.Usage = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
+        auto     color  = device->CreateTexture(colorDesc);
         MeshData quad;
         for (auto [x, y] : {std::pair {-1.0f, -1.0f}, {0.0f, -1.0f}, {0.0f, 1.0f}, {-1.0f, 1.0f}})
         {
@@ -905,23 +1017,63 @@ namespace
         EngineObjectUniforms object;
         // Moves the quad to the right half of the target.
         object.Transform[3] = glm::vec4(1, 0, 0, 1);
+        frame.ViewProjection = DeviceProjection(frame.ViewProjection, device->GetCoordinateConventions());
         GpuUniformBuffer frameBuffer(sizeof(frame), &frame), objectBuffer(sizeof(object), &object);
-        NativeBind(frameBuffer, 0);
-        NativeBind(objectBuffer, 1);
+        RenderHardware::PipelineDesc desc;
+        desc.Program         = program->Program;
+        desc.GroupLayouts    = {program->EngineLayout, program->MaterialLayout};
+        desc.VertexBindings  = mesh.VertexBindings;
+        desc.Attributes      = mesh.Attributes;
+        desc.Rasterizer.Cull = RenderHardware::CullMode::None;
+        desc.ColorFormats    = {RenderHardware::Format::RGBA8Unorm};
+        desc.Blends.resize(1);
+        auto                          pipeline = device->CreatePipeline(desc);
+        RenderHardware::BindGroupDesc engineDesc;
+        engineDesc.Layout = program->EngineLayout;
+        auto uploads      = device->CreateCommandList();
+        for (const auto& binding : program->EngineResources)
+        {
+            RenderHardware::BindGroupEntry entry;
+            entry.Slot = binding.Binding;
+            if (binding.Binding < 2)
+                entry.BufferResource = binding.Binding == 0 ? frameBuffer.Resource() : objectBuffer.Resource();
+            else
+            {
+                RenderHardware::TextureDesc imageDesc;
+                imageDesc.Dimension = binding.Binding == 4 ? RenderHardware::TextureDimension::Texture2D :
+                                                             RenderHardware::TextureDimension::Cube;
+                imageDesc.Usage = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+                entry.TextureResource = device->CreateTexture(imageDesc);
+                entry.SamplerResource = device->CreateSampler();
+                uint32_t black        = 0xff000000u;
+                auto     buffer       = device->CreateBuffer(
+                    {4, RenderHardware::BufferUsage::CopySource, RenderHardware::MemoryUsage::Upload});
+                buffer->Write(0, &black, 4);
+                for (uint32_t face = 0; face < (binding.Binding == 4 ? 1u : 6u); ++face)
+                    uploads->CopyBufferToTexture(buffer, 0, entry.TextureResource, {0, face});
+            }
+            engineDesc.Entries.push_back(entry);
+        }
+        device->Submit(uploads);
+        auto       engine = device->CreateBindGroup(engineDesc);
         const auto draw = [&](AssetID materialID) -> std::array<uint8_t, 4> {
             const auto* bindings = cache.GetMaterialBindings(materialID);
-            NativeBind(*program);
-            for (const auto& [binding, buffer] : bindings->Blocks)
-                NativeBind(buffer, MaterialBlockPoint(*program, binding));
-            BindMaterialTextures(cache, *program, *bindings);
-            glClearColor(0, 0, 0, 1);
-            glClear(GL_COLOR_BUFFER_BIT);
-            NativeMeshArray array(mesh);
-            array.Bind();
-            glDrawElements(GL_TRIANGLES, GLsizei(mesh.IndexCount), GL_UNSIGNED_INT, nullptr);
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
-            std::array<uint8_t, Size * Size * 4> pixels {};
-            glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            RenderHardware::RenderingDesc target;
+            target.Colors = {{color, {}, RenderHardware::LoadOp::Clear, RenderHardware::StoreOp::Store, {0, 0, 0, 1}}};
+            auto commands = device->CreateCommandList();
+            commands->BeginRendering(target);
+            commands->SetViewport({0, 0, Size, Size});
+            commands->BindPipeline(pipeline);
+            commands->BindGroup(engine);
+            commands->BindGroup(cache.GetMaterialGroup(*program, *bindings));
+            commands->BindVertexBuffers({{0, mesh.Vertices}});
+            commands->BindIndexBuffer(mesh.Indices, RenderHardware::IndexType::Uint32);
+            commands->DrawIndexed(mesh.IndexCount);
+            commands->EndRendering();
+            device->Submit(commands);
+            auto pixels = ReadImage(color);
+            if (TestBackend() == GpuTestBackend::OpenGL)
+                EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
             // The left half stays clear: the object transform was applied.
             EXPECT_EQ(pixels[(Size / 2 * Size + Size / 4) * 4 + 1], 0);
             const uint8_t* p = &pixels[(Size / 2 * Size + 3 * Size / 4) * 4];
@@ -934,13 +1086,9 @@ namespace
         const auto red = draw(texturedID);
         EXPECT_GT(red[0], 100);
         EXPECT_EQ(red[1], 0);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteTextures(1, &color);
-        glDeleteFramebuffers(1, &framebuffer);
     }
 
-    TEST_F(RenderAssetCacheGL, ShaderOutsideTheMaterialContractIsNotCompiled)
+    TEST_P(RenderAssetCacheGPU, ShaderOutsideTheMaterialContractIsNotCompiled)
     {
         ShaderData shader;
         shader.Code = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
@@ -958,8 +1106,8 @@ void main() { color = texture(other, vec2(0)); }
         EXPECT_TRUE(std::holds_alternative<AssetError>(GpuShader::Create(shader)));
     }
 
-    // The editor's sample material shaders cross-compile and link on OpenGL.
-    TEST_F(RenderAssetCacheGL, EditorSampleShadersLinkOnOpenGL)
+    // The editor's sample products create from the same bytecode on each backend.
+    TEST_P(RenderAssetCacheGPU, EditorSampleShaderProductsCreateOnBothBackends)
     {
         const auto read = [](const std::string& name) {
             std::ifstream     file(std::string(KANS_TEST_EDITOR_ASSET_DIR) + "/shaders/" + name);
@@ -977,7 +1125,7 @@ void main() { color = texture(other, vec2(0)); }
         }
     }
 
-    TEST_F(RenderAssetCacheGL, SceneSubmissionUsesStandardAndCustomShadersInLitDebugAndPreviewPasses)
+    TEST_P(RenderAssetCacheGPU, SceneSubmissionUsesStandardAndCustomShadersInLitDebugAndPreviewPasses)
     {
         // Exercise SubmitModel itself: debug override and engine frame upload cannot be bypassed by a helper test.
         const AssetID modelID {Source, 1}, leftID {Source, 2}, rightID {Source, 3}, standardID {Source, 4},
@@ -1040,15 +1188,16 @@ void main() { color = texture(other, vec2(0)); }
         info.pointLight.Ambient_Intensity = {2, 2, 2};
         ProductModelComponent component;
         component.Model = modelID;
-        glDisable(GL_CULL_FACE);
-        glDisable(GL_BLEND);
-        glEnable(GL_DEPTH_TEST);
-        glViewport(0, 0, 16, 16);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            glDisable(GL_CULL_FACE);
+            glDisable(GL_BLEND);
+            glEnable(GL_DEPTH_TEST);
+            glViewport(0, 0, 16, 16);
+        }
         const auto read = [&](int x) {
             // Model submissions are consumed at EndScene; inspect the scene texture after unbinding it.
-            std::array<uint8_t, 16 * 16 * 4> image {};
-            glBindTexture(GL_TEXTURE_2D, renderer.GetOutput(0));
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+            auto                   image = ReadImage(renderer.GetRenderTarget().Colors[0].Target);
             std::array<uint8_t, 4> pixel {};
             std::copy_n(image.data() + (8 * 16 + x) * 4, 4, pixel.data());
             return pixel;
@@ -1089,25 +1238,29 @@ void main() { color = texture(other, vec2(0)); }
         renderer.BeginScene(info);
         renderer.SubmitModel(component, glm::mat4(1));
         renderer.EndScene();
-        NativeUIFrame ui;
-        GLint polygon[2] {};
-        // ImGui must establish filled drawing after a wireframe RHI pass; it restores wireframe afterwards.
-        ImGui::GetBackgroundDrawList()->AddCallback(
-            [](const ImDrawList*, const ImDrawCmd* command) {
-                glGetIntegerv(GL_POLYGON_MODE, static_cast<GLint*>(command->UserCallbackData));
-            },
-            polygon);
-        ui.Draw();
-        EXPECT_EQ(polygon[0], GLint(GL_FILL));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            NativeUIFrame ui;
+            GLint         polygon[2] {};
+            // ImGui must establish filled drawing after a wireframe RHI pass; it restores wireframe afterwards.
+            ImGui::GetBackgroundDrawList()->AddCallback(
+                [](const ImDrawList*, const ImDrawCmd* command) {
+                    glGetIntegerv(GL_POLYGON_MODE, static_cast<GLint*>(command->UserCallbackData));
+                },
+                polygon);
+            ui.Draw();
+            EXPECT_EQ(polygon[0], GLint(GL_FILL));
+        }
         EXPECT_LT(read(2)[0], 50); // Interior away from the triangulation diagonal stays clear.
         std::vector<MeshDraw> draws;
         renderer.AppendModelDraws(component, glm::mat4(1), 7, draws);
         ASSERT_EQ(draws.size(), 2u);
         EXPECT_EQ(renderer.Pick(draws, glm::mat4(1), {4, 8}), 7u);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(RenderAssetCacheGL, ImportedRemappedModelDrawsAuthoredSlotAndPartOverrides)
+    TEST_P(RenderAssetCacheGPU, ImportedRemappedModelDrawsAuthoredSlotAndPartOverrides)
     {
         // Catches losing the authored slot during GPU upload or ignoring it in SubmitModel.
         namespace fs    = std::filesystem;
@@ -1191,9 +1344,7 @@ void main() { color = texture(other, vec2(0)); }
             renderer.BeginScene(info);
             renderer.SubmitModel(component, glm::mat4(1));
             renderer.EndScene();
-            std::array<uint8_t, 16 * 16 * 4> pixels {};
-            glBindTexture(GL_TEXTURE_2D, renderer.GetOutput(0));
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            auto                   pixels = ReadImage(renderer.GetRenderTarget().Colors[0].Target);
             std::array<uint8_t, 4> pixel {};
             std::copy_n(pixels.data() + (8 * 16 + 8) * 4, 4, pixel.data());
             return pixel;
@@ -1203,15 +1354,17 @@ void main() { color = texture(other, vec2(0)); }
         EXPECT_EQ(draw(), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         component.SetOverride(meshID, materials.at("part"));
         EXPECT_EQ(draw(), (std::array<uint8_t, 4> {0, 0, 255, 255}));
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    class MaterialSceneGL : public RenderAssetCacheGL
+    class MaterialSceneGL : public RenderAssetCacheGL, public testing::WithParamInterface<GpuTestBackend>
     {
     protected:
+        GpuTestBackend TestBackend() const override { return GetParam(); }
         void SetUp() override
         {
-            RenderAssetCacheGL::SetUp();
+            ASSERT_NO_FATAL_FAILURE(RenderAssetCacheGL::SetUp());
             Assets     = CreateScope<AssetManager>(Provider, Registry({}));
             LogicScene = CreateRef<Scene>();
             Render     = CreateScope<RenderScene>(LogicScene);
@@ -1230,7 +1383,8 @@ layout(location = 0) out vec4 o_Color;
 void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlpha(p.Tint.a)); }
 )");
             ShaderID                          = Add(AssetType::Shader, EncodeShaderProduct(Custom.Code));
-            glDisable(GL_FRAMEBUFFER_SRGB);
+            if (TestBackend() == GpuTestBackend::OpenGL)
+                glDisable(GL_FRAMEBUFFER_SRGB);
         }
         void TearDown() override
         {
@@ -1310,21 +1464,32 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
                 return loaded;
             }));
         }
+        std::vector<uint8_t> ReadImage(const RenderHardware::Handle<RenderHardware::Texture>& texture)
+        {
+            auto device = Renderer->GetDevice();
+            auto buffer = device->CreateBuffer(
+                {16 * 16 * 4, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(texture, {}, buffer);
+            device->Submit(commands);
+            device->WaitIdle();
+            return buffer->Read(0, 16 * 16 * 4);
+        }
         std::array<uint8_t, 4> Pixel(int x = 8, int y = 8)
         {
-            std::array<uint8_t, 16 * 16 * 4> image {};
-            glBindTexture(GL_TEXTURE_2D, Renderer->GetOutput(0));
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
+            auto image = ReadImage(Renderer->GetRenderTarget().Colors[0].Target);
+            y          = DeviceRow(y, 16, Renderer->GetDevice()->GetCoordinateConventions());
             std::array<uint8_t, 4> pixel;
             std::copy_n(image.data() + (y * 16 + x) * 4, 4, pixel.data());
             return pixel;
         }
         float Depth(int x = 8)
         {
-            std::array<float, 16 * 16> depth {};
-            glBindTexture(GL_TEXTURE_2D, Renderer->GetOutput(2));
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, GL_FLOAT, depth.data());
-            return depth[8 * 16 + x];
+            auto     depth = ReadImage(Renderer->GetRenderTarget().Depth.Target);
+            uint32_t word;
+            auto     y = DeviceRow(8, 16, Renderer->GetDevice()->GetCoordinateConventions());
+            std::memcpy(&word, depth.data() + (y * 16 + x) * 4, 4);
+            return float(word >> 8) / 16777215.0f;
         }
         Ref<Scene>                 LogicScene;
         Scope<RenderScene>         Render;
@@ -1338,6 +1503,11 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         std::vector<AssetID>       Models, Meshes, Materials;
     };
 
+    class MaterialSceneNativeGL : public MaterialSceneGL
+    {
+    protected:
+        GpuTestBackend TestBackend() const override { return GpuTestBackend::OpenGL; }
+    };
     class MultiPassSceneGL : public MaterialSceneGL
     {
     protected:
@@ -1398,7 +1568,13 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
             commands->CopyTextureToBuffer(texture, {}, buffer, 0);
             device->Submit(commands);
             device->WaitIdle();
-            return buffer->Read(0, Size * Size * 4);
+            auto bytes = buffer->Read(0, Size * Size * 4);
+            if (device->GetCoordinateConventions().Origin == RenderHardware::FramebufferOrigin::UpperLeft)
+                for (uint32_t y = 0; y < Size / 2; ++y)
+                    std::swap_ranges(bytes.begin() + y * Size * 4,
+                                     bytes.begin() + (y + 1) * Size * 4,
+                                     bytes.begin() + (Size - 1 - y) * Size * 4);
+            return bytes;
         }
         static std::array<uint8_t, 4> At(const std::vector<uint8_t>& image, uint32_t x, uint32_t y)
         {
@@ -1421,7 +1597,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         }
     };
 
-    TEST_F(MultiPassSceneGL, InvertedHullSphereHasExteriorRingAndExactUnchangedInteriorAndDepth)
+    TEST_P(MultiPassSceneGL, InvertedHullSphereHasExteriorRingAndExactUnchangedInteriorAndDepth)
     {
         // Bugs: wrong cull/depth/write state, outline before opaque, lost material width or object transform/normal
         // matrix.
@@ -1501,7 +1677,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         EXPECT_EQ(state.Blends[0].WriteMask, 7u);
     }
 
-    TEST_F(MultiPassSceneGL, ForegroundOpaqueOccludesHullAndUnTaggedMaterialsAddNoPass)
+    TEST_P(MultiPassSceneGL, ForegroundOpaqueOccludesHullAndUnTaggedMaterialsAddNoPass)
     {
         // Bugs: no tag filter, missing depth test, or feature draws cached but unsubmitted models.
         auto       tagged       = Sphere(Color({1, 0, 0, 1}));
@@ -1555,7 +1731,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         EXPECT_FALSE(shader->Passes[0].Pipelines.empty());
     }
 
-    TEST_F(MultiPassSceneGL, FeatureHonorsPreparedOrderAndUnreadyDrawsAtConfigurablePoint)
+    TEST_P(MultiPassSceneGL, FeatureHonorsPreparedOrderAndUnreadyDrawsAtConfigurablePoint)
     {
         // Bug: feature scans View.Draws or cache contents and reintroduces draws culled by a pipeline.
         auto left = Sphere(Color({1, 0, 0, 1})), right = Sphere(Color({0, 1, 0, 1}));
@@ -1613,7 +1789,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         EXPECT_EQ(unready.PassCount(), 0u);
     }
 
-    TEST_F(MultiPassSceneGL, ExtraPassReceivesEachObjectsMaterialRenderDataAndOnlyMatchingTagsRun)
+    TEST_P(MultiPassSceneGL, ExtraPassReceivesEachObjectsMaterialRenderDataAndOnlyMatchingTagsRun)
     {
         // Bug: the extra pass gets an old/short object block or the previous object's alpha mode/cutoff/double-sided
         // values.
@@ -1666,7 +1842,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_FALSE(shader->Passes[1].Pipelines.empty());
     }
 
-    TEST_F(MultiPassSceneGL, RuntimeUsesEveryPassStateAndCachesIndependentlyOfMainMaterial)
+    TEST_P(MultiPassSceneGL, RuntimeUsesEveryPassStateAndCachesIndependentlyOfMainMaterial)
     {
         // Bug: extra pipelines inherit main cull/depth/blend state, or share its cached pipeline.
         Custom.Passes[0].State = {ShaderCullMode::None,
@@ -1715,7 +1891,47 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(At(Image(), 64, 64)[2], 0u);
     }
 
-    TEST_F(MaterialSceneGL, RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel)
+    TEST_P(MaterialSceneGL, PerDrawGroupsReusePoolsAndPipelinesAfterWarmup)
+    {
+        // Bugs: rebuilding a graphics pipeline per draw, creating a descriptor
+        // pool per group, or retaining retired per-draw sets until pools grow each frame.
+        const auto model = Quad(Color({1, 0, 0, 1}));
+        Ready();
+        constexpr uint32_t draws = 512;
+        auto               frame = [&] {
+            Renderer->BeginScene(Info);
+            for (uint32_t i = 0; i < draws; ++i)
+                Renderer->SubmitModel(model, glm::mat4(1));
+            Renderer->EndScene();
+            EXPECT_EQ(Renderer->GetStats().DrawCalls, draws);
+            EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        };
+        frame();
+        if (TestBackend() == GpuTestBackend::Vulkan)
+        {
+            const auto before = RenderHardware::VulkanTestProbes::Inspect(*Renderer->GetDevice());
+            for (uint32_t i = 0; i < 3; ++i)
+                frame();
+            const auto after = RenderHardware::VulkanTestProbes::Inspect(*Renderer->GetDevice());
+            EXPECT_EQ(after.PipelineCreations, before.PipelineCreations);
+            EXPECT_EQ(after.DescriptorPools, before.DescriptorPools);
+            EXPECT_LE(after.DescriptorPools, 2u);
+            // Group-0 ranges share one native set per frame; offset changes
+            // still select different objects through dynamic offsets.
+            EXPECT_EQ(after.DescriptorAllocations - before.DescriptorAllocations, 3u);
+            const auto ns = (after.GroupCreationNanoseconds - before.GroupCreationNanoseconds) / (3u * draws);
+            RecordProperty("group_creation_ns", std::to_string(ns));
+            RecordProperty("descriptor_pools", std::to_string(after.DescriptorPools));
+            std::cout << "Per-draw group creation (validation enabled): " << ns << " ns, " << after.DescriptorPools
+                      << " pools, pipeline creations after warm-up: "
+                      << after.PipelineCreations - before.PipelineCreations << std::endl;
+        }
+        else
+            for (uint32_t i = 0; i < 3; ++i)
+                frame();
+    }
+
+    TEST_P(MaterialSceneGL, RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel)
     {
         using namespace RenderHardware;
         constexpr uint32_t size = 64;
@@ -1802,7 +2018,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u); // The model really executed.
     }
 
-    TEST_F(MaterialSceneGL, HighlightUsesReimportedMeshAfterQueuedGpuResourceIsDestroyed)
+    TEST_P(MaterialSceneGL, HighlightUsesReimportedMeshAfterQueuedGpuResourceIsDestroyed)
     {
         const auto material = Color({0, 1, 0, 1});
         const auto model    = Quad(material, 0, false, -1, 0);
@@ -1841,7 +2057,8 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {31, 243, 5, 255}));  // Green material plus orange fill.
         EXPECT_EQ(Pixel(2), (std::array<uint8_t, 4> {5, 5, 5, 255}));      // No stale left silhouette.
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
 
         // Highlights are consumed by EndScene, rather than leaking into later frames.
         Renderer->BeginScene(Info);
@@ -1850,7 +2067,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {5, 5, 5, 255}));
     }
 
-    TEST_F(MaterialSceneGL, TargetAlphaIsOpaqueEvenWhenProjectShadersReturnFractionalAlpha)
+    TEST_P(MaterialSceneGL, TargetAlphaIsOpaqueEvenWhenProjectShadersReturnFractionalAlpha)
     {
         // A project shader can bypass KansOutputAlpha; opaque/mask draws must not punch holes in ImGui.
         Custom.Code       = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
@@ -1863,22 +2080,29 @@ void main() { o_Color = p.Tint; }
         const auto opaque = Quad(Color({0, 1, 0, 0.3}));
         const auto mask   = Quad(Color({0, 0, 1, 0.3}, MaterialAlphaMode::Mask));
         Ready();
-        NativeUIFrame ui;
-        glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
+        std::unique_ptr<NativeUIFrame> ui;
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            ui = std::make_unique<NativeUIFrame>();
+            glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
+        }
         for (const auto& model : {blend, opaque, mask})
         {
             Renderer->BeginScene(Info);
             Renderer->SubmitModel(model, glm::mat4(1));
             Renderer->EndScene();
             EXPECT_EQ(Pixel()[3], 255);
-            glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
-            ui.Draw();
-            GLboolean mask[4];
-            glGetBooleanv(GL_COLOR_WRITEMASK, mask);
-            EXPECT_EQ(mask[0], GL_FALSE);
-            EXPECT_EQ(mask[1], GL_TRUE);
-            EXPECT_EQ(mask[2], GL_FALSE);
-            EXPECT_EQ(mask[3], GL_TRUE);
+            if (ui)
+            {
+                glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
+                ui->Draw();
+                GLboolean mask[4];
+                glGetBooleanv(GL_COLOR_WRITEMASK, mask);
+                EXPECT_EQ(mask[0], GL_FALSE);
+                EXPECT_EQ(mask[1], GL_TRUE);
+                EXPECT_EQ(mask[2], GL_FALSE);
+                EXPECT_EQ(mask[3], GL_TRUE);
+            }
             if (model.Model == blend.Model)
             {
                 EXPECT_NEAR(Pixel()[0], 68, 1); // .25 red + .75 * 5/255 clear colour.
@@ -1889,11 +2113,13 @@ void main() { o_Color = p.Tint; }
             else
                 EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {0, 0, 255, 255}));
         }
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (ui)
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        if (ui)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(MaterialSceneGL, LegacyStencilOptionDrawsARingOutsideTheModelAndClearsPreviousReferences)
+    TEST_P(MaterialSceneGL, LegacyStencilOptionDrawsARingOutsideTheModelAndClearsPreviousReferences)
     {
         // Deferred submissions must preserve write-reference/exclude-reference intent, not the last GL state.
         SceneRendererSpecification spec;
@@ -1914,18 +2140,21 @@ void main() { o_Color = p.Tint; }
         Render->SetRenderResource(resource);
         // EGL's default framebuffer has no stencil bits and clamps stencil references to 0.
         // Verify restoration against a real external stencil target, as another render pass would.
-        GLuint external, externalColour, externalDepth;
-        glGenFramebuffers(1, &external);
-        glBindFramebuffer(GL_FRAMEBUFFER, external);
-        glGenRenderbuffers(1, &externalColour);
-        glBindRenderbuffer(GL_RENDERBUFFER, externalColour);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 16, 16);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, externalColour);
-        glGenRenderbuffers(1, &externalDepth);
-        glBindRenderbuffer(GL_RENDERBUFFER, externalDepth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 16, 16);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, externalDepth);
-        ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GLenum(GL_FRAMEBUFFER_COMPLETE));
+        GLuint external = 0, externalColour = 0, externalDepth = 0;
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            glGenFramebuffers(1, &external);
+            glBindFramebuffer(GL_FRAMEBUFFER, external);
+            glGenRenderbuffers(1, &externalColour);
+            glBindRenderbuffer(GL_RENDERBUFFER, externalColour);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 16, 16);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, externalColour);
+            glGenRenderbuffers(1, &externalDepth);
+            glBindRenderbuffer(GL_RENDERBUFFER, externalDepth);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 16, 16);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, externalDepth);
+            ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GLenum(GL_FRAMEBUFFER_COMPLETE));
+        }
         for (const float x : {0.0f, -0.125f})
         {
             entity.GetComponent<TransformComponent>().Position.x = x;
@@ -1938,46 +2167,49 @@ void main() { o_Color = p.Tint; }
             EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {0, 255, 0, 255}));
             EXPECT_EQ(Renderer->GetStats().DrawCalls, 2u);
         }
-        NativeUIFrame ui;
-        glBindFramebuffer(GL_FRAMEBUFFER, external);
-        glEnable(GL_STENCIL_TEST);
-        glStencilFuncSeparate(GL_FRONT, GL_EQUAL, 3, 0x37);
-        glStencilFuncSeparate(GL_BACK, GL_GREATER, 4, 0x73);
-        glStencilMaskSeparate(GL_FRONT, 0x12);
-        glStencilMaskSeparate(GL_BACK, 0x21);
-        glStencilOpSeparate(GL_FRONT, GL_INCR, GL_DECR, GL_INVERT);
-        glStencilOpSeparate(GL_BACK, GL_ZERO, GL_REPLACE, GL_KEEP);
-        glClearStencil(9);
-        ui.Draw();
-        EXPECT_EQ(glIsEnabled(GL_STENCIL_TEST), GL_TRUE);
-        for (auto [property, expected] : {std::pair {GL_STENCIL_FUNC, GL_EQUAL},
-                                          {GL_STENCIL_REF, 3},
-                                          {GL_STENCIL_VALUE_MASK, 0x37},
-                                          {GL_STENCIL_WRITEMASK, 0x12},
-                                          {GL_STENCIL_FAIL, GL_INCR},
-                                          {GL_STENCIL_PASS_DEPTH_FAIL, GL_DECR},
-                                          {GL_STENCIL_PASS_DEPTH_PASS, GL_INVERT},
-                                          {GL_STENCIL_BACK_FUNC, GL_GREATER},
-                                          {GL_STENCIL_BACK_REF, 4},
-                                          {GL_STENCIL_BACK_VALUE_MASK, 0x73},
-                                          {GL_STENCIL_BACK_WRITEMASK, 0x21},
-                                          {GL_STENCIL_BACK_FAIL, GL_ZERO},
-                                          {GL_STENCIL_BACK_PASS_DEPTH_FAIL, GL_REPLACE},
-                                          {GL_STENCIL_BACK_PASS_DEPTH_PASS, GL_KEEP},
-                                          {GL_STENCIL_CLEAR_VALUE, 9}})
+        if (TestBackend() == GpuTestBackend::OpenGL)
         {
-            GLint value;
-            glGetIntegerv(property, &value);
-            EXPECT_EQ(value, expected) << property;
+            NativeUIFrame ui;
+            glBindFramebuffer(GL_FRAMEBUFFER, external);
+            glEnable(GL_STENCIL_TEST);
+            glStencilFuncSeparate(GL_FRONT, GL_EQUAL, 3, 0x37);
+            glStencilFuncSeparate(GL_BACK, GL_GREATER, 4, 0x73);
+            glStencilMaskSeparate(GL_FRONT, 0x12);
+            glStencilMaskSeparate(GL_BACK, 0x21);
+            glStencilOpSeparate(GL_FRONT, GL_INCR, GL_DECR, GL_INVERT);
+            glStencilOpSeparate(GL_BACK, GL_ZERO, GL_REPLACE, GL_KEEP);
+            glClearStencil(9);
+            ui.Draw();
+            EXPECT_EQ(glIsEnabled(GL_STENCIL_TEST), GL_TRUE);
+            for (auto [property, expected] : {std::pair {GL_STENCIL_FUNC, GL_EQUAL},
+                                              {GL_STENCIL_REF, 3},
+                                              {GL_STENCIL_VALUE_MASK, 0x37},
+                                              {GL_STENCIL_WRITEMASK, 0x12},
+                                              {GL_STENCIL_FAIL, GL_INCR},
+                                              {GL_STENCIL_PASS_DEPTH_FAIL, GL_DECR},
+                                              {GL_STENCIL_PASS_DEPTH_PASS, GL_INVERT},
+                                              {GL_STENCIL_BACK_FUNC, GL_GREATER},
+                                              {GL_STENCIL_BACK_REF, 4},
+                                              {GL_STENCIL_BACK_VALUE_MASK, 0x73},
+                                              {GL_STENCIL_BACK_WRITEMASK, 0x21},
+                                              {GL_STENCIL_BACK_FAIL, GL_ZERO},
+                                              {GL_STENCIL_BACK_PASS_DEPTH_FAIL, GL_REPLACE},
+                                              {GL_STENCIL_BACK_PASS_DEPTH_PASS, GL_KEEP},
+                                              {GL_STENCIL_CLEAR_VALUE, 9}})
+            {
+                GLint value;
+                glGetIntegerv(property, &value);
+                EXPECT_EQ(value, expected) << property;
+            }
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glDeleteFramebuffers(1, &external);
+            glDeleteRenderbuffers(1, &externalColour);
+            glDeleteRenderbuffers(1, &externalDepth);
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         }
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteFramebuffers(1, &external);
-        glDeleteRenderbuffers(1, &externalColour);
-        glDeleteRenderbuffers(1, &externalDepth);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(MaterialSceneGL, LegacyOutlineCullsFrontFacesAndKeepsTheInflatedBackShell)
+    TEST_P(MaterialSceneGL, LegacyOutlineCullsFrontFacesAndKeepsTheInflatedBackShell)
     {
         // Disabling culling paints the inflated front surface black outside its material silhouette.
         SceneRendererSpecification spec;
@@ -2007,10 +2239,11 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Pixel(3), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         EXPECT_EQ(Pixel(11), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(MaterialSceneGL, DebugNormalLinesKeepIndexedEndpointsWithoutDepthOrAlphaWrites)
+    TEST_P(MaterialSceneGL, DebugNormalLinesKeepIndexedEndpointsWithoutDepthOrAlphaWrites)
     {
         // Catches a missing endpoint expansion, wrong line stride/count, and depth
         // writes. A .05 clip displacement spans 1.6 pixels in this 64-pixel target.
@@ -2065,7 +2298,7 @@ void main() { o_Color = p.Tint; }
                         glm::uvec2(19, 45),
                         glm::uvec2(20, 45)})
         {
-            size_t offset = (xy.y * 64 + xy.x) * 4;
+            size_t offset = (DeviceRow(xy.y, 64, device->GetCoordinateConventions()) * 64 + xy.x) * 4;
             EXPECT_EQ((std::array<uint8_t, 4> {bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]}),
                       (std::array<uint8_t, 4> {255, 255, 255, 64}))
                 << xy.x << "," << xy.y;
@@ -2157,7 +2390,7 @@ void main() { o_Color = p.Tint; }
     };
     RasterQueryTrace* RasterQueryTrace::Active = nullptr;
 
-    TEST_F(MaterialSceneGL, DeferredSubmissionDoesNotQueryDriverRasterState)
+    TEST_F(MaterialSceneNativeGL, DeferredSubmissionDoesNotQueryDriverRasterState)
     {
         // Per-submission GL snapshots make driver-query cost grow with every entity/outline.
         const auto model = Quad(Color({1, 0, 0, 1}));
@@ -2177,7 +2410,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
     }
 
-    TEST_F(MaterialSceneGL, FrameUniformsUploadOnlyAtDebugViewTransitionsIncludingLitPreview)
+    TEST_F(MaterialSceneNativeGL, FrameUniformsUploadOnlyAtDebugViewTransitionsIncludingLitPreview)
     {
         // Re-uploading frame data for every object regresses scene submission cost; preview still needs Lit data.
         const auto opaque = Quad(Color({1, 0, 0, 1}));
@@ -2203,10 +2436,11 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(trace.Views, (std::vector<float> {2, 0, 2}));
         EXPECT_EQ(trace.Objects, 5u);
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 5u);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(MaterialSceneGL, BlendSortsAcrossModelsAndPreviewByTransformedBoundsAfterOpaque)
+    TEST_P(MaterialSceneGL, BlendSortsAcrossModelsAndPreviewByTransformedBoundsAfterOpaque)
     {
         // Submission order and object-origin distance both put red before blue, which gives the wrong colour.
         const auto near       = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), -0.8f);
@@ -2241,16 +2475,18 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(preview[3], 255);
         EXPECT_NEAR(Depth(), 0.95f, 1e-6f);
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(MaterialSceneGL, BlendTestsOpaqueDepthAndLeavesUncoveredDepthClear)
+    TEST_P(MaterialSceneGL, BlendTestsOpaqueDepthAndLeavesUncoveredDepthClear)
     {
         // A blend behind the opaque half must be occluded, and must not write depth in the other half.
         const auto opaque = Quad(Color({0, 1, 0, 1}), 0, false, 0, 1);
         const auto blend  = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), 0.5f);
         Ready();
-        glDisable(GL_DEPTH_TEST);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            glDisable(GL_DEPTH_TEST);
         Renderer->BeginScene(Info);
         Renderer->SubmitModel(blend, glm::mat4(1));
         Renderer->SubmitModel(opaque, glm::mat4(1));
@@ -2262,7 +2498,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_NEAR(Depth(12), 0.5f, 1e-6f);
     }
 
-    TEST_F(MaterialSceneGL, BlendDistanceUsesTheCameraAndEachPartsBoundsWithinOneModel)
+    TEST_P(MaterialSceneGL, BlendDistanceUsesTheCameraAndEachPartsBoundsWithinOneModel)
     {
         // Equal-depth parts need radial distance from the camera, not node origin or camera-space Z.
         Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), 0, false, -0.2f, 1);
@@ -2283,7 +2519,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(pixel[3], 255);
     }
 
-    TEST_F(MaterialSceneGL, StandardMaskMultipliesTextureFactorAndVertexAlphaAndRetainsCutoffEquality)
+    TEST_P(MaterialSceneGL, StandardMaskMultipliesTextureFactorAndVertexAlphaAndRetainsCutoffEquality)
     {
         TextureData texture;
         texture.Width        = 3;
@@ -2357,7 +2593,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Pixel(13)[3], 255);
     }
 
-    TEST_F(MaterialSceneGL, FailedCustomShaderAndDebugFallbackKeepBlendAndDoubleSidedState)
+    TEST_P(MaterialSceneGL, FailedCustomShaderAndDebugFallbackKeepBlendAndDoubleSidedState)
     {
         // Falling back to Standard must not reset render state along with the incompatible named parameters.
         const auto     broken   = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
@@ -2388,7 +2624,7 @@ void main() { o_Color = vec4(1); }
         }
     }
 
-    TEST_F(MaterialSceneGL, DoubleSidedBackFacesFlipNormalsAndDoNotDisableCullingForTheNextPart)
+    TEST_P(MaterialSceneGL, DoubleSidedBackFacesFlipNormalsAndDoNotDisableCullingForTheNextPart)
     {
         MaterialSource source;
         source.Parameters["BaseColor"] = {1, 0, 0, 1};
@@ -2397,7 +2633,8 @@ void main() { o_Color = vec4(1); }
         source.Render.DoubleSided      = false;
         const auto singleSided         = Quad(Material(source, false), 0, true, 0, 1);
         Ready();
-        glDisable(GL_CULL_FACE);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            glDisable(GL_CULL_FACE);
         Renderer->SetViewMode(SceneViewMode::Normals);
         Renderer->BeginScene(Info);
         Renderer->SubmitModel(doubleSided, glm::mat4(1));
@@ -2411,10 +2648,11 @@ void main() { o_Color = vec4(1); }
         Renderer->SubmitModel(doubleSided, glm::mat4(1));
         Renderer->EndScene();
         EXPECT_GT(Pixel(4)[0], 150); // A light on -Z must illuminate the flipped back-face normal.
-        EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_FALSE);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_FALSE);
     }
 
-    TEST_F(MaterialSceneGL, ImGuiRestoresDepthCullBlendFunctionsAndWireframeModeAfterPreviewOutline)
+    TEST_F(MaterialSceneNativeGL, ImGuiRestoresDepthCullBlendFunctionsAndWireframeModeAfterPreviewOutline)
     {
         // Bug: the surviving native UI renderer leaks raster state after rendering over a scene preview.
         const auto model = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend, true), 0, false, -0.5f, 0.5f);
@@ -2425,7 +2663,8 @@ void main() { o_Color = vec4(1); }
         NativeUIFrame ui;
         glEnable(GL_CULL_FACE);
         glCullFace(GL_FRONT);
-        glDisable(GL_DEPTH_TEST);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            glDisable(GL_DEPTH_TEST);
         glDepthFunc(GL_GREATER);
         glDepthMask(GL_FALSE);
         glEnable(GL_BLEND);
@@ -2433,9 +2672,12 @@ void main() { o_Color = vec4(1); }
         glBlendEquationSeparate(GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         ui.Draw();
-        EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_TRUE);
-        EXPECT_EQ(glIsEnabled(GL_DEPTH_TEST), GL_FALSE);
-        EXPECT_EQ(glIsEnabled(GL_BLEND), GL_TRUE);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_TRUE);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glIsEnabled(GL_DEPTH_TEST), GL_FALSE);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glIsEnabled(GL_BLEND), GL_TRUE);
         GLboolean depthWrite;
         glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
         EXPECT_EQ(depthWrite, GL_FALSE);
@@ -2456,11 +2698,16 @@ void main() { o_Color = vec4(1); }
         glGetIntegerv(GL_POLYGON_MODE, polygon);
         EXPECT_EQ(polygon[0], GLint(GL_LINE));
         EXPECT_EQ(Pixel(8)[3], 255);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    class SurfacePickerGL : public RenderAssetCacheGL, public testing::WithParamInterface<bool>
-    {};
+    class SurfacePickerGL : public RenderAssetCacheGL,
+                            public testing::WithParamInterface<std::tuple<GpuTestBackend, bool>>
+    {
+    protected:
+        GpuTestBackend TestBackend() const override { return std::get<0>(GetParam()); }
+    };
 
     TEST_P(SurfacePickerGL, UnprojectsNearestDepthAtPixelCentreAndClearsPreviousHit)
     {
@@ -2475,7 +2722,7 @@ void main() { o_Color = vec4(1); }
         auto uploaded = UploadMesh(quad);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
         const auto&     mesh           = std::get<GpuMesh>(uploaded);
-        const bool      perspective    = GetParam();
+        const bool      perspective    = std::get<1>(GetParam());
         const glm::mat4 projection     = perspective ? glm::perspective(glm::radians(90.0f), 2.0f, 1.0f, 9.0f) :
                                                        glm::ortho(-8.0f, 8.0f, -4.0f, 4.0f, 1.0f, 9.0f);
         const glm::mat4 viewProjection = projection * glm::translate(glm::mat4(1.0f), {-10, -20, -30});
@@ -2483,10 +2730,13 @@ void main() { o_Color = vec4(1); }
         const MeshDraw  far {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 24}), 9};
 
         // Picking must establish its depth state even after other render passes.
-        glDepthMask(GL_FALSE);
-        glDepthFunc(GL_GREATER);
-        glDepthRange(0.25, 0.75);
-        glClearDepth(0.0);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            glDepthMask(GL_FALSE);
+            glDepthFunc(GL_GREATER);
+            glDepthRange(0.25, 0.75);
+            glClearDepth(0.0);
+        }
         EntityPicker picker;
         const auto   hit = picker.PickSurface({near, far}, viewProjection, {32, 16}, {19, 5});
         ASSERT_EQ(hit.ID, 7u);
@@ -2497,17 +2747,19 @@ void main() { o_Color = vec4(1); }
         EXPECT_NEAR(hit.Position->x, 11.75f, 2e-5f);
         EXPECT_NEAR(hit.Position->y, 18.75f, 2e-5f);
         EXPECT_NEAR(hit.Position->z, 26.0f, 2e-5f);
-        NativeUIFrame ui;
-        glDepthMask(GL_FALSE);
-        glDepthFunc(GL_GREATER);
-        ui.Draw();
-        GLboolean depthMask = GL_TRUE;
-        GLint depthFunction = 0;
-        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
-        glGetIntegerv(GL_DEPTH_FUNC, &depthFunction);
-        EXPECT_EQ(depthMask, GL_FALSE);
-        EXPECT_EQ(depthFunction, GL_GREATER);
-
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            NativeUIFrame ui;
+            glDepthMask(GL_FALSE);
+            glDepthFunc(GL_GREATER);
+            ui.Draw();
+            GLboolean depthMask     = GL_TRUE;
+            GLint     depthFunction = 0;
+            glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+            glGetIntegerv(GL_DEPTH_FUNC, &depthFunction);
+            EXPECT_EQ(depthMask, GL_FALSE);
+            EXPECT_EQ(depthFunction, GL_GREATER);
+        }
         // Reusing the pixel must clear its old nearer depth.
         const auto farther = picker.PickSurface({far}, viewProjection, {32, 16}, {19, 5});
         ASSERT_EQ(farther.ID, 9u);
@@ -2520,16 +2772,22 @@ void main() { o_Color = vec4(1); }
         const auto empty = picker.PickSurface({elsewhere}, viewProjection, {32, 16}, {19, 5});
         EXPECT_EQ(empty.ID, 0u);
         EXPECT_FALSE(empty.Position);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    INSTANTIATE_TEST_SUITE_P(Projections, SurfacePickerGL, testing::Values(true, false),
-                            [](const testing::TestParamInfo<bool>& info) {
-                                return info.param ? "Perspective" : "Orthographic";
-                            });
+    INSTANTIATE_TEST_SUITE_P(Projections,
+                             SurfacePickerGL,
+                             testing::Combine(testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                                              testing::Values(true, false)),
+                             [](const testing::TestParamInfo<std::tuple<GpuTestBackend, bool>>& info) {
+                                 return std::string(std::get<0>(info.param) == GpuTestBackend::OpenGL ? "OpenGL" :
+                                                                                                        "Vulkan") +
+                                        (std::get<1>(info.param) ? "Perspective" : "Orthographic");
+                             });
 
     // Picking reads the ID under a pixel; the outline borders a silhouette.
-    TEST_F(RenderAssetCacheGL, PickerFindsMeshesAndOutlineBordersThem)
+    TEST_P(RenderAssetCacheGPU, PickerFindsMeshesAndOutlineBordersThem)
     {
         constexpr int Size = 16;
         MeshData      quad;
@@ -2551,48 +2809,76 @@ void main() { o_Color = vec4(1); }
         EXPECT_EQ(picker.Pick(draws, glm::mat4(1.0f), {Size, Size}, {4, 8}), 7u);
         EXPECT_EQ(picker.Pick(draws, glm::mat4(1.0f), {Size, Size}, {12, 8}), 0u);
         EXPECT_EQ(picker.Pick({}, glm::mat4(1.0f), {Size, Size}, {4, 8}), 0u);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
 
         GLuint framebuffer = 0, color = 0;
-        glGenFramebuffers(1, &framebuffer);
-        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        glGenTextures(1, &color);
-        glBindTexture(GL_TEXTURE_2D, color);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Size, Size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
-        glViewport(0, 0, Size, Size);
-        glClearColor(0, 0, 0, 1);
-        glClear(GL_COLOR_BUFFER_BIT);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            glGenFramebuffers(1, &framebuffer);
+            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            glGenTextures(1, &color);
+            glBindTexture(GL_TEXTURE_2D, color);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Size, Size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
+            glViewport(0, 0, Size, Size);
+            glClearColor(0, 0, 0, 1);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
         auto                        device = mesh.Device;
         RenderHardware::TextureDesc outlineDesc;
         outlineDesc.Width = outlineDesc.Height = Size;
         outlineDesc.Usage  = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
         auto outlineTarget = device->CreateTexture(outlineDesc);
-        glFramebufferTexture2D(
-            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GLuint(device->GetImGuiTextureID(outlineTarget)), 0);
-        glClear(GL_COLOR_BUFFER_BIT);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            glFramebufferTexture2D(GL_FRAMEBUFFER,
+                                   GL_COLOR_ATTACHMENT0,
+                                   GL_TEXTURE_2D,
+                                   GLuint(device->GetImGuiTextureID(outlineTarget)),
+                                   0);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
         RenderHardware::RenderingDesc target;
-        target.Colors = {{outlineTarget, {}, RenderHardware::LoadOp::Load}};
+        target.Colors = {
+            {outlineTarget, {}, RenderHardware::LoadOp::Clear, RenderHardware::StoreOp::Store, {0, 0, 0, 1}}};
+        auto clear = device->CreateCommandList();
+        clear->BeginRendering(target);
+        clear->EndRendering();
+        device->Submit(clear);
+        target.Colors[0].Load = RenderHardware::LoadOp::Load;
         SelectionOutline outline(device);
         outline.Draw(target, draws, glm::mat4(1.0f), {Size, Size}, {1, 0, 0, 1}, 2.0f);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
-        NativeUIFrame ui;
-        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        ui.Draw();
-        // ImGui restores the caller's target; outline pixels are still read from that image.
-        GLint bound = 0;
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &bound);
-        EXPECT_EQ(GLuint(bound), framebuffer);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         std::array<uint8_t, Size * Size * 4> pixels {};
-        glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            NativeUIFrame ui;
+            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            ui.Draw();
+            // ImGui restores the caller's target; outline pixels are still read from that image.
+            GLint bound = 0;
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &bound);
+            EXPECT_EQ(GLuint(bound), framebuffer);
+            glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        }
+        else
+        {
+            auto bytes = ReadImage(outlineTarget);
+            std::copy(bytes.begin(), bytes.end(), pixels.begin());
+        }
         const auto red = [&](int x, int y) { return pixels[(y * Size + x) * 4]; };
         EXPECT_EQ(red(9, 8), 255);  // Border just right of the quad.
         EXPECT_EQ(red(14, 8), 0);   // Far from it.
         EXPECT_GT(red(4, 8), 0);    // Faint fill inside.
         EXPECT_LT(red(4, 8), 80);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteTextures(1, &color);
-        glDeleteFramebuffers(1, &framebuffer);
+        if (TestBackend() == GpuTestBackend::OpenGL)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glDeleteTextures(1, &color);
+            glDeleteFramebuffers(1, &framebuffer);
+        }
     }
     class MaterialPreviewGL : public MaterialSceneGL
     {
@@ -2614,6 +2900,23 @@ void main() { o_Color = vec4(1); }
             std::copy_n(image.data() + (y * Options.Size.x + x) * 4, 4, pixel.data());
             return pixel;
         }
+        std::array<uint8_t, 4>
+        PreviewPixel(const RenderHardware::Handle<RenderHardware::Texture>& texture, int x = 32, int y = 32)
+        {
+            auto   device = Renderer->GetDevice();
+            size_t bytes  = size_t(Options.Size.x) * Options.Size.y * 4;
+            auto   buffer = device->CreateBuffer(
+                {bytes, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(texture, {}, buffer);
+            device->Submit(commands);
+            device->WaitIdle();
+            auto image = buffer->Read(0, bytes);
+            y          = DeviceRow(y, Options.Size.y, device->GetCoordinateConventions());
+            std::array<uint8_t, 4> pixel;
+            std::copy_n(image.data() + (y * Options.Size.x + x) * 4, 4, pixel.data());
+            return pixel;
+        }
         MaterialSource Tint(std::vector<double> color)
         {
             MaterialSource source;
@@ -2623,17 +2926,23 @@ void main() { o_Color = vec4(1); }
         }
     };
 
-    TEST_F(MaterialPreviewGL, UnsavedValuesAndShaderChangesReachPixelsInLitMode)
+    class MaterialPreviewNativeGL : public MaterialPreviewGL
+    {
+    protected:
+        GpuTestBackend TestBackend() const override { return GpuTestBackend::OpenGL; }
+    };
+
+    TEST_P(MaterialPreviewGL, UnsavedValuesAndShaderChangesReachPixelsInLitMode)
     {
         MaterialPreviewRenderer preview(*Renderer);
         Renderer->SetViewMode(SceneViewMode::Normals);
         auto source = Tint({1, 0, 0, 1});
-        auto first  = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        auto first  = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
         ASSERT_TRUE(first.Complete);
-        EXPECT_EQ(PreviewPixel(first.Texture), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        EXPECT_EQ(PreviewPixel(first.Target), (std::array<uint8_t, 4> {255, 0, 0, 255}));
         source.Parameters["Tint"] = {0, 1, 0, 1};
-        auto second               = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(second.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        auto second               = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(second.Target), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         // ShaderData may be reloaded at the same address; pointer identity is not a cache key.
         Custom.Code               = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
 #include <Kans3D/Engine.glsl>
@@ -2642,18 +2951,18 @@ layout(location=0) out vec4 color;
 void main() { color = vec4(p.Tint.bgr + vec3(u_Frame.DebugView), 1); }
 )");
         source.Parameters["Tint"] = {1, 0, 0, 1};
-        auto changed              = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(changed.Texture), (std::array<uint8_t, 4> {0, 0, 255, 255}));
+        auto changed              = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(changed.Target), (std::array<uint8_t, 4> {0, 0, 255, 255}));
     }
-    TEST_F(MaterialPreviewGL, BlendCompositesOverBothCheckerColorsAndKeepsOpaqueAlpha)
+    TEST_P(MaterialPreviewGL, BlendCompositesOverBothCheckerColorsAndKeepsOpaqueAlpha)
     {
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({1, 0, 0, 0.5});
         source.Render.AlphaMode        = MaterialAlphaMode::Blend;
-        auto result                    = preview.Render(Resolve(source, &Custom), &Custom, Options);
+        auto result                    = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
         ASSERT_TRUE(result.Complete);
         // 50% red over checker .22 and .32, without changing its alpha.
-        auto dark = PreviewPixel(result.Texture), light = PreviewPixel(result.Texture, 24, 32);
+        auto dark = PreviewPixel(result.Target), light = PreviewPixel(result.Target, 24, 32);
         EXPECT_NEAR(dark[0], 156, 1);
         EXPECT_NEAR(dark[1], 28, 1);
         EXPECT_NEAR(dark[2], 28, 1);
@@ -2663,36 +2972,36 @@ void main() { color = vec4(p.Tint.bgr + vec3(u_Frame.DebugView), 1); }
         EXPECT_EQ(dark[3], 255);
         EXPECT_EQ(light[3], 255);
     }
-    TEST_F(MaterialPreviewGL, MaskCutoffChangesCoverageAndRetainsEquality)
+    TEST_P(MaterialPreviewGL, MaskCutoffChangesCoverageAndRetainsEquality)
     {
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({1, 0, 0, 0.5});
         source.Render.AlphaMode        = MaterialAlphaMode::Mask;
         source.Render.AlphaCutoff      = 0.6f;
-        auto clipped                   = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(clipped.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        auto clipped                   = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(clipped.Target), (std::array<uint8_t, 4> {56, 56, 56, 255}));
         source.Render.AlphaCutoff = 0.5f;
-        auto equality             = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(equality.Texture), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        auto equality             = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(equality.Target), (std::array<uint8_t, 4> {255, 0, 0, 255}));
     }
-    TEST_F(MaterialPreviewGL, YawPitchAndDoubleSidedControlPlaneVisibility)
+    TEST_P(MaterialPreviewGL, YawPitchAndDoubleSidedControlPlaneVisibility)
     {
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({0, 1, 0, 1});
         Options.Rotation.x             = glm::radians(90.0f);
-        auto edge                      = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(edge.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        auto edge                      = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(edge.Target), (std::array<uint8_t, 4> {56, 56, 56, 255}));
         Options.Rotation = {0, glm::radians(90.0f)};
-        edge             = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(edge.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        edge             = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(edge.Target), (std::array<uint8_t, 4> {56, 56, 56, 255}));
         Options.Rotation = {glm::radians(180.0f), 0};
-        auto back        = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(back.Texture), (std::array<uint8_t, 4> {56, 56, 56, 255}));
+        auto back        = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(back.Target), (std::array<uint8_t, 4> {56, 56, 56, 255}));
         source.Render.DoubleSided = true;
-        back                      = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(back.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        back                      = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(back.Target), (std::array<uint8_t, 4> {0, 255, 0, 255}));
     }
-    TEST_F(MaterialPreviewGL, ProceduralTangentsMapNormalAlongIncreasingTextureV)
+    TEST_P(MaterialPreviewGL, ProceduralTangentsMapNormalAlongIncreasingTextureV)
     {
         // A normal map pointing along +V detects zero tangents and wrong sphere handedness.
         ShaderData shader;
@@ -2734,16 +3043,16 @@ void main() {
             Options.Shape = shape;
             // Inspect a side face too: its tangent cannot be the vertex default +X.
             Options.Rotation.x = shape == MaterialPreviewShape::Cube ? glm::radians(90.0f) : 0.0f;
-            auto result        = preview.Render(Resolve(source, &shader), &shader, Options);
+            auto result        = preview.RenderImage(Resolve(source, &shader), &shader, Options);
             ASSERT_TRUE(result.Complete);
-            auto value = PreviewPixel(result.Texture);
+            auto value = PreviewPixel(result.Target);
             EXPECT_NEAR(value[0], 128, 1);
             EXPECT_NEAR(value[1], shape == MaterialPreviewShape::Sphere ? 0 : 255, 1);
             // At center+half a pixel, sphere y ~= .016, hence B.z ~= .016 -> encoded 130.
             EXPECT_NEAR(value[2], shape == MaterialPreviewShape::Sphere ? 130 : 128, 1);
         }
     }
-    TEST_F(MaterialPreviewGL, StandardRemainsLitAndUsesSceneIrradianceChanges)
+    TEST_P(MaterialPreviewGL, StandardRemainsLitAndUsesSceneIrradianceChanges)
     {
         MaterialPreviewRenderer preview(*Renderer);
         Renderer->SetViewMode(SceneViewMode::Normals);
@@ -2770,11 +3079,11 @@ void main() {
         source.Parameters         = {{"BaseColor", {0.25, 0.25, 0.25, 1}}, {"Roughness", {1}}};
         auto material             = Resolve(source);
         environment.IrradianceMap = map({4, 0, 0, 1});
-        auto red                  = preview.Render(material, nullptr, Options);
-        auto redPixel             = PreviewPixel(red.Texture);
+        auto red                  = preview.RenderImage(material, nullptr, Options);
+        auto redPixel             = PreviewPixel(red.Target);
         environment.IrradianceMap = map({0, 4, 0, 1});
-        auto green                = preview.Render(material, nullptr, Options);
-        auto greenPixel           = PreviewPixel(green.Texture);
+        auto green                = preview.RenderImage(material, nullptr, Options);
+        auto greenPixel           = PreviewPixel(green.Target);
         // At the front-facing center, kD=.96 and diffuse=.25*4=.1e1:
         // Key light adds about .0453; Reinhard+gamma(.96+.0453)=.7306,
         // Reinhard+gamma(.0453)=.2399. Debug normals or missing IBL cannot match these.
@@ -2787,7 +3096,7 @@ void main() {
         EXPECT_EQ(redPixel[3], 255);
         EXPECT_EQ(greenPixel[3], 255);
     }
-    TEST_F(MaterialPreviewGL, FailedCustomShaderFallsBackWithRenderStateAndIncompleteResult)
+    TEST_P(MaterialPreviewGL, FailedCustomShaderFallsBackWithRenderStateAndIncompleteResult)
     {
         MaterialPreviewRenderer preview(*Renderer);
         ShaderData              broken;
@@ -2798,16 +3107,16 @@ void main() { wrongOutput=vec4(1); }
         auto source               = Tint({1, 0, 0, 1});
         source.Render.DoubleSided = true;
         Options.Rotation.x        = glm::radians(180.0f);
-        auto result               = preview.Render(Resolve(source, &Custom), &broken, Options);
+        auto result               = preview.RenderImage(Resolve(source, &Custom), &broken, Options);
         EXPECT_FALSE(result.Complete);
-        auto pixel = PreviewPixel(result.Texture);
+        auto pixel = PreviewPixel(result.Target);
         // Standard fallback on the back of the plane must still draw because double-sided survived.
         EXPECT_GT(pixel[0], 56);
         EXPECT_EQ(pixel[0], pixel[1]);
         EXPECT_EQ(pixel[1], pixel[2]);
         EXPECT_EQ(pixel[3], 255);
     }
-    TEST_F(MaterialPreviewGL, ThumbnailWaitsForTextureThenReadsTopRowFirstAfterReimport)
+    TEST_P(MaterialPreviewGL, ThumbnailWaitsForTextureThenReadsTopRowFirstAfterReimport)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
@@ -2832,7 +3141,7 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         Provider->SetClosed(true);
         MaterialPreviewRenderer preview(*Renderer);
         // Material/shader are loaded, but the assigned texture is blocked on the worker.
-        EXPECT_FALSE(preview.Render(materialID, Options).Complete);
+        EXPECT_FALSE(preview.RenderImage(materialID, Options).Complete);
         EXPECT_FALSE(preview.RenderThumbnail(materialID, Options).has_value());
         Provider->SetClosed(false);
         ASSERT_TRUE(Frames(*Renderer->GetAssetCache(),
@@ -2862,7 +3171,7 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         EXPECT_EQ(thumbnail->Pixels[(32 * 64 + 32) * 4], 0);
         EXPECT_EQ(thumbnail->Pixels[(32 * 64 + 32) * 4 + 3], 255);
     }
-    TEST_F(MaterialPreviewGL, ImGuiRestoresHostileNativeStateIncludingBindingsAndBufferRanges)
+    TEST_F(MaterialPreviewNativeGL, ImGuiRestoresHostileNativeStateIncludingBindingsAndBufferRanges)
     {
         MaterialPreviewRenderer preview(*Renderer);
         auto program = CreateInternalShader(*Renderer->GetDevice(),
@@ -3061,7 +3370,7 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         glDeleteFramebuffers(1, &framebuffer);
         glDeleteRenderbuffers(1, &renderbuffer);
     }
-    TEST_F(MaterialPreviewGL, PreviewBetweenSceneSubmissionAndDrawPreservesQueueModeAndStats)
+    TEST_P(MaterialPreviewGL, PreviewBetweenSceneSubmissionAndDrawPreservesQueueModeAndStats)
     {
         auto model = Quad(Color({1, 0, 0, 1}));
         Ready();
@@ -3071,14 +3380,14 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         const auto              stats = Renderer->GetStats();
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({0, 1, 0, 1});
-        auto                    result = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        auto                    result = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(result.Target), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         EXPECT_EQ(Renderer->GetStats().DrawCalls, stats.DrawCalls);
         Renderer->EndScene();
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
         EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {128, 128, 255, 255}));
     }
-    TEST_F(MaterialPreviewGL, PublishedShaderReloadAndCacheEvictionDoNotRetainGpuPointers)
+    TEST_F(MaterialPreviewNativeGL, PublishedShaderReloadAndCacheEvictionDoNotRetainGpuPointers)
     {
         const auto material = Color({1, 0, 0, 1});
         Ready();
@@ -3110,7 +3419,7 @@ void main() { color=vec4(p.Tint.brg,1); }
         EXPECT_EQ(changed->Pixels[(32 * 64 + 32) * 4 + 2], 0);
         EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
-    TEST_F(MaterialPreviewGL, CustomOpaqueOutputAlphaCannotMakeThePreviewTransparent)
+    TEST_P(MaterialPreviewGL, CustomOpaqueOutputAlphaCannotMakeThePreviewTransparent)
     {
         // Project shaders may emit arbitrary alpha even in opaque mode; the editor image must stay opaque.
         ShaderData shader;
@@ -3121,10 +3430,10 @@ void main() { color=vec4(0,0,1,0.125); }
         MaterialSource source;
         source.Shader = ShaderID;
         MaterialPreviewRenderer preview(*Renderer);
-        auto                    result = preview.Render(Resolve(source, &shader), &shader, Options);
-        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {0, 0, 255, 255}));
+        auto                    result = preview.RenderImage(Resolve(source, &shader), &shader, Options);
+        EXPECT_EQ(PreviewPixel(result.Target), (std::array<uint8_t, 4> {0, 0, 255, 255}));
     }
-    TEST_F(MaterialPreviewGL, ThumbnailRejectsFailedTextureUploadDespiteAnOlderGpuTexture)
+    TEST_P(MaterialPreviewGL, ThumbnailRejectsFailedTextureUploadDespiteAnOlderGpuTexture)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader();
@@ -3158,9 +3467,9 @@ void main() { color=vec4(0,0,1,0.125); }
         ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
         ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
         EXPECT_FALSE(preview.RenderThumbnail(materialID, Options).has_value());
-        EXPECT_FALSE(preview.Render(materialID, Options).Complete);
+        EXPECT_FALSE(preview.RenderImage(materialID, Options).Complete);
     }
-    TEST_F(MaterialPreviewGL, PreviewReplacementsAreReleasedWithoutBeginFrame)
+    TEST_F(MaterialPreviewNativeGL, PreviewReplacementsAreReleasedWithoutBeginFrame)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader();
@@ -3235,7 +3544,7 @@ void main() { color=p.Tint*p.Strength*texture(u_Albedo,v_UV)*vec4(1, )" +
             EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         }
     }
-    TEST_F(MaterialPreviewGL, ReimportRetainsRecordedProgramsTexturesAndUniformBuffersUntilNextFrame)
+    TEST_F(MaterialPreviewNativeGL, ReimportRetainsRecordedProgramsTexturesAndUniformBuffersUntilNextFrame)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader();
@@ -3335,4 +3644,34 @@ void main() { color=(p.Tint*p.Strength*texture(u_Albedo,v_UV)).bgra; }
         EXPECT_FALSE(glIsTexture(image));
         EXPECT_FALSE(glIsBuffer(ubo));
     }
+    INSTANTIATE_TEST_SUITE_P(Backends,
+                             MaterialSceneGL,
+                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
+                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
+                             });
+    INSTANTIATE_TEST_SUITE_P(Backends,
+                             MultiPassSceneGL,
+                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
+                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
+                             });
+    INSTANTIATE_TEST_SUITE_P(Backends,
+                             StandardMaterialGL,
+                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
+                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
+                             });
+    INSTANTIATE_TEST_SUITE_P(Backends,
+                             MaterialPreviewGL,
+                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
+                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
+                             });
+    INSTANTIATE_TEST_SUITE_P(Backends,
+                             RenderAssetCacheGPU,
+                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
+                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
+                             });
 } // namespace

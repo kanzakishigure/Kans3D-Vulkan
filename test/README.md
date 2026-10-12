@@ -84,3 +84,295 @@ v1–v4 slices strip that word too; the group corruption test targets the same f
 member eight bytes before the new word. Its truncation coverage expands by four
 bytes. The unsupported-future-version input moves from 6 to 7 while keeping the
 `UnsupportedVersion` assertion. No assertion or reference tolerance was weakened.
+
+
+## Phase 3b test change audit
+
+All GPU registration remains `RUN_SERIAL`. Vulkan fixtures pin both lavapipe
+loader variables before creating an instance, always require CPU devices, and
+install validation/synchronization validation sinks that fail gtest (including
+teardown). GL remains llvmpipe, including the 4.3 extension bundle, whose filter
+excludes Vulkan parameters. CPU tests create no GPU contexts.
+
+`GpuTestContext` installs a caller-created headless Vulkan shared device so
+renderer consumers use the same construction/validation policy. Its explicit
+local-device factory remains available for conformance. No Vulkan renderer test
+uses native GL calls; native UI/state assertions are conditional on OpenGL or
+remain in dedicated native GL fixtures.
+
+### Existing conformance: assertions unchanged
+
+`RHIConformanceTests.cpp` removes all 31 phase-3b skip branches and constructs the
+common shader on both backends. Every original assertion and coordinate helper
+is unchanged. The 46 original cases are:
+
+- `InternalShaderCreationKeepsTheCompilerDiagnostic`
+- `StandaloneSubmissionRetainsReadbacksAndDoesNotStartAFrame`
+- `PickerUsesBottomLeftRowsAndClearsResizedTargets`
+- `OutlinePreservesSceneAlphaAndDoesNotKeepOldSelectionOnResize`
+- `BufferUploadCopyReadbackRanges`
+- `EveryMipAndCubeFaceRoundTrips`
+- `OddWidthSingleChannelRows`
+- `TriangleCoverageAndExactColor`
+- `DepthTestWritesAndReadback`
+- `DepthCompareAndBias`
+- `SeparateColorAlphaBlendAndWriteMask`
+- `BlendEquationsAndDisableTransition`
+- `CullFrontBackAndWinding`
+- `WireframeAndFillTransition`
+- `ScissorAndViewportBounds`
+- `PushConstantsPartialWritesAndRecordedValues`
+- `TwoGroupsWithCollidingSlotsAndCombinedSamplers`
+- `SeparateTextureAndSamplerBindings`
+- `IntegerPickerTargetAndClear`
+- `HalfFloatTargetPreservesHDRAndNegative`
+- `PipelineCacheIncludesEveryStateField`
+- `PipelineCacheIncludesVertexAndBindingLayouts`
+- `ReleasedAllocationsSurviveUntilFrameRetires`
+- `RecordedAndSubmittedResourcesAreRetained`
+- `CoordinateQueryMatchesCoverageDepthAndRows`
+- `IndexedVertexLayoutOffsetsAndBaseVertex`
+- `AttachmentLoadAndClearIgnorePreviousMasks`
+- `IndependentBlendStatesForMultipleTargets`
+- `StencilReplaceCompareAndWriteMask`
+- `SrgbTargetEncodingAndLinearTransition`
+- `MipGenerationFiltersLevelZero`
+- `StorageWritesFeedUniformsAndReadbackWithoutCallerBarriers`
+- `PushConstantsRepackScalarArraysAndMixedTypes`
+- `PushConstantsRepackNestedStructArraysAndMatrices`
+- `PipelineMasksSurviveRenderingScopeClears`
+- `OlderRetirementDoesNotExposePendingReadbackWrites`
+- `PushConstantsRepackRowAndColumnMajorMatrixArrays`
+- `FullFloatTargetPreservesValuesBelowHalfPrecision`
+- `OddWidthTwoChannelMipsAndSampledComponents`
+- `SparsePublishedSlotsAndRecordedPerDrawUniformRanges`
+- `ClearOnlyFormatsPreserveTypedValuesAndLoad`
+- `ClearOnlyDepthStencilMipReadback`
+- `CubeMipAttachmentCopiesFollowSubmissionOrder`
+- `PackedDepthStencilCopiesKeepMipBytesThroughDeviceLocalBuffers`
+- `RepeatedFrameSlotsAndStandaloneWorkRetireReleasedResources`
+- `OddWidthTwoChannelMipTransfers`
+
+### Renderer fixtures: existing pixel/order/count assertions preserved
+
+The lists below identify every existing case whose fixture or readback changed.
+All are parameterized by `GpuTestBackend` (surface picking also keeps its
+perspective/orthographic parameter). RHI readback replaces framebuffer/texture
+name reads. Ordinary scene pixels use the coordinate query to normalize rows;
+precomputed cube/BRDF texels keep their texture-projection convention and their
+original numerical assertions. GL error checks remain GL checks; Vulkan uses
+its validation-as-failure sink. Original raw state pollution/restoration and
+ImGui assertions are retained on the GL branch.
+
+#### Reference and feature cases
+
+Per-test ownership replaces the shared suite context so backend parameters
+cannot share device resources. `Read` normalizes PNGs to top-row-first through
+`Origin`; the byte oracle normalizes to its original lower-left rows. Separate
+filesystem ownership fixes a double shutdown when the entire 4.3 bundle runs.
+The twelve PNGs remain unchanged. Only the five documented Vulkan tolerances
+and two exact Vulkan attachment hashes differ; see the backend report.
+
+- `StandardTexturedIblPointLight`
+- `AlphaModesDepthSortingAndBackFaces`
+- `EmissionTextureAndToneMapping`
+- `ImportedToonMaterial`
+- `DebugBaseColor`
+- `DebugNormals`
+- `DebugWireframe`
+- `SelectionOutlineAndNumericSurfacePicker`
+- `MaterialPreviewSphere`
+- `Grid`
+- `Skybox`
+- `Renderer2DSprite`
+- `FullRuntimeFrameIsByteIdenticalToPhaseOne`
+- `FeaturePointsPreserveInterleavedImmediateAndMaterialOverlayOrder`
+- `DisabledEditorFeaturesSkipGhostPreparationPassesAndTransientResources`
+- `FeatureRegistrationAndEnablingAreIsolatedBetweenSceneRenderers`
+
+#### Scene and immediate pass cases
+
+Device construction is parameterized; production recording is unchanged.
+Original face/axis, BRDF, HDR, sprite, depth, blend, binding-order, capacity and
+graph-use checks retain their assertions. `Pixel` already used `DeviceRow`.
+
+- `EquirectangularCaptureKeepsEveryFaceAndBothAxes`
+- `PrefilterRoughnessMipsActuallyBroadenTheDirectionalLobe`
+- `BrdfLutMatchesIntegrationAtAsymmetricCoordinates`
+- `ExplicitGridOverlayLeavesDepthAndBlendsAlphaWhileSkyboxStaysBehindSprites`
+- `SpriteTextureChangesBeyond32SlotsPreserveBindingsAndBlendOrder`
+- `DefaultSpritesKeepLegacyAlphaDepthWritesAndEqualDepthOrder`
+- `SpriteCapacityFlushKeepsTheLastQuadAndStatistics`
+- `RuntimeWhiteSpriteDeclaresItsActualSampledFallback`
+- `GraphExecutesTransientClearReadbackAndReusesStableViewport`
+
+#### Asset/material bridge cases
+
+Cache lifecycle/eviction assertions remain identical. Texture fallback reads
+use RHI copies; the legacy first-uniform-float check uses a neutral GPU probe
+and retains its exact 0.125 assertion. Shader-material rendering builds groups
+from all reflected engine entries, including declared unused samplers that GL
+previously optimized out. Remapped models and scene submission use neutral
+readback. Picker/outline keeps GL ImGui/FBO restoration assertions on GL and
+all pixel/picking assertions on both. `EditorSampleShadersLinkOnOpenGL` is
+renamed `EditorSampleShaderProductsCreateOnBothBackends`: GL still cross-compiles
+and links; Vulkan creates the same products directly from SPIR-V.
+
+- `ResourcesAppearWhenLoadedAndInvalidIDsReturnNothing`
+- `ReimportedAssetKeepsLastUploadUntilReplacementIsReady`
+- `ModelInstancesResolveMeshesAndUnusedEntriesAreEvicted`
+- `CustomSamplerFallbackBindsBlackAndNormalThroughPublishedProduct`
+- `MissingFailedAndDebugCustomShadersUseStandardBindings`
+- `ShaderMaterialDrawsWithItsPackedParametersAndTextures`
+- `ShaderOutsideTheMaterialContractIsNotCompiled`
+- `EditorSampleShaderProductsCreateOnBothBackends`
+- `SceneSubmissionUsesStandardAndCustomShadersInLitDebugAndPreviewPasses`
+- `ImportedRemappedModelDrawsAuthoredSlotAndPartOverrides`
+- `PickerFindsMeshesAndOutlineBordersThem`
+
+#### Standard material cases
+
+Native immediate draws, frame/object bindings, RGBA32F readback and cube
+updates are replaced by the same neutral shader/layout/binding draw path.
+`SetTextureSampler` preserves the prior nearest/repeat sampling setup. The
+camera uses `DeviceProjection`. All float tolerances (including 1e-6 and 2e-6),
+exact values and comparisons are unchanged. The derivative +V assertion caught
+the actual Vulkan normal-map orientation bug; it was fixed, not loosened.
+
+- `PackingFailureLogsOnceDrawsStandardAndRetriesEitherChangedSource`
+- `UnassignedNormalIsGeometricAndUnassignedEmissionIsDark`
+- `VertexColorIsOptInAndStrengthOneAppliesIt`
+- `TangentDirectionHandednessAndDerivativeFallbackOrientNormalMap`
+- `UvTilingRepeatsAndOffsetIsAppliedAfterScaling`
+- `EmissiveFactorAndMapMultiplyBeforeToneMapping`
+- `StandardFactorsShadeWithSceneLightsAndGltfPackedChannels`
+- `OcclusionRedChannelAndStrengthOnlyAttenuateIbl`
+
+#### Material scene cases
+
+RHI readback replaces texture-name reads. Picking rows use `DeviceRow`,
+packed D24 is converted to normalized float for the existing depth assertions,
+and indexed normal-line pixel offsets now use the coordinate query. GL-only
+ImGui mask/stencil restoration assertions stay on the GL branch. Material,
+alpha, stencil ring, shell, normal, sorting, occlusion and reload assertions
+remain unchanged.
+
+- `RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel`
+- `HighlightUsesReimportedMeshAfterQueuedGpuResourceIsDestroyed`
+- `TargetAlphaIsOpaqueEvenWhenProjectShadersReturnFractionalAlpha`
+- `LegacyStencilOptionDrawsARingOutsideTheModelAndClearsPreviousReferences`
+- `LegacyOutlineCullsFrontFacesAndKeepsTheInflatedBackShell`
+- `DebugNormalLinesKeepIndexedEndpointsWithoutDepthOrAlphaWrites`
+- `BlendSortsAcrossModelsAndPreviewByTransformedBoundsAfterOpaque`
+- `BlendTestsOpaqueDepthAndLeavesUncoveredDepthClear`
+- `BlendDistanceUsesTheCameraAndEachPartsBoundsWithinOneModel`
+- `StandardMaskMultipliesTextureFactorAndVertexAlphaAndRetainsCutoffEquality`
+- `FailedCustomShaderAndDebugFallbackKeepBlendAndDoubleSidedState`
+- `DoubleSidedBackFacesFlipNormalsAndDoNotDisableCullingForTheNextPart`
+
+#### KSHD v6 material-pass cases
+
+The fixture selects either shared device. Full image/depth readbacks normalize
+row order before existing asymmetric pixel checks. Ring/interior/depth, feature
+order/culling, tag dispatch, per-object values, every extra-pass state and cache
+assertions all remain unchanged; no new tolerance is used.
+
+- `InvertedHullSphereHasExteriorRingAndExactUnchangedInteriorAndDepth`
+- `ForegroundOpaqueOccludesHullAndUnTaggedMaterialsAddNoPass`
+- `FeatureHonorsPreparedOrderAndUnreadyDrawsAtConfigurablePoint`
+- `ExtraPassReceivesEachObjectsMaterialRenderDataAndOnlyMatchingTagsRun`
+- `RuntimeUsesEveryPassStateAndCachesIndependentlyOfMainMaterial`
+
+#### Offscreen material preview cases
+
+`RenderImage` exposes a neutral image rather than requiring an ImGui export.
+Pixel reads use RHI copies and `DeviceRow`; all original pixel/tolerance,
+completion, reload, blend, cutoff, shape, lighting and thumbnail assertions stay
+unchanged. UI-only preview/export/lifetime checks remain native GL below.
+
+- `UnsavedValuesAndShaderChangesReachPixelsInLitMode`
+- `BlendCompositesOverBothCheckerColorsAndKeepsOpaqueAlpha`
+- `MaskCutoffChangesCoverageAndRetainsEquality`
+- `YawPitchAndDoubleSidedControlPlaneVisibility`
+- `ProceduralTangentsMapNormalAlongIncreasingTextureV`
+- `StandardRemainsLitAndUsesSceneIrradianceChanges`
+- `FailedCustomShaderFallsBackWithRenderStateAndIncompleteResult`
+- `ThumbnailWaitsForTextureThenReadsTopRowFirstAfterReimport`
+- `PreviewBetweenSceneSubmissionAndDrawPreservesQueueModeAndStats`
+- `CustomOpaqueOutputAlphaCannotMakeThePreviewTransparent`
+- `ThumbnailRejectsFailedTextureUploadDespiteAnOlderGpuTexture`
+
+Surface picker case `UnprojectsNearestDepthAtPixelCentreAndClearsPreviousHit`
+now runs on both backends for both projections. Every ID/world-coordinate
+assertion is unchanged; GL hostile-depth/ImGui restoration checks remain on GL.
+
+The following seven existing cases only move to native GL fixture names, so
+Vulkan does not claim an editor integration implemented before phase 4. Their
+original native assertions are preserved:
+
+- `MaterialSceneNativeGL.DeferredSubmissionDoesNotQueryDriverRasterState`
+- `MaterialSceneNativeGL.FrameUniformsUploadOnlyAtDebugViewTransitionsIncludingLitPreview`
+- `MaterialSceneNativeGL.ImGuiRestoresDepthCullBlendFunctionsAndWireframeModeAfterPreviewOutline`
+- `MaterialPreviewNativeGL.ImGuiRestoresHostileNativeStateIncludingBindingsAndBufferRanges`
+- `MaterialPreviewNativeGL.PublishedShaderReloadAndCacheEvictionDoNotRetainGpuPointers`
+- `MaterialPreviewNativeGL.PreviewReplacementsAreReleasedWithoutBeginFrame`
+- `MaterialPreviewNativeGL.ReimportRetainsRecordedProgramsTexturesAndUniformBuffersUntilNextFrame`
+
+`RenderAssetCacheGL.UploadMeshCreatesIndexedVertexArrayWithEngineLayout` remains
+GL-specific because its assertions query VAO state. Neutral vertex/index layout,
+base-vertex, instancing and actual pixels are exercised by conformance on both
+backends. Editor texture/startup/native UI fixtures remain unchanged GL fixtures.
+
+### CPU expectations for implemented Vulkan uploads
+
+Two exact error-code checks change because Vulkan upload is now implemented.
+With Vulkan selected but **no initialized device**, both must return
+`InvalidArgument`, as GL does, rather than claiming an unimplemented backend.
+The `None` backend still returns `NotImplemented`; invalid input validation and
+all other assertions remain unchanged. No CPU test creates Vulkan or performs
+source IO as a result of this change.
+
+- `MeshProductUpload.RejectsAbsentContextAndUnsupportedBackends` becomes
+  `RejectsAbsentDeviceAndUnselectedBackend`.
+- `TextureProductUpload.RejectsAbsentContextAndUnimplementedBackendWithoutSourceIo`
+  becomes `RejectsAbsentDeviceAndUnselectedBackendWithoutSourceIo`.
+
+### New tests and concrete mutation targets
+
+Every new case runs on both backends. Vulkan-specific diagnostics check native
+creation counters without adding native API to the neutral interface; elapsed
+time is reported, never asserted.
+
+| Case | Plausible bug that fails it |
+| --- | --- |
+| RHIConformance.HeadlessContextInstallsTheChosenSharedDeviceAndRejectsReplacement | Renderer keeps a GL shared device for a Vulkan fixture; live shared device replaced; null device accepted |
+| RHIConformance.InstancedTriangleStripUsesBindingDivisorAndFirstInstance | Per-instance binding treated as per-vertex; firstInstance ignored; triangle strip mapped to a list and half a tile remains clear |
+| RHIConformance.PointTopologyAndFirstVertexSelectOnlyTheRequestedPoint | Point list mapped to a line/triangle topology; firstVertex ignored and the wrong pixel is drawn |
+| RHIConformance.RenderedTextureSamplingAndReplacementKeepRecordedDescriptors | Missing attachment-to-sampled layout transition (validation); wrong sparse binding 19; group-0 set cache ignores texture replacement or mutates an older recorded set |
+| RHIConformance.SampledReadOnlyDepthAttachmentKeepsDepthAndPassesDepthTest | Wrong sampled depth aspect/layout; missing render-to-sample transition; writable attachment layout used for sampling; disabled depth test allows the blue failing draw; attachment Store omitted from write tracking (sync validation) |
+| RHIConformance.DepthWritesAndAttachedSamplingWithinOneScopeAreOrdered | Clear/write/read-only uses planned as a single incompatible native scope; layout barrier emitted inside dynamic rendering; resumed viewport/scissor/attachment content lost |
+| RHIConformance.CachedPipelinesRenderTheirOwnTargetFormats | Description cache omits the target format and returns an LDR pipeline for a full-float HDR draw; HDR gets clamped/rounded |
+| MaterialSceneGL.PerDrawGroupsReusePoolsAndPipelinesAfterWarmup | Pipeline created per draw; pool created per group; native sets not shared across object ranges; retired sets leak and pool count grows |
+| ScenePassGL.WarmFramesKeepSpriteGridAndSkyPipelinesAfterRetirement | Weak device cache is mistaken for renderer ownership and every immediate pipeline is recreated after frame retirement |
+
+For range selection and all remaining raster/stencil/blend/push fields, the
+original conformance mutation targets and exact assertions remain in force.
+Per-backend reference limits, strict byte-oracle rationale and the measured
+12.023 -> approximately 5.1 microsecond group-0 decision are recorded in
+[the backend report](../Kans3D/src/Kans3D/RHI/Vulkan/README.md#phase-3b-graphics-and-renderer).
+
+Final phase-3b validation: CPU **404 pass / 0 skip**; OpenGL **156 pass / 0 skip**
+(including the complete software GL 4.3 bundle); Vulkan **131 pass / 0 skip**
+with **zero validation/synchronization errors**. The Vulkan label includes
+53 conformance, two safety and 76 renderer registrations. Both backends run
+all twelve unchanged PNG references. Software GPU suites are serial; builds
+use `-j2`, and the prescribed CPU suite uses `-j1`. No editor launch, protected
+path/reference changes, CMake cache/preset changes, network, commits or pushes.
+
+The final precompute-program reuse correction also passes all 19 affected
+environment/reference cases on each backend, serially. All 21 editor source
+translation units pass fresh syntax-only Debug checks (26 commands including
+test-target variants), two at a time, without linking or editing editor outputs.
+An audit of all 46 original conformance bodies finds no change beyond removing
+skips and formatting. Changed-line `git clang-format` and `git diff --check` are
+clean; original untracked user content is preserved.

@@ -132,6 +132,18 @@ void main() {
                                                           const ShaderData*             source,
                                                           const MaterialPreviewOptions& options)
     {
+        const auto image = RenderImage(material, source, options);
+        return {image.Target ? m_Device->GetImGuiTextureID(image.Target) : 0, image.Complete};
+    }
+    MaterialPreviewResult MaterialPreviewRenderer::Render(AssetID material, const MaterialPreviewOptions& options)
+    {
+        const auto image = RenderImage(material, options);
+        return {image.Target ? m_Device->GetImGuiTextureID(image.Target) : 0, image.Complete};
+    }
+    MaterialPreviewImageResult MaterialPreviewRenderer::RenderImage(const MaterialData&           material,
+                                                                    const ShaderData*             source,
+                                                                    const MaterialPreviewOptions& options)
+    {
         if (!m_Scene.GetAssetCache())
             return {};
         PreviewRetirement retirement {*m_Device};
@@ -176,14 +188,15 @@ void main() {
         {
             MaterialData fallback;
             fallback.Render = material.Render;
-            return Render(fallback, nullptr, options).Texture ?
-                       MaterialPreviewResult {m_Device->GetImGuiTextureID(m_Color), false} :
-                       MaterialPreviewResult {};
+            auto image      = RenderImage(fallback, nullptr, options);
+            image.Complete  = false;
+            return image;
         }
         return {};
     }
 
-    MaterialPreviewResult MaterialPreviewRenderer::Render(AssetID material, const MaterialPreviewOptions& options)
+    MaterialPreviewImageResult MaterialPreviewRenderer::RenderImage(AssetID                       material,
+                                                                    const MaterialPreviewOptions& options)
     {
         if (!m_Scene.GetAssetCache())
             return {};
@@ -202,10 +215,10 @@ void main() {
         return Draw(*shader, *bindings, options, complete);
     }
 
-    MaterialPreviewResult MaterialPreviewRenderer::Draw(const GpuShader&              shader,
-                                                        const GpuMaterialBindings&    bindings,
-                                                        const MaterialPreviewOptions& options,
-                                                        bool                          complete)
+    MaterialPreviewImageResult MaterialPreviewRenderer::Draw(const GpuShader&              shader,
+                                                             const GpuMaterialBindings&    bindings,
+                                                             const MaterialPreviewOptions& options,
+                                                             bool                          complete)
     {
         const auto shape = size_t(options.Shape);
         if (shape >= m_Shapes.size() || !std::isfinite(options.Rotation.x) || !std::isfinite(options.Rotation.y) ||
@@ -289,15 +302,15 @@ void main() {
         complete &= RecordMaterialDraw(*m_Scene.GetAssetCache(), *commands, shader, bindings, *m_Shapes[shape], pass);
         commands->EndRendering();
         m_Device->Submit(commands);
-        return {m_Device->GetImGuiTextureID(m_Color), complete};
+        return {m_Color, complete};
     }
 
     std::optional<MaterialThumbnail> MaterialPreviewRenderer::RenderThumbnail(AssetID                       material,
                                                                               const MaterialPreviewOptions& options)
     {
         PreviewRetirement retirement {*m_Device};
-        const auto rendered = Render(material, options);
-        if (!rendered.Texture || !rendered.Complete)
+        const auto        rendered = RenderImage(material, options);
+        if (!rendered.Target || !rendered.Complete)
             return std::nullopt;
         MaterialThumbnail result;
         result.Size = options.Size;

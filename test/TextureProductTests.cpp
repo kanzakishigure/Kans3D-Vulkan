@@ -440,7 +440,7 @@ namespace
         EXPECT_EQ(view->GetData().Mips[1].Pixels, texture.Mips[1].Pixels);
         EXPECT_EQ(manager->GetResidentCount(), 1u);
     }
-    TEST(TextureProductUpload, RejectsAbsentContextAndUnimplementedBackendWithoutSourceIo)
+    TEST(TextureProductUpload, RejectsAbsentDeviceAndUnselectedBackendWithoutSourceIo)
     {
         auto data = R8(1, 1, {17});
         struct BackendRestore
@@ -451,7 +451,7 @@ namespace
         RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidArgument);
         RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
-        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
+        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidArgument);
         RenderHardware::SetBackend(RenderHardware::Backend::None);
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
     }
