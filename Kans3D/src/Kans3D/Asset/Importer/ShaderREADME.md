@@ -109,3 +109,33 @@ an appropriate point/target when that pipeline functionality exists.
 The complete inverted-hull example lives in `test/data/multipass`, keeping shipped
 Toon/ToneCharacter shaders and user materials/scenes unchanged. Its vertex stage
 expands along world-space normals by the ordinary `OutlineWidth` parameter.
+
+## Phase 2d: material colour output
+
+The optional top-level `output_space=linear_hdr` declares scene-linear RGB;
+`output_space=display` is the default when omitted, including all published v1–v6
+products. Alpha is straight coverage in either space. The declaration applies to
+main and additional passes. Standard declares `linear_hdr` and returns unclamped
+radiance. Custom shaders which call `KansToneMap`, gamma encode, or deliberately
+choose display colours should keep `display`. Toon is a minimal HDR example:
+its manifest declares `linear_hdr` and its fragment returns linear colour.
+ToneCharacter remains unchanged and display-referred, retaining its artistic
+gamma curve. No user material or NPR project is migrated.
+
+Importer version 12 rebuilds source shaders against the appended engine includes.
+Product version 7 appends the output-space enum after the v6 pass records. Readers
+retain v1–v6, defaulting their output space to display. Pass bytecode envelopes
+remain bounded v5 records. The fixture `test/data/multipass/lights-prefix-v6.kshd`
+was compiled and written by the original v6 codec before this change; its actual
+SPIR-V contains the seven-member, 288-byte KansFrame prefix. CPU validation and
+both backend draw tests use these bytes unchanged.
+
+`KANS_LIGHT_COUNT` remains 4 for published source compatibility. New shaders use
+`KansPointLightCount()`, `KansPointLightPosition(i)`, `KansPointLightRadiance(i)`
+and `KansPointLightSpecular(i)` for up to `KANS_POINT_LIGHT_LIMIT` (16) lights.
+`KansDirectionalToLight()`, `KansDirectionalRadiance()` and
+`KansDirectionalAmbient()` expose the directional light; its stored direction
+is the direction of light travel, so the to-light vector is its negative.
+`KansExposure()` reads the camera's exposure multiplier. `KansShadePbr` consumes
+these helpers and returns linear HDR. `KansToneMap` remains the legacy Reinhard
+plus 1/2.2 gamma helper for display-referred custom shaders.

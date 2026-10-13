@@ -8,7 +8,7 @@ namespace Kans
     namespace
     {
         // v2 defaults, v3 hints, v4 sampler fallbacks, v5 ordered groups, v6 material passes. Readers retain v1-v5.
-        constexpr uint32_t Magic = 0x4448534b, Version = 6, TargetVulkan12 = 1;
+        constexpr uint32_t Magic = 0x4448534b, Version = 7, TargetVulkan12 = 1;
         constexpr size_t   MaximumDefaults = 4096, MaximumDefaultValues = 4096;
         constexpr size_t   MaximumBytes = 16 * 1024 * 1024;
         void               Write(std::vector<std::byte>& bytes, uint32_t word)
@@ -57,8 +57,11 @@ namespace Kans
                         const ShaderParameterHints&                hints,
                         const ShaderTextureFallbacks&              fallbacks,
                         const std::vector<MaterialParameterGroup>& groups,
-                        const std::vector<ShaderPass>&             passes)
+                        const std::vector<ShaderPass>&             passes,
+                        ShaderOutputSpace                          outputSpace)
     {
+        if (uint32_t(outputSpace) > 1)
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid Shader output space"};
         auto validPasses = ValidateMaterialShaderPasses(code, passes);
         if (auto* error = std::get_if<AssetError>(&validPasses))
             return *error;
@@ -165,11 +168,12 @@ namespace Kans
                 return *error;
             auto payload = std::get<std::vector<std::byte>>(std::move(encoded));
             // A bounded v5 code-only record: forbids recursive pass records on read.
-            payload.resize(payload.size() - 4);
+            payload.resize(payload.size() - 8);
             payload[4] = std::byte {5};
             Write(bytes, uint32_t(payload.size()));
             bytes.insert(bytes.end(), payload.begin(), payload.end());
         }
+        Write(bytes, uint32_t(outputSpace));
         if (bytes.size() > MaximumBytes)
             return AssetError {AssetErrorCode::InvalidArgument, "Shader Product exceeds byte budget"};
         return bytes;
@@ -370,6 +374,15 @@ namespace Kans
                 cursor += length;
                 result.Passes.push_back(std::move(pass));
             }
+        }
+        if (version >= 7)
+        {
+            if (size - size_t(cursor - bytes) < 4)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Shader output space"};
+            const auto space = Read(cursor);
+            if (space > 1)
+                return AssetError {AssetErrorCode::InvalidData, "Invalid Shader output space"};
+            result.OutputSpace = ShaderOutputSpace(space);
         }
         if (size_t(cursor - bytes) != size)
             return AssetError {AssetErrorCode::InvalidData, "Trailing Shader Product bytes"};

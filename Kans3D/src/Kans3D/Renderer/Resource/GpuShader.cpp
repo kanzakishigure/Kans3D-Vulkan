@@ -50,6 +50,7 @@ namespace Kans
                 }))
                 return Failure("texture fallback '" + name + "' does not name a material sampler");
         GpuShader shader;
+        shader.OutputSpace = data.OutputSpace;
         shader.m_Device = std::move(device);
         try
         {

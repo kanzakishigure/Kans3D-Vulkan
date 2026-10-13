@@ -103,3 +103,75 @@ from the changed code. Final validation logs are in the same local reference
 output directory. Editor build output was redirected locally to
 `build/linux-gcc/phase0-editor-build/` to protect the existing user project;
 this override is only in this build cache, not a repository CMake default.
+
+
+## Phase 2d approved lighting/HDR baseline
+
+Only these six references were deliberately regenerated using llvmpipe. All
+comparisons still include every RGBA pixel and allow zero pixels outside their
+fixed per-backend channel bound. OpenGL bounds are unchanged.
+
+| Regenerated reference | Intended reason |
+| --- | --- |
+| standard-ibl-point | One distinct diffuse point light replaces four ambient copies; Standard now outputs linear HDR followed by exposure .8, ACES fitted and sRGB |
+| alpha-depth-sort-backfaces | Corrected Standard lighting; transparent Standard layers blend in RGBA16F before the shared curve |
+| emission | Unclamped linear emission now uses camera exposure and ACES fitted instead of material Reinhard/gamma |
+| toon-imported | Trivial sample HDR opt-in removes its material gamma encode and uses the shared exposure/curve |
+| selection-outline | Underlying Standard surface changes; the orange display compositor and picking are preserved |
+| preview-sphere | Preview/thumbnail now use the same HDR target and exposure/curve as Standard in the scene |
+
+Each old PNG remains next to its new PNG under
+`build/linux-gcc/test/reference-output/phase2d/comparison/<name>.{old,new}.png`.
+All twelve old PNGs were copied before regeneration. Git retains the originals.
+
+The six unchanged references are **debug-base-color, debug-normals,
+debug-wireframe, grid, skybox, renderer2d-sprite**. Additional exact SHA-256
+checks pin their pre-2d llvmpipe render bytes, independent of the PNG tolerance.
+Wireframe and skybox had pre-existing <=1-byte PNG differences: wireframe 543
+pixels/662 channels, skybox one channel. Rendering with the saved phase-one
+library produced exactly the same bytes as phase 2d. That independent audit,
+including the two pre-2d render PNGs, is retained in the comparison directory and
+`phase2d/unchanged-legacy-audit.log`. The saved baseline library SHA-256 was
+`1e1ba04f9cb7ddda0c05a19974d4f054d7fde8343d811d266fa52c8e22fe8636`.
+These references were not regenerated to absorb that existing rounding.
+
+Four Vulkan bounds were remeasured solely for the new HDR path. The post pass
+is independently checked over **every RGB pixel** against ACES fitted + IEC
+sRGB applied to the actual RGBA16F readback, within one byte, on both backends.
+The following largest differences are fully explained by the captured radiance;
+all reported analytic bytes equal actual bytes. Exposure is .8.
+
+| Reference | Old → new Vulkan bound | Pixels beyond old bound | Largest-delta pixel/channel | GL / Vulkan half-float radiance | Analytic and actual GL / Vulkan byte |
+| --- | --- | ---: | --- | --- | --- |
+| standard-ibl-point | 3 → 7 | 5 | (70,73), B | .123779297 / .112487793 | 99 / 92 |
+| emission | 2 → 3 | 1 | (98,72), G | .106506348 / .100708008 | 89 / 86 |
+| toon-imported | 5 → 7 | 2 | (26,35), B | .118652344 / .132202148 | 96 / 103 |
+| preview-sphere | 12 → 18 | 1 | (103,40), B | .403076172 / .303955078 | 181 / 163 |
+
+Native SPIR-V arithmetic/filtered high-gradient texture sampling already differed
+in phase 3b. The new nonlinear curve changes how those underlying radiance
+differences round to display bytes. Raw top-first RGBA16F captures and final PNGs
+are in `phase2d/{OpenGL,Vulkan}/`; `phase2d/hdr-rounding-audit.txt` records the
+measurement. These are explicit measured maxima, with no discarded pixels,
+masks or outlier allowance. Vulkan debug base/normals remain 7/6, all other
+phase-3b bounds are unchanged. Alpha/depth remains within its old bound (max 1).
+
+`FullRuntimeFrameIsByteIdenticalToPhaseOne` is replaced by
+`FullRuntimeFrameIsByteIdenticalToPhaseTwoD`. The new colour-0 SHA-256 was captured
+deliberately after the approved lighting/HDR changes:
+
+- OpenGL: `3b60ff2f4b8a27b07ba6f82c2be76ea45f000af0e72a8d3491c9a9079a9643cd`
+- Vulkan: `44727924897d5193e0820f9bda06ac0caa0f224adaff83a71eda0e418d2456c7`
+
+The auxiliary colour and depth/stencil hashes remain the existing backend
+oracles. Exact bytes, attachment checks, feature order and aliased-mask assertions
+remain strict; the pass/resource expectations explicitly add the HDR target and
+core resolve. Old attachment dumps are preserved in the comparison directory.
+
+
+Final clean-build validation: 416 CPU passes (52.73 s); OpenGL 167 passes,
+5 unavailable-display skips, zero failures, 172 selected entries (214.19 s,
+including GL 4.3); Vulkan 153 passes, zero skips/failures (136.50 s). GPU suites
+ran serially using llvmpipe/lavapipe only. No assertions outside the documented
+HDR-only reference remeasurement were relaxed. All twelve saved old PNGs were
+verified byte-for-byte against HEAD; exactly the six intended new PNGs differ.

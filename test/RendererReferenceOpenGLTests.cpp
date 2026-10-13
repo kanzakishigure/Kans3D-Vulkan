@@ -7,6 +7,7 @@
 #include <map>
 #include <thread>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/packing.hpp>
 #include <gtest/gtest.h>
 #include "Kans3D/Asset/Importer/MaterialSource.h"
 #include "Kans3D/Asset/Importer/ShaderImporter.h"
@@ -18,10 +19,12 @@
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/RHI/Backend.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
+#include "Kans3D/Renderer/Resource/InternalShader.h"
+#include "Kans3D/Renderer/Resource/MaterialPass.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
-#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Scene/Entity.h"
 #include "GpuTestContext.h"
 #include "ReferenceImage.h"
@@ -361,17 +364,42 @@ namespace
         }
         void Compare(const char* name, const RgbaImage& image, ImageTolerance tolerance)
         {
+            WritePng(fs::path(KANS_TEST_OUTPUT_DIR) / "phase2d" /
+                         (GetParam() == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan") / (std::string(name) + ".png"),
+                     image);
+            if (GetParam() == GpuTestBackend::OpenGL)
+            {
+                // Exact pre-2d oracles. Wireframe/sky were audited against the saved phase-one library;
+                // their <=1-byte differences from the older PNGs already existed before this task.
+                const std::pair<const char*, const char*> unchanged[] = {
+                    {"debug-base-color", "03aa1f06506ba842db0743d478f3354e78b4d7a5ea27610a2d6d7b0206312aa4"},
+                    {"debug-normals", "0281fd1ef71c99837b1e79f1fc850010ad72ff9ec17c77da5ec8e20c11ac9750"},
+                    {"debug-wireframe", "38b0fea0e64248d077bc9e80f256bb11861279f4697763a896f1c0f239905c39"},
+                    {"grid", "f6730a0d1a3f7d1508c853bb268c542a8ff8a108a50d0a867070168053ffe3f1"},
+                    {"skybox", "9ff26345a562e96a39db980386b33ff417bfecc759ea55020dbc18b3e8743399"},
+                    {"renderer2d-sprite", "b5d42010d764ec7af44e4cb0e5b4b30a3dd401a37b16f0ebf4ab376d6397b192"}};
+                for (const auto& [scene, digest] : unchanged)
+                    if (std::string(name) == scene)
+                    {
+                        std::vector<std::byte> bytes(image.Pixels.size());
+                        std::memcpy(bytes.data(), image.Pixels.data(), bytes.size());
+                        EXPECT_EQ(ComputeContentDigest(bytes), digest);
+                    }
+            }
             if (GetParam() == GpuTestBackend::Vulkan)
             {
                 // Native SPIR-V evaluation and finite-precision filtered sampling
                 // differ at a few high-gradient sphere texels. These are the exact
                 // measured maxima; coverage/outliers remain strict (fraction zero).
-                // See RHI/Vulkan/README.md for counts, spec precision rules and artifacts.
-                const std::pair<const char*, uint8_t> measured[] = {{"standard-ibl-point", 3},
-                                                                    {"toon-imported", 5},
+                // Phase 2d HDR-only maxima were remeasured from actual RGBA16F captures;
+                // analytic ACES+sRGB checks every RGB pixel independently within one byte.
+                // See test/references/README.md for radiances and unchanged phase-3b bounds.
+                const std::pair<const char*, uint8_t> measured[] = {{"standard-ibl-point", 7},
+                                                                    {"toon-imported", 7},
                                                                     {"debug-base-color", 7},
                                                                     {"debug-normals", 6},
-                                                                    {"preview-sphere", 12}};
+                                                                    {"preview-sphere", 18},
+                                                                    {"emission", 3}};
                 for (const auto& [scene, maximum] : measured)
                     if (std::string(name) == scene)
                         tolerance.MaxChannelDifference = maximum;
@@ -385,9 +413,111 @@ namespace
             if (GetParam() == GpuTestBackend::OpenGL)
                 EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         }
+        void AuditHDR(const RenderHardware::Handle<RenderHardware::Texture>& hdr,
+                      const char*                                            name,
+                      const RgbaImage&                                       display,
+                      float                                                  exposure,
+                      bool                                                   assertCurve)
+        {
+            // Capture actual pre-curve radiance, not reconstructed values from the final PNG.
+            auto device = Renderer->GetDevice();
+            auto buffer = device->CreateBuffer(
+                {Size * Size * 8, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(hdr, {}, buffer);
+            device->Submit(commands);
+            device->WaitIdle();
+            auto bytes = buffer->Read(0, Size * Size * 8);
+            if (device->GetCoordinateConventions().Origin == RenderHardware::FramebufferOrigin::LowerLeft)
+                for (unsigned y = 0; y < Size / 2; ++y)
+                    std::swap_ranges(bytes.begin() + y * Size * 8,
+                                     bytes.begin() + (y + 1) * Size * 8,
+                                     bytes.begin() + (Size - 1 - y) * Size * 8);
+            const auto path = fs::path(KANS_TEST_OUTPUT_DIR) / "phase2d" /
+                              (GetParam() == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan") /
+                              (std::string(name) + ".hdr.rgba16f");
+            fs::create_directories(path.parent_path());
+            std::ofstream dump(path, std::ios::binary);
+            dump.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            if (!assertCurve)
+                return; // Selection's subsequent display compositor has its own strict reference comparison.
+            unsigned maximum = 0, outside = 0;
+            for (unsigned pixel = 0; pixel < Size * Size; ++pixel)
+                for (unsigned channel = 0; channel < 3; ++channel)
+                {
+                    uint16_t half;
+                    std::memcpy(&half, bytes.data() + pixel * 8 + channel * 2, 2);
+                    const int      expected   = FilmicByte(glm::unpackHalf1x16(half), exposure);
+                    const unsigned difference = unsigned(std::abs(int(display.Pixels[pixel * 4 + channel]) - expected));
+                    maximum                   = std::max(maximum, difference);
+                    outside += difference > 1;
+                }
+            EXPECT_EQ(outside, 0u) << name << " maximum analytic post-pass channel delta=" << maximum;
+        }
         void CompareScene(const char* name, ImageTolerance tolerance)
         {
-            Compare(name, Read(Renderer->GetRenderTarget().Colors[0].Target), tolerance);
+            const auto        image = Read(Renderer->GetRenderTarget().Colors[0].Target);
+            const std::string scene(name);
+            if (scene == "standard-ibl-point" || scene == "alpha-depth-sort-backfaces" || scene == "emission" ||
+                scene == "toon-imported" || scene == "selection-outline")
+                AuditHDR(Renderer->GetHDRTarget(),
+                         name,
+                         image,
+                         Info.sceneCamera.camera.GetExposure(),
+                         scene != "selection-outline");
+            Compare(name, image, tolerance);
+        }
+        ProductModelComponent
+        Probe(const std::string& body, ShaderOutputSpace space, MaterialAlphaMode alpha = MaterialAlphaMode::Opaque)
+        {
+            auto       shader = Value(CompileEmbeddedShaderProgram(
+                "KansShaderProgram 1\nvertex=p.vert\nfragment=p.frag\noutput_space=" +
+                    std::string(space == ShaderOutputSpace::LinearHDR ? "linear_hdr" : "display") + "\n",
+                {{"p.vert", R"(#version 450
+#include <Kans3D/Engine.glsl>
+#include <Kans3D/VertexInput.glsl>
+void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Position,1);}
+)"},
+                 {"p.frag",
+                  "#version 450\n#include <Kans3D/Lighting.glsl>\nlayout(location=0) out vec4 o_Color;\nvoid main(){" +
+                      body + "}\n"}}));
+            const auto id =
+                Add(AssetType::Shader, Value(EncodeShaderProduct(shader.Code, {}, {}, {}, {}, {}, shader.OutputSpace)));
+            MaterialSource material;
+            material.Shader           = id;
+            material.Render.AlphaMode = alpha;
+            auto model                = Model(QuadData(), Material(material, &shader));
+            Ready();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            auto*      cache    = Renderer->GetAssetCache();
+            while ((!cache->GetShader(id) || cache->GetMaterialBindings(Materials.back())->Shader != id) &&
+                   std::chrono::steady_clock::now() < deadline)
+            {
+                cache->BeginFrame();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            if (!cache->GetShader(id) || cache->GetMaterialBindings(Materials.back())->Shader != id)
+                throw std::runtime_error("Probe must use its published shader, not fallback Standard");
+            return model;
+        }
+        std::array<uint8_t, 4> Centre()
+        {
+            const auto image  = Read(Renderer->GetRenderTarget().Colors[0].Target);
+            const auto offset = (Size / 2 * Size + Size / 2) * 4;
+            return {image.Pixels[offset], image.Pixels[offset + 1], image.Pixels[offset + 2], image.Pixels[offset + 3]};
+        }
+        static int FilmicByte(double linear, double exposure)
+        {
+            const double x    = std::max(0.0, linear) * exposure;
+            const double y    = std::clamp(x * (2.51 * x + .03) / (x * (2.43 * x + .59) + .14), 0.0, 1.0);
+            const double srgb = y <= .0031308 ? 12.92 * y : 1.055 * std::pow(y, 1.0 / 2.4) - .055;
+            return int(std::lround(srgb * 255));
+        }
+        void RenderProbe(const ProductModelComponent& model)
+        {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(model, glm::mat4(1));
+            Renderer->EndScene();
         }
         void TexturedScene()
         {
@@ -511,6 +641,7 @@ namespace
         options.Rotation     = {0.37f, -0.23f};
         const auto thumbnail = preview.RenderThumbnail(Textured, options);
         ASSERT_TRUE(thumbnail);
+        AuditHDR(preview.GetHDRTarget(), "preview-sphere", {Size, Size, thumbnail->Pixels}, options.Exposure, true);
         Compare("preview-sphere", {Size, Size, thumbnail->Pixels}, {2, 0.0});
     }
     TEST_P(RendererReferenceGL, Grid)
@@ -561,10 +692,311 @@ namespace
         EXPECT_EQ(Renderer2D::GetStats().QuadCount, 1u);
         CompareScene("renderer2d-sprite", {1, 0.0});
     }
-    TEST_P(RendererReferenceGL, FullRuntimeFrameIsByteIdenticalToPhaseOne)
+    TEST_P(RendererReferenceGL, HdrValuesAboveOneAndExposureHaveAnalyticFilmicBytes)
     {
-        // Baseline from the unmodified phase-one runtime path. All attachment bytes
-        // detect moving sprites/grid/sky after materials, shell state, or outline order.
+        // Bugs: RGBA8 clamps before the post pass, exposure is ignored, or HDR skips/doubles tone mapping.
+        const auto model = Probe("o_Color=vec4(4.0,0.5,0.125,1);", ShaderOutputSpace::LinearHDR);
+        EXPECT_EQ(Renderer->GetHDRTarget()->GetDesc().PixelFormat, RenderHardware::Format::RGBA16Float);
+        for (float exposure : {.25f, .8f, 2.0f})
+        {
+            Info.sceneCamera.camera.SetExposure(exposure);
+            RenderProbe(model);
+            const auto pixel = Centre();
+            for (unsigned c = 0; c < 3; ++c)
+                EXPECT_NEAR(pixel[c], FilmicByte(std::array<double, 3> {4, .5, .125}[c], exposure), 1) << c;
+            EXPECT_EQ(pixel[3], 255);
+            // Check the working image too, independently of the final curve.
+            auto device = Renderer->GetDevice();
+            auto buffer = device->CreateBuffer(
+                {Size * Size * 8, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+            auto commands = device->CreateCommandList();
+            commands->CopyTextureToBuffer(Renderer->GetHDRTarget(), {}, buffer);
+            device->Submit(commands);
+            device->WaitIdle();
+            auto     bytes = buffer->Read(0, Size * Size * 8);
+            uint16_t red;
+            std::memcpy(&red, bytes.data() + (Size / 2 * Size + Size / 2) * 8, 2);
+            EXPECT_EQ(red, 0x4400u); // IEEE binary16, exactly 4.0. Catches hidden clamping.
+        }
+    }
+    TEST_P(RendererReferenceGL, PointPbrUsesDistinctDiffuseRadianceCountAndSpecularScale)
+    {
+        // Bugs: four copies, ambient radiance, ignored count/zero-slot NaNs, missing fifth light, unused specular.
+        const auto model =
+            Probe("o_Color=vec4(KansShadePbr(vec3(0.5),0,1,0,vec3(0,0,1),vec3(0)),1);", ShaderOutputSpace::LinearHDR);
+        Info.pointLight  = {};
+        Info.pointLights = {{{0, 0, 2}, {4, 8, 12}, {0, 0, 0}, {100, 100, 100}}};
+        RenderProbe(model);
+        auto             pixel = Centre();
+        constexpr double pi    = 3.141592653589793;
+        for (unsigned c = 0; c < 3; ++c)
+            EXPECT_NEAR(pixel[c], FilmicByte(.96 * .5 / pi * (c + 1), .8), 1);
+        Info.pointLights[0].Specular_Intensity = glm::vec3(4);
+        RenderProbe(model);
+        pixel = Centre();
+        for (unsigned c = 0; c < 3; ++c)
+            EXPECT_NEAR(pixel[c], FilmicByte((.96 * .5 / pi + .04 / pi / (4.001) * 4) * (c + 1), .8), 1);
+        Info.pointLights.clear();
+        RenderProbe(model);
+        pixel = Centre();
+        EXPECT_EQ(pixel, (std::array<uint8_t, 4> {0, 0, 0, 255}));
+        Info.pointLights = {{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {100, 100, 100}}};
+        RenderProbe(model);
+        EXPECT_EQ(Centre(),
+                  (std::array<uint8_t, 4> {0, 0, 0, 255})); // A zero-radiance colocated light must remain finite.
+        Info.pointLights.clear();
+        for (unsigned i = 0; i < 5; ++i)
+            Info.pointLights.push_back({{0, 0, 2}, glm::vec3(float(i + 1)), glm::vec3(0), glm::vec3(200)});
+        RenderProbe(model);
+        pixel = Centre();
+        for (unsigned c = 0; c < 3; ++c)
+            EXPECT_NEAR(pixel[c], FilmicByte(.96 * .5 / pi * 15 / 4, .8), 1);
+    }
+    TEST_P(RendererReferenceGL, PbrLightCountIgnoresPoisonedUnusedSlots)
+    {
+        // Bug: loop over the engine limit instead of the live count; zero-radiance padding alone cannot detect this.
+        Probe("o_Color=vec4(KansShadePbr(vec3(0.5),0,1,0,vec3(0,0,1),vec3(0)),1);", ShaderOutputSpace::LinearHDR);
+        Info.pointLight  = {};
+        Info.pointLights = {{{0, 0, 2}, {4, 4, 4}, {0, 0, 0}, {100, 100, 100}}};
+        auto frame       = MakeLightingUniforms(Info);
+        frame.ViewProjection =
+            DeviceProjection(Info.sceneCamera.camera.GetProjectionMatrix() * Info.sceneCamera.viewMatrix,
+                             Renderer->GetDevice()->GetCoordinateConventions());
+        for (unsigned i = 1; i < EnginePointLightLimit; ++i)
+        {
+            frame.PointPositions[i] = {0, 0, 2, 1};
+            frame.PointRadiance[i]  = {100, 100, 100, 0};
+            frame.PointSpecular[i]  = {1, 1, 1, 0};
+        }
+        using namespace RenderHardware;
+        auto device  = Renderer->GetDevice();
+        auto uniform = [&](const auto& data) {
+            auto buffer = device->CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
+            buffer->Write(0, &data, sizeof(data));
+            return buffer;
+        };
+        MaterialPassData pass;
+        pass.Frame              = uniform(frame);
+        pass.Object             = uniform(EngineObjectUniforms {});
+        pass.Environment        = Renderer->GetMaterialEnvironment();
+        pass.EnvironmentSampler = Renderer->GetMaterialEnvironmentSampler();
+        pass.ColorFormats       = {Format::RGBA16Float, Format::RGBA8Unorm};
+        auto*       cache       = Renderer->GetAssetCache();
+        const auto* bindings    = cache->GetMaterialBindings(Materials.back());
+        ASSERT_TRUE(bindings);
+        const auto* shader = cache->GetShader(bindings->Shader);
+        ASSERT_TRUE(shader);
+        auto target             = Renderer->GetRenderTarget();
+        target.Colors[0].Target = Renderer->GetHDRTarget();
+        for (auto& color : target.Colors)
+            color.Load = LoadOp::Clear;
+        target.Depth.Load = LoadOp::Clear;
+        auto commands     = device->CreateCommandList();
+        commands->BeginRendering(target);
+        commands->SetViewport({0, 0, Size, Size});
+        commands->SetScissor({0, 0, Size, Size});
+        ASSERT_TRUE(RecordMaterialDraw(*cache, *commands, *shader, *bindings, *cache->GetMesh(Meshes.back()), pass));
+        commands->EndRendering();
+        ToneMappingPass post;
+        post.Record(*device, *commands, Renderer->GetHDRTarget(), {Renderer->GetRenderTarget().Colors[0].Target}, .8f);
+        device->Submit(commands);
+        const auto pixel = Centre();
+        for (unsigned c = 0; c < 3; ++c)
+            EXPECT_NEAR(pixel[c], FilmicByte(.96 * .5 / 3.141592653589793, .8), 1);
+        device->WaitIdle();
+    }
+    TEST_P(RendererReferenceGL, AppendedCameraExposureAndLightCountAreBoundToShaders)
+    {
+        // Bug: the post gets exposure but the appended KansFrame tail is misbound or never uploaded.
+        const auto model = Probe("o_Color=vec4(KansExposure()/4.0,float(KansPointLightCount())/16.0,0.25,1);",
+                                 ShaderOutputSpace::Display);
+        Info.sceneCamera.camera.SetExposure(2);
+        Info.pointLights.resize(5);
+        RenderProbe(model);
+        EXPECT_EQ(Centre(), (std::array<uint8_t, 4> {128, 80, 64, 255}));
+    }
+    TEST_P(RendererReferenceGL, DirectionalPbrReachesShadersWithAmbientAndSpecular)
+    {
+        // Bugs: drop directional light, use travel direction as to-light, or omit ambient/specular.
+        // Black environment isolates analytic direct + ambient terms.
+        Renderer = CreateScope<SceneRenderer>(Render.get());
+        Renderer->SetAssetManager(Assets.get());
+        const auto model =
+            Probe("o_Color=vec4(KansShadePbr(vec3(0.5),0,1,1,vec3(0,0,1),vec3(0)),1);", ShaderOutputSpace::LinearHDR);
+        Info.pointLight          = {};
+        Info.dirLight            = {{0, 0, -4}, {1, 2, 3}, {0, 0, 0}, {.1f, .2f, .3f}};
+        Info.HasDirectionalLight = true;
+        RenderProbe(model);
+        auto pixel = Centre();
+        for (unsigned c = 0; c < 3; ++c)
+            EXPECT_NEAR(pixel[c], FilmicByte((.96 * .5 / 3.141592653589793 + .05) * (c + 1), .8), 1);
+        Info.dirLight.Dirction = {0, 0, 4};
+        RenderProbe(model);
+        pixel = Centre();
+        for (unsigned c = 0; c < 3; ++c)
+            EXPECT_NEAR(pixel[c], FilmicByte(.05 * (c + 1), .8), 1);
+        Info.dirLight.Dirction           = {0, 0, -1};
+        Info.dirLight.Specular_Intensity = glm::vec3(4);
+        RenderProbe(model);
+        pixel = Centre();
+        for (unsigned c = 0; c < 3; ++c)
+            EXPECT_NEAR(
+                pixel[c],
+                FilmicByte((.96 * .5 / 3.141592653589793 + .05 + .04 / 3.141592653589793 / 4.001 * 4) * (c + 1), .8),
+                1);
+    }
+    TEST_P(RendererReferenceGL, PublishedV6ProductsBindPrefixAndFourDistinctLights)
+    {
+        // Bug: accept old products but misbind prefix offsets, duplicate slots, or classify them as HDR.
+        auto           bytes  = Value(ReadProductFile(fs::path(KANS_TEST_MULTIPASS_DIR) / "lights-prefix-v6.kshd"));
+        const auto     shader = Value(DecodeShaderProduct(bytes.data(), bytes.size()));
+        const auto     id     = Add(AssetType::Shader, std::move(bytes));
+        MaterialSource source;
+        source.Shader       = id;
+        const auto material = Material(source, &shader);
+        const auto model    = Model(QuadData(), material);
+        Ready();
+        for (unsigned attempt = 0;
+             attempt < 1000 && Renderer->GetAssetCache()->GetMaterialBindings(material)->Shader != id;
+             ++attempt)
+        {
+            Renderer->GetAssetCache()->BeginFrame();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        ASSERT_EQ(Renderer->GetAssetCache()->GetMaterialBindings(material)->Shader, id);
+        Info.pointLights = {{{0, 0, 2}, {2, 4, 6}, {1, 1, 1}, {99, 99, 99}},
+                            {{0, 0, 3}, {1, 2, 3}, {1, 1, 1}, {88, 88, 88}}};
+        for (float exposure : {.1f, 4.0f})
+        {
+            Info.sceneCamera.camera.SetExposure(exposure);
+            RenderProbe(model);
+            EXPECT_EQ(Centre(), (std::array<uint8_t, 4> {48, 96, 143, 255}));
+        }
+    }
+    TEST_P(RendererReferenceGL, DisplayMaterialsAndBlendsRemainByteExactAcrossHdrTransitions)
+    {
+        // Bug: tone map display pixels twice, transform custom output, reorder blends,
+        // or damage untouched pixels during the inverse -> binary16 -> forward conversion.
+        Info.sceneCamera.camera = Camera(glm::ortho(-1.f, 1.f, -1.f, 1.f, .1f, 20.f));
+        const auto display      = Probe(
+            "float "
+            "b=mod(floor(gl_FragCoord.x)+128*mod(floor(gl_FragCoord.y),2),256);o_Color=vec4(b/255,(255-b)/255,0.5,1);",
+            ShaderOutputSpace::Display);
+        const auto blend =
+            Probe("o_Color=vec4(0.17,0.73,0.31,0.35);", ShaderOutputSpace::Display, MaterialAlphaMode::Blend);
+        const auto hdr    = Probe("o_Color=vec4(4,2,1,1);", ShaderOutputSpace::LinearHDR);
+        auto       render = [&](bool mixed, bool blended) {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(display, glm::mat4(1));
+            if (mixed)
+                Renderer->SubmitModel(hdr, glm::translate(glm::mat4(1), glm::vec3(4, 0, 0)));
+            if (blended)
+                Renderer->SubmitModel(blend, glm::translate(glm::mat4(1), glm::vec3(0, 0, .1f)));
+            Renderer->EndScene();
+            return Read(Renderer->GetRenderTarget().Colors[0].Target);
+        };
+        for (float exposure : {.001f, .1f, .8f, 4.f, 100.f})
+        {
+            Info.sceneCamera.camera.SetExposure(exposure);
+            for (bool blended : {false, true})
+            {
+                const auto direct = render(false, blended);
+                const auto mixed  = render(true, blended);
+                EXPECT_EQ(direct.Pixels, mixed.Pixels) << exposure << " blended=" << blended;
+                if (!blended)
+                    for (unsigned y = 0; y < Size; ++y)
+                        for (unsigned x = 0; x < Size; ++x)
+                        {
+                            const unsigned nativeY = Renderer->GetDevice()->GetCoordinateConventions().Origin ==
+                                                             RenderHardware::FramebufferOrigin::LowerLeft ?
+                                                         Size - 1 - y :
+                                                         y;
+                            const unsigned b       = x + 128 * (nativeY % 2);
+                            const auto     i       = (y * Size + x) * 4;
+                            EXPECT_EQ(direct.Pixels[i], b);
+                            EXPECT_EQ(direct.Pixels[i + 1], 255 - b);
+                            EXPECT_EQ(direct.Pixels[i + 2], 128);
+                            EXPECT_EQ(direct.Pixels[i + 3], 255);
+                        }
+            }
+        }
+    }
+    TEST_P(RendererReferenceGL, DebugViewsBypassExposureAndPostPassExactly)
+    {
+        // Bug: normal/base/wireframe views enter HDR or are tone mapped by the final pass.
+        for (auto mode : {SceneViewMode::BaseColor, SceneViewMode::Normals, SceneViewMode::Wireframe})
+        {
+            Renderer->SetViewMode(mode);
+            Info.sceneCamera.camera.SetExposure(.1f);
+            TexturedScene();
+            const auto low = Read(Renderer->GetRenderTarget().Colors[0].Target);
+            Info.sceneCamera.camera.SetExposure(4);
+            TexturedScene();
+            EXPECT_EQ(low.Pixels, Read(Renderer->GetRenderTarget().Colors[0].Target).Pixels);
+            for (auto pass : Renderer->GetRenderGraph().ExecutionOrder())
+                EXPECT_NE(Renderer->GetRenderGraph().PassName(pass), "Tone mapping (ACES fitted + sRGB)");
+        }
+    }
+    TEST_P(RendererReferenceGL, PreviewUsesSceneHdrCurveAndExplicitExposure)
+    {
+        // Bug: thumbnails use the old LDR material path or preview cache loses output-space metadata.
+        const auto              hdr = Probe("o_Color=vec4(4,0.5,0.125,1);", ShaderOutputSpace::LinearHDR);
+        MaterialPreviewRenderer preview(*Renderer);
+        MaterialPreviewOptions  options;
+        options.Size  = {Size, Size};
+        options.Shape = MaterialPreviewShape::Plane;
+        for (float exposure : {.25f, .8f, 2.f})
+        {
+            options.Exposure = exposure;
+            auto thumbnail   = preview.RenderThumbnail(Materials.back(), options);
+            ASSERT_TRUE(thumbnail);
+            const auto i = (Size / 2 * Size + Size / 2) * 4;
+            for (unsigned c = 0; c < 3; ++c)
+                EXPECT_NEAR(thumbnail->Pixels[i + c], FilmicByte(std::array<double, 3> {4, .5, .125}[c], exposure), 1);
+        }
+        const auto display = Probe("o_Color=vec4(0.25,0.5,0.75,1);", ShaderOutputSpace::Display);
+        options.Exposure   = 4;
+        auto thumbnail     = preview.RenderThumbnail(Materials.back(), options);
+        ASSERT_TRUE(thumbnail);
+        const auto i = (Size / 2 * Size + Size / 2) * 4;
+        EXPECT_EQ(thumbnail->Pixels[i], 64);
+        EXPECT_EQ(thumbnail->Pixels[i + 1], 128);
+        EXPECT_EQ(thumbnail->Pixels[i + 2], 191);
+    }
+    TEST_P(RendererReferenceGL, PreviewCacheTracksOutputSpaceEvenWithIdenticalBytecode)
+    {
+        // Bug: unsaved preview cache compares only shader bytecode and ignores output-space metadata.
+        Probe("o_Color=vec4(0.25,0.5,0.75,1);", ShaderOutputSpace::Display);
+        auto materialAsset = Assets->Request<MaterialDataAsset>(Materials.back()).Asset;
+        ASSERT_TRUE(materialAsset);
+        auto shaderAsset = Assets->Request<ShaderDataAsset>(materialAsset->GetData().Shader).Asset;
+        ASSERT_TRUE(shaderAsset);
+        auto                    source = shaderAsset->GetData();
+        MaterialPreviewRenderer preview(*Renderer);
+        MaterialPreviewOptions  options;
+        options.Size  = {Size, Size};
+        options.Shape = MaterialPreviewShape::Plane;
+        for (auto space : {ShaderOutputSpace::Display, ShaderOutputSpace::LinearHDR, ShaderOutputSpace::Display})
+        {
+            source.OutputSpace = space;
+            const auto image   = preview.RenderImage(materialAsset->GetData(), &source, options);
+            ASSERT_TRUE(image.Target);
+            ASSERT_TRUE(image.Complete);
+            const auto pixels = Read(image.Target).Pixels;
+            const auto i      = (Size / 2 * Size + Size / 2) * 4;
+            for (unsigned c = 0; c < 3; ++c)
+            {
+                const double linear = (c + 1) * .25;
+                const int    expected =
+                    space == ShaderOutputSpace::Display ? int(std::lround(linear * 255)) : FilmicByte(linear, .8);
+                EXPECT_NEAR(pixels[i + c], expected, space == ShaderOutputSpace::Display ? 0 : 1);
+            }
+        }
+    }
+    TEST_P(RendererReferenceGL, FullRuntimeFrameIsByteIdenticalToPhaseTwoD)
+    {
+        // Deliberately captured phase-2d baseline (ACES fitted, diffuse radiance, distinct lights). All attachment
+        // bytes detect moving sprites/grid/sky after materials, shell state, or outline order.
         Renderer2D::Init();
         SpriteInitialized                                  = true;
         auto camera                                        = Logic->CreateEntity("frame camera");
@@ -635,15 +1067,15 @@ namespace
             dump.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
             std::vector<std::byte> digestBytes(bytes.size());
             std::memcpy(digestBytes.data(), bytes.data(), bytes.size());
-            const char* expected[] = {"527d5095838ce92fa68ccd0d17a8f019c9e7c6140027255d8d72bd5f9eb04540",
+            const char* expected[] = {"3b60ff2f4b8a27b07ba6f82c2be76ea45f000af0e72a8d3491c9a9079a9643cd",
                                       "d1b4803bb70e5b8e4a1b68ed184ddfd2a8fe31cba2a72561c6870b0da2feb6db",
                                       "62d92c7f002105fa75ac102c333e394e9b3706a8c5ad7a9da310d49680544988"};
             // Preserve an exact byte oracle on each backend. Conversion of the
             // projection's depth range changes D24 rounding by -4..+3 LSBs; one
-            // Bresenham debug-line boundary pixel and 654 <=2-byte color deltas
-            // differ too. Color-1, alpha, and every stencil byte are identical.
+            // Bresenham debug-line boundary pixel and filtered material samples
+            // differ too. Color-1 and stencil are preserved by the HDR resolve.
             // Canonical row order is handled above, not folded into these hashes.
-            const char* vulkanExpected[] = {"f8796550dcfde8869df5baa8fad84520050af22cfc3ae7f25d02ccc909a96d40",
+            const char* vulkanExpected[] = {"44727924897d5193e0820f9bda06ac0caa0f224adaff83a71eda0e418d2456c7",
                                             "d1b4803bb70e5b8e4a1b68ed184ddfd2a8fe31cba2a72561c6870b0da2feb6db",
                                             "9a31a96d79d6b7dba14d006d111a6780e4aae7257f2b992437d0ef93e570fc28"};
             EXPECT_EQ(ComputeContentDigest(digestBytes),
@@ -660,6 +1092,7 @@ namespace
                                              "Grid",
                                              "Skybox",
                                              "Materials (opaque/mask, blend)",
+                                             "Tone mapping (ACES fitted + sRGB)",
                                              "Legacy geometry",
                                              "Selection mask",
                                              "Selection composite",
@@ -772,6 +1205,7 @@ namespace
                                              "Feature Immediate",
                                              "Feature BeforeOpaque",
                                              "Materials (opaque/mask, blend)",
+                                             "Tone mapping (ACES fitted + sRGB)",
                                              "Legacy geometry",
                                              "Feature AfterTransparent",
                                              "Feature BeforePostProcess",
@@ -800,12 +1234,13 @@ namespace
             Renderer->SubmitModelGeometry(Sphere, glm::mat4(1), "DebugNormalShader");
             Renderer->EndScene();
             EXPECT_EQ(FeaturePassNames(*Renderer),
-                      (std::vector<std::string> {"Clear", "Materials (opaque/mask, blend)"}));
+                      (std::vector<std::string> {
+                          "Clear", "Materials (opaque/mask, blend)", "Tone mapping (ACES fitted + sRGB)"}));
             EXPECT_EQ(Renderer->GetRenderView().Draws.size(), 1u);
             EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
             EXPECT_EQ(Renderer->GetStats().Triangles, 1024u);
             ASSERT_EQ(Renderer->GetRenderGraph().Resources().size(),
-                      9u); // Three targets, three IBL images, albedo/normal/shared white.
+                      10u); // Display/depth targets + HDR, three IBL images, albedo/normal/shared white.
             for (const auto& resource : Renderer->GetRenderGraph().Resources())
                 EXPECT_TRUE(resource.Imported);
         }
@@ -823,6 +1258,7 @@ namespace
                   (std::vector<std::string> {"Clear",
                                              "Grid",
                                              "Materials (opaque/mask, blend)",
+                                             "Tone mapping (ACES fitted + sRGB)",
                                              "Legacy geometry",
                                              "Selection mask",
                                              "Selection composite",

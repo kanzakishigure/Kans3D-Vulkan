@@ -4,6 +4,7 @@
 #include "Graph/RenderGraph.h"
 #include "RenderFeature.h"
 #include "RenderView.h"
+#include "Resource/ToneMappingPass.h"
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
@@ -92,6 +93,7 @@ namespace Kans
         void SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state = {});
 
         RenderHardware::RenderingDesc GetRenderTarget() const { return SceneTarget(RenderHardware::LoadOp::Load); }
+        const RenderHardware::Handle<RenderHardware::Texture>&         GetHDRTarget() const { return m_HDRColor; }
         uintptr_t              GetOutput(uint32_t index) const;
         std::shared_ptr<RenderHardware::Device>                        GetDevice() const { return m_Device; }
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> GetMaterialEnvironment();
@@ -116,9 +118,10 @@ namespace Kans
         bool HasMaterialPass(const RenderView& view, const std::string& tag);
         void DrawShaderMaterials(
             RenderHardware::CommandList&                                                       commands,
-            const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled = {},
-            const std::string&                                                                 tag     = {},
-            const RenderView*                                                                  view    = nullptr);
+            const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled   = {},
+            const std::string&                                                                 tag       = {},
+            const RenderView*                                                                  view      = nullptr,
+            RenderHardware::Handle<RenderHardware::CommandList>*                               finalPost = nullptr);
         void                 DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commands);
         void                 DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commands);
         void                 DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
@@ -144,14 +147,15 @@ namespace Kans
         uint32_t         m_ViewportWidth = 0, m_ViewportHeight = 0;
         std::shared_ptr<RenderHardware::Device>                      m_Device;
         std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Colors;
-        RenderHardware::Handle<RenderHardware::Texture>              m_Depth;
+        RenderHardware::Handle<RenderHardware::Texture>                m_Depth, m_HDRColor;
+        ToneMappingPass                                                m_ToneMapping;
         RenderHardware::Handle<RenderHardware::Sampler>              m_IBLSampler;
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> m_BlackEnvironment;
         std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Shader>> m_InternalPrograms;
         std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Pipeline>> m_InternalPipelines;
         std::optional<GpuMesh>                                                          m_Cube;
         void                          ResizeTarget();
-        RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load) const;
+        RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load, bool hdr = false) const;
 
         Environment             m_Environment;
         RenderHardware::Handle<RenderHardware::Texture> m_SkyBox;

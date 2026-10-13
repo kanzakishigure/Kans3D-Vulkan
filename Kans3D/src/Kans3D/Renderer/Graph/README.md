@@ -309,3 +309,113 @@ image, independent of editor UI export. All scene, material-pass and feature
 assertions run on both backends; all twelve original reference PNGs are preserved.
 See the [backend design and measured validation](../../RHI/Vulkan/README.md#phase-3b-graphics-and-renderer)
 and [test change audit](../../../../../test/README.md#phase-3b-test-change-audit).
+
+## Phase 2d: lighting and ordered HDR/display rendering
+
+The scene working image `SceneHDR` is RGBA16F. `SceneColor0` remains the RGBA8
+output returned by GetOutput(0), GetRenderTarget and ImGui; SceneColor1 and D24S8
+retain their old formats and roles. Picking remains independent of colour.
+
+Forward owns the mandatory fullscreen **ACES fitted (Narkowicz) + IEC sRGB**
+resolve, with exposure applied as a linear radiance multiplier before the curve.
+It is a pipeline pass, rather than an optional editor RenderFeature. Consecutive
+HDR materials share a working image and blend in linear HDR. Consecutive display
+materials draw directly to the RGBA8 output, preserving their original byte
+quantization and blend operations. Switching from display to HDR prefills the
+working image with the exact algebraic inverse of the final curve and sRGB
+transfer. Switching back resolves the HDR batch before drawing display materials.
+The final HDR batch uses a separate recorded graph pass `Tone mapping (ACES
+fitted + sRGB)`. Intermediate switches record the same fullscreen passes in the
+material command list; both working/output image accesses are declared as
+read/write attachments, and the final resolve declares its HDR sampled read.
+RHI command tracking handles the internal sampling/attachment transitions.
+
+This policy preserves the existing shared opaque/mask submission order and
+back-to-front transparent order, even when output spaces interleave. Display
+output bytecode is never rewritten or evaluated through another curve. Display
+backgrounds cross an inverse/half-float/forward round trip only at HDR boundaries;
+all 256 channel codes, mixed display blends, and exposures .001/.1/.8/4/100 are
+checked for exact byte identity on each backend. The inverse is a compatibility
+bridge for the already-composited display background, not an inverse applied to
+custom material output. Mixed HDR/display blending uses that background's
+virtual radiance; pure HDR batches retain values above one until their resolve.
+The cost is two fullscreen conversions per HDR batch when custom shaders
+interleave with it; all-Standard scenes use one prefill and one final resolve.
+
+Resolve occurs before display geometry shells/material outline features at
+AfterTransparent. BeforePostProcess features receive resolved viewport colour,
+and Overlay selection/preview composites run afterward. Grid, sprite and skybox
+submissions stay in their original immediate order on RGBA8, with their original
+depth and alpha states; prefill preserves their bytes and later geometry retains
+its original occlusion relationship. Selection/preview masks and composites also
+retain their original code and space. Normals and base-colour debug views draw
+directly to RGBA8. Wireframe deliberately retains its phase-one diagnostic
+lighting (four legacy ambient contributions and Reinhard encode), independent of
+the corrected lit rendering and camera exposure. It is never tone-mapped again.
+
+MaterialPreviewRenderer and RenderThumbnail use the same RGBA16F working target,
+ToneMappingPass, exposure and output-space policy. The checker is display colour
+and prefills the HDR image before the material draw. Preview lighting is a single
+explicit point light with diffuse radiance 40 and specular multiplier 1.
+Legacy preview LightDiffuse[0] remains its unit NPR factor, preserving published
+display shaders; the new PBR radiance is the explicit authoring light value 40.
+MaterialPreviewOptions::Exposure defaults to .8 and lets editor callers match
+scene exposure. Shader preview cache identity includes output-space metadata.
+
+Point lights are collected in world space, sorted by squared camera distance,
+then persistent entity UUID; the nearest 16 are uploaded. Nonfinite distances
+sort last. The singular SceneInfo::pointLight remains a compatibility snapshot of
+the first selected light, and direct legacy BeginScene callers can supply it.
+Multiple directional components select the lowest UUID deterministically. PBR
+uses Diffuse_Intensity as RGB radiance, inverse-square attenuation for points,
+and Specular_Intensity as an RGB multiplier of the direct GGX specular lobe.
+This separates diffuse and specular artistic controls cleanly, while preserving
+the Fresnel energy split and leaving IBL independent. Directional ambient is
+unattenuated albedo illumination multiplied by AO. Unused point slots are zero,
+and new PBR loops stop at the uploaded count.
+
+The std140 KansFrame prefix and offsets are unchanged:
+
+| Member | Offset | Bytes |
+| --- | ---: | ---: |
+| ViewProjection | 0 | 64 |
+| CameraPosition | 64 | 16 |
+| LightPositions[4] | 80 | 64 |
+| LightColors[4] (diffuse radiance) | 144 | 64 |
+| LightDiffuse[4] | 208 | 64 |
+| Time / DebugView / old padding | 272 / 276 / 280 | 4 / 4 / 8 |
+| PointPositions[16] | 288 | 256 |
+| PointRadiance[16] | 544 | 256 |
+| PointSpecular[16] | 800 | 256 |
+| DirectionalDirection (w: present) | 1056 | 16 |
+| DirectionalRadiance | 1072 | 16 |
+| DirectionalSpecular | 1088 | 16 |
+| DirectionalAmbient | 1104 | 16 |
+| LightingInfo (x: count, y: exposure) | 1120 | 16 |
+
+Total: 1136 bytes. Existing six/seven-member frame products still validate; new
+products require the full matching layout. Set 0/binding 0 binds the larger
+uniform range, so old SPIR-V reads its unchanged prefix and ignores the tail.
+Old four-light loops see four distinct selected lights with zero unused radiance.
+
+Editor wiring uses the inherited Camera::SetExposure(float), const GetExposure()
+and mutable GetExposure() on EditorCamera and
+CameraComponent::SceneCamera. Scene rendering copies that camera value into
+KansFrame and passes it to the resolve; there is no editor UI change. The resolve
+uses an effective range .001–128 (nonfinite values use .8), keeping the display
+background inverse representable with sufficient binary16 precision. Exposure
+is a multiplier, not EV; an EV slider can pass pow(2, EV). Thumbnail callers wire
+MaterialPreviewOptions::Exposure to the same camera value. Scene camera exposure
+is persisted as an optional CameraComponent Exposure field; older scenes retain
+the Camera default of .8.
+
+
+New light components have defined defaults: point/directional diffuse and
+specular intensities are RGB 1, ambient is RGB 0, and directional light travel is
+(0,-1,0). Point ambient remains a legacy authoring field; corrected PBR direct
+radiance comes only from diffuse intensity. The wireframe compatibility branch
+is the sole deliberate retention of the old diagnostic lighting behavior.
+
+Regression coverage and reference provenance are recorded in `test/README.md`
+and `test/references/README.md`. The published v6 fixture is an actual pre-change
+codec product, not a modified new product; see `test/data/multipass/README.md`.

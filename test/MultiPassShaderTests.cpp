@@ -24,7 +24,7 @@ namespace
         auto        encoded = EncodeShaderProduct(data.Code, data.ParameterDefaults, {}, {}, {}, data.Passes);
         ASSERT_TRUE(std::holds_alternative<std::vector<std::byte>>(encoded));
         const auto& bytes = std::get<std::vector<std::byte>>(encoded);
-        EXPECT_EQ(bytes[4], std::byte {6});
+        EXPECT_EQ(bytes[4], std::byte {7});
         auto decoded = DecodeShaderProduct(bytes.data(), bytes.size());
         ASSERT_TRUE(std::holds_alternative<ShaderData>(decoded));
         const auto& shader = std::get<ShaderData>(decoded);
@@ -169,7 +169,9 @@ namespace
         }
         auto legacy = MultiPassSources();
         auto engine = *FindEngineShaderInclude("Kans3D/Engine.glsl");
-        engine.erase(engine.find("    float DebugView;"), std::strlen("    float DebugView;\n"));
+        const auto tail   = engine.find("    float DebugView;");
+        const auto object = engine.find("layout(set = 0, binding = 1");
+        engine.replace(tail, object - tail, "} u_Frame;\n");
         auto& legacyVertex = legacy["Hull.vert"];
         legacyVertex.replace(
             legacyVertex.find("#include <Kans3D/Engine.glsl>"), std::strlen("#include <Kans3D/Engine.glsl>"), engine);
@@ -230,7 +232,7 @@ namespace
         auto bytes  = std::get<std::vector<std::byte>>(EncodeShaderProduct(shader.Code, {}, {}, {}, {}, shader.Passes));
         // Locate the appended record via a separately encoded main-only product, not magic byte scanning.
         const auto main        = std::get<std::vector<std::byte>>(EncodeShaderProduct(shader.Code));
-        const auto stateOffset = main.size() + 4 + 4 + 4 + 7; // length+Hull, length+Outline
+        const auto stateOffset = main.size() - 4 + 4 + 4 + 4 + 7; // length+Hull, length+Outline
         ASSERT_LT(stateOffset + 44, bytes.size());
         for (size_t length = main.size() - 1; length < bytes.size(); ++length)
             EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeShaderProduct(bytes.data(), length))) << length;
@@ -249,13 +251,14 @@ namespace
             vertex.find("#include \"Parameters.glsl\""), std::strlen("#include \"Parameters.glsl\""), badSource);
         auto badCode = CompileTestMaterialShader(vertex, MultiPassSources()["Hull.frag"]);
         auto bad     = std::get<std::vector<std::byte>>(EncodeShaderProduct(badCode));
-        bad.resize(bad.size() - 4);
+        bad.resize(bad.size() - 8);
         bad[4] = std::byte {5};
         bytes.resize(stateOffset + 40);
         const auto length = uint32_t(bad.size());
         for (unsigned i = 0; i < 4; ++i)
             bytes.push_back(std::byte((length >> (8 * i)) & 255));
         bytes.insert(bytes.end(), bad.begin(), bad.end());
+        bytes.insert(bytes.end(), 4, std::byte {0}); // v7 output-space field.
         auto decoded = DecodeShaderProduct(bytes.data(), bytes.size());
         ASSERT_TRUE(std::holds_alternative<AssetError>(decoded));
         EXPECT_NE(std::get<AssetError>(decoded).Message.find("subset"), std::string::npos);

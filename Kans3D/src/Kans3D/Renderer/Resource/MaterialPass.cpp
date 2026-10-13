@@ -14,10 +14,12 @@ namespace Kans
         using namespace RenderHardware;
         auto       device      = cache.GetDevice();
         const bool transparent = data.Render.AlphaMode == MaterialAlphaMode::Blend;
-        // Both clients use RGBA8 and D24S8. The attachment count differentiates scene/preview.
-        const uint32_t key      = uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
-                                  (uint32_t(data.Wireframe) << 2) | (uint32_t(data.WriteStencil) << 3) |
-                                  (uint32_t(data.ColorFormats.size()) << 8);
+        // Include attachment formats as well as count: display and HDR share a shader cache.
+        uint32_t key = uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
+                       (uint32_t(data.Wireframe) << 2) | (uint32_t(data.WriteStencil) << 3) |
+                       (uint32_t(data.ColorFormats.size()) << 8);
+        for (size_t i = 0; i < data.ColorFormats.size(); ++i)
+            key |= uint32_t(data.ColorFormats[i]) << (12 + i * 6);
         auto& pipeline = extraPass ? extraPass->Pipelines[key] : shader.Pipelines[key];
         if (!pipeline)
         {

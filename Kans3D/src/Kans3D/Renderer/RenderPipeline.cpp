@@ -133,12 +133,23 @@ namespace Kans
             // Material groups resolve asynchronous textures while recording. Record once now,
             // declare the exact retained images, then let graph execution submit the immutable list.
             // This keeps the existing per-draw allocation count and avoids resolving groups twice.
+            const auto hdr = graph.ImportTexture("SceneHDR", renderer.m_HDRColor);
+            uses.push_back({hdr, GraphAccess::ColorReadWrite});
             auto commands = renderer.m_Device->CreateCommandList();
-            renderer.DrawShaderMaterials(*commands,
-                                         [&](const auto& image) { sampled(uses, image, "MaterialTexture"); });
+            Handle<CommandList> post;
+            renderer.DrawShaderMaterials(
+                *commands, [&](const auto& image) { sampled(uses, image, "MaterialTexture"); }, {}, nullptr, &post);
             auto pass = graph.AddRecordedPass("Materials (opaque/mask, blend)", std::move(uses), commands);
             if (pass)
                 graph.OrderAfter(pass, pass - 1);
+            if (post)
+            {
+                auto postUses = target;
+                postUses.pop_back(); // Fullscreen conversion does not access depth/stencil.
+                postUses.push_back({hdr, GraphAccess::SampledRead});
+                auto resolve = graph.AddRecordedPass("Tone mapping (ACES fitted + sRGB)", std::move(postUses), post);
+                graph.OrderAfter(resolve, resolve - 1);
+            }
         }
         Inject(RenderExtensionPoint::AfterTransparent, featureContext);
         Inject(RenderExtensionPoint::BeforePostProcess, featureContext);

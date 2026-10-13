@@ -90,7 +90,8 @@ void main() {
         }
         bool SameShader(const ShaderData& a, const ShaderData& b)
         {
-            if (a.TextureFallbacks != b.TextureFallbacks || a.Code.Modules.size() != b.Code.Modules.size())
+            if (a.OutputSpace != b.OutputSpace || a.TextureFallbacks != b.TextureFallbacks ||
+                a.Code.Modules.size() != b.Code.Modules.size())
                 return false;
             for (size_t i = 0; i < a.Code.Modules.size(); ++i)
             {
@@ -121,6 +122,8 @@ void main() {
         desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
                            RenderHardware::TextureUsage::CopySource;
         m_Color          = m_Device->CreateTexture(desc);
+        desc.PixelFormat = Format::RGBA16Float;
+        m_HDRColor       = m_Device->CreateTexture(desc);
         desc.PixelFormat = Format::Depth24Stencil8;
         desc.Usage       = RenderHardware::TextureUsage::DepthStencil;
         m_Depth          = m_Device->CreateTexture(desc);
@@ -271,6 +274,14 @@ void main() {
         checkerData->Write(0, &background, sizeof(background));
         commands->BindGroup(m_Device->CreateBindGroup({m_Checker->GetDesc().GroupLayouts[0], {{0, checkerData}}}));
         commands->Draw(3);
+        commands->EndRendering();
+        const bool hdr = shader.OutputSpace == ShaderOutputSpace::LinearHDR;
+        if (hdr)
+            m_ToneMapping.Record(*m_Device, *commands, m_Color, {m_HDRColor}, options.Exposure, true);
+        target.Colors[0].Target = hdr ? m_HDRColor : m_Color;
+        target.Colors[0].Load   = LoadOp::Load;
+        target.Depth.Load       = LoadOp::Load;
+        commands->BeginRendering(target);
         EngineFrameUniforms frame;
         frame.CameraPosition = {0, 0, 3.5f, 1};
         frame.ViewProjection =
@@ -279,6 +290,10 @@ void main() {
         frame.LightPositions[0] = {-3, 4, 5, 1};
         frame.LightColors[0]    = {40, 40, 40, 1};
         frame.LightDiffuse[0]   = {1, 1, 1, 1};
+        frame.PointPositions[0] = frame.LightPositions[0];
+        frame.PointRadiance[0]  = frame.LightColors[0];
+        frame.PointSpecular[0]  = {1, 1, 1, 0};
+        frame.LightingInfo      = {1, options.Exposure, 0, 0};
         frame.Time              = m_Scene.GetElapsedTime();
         frame.ViewProjection    = DeviceProjection(frame.ViewProjection, coordinates);
         auto frameBuffer        = m_Device->CreateBuffer({sizeof(frame), BufferUsage::Uniform, MemoryUsage::Upload});
@@ -299,8 +314,11 @@ void main() {
         pass.Environment        = m_Scene.GetMaterialEnvironment();
         pass.EnvironmentSampler = m_Scene.GetMaterialEnvironmentSampler();
         pass.Render             = bindings.Render;
+        pass.ColorFormats       = {hdr ? Format::RGBA16Float : Format::RGBA8Unorm};
         complete &= RecordMaterialDraw(*m_Scene.GetAssetCache(), *commands, shader, bindings, *m_Shapes[shape], pass);
         commands->EndRendering();
+        if (hdr)
+            m_ToneMapping.Record(*m_Device, *commands, m_HDRColor, {m_Color}, options.Exposure);
         m_Device->Submit(commands);
         return {m_Color, complete};
     }

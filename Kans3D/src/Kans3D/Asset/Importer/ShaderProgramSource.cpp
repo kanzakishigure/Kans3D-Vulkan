@@ -8,6 +8,30 @@
 
 namespace Kans
 {
+    std::variant<ShaderOutputSpace, AssetError> ParseShaderOutputSpace(const std::string& text)
+    {
+        ShaderOutputSpace  result = ShaderOutputSpace::Display;
+        bool               found = false, inPass = false;
+        std::istringstream lines(text);
+        std::string        line;
+        while (std::getline(lines, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.rfind("pass ", 0) == 0)
+                inPass = true;
+            if (line == "endpass")
+                inPass = false;
+            if (line.rfind("output_space=", 0) != 0)
+                continue;
+            const auto value = line.substr(13);
+            if (found || inPass || (value != "display" && value != "linear_hdr"))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate Shader output_space"};
+            found  = true;
+            result = value == "linear_hdr" ? ShaderOutputSpace::LinearHDR : ShaderOutputSpace::Display;
+        }
+        return result;
+    }
     std::variant<std::vector<ShaderStageSource>, AssetError> ParseShaderProgramSource(const std::string& text)
     {
         if (text.empty() || text.size() > 65536 || text.find('\0') != std::string::npos)
@@ -23,6 +47,9 @@ namespace Kans
         };
         if (!next() || line != "KansShaderProgram 1")
             return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Shader program header"};
+        auto outputSpace = ParseShaderOutputSpace(text);
+        if (auto* error = std::get_if<AssetError>(&outputSpace))
+            return *error;
         auto passes = ParseShaderProgramPasses(text);
         if (auto* error = std::get_if<AssetError>(&passes))
             return *error;
@@ -44,7 +71,7 @@ namespace Kans
             if (inPass)
                 continue;
             if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0 || line.rfind("hint ", 0) == 0 ||
-                line.rfind("texture ", 0) == 0 || line.rfind("group ", 0) == 0)
+                line.rfind("texture ", 0) == 0 || line.rfind("group ", 0) == 0 || line.rfind("output_space=", 0) == 0)
                 continue;
             const auto split = line.find('=');
             if (split == std::string::npos)

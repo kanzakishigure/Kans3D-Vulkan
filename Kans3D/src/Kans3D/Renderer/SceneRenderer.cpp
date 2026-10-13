@@ -165,25 +165,20 @@ namespace Kans
         RenderHardware::CommandList&                                                       commandList,
         const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled,
         const std::string&                                                                 tag,
-        const RenderView*                                                                  suppliedView)
+        const RenderView*                                                                  suppliedView,
+        RenderHardware::Handle<RenderHardware::CommandList>*                               finalPost)
     {
         const auto& view = suppliedView ? *suppliedView : m_View;
         if (!m_AssetCache || view.MaterialOrder.empty())
             return;
         const auto&         ready    = view.MaterialOrder;
         auto*               commands = &commandList;
-        EngineFrameUniforms frame;
+        EngineFrameUniforms frame    = MakeLightingUniforms(m_SceneInfo);
         frame.ViewProjection =
             m_SceneInfo.sceneCamera.camera.GetProjectionMatrix() * m_SceneInfo.sceneCamera.viewMatrix;
         const auto coordinates = m_Device->GetCoordinateConventions();
         frame.ViewProjection   = DeviceProjection(frame.ViewProjection, coordinates);
         frame.CameraPosition = glm::vec4(m_SceneInfo.sceneCamera.Position, 1.0f);
-        for (uint32_t i = 0; i < EngineLightCount; ++i)
-        {
-            frame.LightPositions[i] = glm::vec4(m_SceneInfo.pointLight.Position, 1.0f);
-            frame.LightColors[i]    = glm::vec4(m_SceneInfo.pointLight.Ambient_Intensity, 1.0f);
-            frame.LightDiffuse[i]   = glm::vec4(m_SceneInfo.pointLight.Diffuse_Intensity, 1.0f);
-        }
         frame.Time = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
         using namespace RenderHardware;
         const size_t alignment   = m_Device->GetBufferBindingAlignment(BindingType::UniformBuffer);
@@ -194,12 +189,29 @@ namespace Kans
             return;
         auto frames  = m_Device->CreateBuffer({frameStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
         auto objects = m_Device->CreateBuffer({objectStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
-        commands->BeginRendering(SceneTarget(LoadOp::Load));
-        commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight), 0, 1});
-        commands->SetScissor({0, 0, m_ViewportWidth, m_ViewportHeight});
+        bool rendering = false, hdr = false;
+        auto resolve = [&](RenderHardware::CommandList& output) {
+            m_ToneMapping.Record(*m_Device, output, m_HDRColor, m_Colors, frame.LightingInfo.y);
+        };
+        auto beginTarget = [&](bool nextHDR) {
+            if (rendering && nextHDR == hdr)
+                return;
+            if (rendering)
+                commands->EndRendering();
+            if (hdr)
+                resolve(*commands);
+            if (nextHDR)
+                m_ToneMapping.Record(*m_Device, *commands, m_Colors[0], {m_HDRColor}, frame.LightingInfo.y, true);
+            hdr = nextHDR;
+            commands->BeginRendering(SceneTarget(LoadOp::Load, hdr));
+            commands->SetViewport({0, 0, float(m_ViewportWidth), float(m_ViewportHeight), 0, 1});
+            commands->SetScissor({0, 0, m_ViewportWidth, m_ViewportHeight});
+            rendering = true;
+        };
         const auto           environment = GetMaterialEnvironment();
         size_t               range = 0, frameRange = 0;
         std::optional<float> uploadedDebugView;
+        const auto           litFrame = frame;
         for (const auto& item : ready)
         {
             const auto& draw = view.Draws[item.DrawIndex];
@@ -217,9 +229,23 @@ namespace Kans
                 })))
                 continue;
             const auto&    render      = item.Render;
-            frame.DebugView = draw.ViewMode == SceneViewMode::BaseColor ? 1.0f :
-                              draw.ViewMode == SceneViewMode::Normals   ? 2.0f :
-                                                                          0.0f;
+            frame                      = litFrame;
+            frame.DebugView            = draw.ViewMode == SceneViewMode::BaseColor ? 1.0f :
+                                         draw.ViewMode == SceneViewMode::Normals   ? 2.0f :
+                                         draw.ViewMode == SceneViewMode::Wireframe ? 3.0f :
+                                                                                     0.0f;
+            if (draw.ViewMode == SceneViewMode::Wireframe)
+            {
+                // The wireframe diagnostic intentionally retains its phase-one appearance.
+                frame.LightingInfo.x = EngineLightCount;
+                for (uint32_t i = 0; i < EngineLightCount; ++i)
+                {
+                    frame.PointPositions[i] = glm::vec4(m_SceneInfo.pointLight.Position, 1);
+                    frame.PointRadiance[i]  = glm::vec4(m_SceneInfo.pointLight.Ambient_Intensity, 0);
+                    frame.PointSpecular[i]  = glm::vec4(1);
+                }
+                frame.DirectionalDirection = frame.DirectionalAmbient = glm::vec4(0);
+            }
             if (!uploadedDebugView || *uploadedDebugView != frame.DebugView)
             {
                 if (uploadedDebugView)
@@ -239,7 +265,11 @@ namespace Kans
             pass.ObjectOffset       = range * objectStride;
             pass.Environment        = environment;
             pass.EnvironmentSampler = m_IBLSampler;
-            pass.ColorFormats       = {Format::RGBA8Unorm, Format::RGBA8Unorm};
+            // Debug views, including wireframe's lit shading, retain display output.
+            const bool nextHDR =
+                shader->OutputSpace == ShaderOutputSpace::LinearHDR && draw.ViewMode == SceneViewMode::Lit;
+            beginTarget(nextHDR);
+            pass.ColorFormats       = {nextHDR ? Format::RGBA16Float : Format::RGBA8Unorm, Format::RGBA8Unorm};
             pass.Wireframe          = draw.ViewMode == SceneViewMode::Wireframe;
             pass.WriteStencil       = draw.Stencil == ModelStencilMode::WriteReference;
             pass.Render             = render;
@@ -263,7 +293,18 @@ namespace Kans
             }
             ++range;
         }
-        commands->EndRendering();
+        if (rendering)
+            commands->EndRendering();
+        if (hdr)
+        {
+            if (finalPost)
+            {
+                *finalPost = m_Device->CreateCommandList();
+                resolve(**finalPost);
+            }
+            else
+                resolve(*commands);
+        }
     }
 
     std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> SceneRenderer::GetMaterialEnvironment()
@@ -434,11 +475,13 @@ namespace Kans
         ResizeTarget();
     }
 
-    RenderHardware::RenderingDesc SceneRenderer::SceneTarget(RenderHardware::LoadOp load) const
+    RenderHardware::RenderingDesc SceneRenderer::SceneTarget(RenderHardware::LoadOp load, bool hdr) const
     {
         RenderHardware::RenderingDesc desc;
         for (const auto& color : m_Colors)
             desc.Colors.push_back({color, {}, load, RenderHardware::StoreOp::Store, {0.02f, 0.02f, 0.02f, 1}});
+        if (hdr)
+            desc.Colors[0].Target = m_HDRColor;
         desc.Depth.Target = m_Depth;
         desc.Depth.Load   = load;
         return desc;
@@ -454,6 +497,8 @@ namespace Kans
         desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
                            RenderHardware::TextureUsage::CopySource;
         m_Colors         = {m_Device->CreateTexture(desc), m_Device->CreateTexture(desc)};
+        desc.PixelFormat = Format::RGBA16Float;
+        m_HDRColor       = m_Device->CreateTexture(desc);
         desc.PixelFormat = Format::Depth24Stencil8;
         desc.Usage       = RenderHardware::TextureUsage::DepthStencil | RenderHardware::TextureUsage::Sampled |
                            RenderHardware::TextureUsage::CopySource;

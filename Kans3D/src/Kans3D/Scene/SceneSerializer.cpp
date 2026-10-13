@@ -144,9 +144,10 @@ namespace Kans
         }
         void ValidateCamera(SceneCamera& camera)
         {
-            Require(std::isfinite(camera.GetAspectRatio()) && camera.GetAspectRatio() > 0 &&
-                        std::isfinite(camera.GetPerspectiveVerticalFOV()) && camera.GetPerspectiveVerticalFOV() > 0 &&
-                        camera.GetPerspectiveVerticalFOV() < 180 && std::isfinite(camera.GetPerspectiveNearClip()) &&
+            Require(std::isfinite(camera.GetExposure()) && std::isfinite(camera.GetAspectRatio()) &&
+                        camera.GetAspectRatio() > 0 && std::isfinite(camera.GetPerspectiveVerticalFOV()) &&
+                        camera.GetPerspectiveVerticalFOV() > 0 && camera.GetPerspectiveVerticalFOV() < 180 &&
+                        std::isfinite(camera.GetPerspectiveNearClip()) &&
                         std::isfinite(camera.GetPerspectiveFarClip()) && camera.GetPerspectiveNearClip() > 0 &&
                         camera.GetPerspectiveFarClip() > camera.GetPerspectiveNearClip() &&
                         std::isfinite(camera.GetOrthographicSize()) && camera.GetOrthographicSize() > 0 &&
@@ -190,6 +191,7 @@ namespace Kans
                 value["OrthographicNearClip"] = camera.GetOrthographicNearClip();
                 value["OrthographicFarClip"]  = camera.GetOrthographicFarClip();
                 value["AspectRatio"]          = camera.GetAspectRatio();
+                value["Exposure"]             = camera.GetExposure();
                 value["Primary"]              = component.Primary;
                 value["FixedAspectRatio"]     = component.FixedAspectRatio;
             }
@@ -387,6 +389,7 @@ namespace Kans
                           "OrthographicNearClip",
                           "OrthographicFarClip",
                           "AspectRatio",
+                          "Exposure",
                           "Primary",
                           "FixedAspectRatio"});
                     auto type = SceneIndex(value["ProjectionType"]);
@@ -394,6 +397,8 @@ namespace Kans
                     auto& component = entity.AddComponent<CameraComponent>();
                     auto& camera    = component.SceneCamera;
                     camera.SetAspectRatio(Number(value["AspectRatio"]));
+                    if (value["Exposure"])
+                        camera.SetExposure(Number(value["Exposure"]));
                     camera.SetPerspectiveVerticalFOV(Number(value["PerspectiveFOV"]));
                     camera.SetPerspectiveNearClip(Number(value["PerspectiveNearClip"]));
                     camera.SetPerspectiveFarClip(Number(value["PerspectiveFarClip"]));

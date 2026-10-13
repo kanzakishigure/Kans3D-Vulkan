@@ -39,6 +39,21 @@ namespace
     using namespace Kans;
     using namespace std::chrono_literals;
 
+    int AcesSrgbByte(double linear, double exposure = .8)
+    {
+        const double x    = std::max(0.0, linear) * exposure;
+        const double y    = std::clamp(x * (2.51 * x + .03) / (x * (2.43 * x + .59) + .14), 0.0, 1.0);
+        const double srgb = y <= .0031308 ? 12.92 * y : 1.055 * std::pow(y, 1.0 / 2.4) - .055;
+        return int(std::lround(srgb * 255));
+    }
+    double DisplayByteRadiance(uint8_t byte, double exposure = .8)
+    {
+        const double encoded = byte / 255.0;
+        const double y       = encoded <= .04045 ? encoded / 12.92 : std::pow((encoded + .055) / 1.055, 2.4);
+        const double a = 2.43 * y - 2.51, b = .59 * y - .03, c = .14 * y;
+        return 2 * c / (std::sqrt(b * b - 4 * a * c) - b) / exposure;
+    }
+
     // Native probes and immediate draws in these legacy GL tests live here rather
     // than requiring preview-only binding methods on the engine's RHI owners.
     namespace NativeProbe = Kans::RenderHardware::OpenGLTestProbes;
@@ -521,6 +536,15 @@ namespace
             auto frame = Frame;
             frame.ViewProjection =
                 DeviceProjection(frame.ViewProjection, Cache->GetDevice()->GetCoordinateConventions());
+            // This low-level test reads Standard's linear RGBA32F output directly.
+            // Its four explicitly authored test lights use the new lighting contract.
+            frame.LightingInfo.x = EngineLightCount;
+            for (uint32_t i = 0; i < EngineLightCount; ++i)
+            {
+                frame.PointPositions[i] = frame.LightPositions[i];
+                frame.PointRadiance[i]  = frame.LightColors[i];
+                frame.PointSpecular[i]  = glm::vec4(1);
+            }
             FrameBuffer->Update(&frame, sizeof(frame));
             ObjectBuffer->Update(&Object, sizeof(Object));
             auto     material = Cache->GetMaterialGroup(*shader, bindings);
@@ -593,7 +617,6 @@ namespace
             std::memcpy(pixel.data(), bytes.data() + (row * 16 + x) * 16, 16);
             return pixel;
         }
-        static float               Encode(float linear) { return std::pow(linear / (linear + 1), 1.0f / 2.2f); }
         Scope<AssetManager>        Assets;
         Scope<RenderAssetCache>    Cache;
         std::vector<ProductRecord> Records;
@@ -784,23 +807,24 @@ namespace
 
     TEST_P(StandardMaterialGL, EmissiveFactorAndMapMultiplyBeforeToneMapping)
     {
-        // Zero lighting isolates emission and catches missing factor, intensity, map or gamma.
+        // Zero lighting isolates linear HDR emission and catches missing factor, intensity, map, or an accidental
+        // material encode.
         MaterialSource source;
         source.Parameters["EmissiveColor"]     = {0.25, 0.5, 0.75};
         source.Parameters["EmissiveIntensity"] = {2};
         const auto factor                      = Draw(source);
         for (int channel = 0; channel < 3; ++channel)
-            EXPECT_NEAR(factor[channel], Encode((channel + 1) * 0.5f), 2e-6f);
+            EXPECT_NEAR(factor[channel], (channel + 1) * 0.5f, 2e-6f);
         source.Textures["EmissiveMap"] = Image({{0.5f, 0.25f, 0, 1}});
         const auto mapped              = Draw(source);
-        EXPECT_NEAR(mapped[0], Encode(0.25f), 2e-6f);
-        EXPECT_NEAR(mapped[1], Encode(0.25f), 2e-6f);
+        EXPECT_NEAR(mapped[0], 0.25f, 2e-6f);
+        EXPECT_NEAR(mapped[1], 0.25f, 2e-6f);
         EXPECT_EQ(mapped[2], 0);
         // A pending map must use the same white fallback as an unassigned map, preserving the factor.
         source.Textures["EmissiveMap"] = {Source, 999};
         const auto pending             = Draw(source);
         for (int channel = 0; channel < 3; ++channel)
-            EXPECT_NEAR(pending[channel], Encode((channel + 1) * 0.5f), 2e-6f);
+            EXPECT_NEAR(pending[channel], (channel + 1) * 0.5f, 2e-6f);
         source.Parameters.erase("EmissiveColor");
         source.Textures["EmissiveMap"] = Image({{1, 1, 1, 1}});
         const auto zeroFactor          = Draw(source);
@@ -845,10 +869,10 @@ namespace
         source.Textures["OcclusionMap"]        = Image({{0.2f, 0.7f, 0.9f, 1}});
         source.Parameters["OcclusionStrength"] = {0.5};
         const auto occluded                    = Draw(source);
-        EXPECT_NEAR(occluded[0], Encode(0.96f * 0.5f * 0.25f * 0.6f), 2e-6f);
+        EXPECT_NEAR(occluded[0], 0.96f * 0.5f * 0.25f * 0.6f, 2e-6f);
         source.Parameters["OcclusionStrength"] = {0};
         const auto full                        = Draw(source);
-        EXPECT_NEAR(full[0], Encode(0.96f * 0.5f * 0.25f), 2e-6f);
+        EXPECT_NEAR(full[0], 0.96f * 0.5f * 0.25f, 2e-6f);
         SetIrradiance({0, 0, 0, 1});
         for (auto& light : Frame.LightColors)
             light = {2, 2, 2, 1};
@@ -1188,6 +1212,7 @@ void main() { color = texture(other, vec2(0)); }
         info.sceneCamera.Position         = {0, 0, 2};
         info.pointLight.Position          = {0, 0, 1};
         info.pointLight.Ambient_Intensity = {2, 2, 2};
+        info.pointLight.Diffuse_Intensity = {2, 2, 2};
         ProductModelComponent component;
         component.Model = modelID;
         if (TestBackend() == GpuTestBackend::OpenGL)
@@ -1380,6 +1405,7 @@ void main() { color = texture(other, vec2(0)); }
             Info.sceneCamera.Position         = {0, 0, -2};
             Info.pointLight.Position          = {0, 0, -1};
             Info.pointLight.Ambient_Intensity = {2, 2, 2};
+            Info.pointLight.Diffuse_Intensity = {2, 2, 2};
             Custom.Code                       = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
 #include <Kans3D/Alpha.glsl>
 layout(set = 1, binding = 0, std140) uniform Parameters { vec4 Tint; } p;
@@ -2591,11 +2617,13 @@ void main() { o_Color = p.Tint; }
         EXPECT_FLOAT_EQ(Depth(13), 1.0f);
         Renderer->SetViewMode(SceneViewMode::Lit);
         Info.pointLight.Ambient_Intensity = {0, 0, 0};
+        Info.pointLight.Diffuse_Intensity = {0, 0, 0};
         Renderer->BeginScene(Info);
         Renderer->SubmitModel(blend, glm::mat4(1));
         Renderer->EndScene();
-        // Lit output must retain alpha after KansToneMap: emission=1 gives pow(1/2,1/2.2).
-        EXPECT_NEAR(Pixel(13)[0], 73, 1); // .375 * .72974 * 255 + .625 * 5; forgetting output alpha gives 186.
+        // Lit blending retains alpha in linear HDR before ACES + exposure + sRGB.
+        // Emission=1, alpha=.375, and the untouched clear byte 5 has an inverse-curve background.
+        EXPECT_NEAR(Pixel(13)[0], AcesSrgbByte(.375 + .625 * DisplayByteRadiance(5)), 1);
         EXPECT_EQ(Pixel(13)[3], 255);
     }
 
@@ -3090,15 +3118,15 @@ void main() {
         environment.IrradianceMap = map({0, 4, 0, 1});
         auto green                = preview.RenderImage(material, nullptr, Options);
         auto greenPixel           = PreviewPixel(green.Target);
-        // At the front-facing center, kD=.96 and diffuse=.25*4=.1e1:
-        // Key light adds about .0453; Reinhard+gamma(.96+.0453)=.7306,
-        // Reinhard+gamma(.0453)=.2399. Debug normals or missing IBL cannot match these.
-        EXPECT_NEAR(redPixel[0], 186, 1);
-        EXPECT_NEAR(redPixel[1], 61, 1);
-        EXPECT_NEAR(redPixel[2], 61, 1);
-        EXPECT_NEAR(greenPixel[1], 186, 1);
-        EXPECT_NEAR(greenPixel[0], 61, 1);
-        EXPECT_NEAR(greenPixel[2], 61, 1);
+        // At the front-facing center, kD=.96 and diffuse=.25*4=1.
+        // The key light adds about .0453. Apply the specified .8 exposure and ACES/sRGB curve.
+        // Debug normals or missing IBL cannot match either analytic channel value.
+        EXPECT_NEAR(redPixel[0], AcesSrgbByte(.96 + .0453), 1);
+        EXPECT_NEAR(redPixel[1], AcesSrgbByte(.0453), 1);
+        EXPECT_NEAR(redPixel[2], AcesSrgbByte(.0453), 1);
+        EXPECT_NEAR(greenPixel[1], AcesSrgbByte(.96 + .0453), 1);
+        EXPECT_NEAR(greenPixel[0], AcesSrgbByte(.0453), 1);
+        EXPECT_NEAR(greenPixel[2], AcesSrgbByte(.0453), 1);
         EXPECT_EQ(redPixel[3], 255);
         EXPECT_EQ(greenPixel[3], 255);
     }

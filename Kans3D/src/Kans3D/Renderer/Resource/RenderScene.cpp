@@ -34,24 +34,49 @@ namespace Kans
 
     void RenderScene::CollectLights(SceneInfo& info) const
     {
-        auto directional = m_LogicScene->m_Registry.view<DirLightComponent>();
+        info.dirLight   = {};
+        info.pointLight = {};
+        info.pointLights.clear();
+        info.HasDirectionalLight = false;
+        uint64_t directionalID   = std::numeric_limits<uint64_t>::max();
+        auto     directional     = m_LogicScene->m_Registry.view<DirLightComponent, IDComponent>();
         for (auto entity : directional)
         {
-            auto [light]                     = directional.get(entity);
-            info.dirLight.Dirction           = light.Direction;
-            info.dirLight.Ambient_Intensity  = light.Ambient_Intensity;
-            info.dirLight.Diffuse_Intensity  = light.Diffuse_Intensity;
-            info.dirLight.Specular_Intensity = light.Specular_Intensity;
+            const auto id = uint64_t(directional.get<IDComponent>(entity).ID);
+            if (info.HasDirectionalLight && id >= directionalID)
+                continue;
+            const auto& light = directional.get<DirLightComponent>(entity);
+            info.dirLight     = {
+                light.Direction, light.Diffuse_Intensity, light.Specular_Intensity, light.Ambient_Intensity};
+            info.HasDirectionalLight = true;
+            directionalID            = id;
         }
-        auto points = m_LogicScene->m_Registry.view<PointLightComponent, TransformComponent>();
+        struct Candidate
+        {
+            PointLight Light;
+            float      Distance;
+            uint64_t   ID;
+        };
+        std::vector<Candidate> candidates;
+        auto points = m_LogicScene->m_Registry.view<PointLightComponent, TransformComponent, IDComponent>();
         for (auto entity : points)
         {
-            auto [light, transform]            = points.get(entity);
-            info.pointLight.Position           = glm::vec3(m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()})[3]);
-            info.pointLight.Ambient_Intensity  = light.Ambient_Intensity;
-            info.pointLight.Diffuse_Intensity  = light.Diffuse_Intensity;
-            info.pointLight.Specular_Intensity = light.Specular_Intensity;
+            const auto& light    = points.get<PointLightComponent>(entity);
+            const auto  position = glm::vec3(m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()})[3]);
+            const auto  delta    = position - info.sceneCamera.Position;
+            const float distance = glm::dot(delta, delta);
+            candidates.push_back(
+                {{position, light.Diffuse_Intensity, light.Specular_Intensity, light.Ambient_Intensity},
+                 std::isfinite(distance) ? distance : std::numeric_limits<float>::max(),
+                 uint64_t(points.get<IDComponent>(entity).ID)});
         }
+        std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
+            return a.Distance != b.Distance ? a.Distance < b.Distance : a.ID < b.ID;
+        });
+        for (size_t i = 0; i < std::min(candidates.size(), size_t(EnginePointLightLimit)); ++i)
+            info.pointLights.push_back(candidates[i].Light);
+        if (!info.pointLights.empty())
+            info.pointLight = info.pointLights.front(); // Source-compatible singular snapshot.
     }
 
     void RenderScene::OnRenderEditor(Ref<SceneRenderer> renderer, TimeStep ts, const EditorCamera& camera)

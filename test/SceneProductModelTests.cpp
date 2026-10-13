@@ -66,6 +66,30 @@ namespace
         }
     };
 
+    TEST_F(SceneProductModelTest, CameraExposurePersistsAndLegacyScenesUseDefault)
+    {
+        // Bug: the editor API changes exposure in memory but save/reload silently resets it.
+        auto camera = Current->CreateEntityWithID(UUID(202), "HDR camera", false);
+        camera.AddComponent<CameraComponent>().SceneCamera.SetExposure(2.5f);
+        auto loaded = SaveAndLoad("exposure.scene");
+        ASSERT_TRUE(loaded);
+        EXPECT_FLOAT_EQ(loaded->GetEntityByUUID(UUID(202)).GetComponent<CameraComponent>().SceneCamera.GetExposure(),
+                        2.5f);
+        auto document = YAML::Load(Read(Root / "exposure.scene"));
+        for (auto entity : document["Entities"])
+            if (entity["CameraComponent"])
+                entity["CameraComponent"].remove("Exposure");
+        YAML::Emitter emitter;
+        emitter << document;
+        Write(Root / "legacy-exposure.scene", emitter.c_str());
+        auto legacy = SceneSerializer::DeserializeChecked(Root / "legacy-exposure.scene");
+        ASSERT_TRUE(std::holds_alternative<Ref<Scene>>(legacy));
+        EXPECT_FLOAT_EQ(std::get<Ref<Scene>>(legacy)
+                            ->GetEntityByUUID(UUID(202))
+                            .GetComponent<CameraComponent>()
+                            .SceneCamera.GetExposure(),
+                        .8f);
+    }
     TEST_F(SceneProductModelTest, ModelAndOverridesRoundTripWithoutGpuContext)
     {
         auto candidate = SaveAndLoad("logical.scene");

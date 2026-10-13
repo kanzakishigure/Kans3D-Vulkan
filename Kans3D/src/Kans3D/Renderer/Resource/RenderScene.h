@@ -13,17 +13,17 @@ namespace Kans
     struct RenderView;
     struct DirLight
     {
-        glm::vec3 Dirction;
-        glm::vec3 Diffuse_Intensity;
-        glm::vec3 Specular_Intensity;
-        glm::vec3 Ambient_Intensity;
+        glm::vec3 Dirction {0};
+        glm::vec3 Diffuse_Intensity {0};
+        glm::vec3 Specular_Intensity {0};
+        glm::vec3 Ambient_Intensity {0};
     };
     struct PointLight
     {
-        glm::vec3 Position;
-        glm::vec3 Diffuse_Intensity;
-        glm::vec3 Specular_Intensity;
-        glm::vec3 Ambient_Intensity;
+        glm::vec3 Position {0};
+        glm::vec3 Diffuse_Intensity {0};
+        glm::vec3 Specular_Intensity {0};
+        glm::vec3 Ambient_Intensity {0};
     };
 
     struct PipLineState

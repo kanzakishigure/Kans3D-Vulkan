@@ -42,6 +42,6 @@ void main()
     float rim    = pow(1.0 - max(dot(N, V), 0.0), max(u_Toon.RimPower, 0.01));
     vec3  color  = albedo.rgb * tone + u_Toon.RimColor.rgb * u_Toon.RimColor.a * rim;
 
-    // Textures are sampled as linear values; encode for the LDR scene target.
-    o_Color = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
+    // Scene-linear HDR; Forward applies camera exposure, ACES fitted and sRGB.
+    o_Color = vec4(color, 1.0);
 }

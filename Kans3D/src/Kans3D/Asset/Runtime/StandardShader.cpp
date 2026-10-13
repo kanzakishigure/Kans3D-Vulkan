@@ -16,6 +16,7 @@ namespace Kans
             const std::string manifest = R"(KansShaderProgram 1
 vertex=Standard.vert
 fragment=Standard.frag
+output_space=linear_hdr
 default BaseColor = 1 1 1 1
 default Metallic = 0
 default Roughness = 1
@@ -146,7 +147,7 @@ void main()
     float ao = mix(1.0, texture(OcclusionMap, uv).r, p.OcclusionStrength);
     vec3 color = KansShadePbr(albedo, p.Metallic * mr.b, p.Roughness * mr.g, ao, N, v_WorldPosition);
     color += p.EmissiveColor * p.EmissiveIntensity * texture(EmissiveMap, uv).rgb;
-    o_Color = KansToneMap(color);
+    o_Color = u_Frame.DebugView == 3 ? KansToneMap(color) : vec4(color, alpha);
     o_Color.a = alpha;
 }
 )"}});

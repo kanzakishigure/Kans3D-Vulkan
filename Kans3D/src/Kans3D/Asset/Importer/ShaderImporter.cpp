@@ -163,6 +163,10 @@ namespace Kans
             ShaderData                                              shader;
             if (extension == ".shaderprog")
             {
+                auto space = ParseShaderOutputSpace(*primary);
+                if (auto* error = std::get_if<AssetError>(&space))
+                    return *error;
+                shader.OutputSpace = std::get<ShaderOutputSpace>(space);
                 auto parsed = ParseShaderProgramSource(*primary);
                 if (auto* error = std::get_if<AssetError>(&parsed))
                     return std::move(*error);
@@ -265,7 +269,8 @@ namespace Kans
                                                   shader.ParameterHints,
                                                   shader.TextureFallbacks,
                                                   shader.Groups,
-                                                  shader.Passes);
+                                                  shader.Passes,
+                                                  shader.OutputSpace);
         if (auto* error = std::get_if<AssetError>(&encoded))
             return *error;
         const auto& bytes = std::get<std::vector<std::byte>>(encoded);
@@ -303,7 +308,8 @@ namespace Kans
                                                       shader.ParameterHints,
                                                       shader.TextureFallbacks,
                                                       shader.Groups,
-                                                      shader.Passes);
+                                                      shader.Passes,
+                                                      shader.OutputSpace);
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return std::move(*error);
             auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, {"shader:root"});

@@ -20,6 +20,8 @@ namespace Kans
         DirLight            dirLight;
         PointLight          pointLight;
         SceneRendererCamera sceneCamera;
+        std::vector<PointLight> pointLights;
+        bool                    HasDirectionalLight = false;
     };
     enum class ModelStencilMode
     {
@@ -159,4 +161,6 @@ namespace Kans
                            const ModelInstances*                                          instances,
                            const std::function<std::optional<ViewMeshMetadata>(AssetID)>& mesh);
     void ExtractDrawLists(RenderView& view);
+    // CPU-only packing shared by rendering and analytic contract tests.
+    EngineFrameUniforms MakeLightingUniforms(const SceneInfo& scene);
 } // namespace Kans

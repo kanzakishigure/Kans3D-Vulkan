@@ -414,3 +414,62 @@ Final phase-4 label counts: CPU 408 passed; OpenGL 156 passed + 5 explicit
 WSI skips (161 registered); Vulkan 142 passed, including headless swapchains,
 offscreen UI and exact cross-backend UI parity. Zero unexpected validation errors.
 All original renderer references and assertions pass unchanged.
+
+
+## Phase 2d regression additions
+
+The approved default lighting/HDR change is documented in
+`Kans3D/src/Kans3D/Renderer/Graph/README.md`. Reference provenance, the deliberate
+new full-frame oracle and the four measured HDR-only Vulkan bounds are in
+`references/README.md`. The comparator still allows zero outlier pixels.
+
+Eight new CPU cases use authored values/legacy bytes rather than rendering
+snapshots:
+
+| Case | Concrete plausible bug caught |
+| --- | --- |
+| LightingHdr.NewlyCreatedLightComponentsHaveDefinedRadianceAndSpecularDefaults | Newly consumed specular/ambient fields remain uninitialized |
+| LightingHdr.DistinctDiffuseRadianceAndZeroUnusedSlotsPreserveLegacyPrefix | One light copied into every slot, ambient used as radiance, stale unused slots or moved prefix offsets |
+| LightingHdr.ExtractSelectsNearestSixteenWithUuidTiesAndWorldPositions | Last-light-only collection, local positions, unstable ties, wrong camera or ignored limit |
+| LightingHdr.DirectionalPackingNormalizesTravelDirectionAndSeparatesAmbient | Directional upload dropped, wrong normalization or ambient mixed into radiance |
+| LightingHdr.ExtractionSelectsDirectionalUuidAndClearsRemovedLights | Iteration-order selection or removed lights retained in subsequent frames |
+| LightingHdr.OutputSpaceDefaultsAndCodecRetainExplicitHdrAndRejectInvalidFields | Existing manifests default to HDR, explicit declaration dropped by codec or invalid/duplicate declarations accepted |
+| LightingHdr.PublishedVersionSixFramePrefixLoadsUnmodified | Real v6 products rejected or frame prefix interpretation changed |
+| SceneProductModelTest.CameraExposurePersistsAndLegacyScenesUseDefault | Exposure not saved/restored or older scenes lose the .8 default |
+
+Ten new GPU cases run on **both** backends through production import/products,
+RHI material binding, SceneRenderer or MaterialPreviewRenderer:
+
+| RendererReferenceGL case | Concrete plausible bug caught |
+| --- | --- |
+| HdrValuesAboveOneAndExposureHaveAnalyticFilmicBytes | RGBA8 working target clamps 4 before the curve; exposure ignored, HDR curve skipped or applied twice. Exact half readback plus analytic bytes at three exposures |
+| PointPbrUsesDistinctDiffuseRadianceCountAndSpecularScale | Four copies, ambient radiance, specular multiplier ignored or fifth light lost. Known-distance .5 Lambert/GGX surface with black environment and analytic bytes |
+| PbrLightCountIgnoresPoisonedUnusedSlots | Fixed-size shader loop ignores count and lights from deliberately bright unused slots |
+| AppendedCameraExposureAndLightCountAreBoundToShaders | CPU-only upload tests pass while actual appended uniform offsets misbind |
+| DirectionalPbrReachesShadersWithAmbientAndSpecular | Directional shader contribution absent/reversed, ambient attenuation or specular scale wrong. Analytic isolated direct+ambient expectation |
+| PublishedV6ProductsBindPrefixAndFourDistinctLights | Old product loads but falls back or misbinds the expanded uniform buffer. Unmodified v6 bytes, four-slot sum and exposure-independent display bytes |
+| DisplayMaterialsAndBlendsRemainByteExactAcrossHdrTransitions | Legacy display material tone-mapped twice, display blends moved or inverse prefill changes background bytes. Exhaustive 256 codes across five exposures, exact whole images |
+| DebugViewsBypassExposureAndPostPassExactly | Base colour, normals or wireframe routed through the curve. Exact whole images at .1/4 exposure and no post pass |
+| PreviewUsesSceneHdrCurveAndExplicitExposure | Thumbnail remains on the old path, ignores exposure or curves display output. Analytic HDR and exact display bytes |
+| PreviewCacheTracksOutputSpaceEvenWithIdenticalBytecode | Unsaved preview cache ignores output-space-only edits and uses stale target/resolve behavior |
+
+The six HDR reference cases additionally capture actual RGBA16F values. Five
+without subsequent selection composition check every RGB pixel against the
+analytic post curve within one byte. Selection retains its strict full reference
+and independent numeric picking assertions. The replaced
+`FullRuntimeFrameIsByteIdenticalToPhaseTwoD` keeps exact backend attachment hashes,
+feature/pass order, depth/stencil and transient-alias checks. Existing shader
+unit expectations now explicitly test linear Standard output; their numeric
+precision is unchanged. Legacy ambient-only material-state fixtures now author
+intended diffuse intensity explicitly.
+
+
+Phase 2d final validation after the clean rebuild: CPU **416 passed / 0 failed**
+(52.73 s); serial llvmpipe OpenGL **167 passed / 5 skipped / 0 failed**, 172
+selected entries (214.19 s), including the GL 4.3 extension bundle. The five
+existing OpenGL window-presentation skips lack an accessible X11/Wayland surface.
+Serial lavapipe Vulkan: **153 passed / 0 skipped / 0 failed** (136.50 s),
+including all headless window-presentation cases.
+Changed-line `git clang-format` and `git diff --check` are clean. GPU validation
+logs and HDR audit artifacts are retained under
+`build/linux-gcc/test/reference-output/phase2d/`.

@@ -57,6 +57,7 @@ namespace Kans
         mutable std::map<uint32_t, RenderHardware::Handle<RenderHardware::Pipeline>> Pipelines;
 
         std::vector<GpuShaderPass> Passes;
+        ShaderOutputSpace          OutputSpace = ShaderOutputSpace::Display;
 
         const std::map<uint32_t, ShaderTextureFallback>& MaterialSamplerFallbacks() const { return m_SamplerFallbacks; }
 

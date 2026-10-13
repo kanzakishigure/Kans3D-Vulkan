@@ -117,19 +117,19 @@ namespace Kans
 
     struct DirLightComponent
     {
-        glm::vec3 Direction;
-        glm::vec3 Diffuse_Intensity;
-        glm::vec3 Specular_Intensity;
-        glm::vec3 Ambient_Intensity;
+        glm::vec3 Direction {0, -1, 0};
+        glm::vec3 Diffuse_Intensity {1};
+        glm::vec3 Specular_Intensity {1};
+        glm::vec3 Ambient_Intensity {0};
         DirLightComponent()                         = default;
         DirLightComponent(const DirLightComponent&) = default;
     };
 
     struct PointLightComponent
     {
-        glm::vec3 Diffuse_Intensity;
-        glm::vec3 Specular_Intensity;
-        glm::vec3 Ambient_Intensity;
+        glm::vec3 Diffuse_Intensity {1};
+        glm::vec3 Specular_Intensity {1};
+        glm::vec3 Ambient_Intensity {0};
         PointLightComponent()                           = default;
         PointLightComponent(const PointLightComponent&) = default;
     };

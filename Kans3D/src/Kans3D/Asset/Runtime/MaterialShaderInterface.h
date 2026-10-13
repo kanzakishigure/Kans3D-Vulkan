@@ -13,7 +13,8 @@ namespace Kans
     // vec4 color to location 0.
     constexpr uint32_t EngineDescriptorSet   = 0;
     constexpr uint32_t MaterialDescriptorSet = 1;
-    constexpr uint32_t EngineLightCount      = 4;
+    constexpr uint32_t EngineLightCount      = 4; // Published prefix; never change.
+    constexpr uint32_t EnginePointLightLimit = 16;
 
     enum class EngineBinding : uint32_t
     {
@@ -31,16 +32,27 @@ namespace Kans
         glm::mat4 ViewProjection {1.0f};
         glm::vec4 CameraPosition {0.0f};
         glm::vec4 LightPositions[EngineLightCount] {};
-        // Radiance used by the engine PBR shading (the point light's ambient intensity).
+        // Legacy radiance: diffuse intensity of the first four distinct point lights.
         glm::vec4 LightColors[EngineLightCount] {};
         // The point light's diffuse intensity, for non-PBR (e.g. toon) shading.
         glm::vec4 LightDiffuse[EngineLightCount] {};
         float     Time = 0.0f;
-        float     DebugView = 0.0f; // 0 lit, 1 base color, 2 world normals.
+        float     DebugView = 0.0f; // 0 lit, 1 base color, 2 world normals, 3 legacy wireframe.
         float     Padding[2] {};
+        glm::vec4 PointPositions[EnginePointLightLimit] {};
+        glm::vec4 PointRadiance[EnginePointLightLimit] {};
+        glm::vec4 PointSpecular[EnginePointLightLimit] {};
+        glm::vec4 DirectionalDirection {0}; // Direction of light travel; w: present.
+        glm::vec4 DirectionalRadiance {0};
+        glm::vec4 DirectionalSpecular {0};
+        glm::vec4 DirectionalAmbient {0};
+        glm::vec4 LightingInfo {0, 0.8f, 0, 0}; // x: point count, y: exposure multiplier.
     };
-    static_assert(sizeof(EngineFrameUniforms) == 288, "KansFrame std140 layout");
+    static_assert(sizeof(EngineFrameUniforms) == 1136, "KansFrame std140 layout");
     static_assert(offsetof(EngineFrameUniforms, DebugView) == 276, "KansFrame debug uses existing tail padding");
+
+    static_assert(offsetof(EngineFrameUniforms, PointPositions) == 288, "Published KansFrame prefix");
+    static_assert(offsetof(EngineFrameUniforms, LightingInfo) == 1120, "KansFrame lighting tail");
 
     struct EngineObjectUniforms
     {

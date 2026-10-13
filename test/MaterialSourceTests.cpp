@@ -458,7 +458,8 @@ namespace
         auto       engine = *FindEngineShaderInclude("Kans3D/Engine.glsl");
         const auto member = engine.find("    float DebugView;\n");
         ASSERT_NE(member, std::string::npos);
-        engine.erase(member, std::strlen("    float DebugView;\n"));
+        const auto object = engine.find("layout(set = 0, binding = 1");
+        engine.replace(member, object - member, "} u_Frame;\n");
         std::string vertex = TestMaterialVertex;
         vertex.replace(
             vertex.find("#include <Kans3D/Engine.glsl>"), std::strlen("#include <Kans3D/Engine.glsl>"), engine);

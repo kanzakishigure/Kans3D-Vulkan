@@ -166,6 +166,11 @@ namespace Kans
         ShaderPassState                    State;
         std::vector<ShaderStageReflection> Reflection;
     };
+    enum class ShaderOutputSpace : uint32_t
+    {
+        Display   = 0,
+        LinearHDR = 1
+    };
     struct ShaderData
     {
         ShaderProgramCode       Code;
@@ -176,6 +181,7 @@ namespace Kans
         std::vector<ShaderStageReflection> Reflection;
         ShaderTextureFallbacks             TextureFallbacks;
         std::vector<MaterialParameterGroup> Groups;
+        ShaderOutputSpace                   OutputSpace = ShaderOutputSpace::Display;
     };
     std::variant<std::vector<ShaderStageReflection>, AssetError> InspectShaderProgram(const ShaderProgramCode& code);
     class ShaderDataAsset                                        final : public Asset

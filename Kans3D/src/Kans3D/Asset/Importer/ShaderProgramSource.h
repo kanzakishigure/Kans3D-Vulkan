@@ -2,6 +2,7 @@
 #include "Kans3D/Asset/Runtime/ShaderData.h"
 namespace Kans
 {
+    std::variant<ShaderOutputSpace, AssetError> ParseShaderOutputSpace(const std::string& text);
     struct ShaderStageSource
     {
         ShaderProductStage Stage;

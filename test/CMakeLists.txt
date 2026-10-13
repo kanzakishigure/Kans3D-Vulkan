@@ -14,6 +14,7 @@ function(kans_copy_test_runtime target)
     endif()
 endfunction()
 add_executable(Kans3DTests
+    LightingHdrTests.cpp
     BackendSelectionTests.cpp
     RenderGraphTests.cpp
     RenderViewTests.cpp

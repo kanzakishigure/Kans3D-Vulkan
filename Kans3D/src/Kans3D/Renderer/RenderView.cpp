@@ -65,4 +65,38 @@ namespace Kans
             list.push_back(draw.DrawIndex);
         }
     }
+    EngineFrameUniforms MakeLightingUniforms(const SceneInfo& scene)
+    {
+        EngineFrameUniforms frame;
+        frame.CameraPosition = glm::vec4(scene.sceneCamera.Position, 1);
+        const size_t count   = scene.pointLights.empty() ?
+                                   (scene.pointLight.Diffuse_Intensity != glm::vec3(0) ? 1 : 0) :
+                                   std::min(scene.pointLights.size(), size_t(EnginePointLightLimit));
+        for (size_t i = 0; i < count; ++i)
+        {
+            const auto& light       = scene.pointLights.empty() ? scene.pointLight : scene.pointLights[i];
+            frame.PointPositions[i] = glm::vec4(light.Position, 1);
+            frame.PointRadiance[i]  = glm::vec4(light.Diffuse_Intensity, 0);
+            frame.PointSpecular[i]  = glm::vec4(light.Specular_Intensity, 0);
+            if (i < EngineLightCount)
+            {
+                frame.LightPositions[i] = frame.PointPositions[i];
+                frame.LightColors[i]    = frame.PointRadiance[i];
+                frame.LightDiffuse[i]   = frame.PointRadiance[i];
+            }
+        }
+        const auto& light           = scene.dirLight;
+        const float directionLength = glm::length(light.Dirction);
+        if ((scene.HasDirectionalLight || light.Diffuse_Intensity != glm::vec3(0) ||
+             light.Ambient_Intensity != glm::vec3(0)) &&
+            directionLength > 1e-6f)
+        {
+            frame.DirectionalDirection = glm::vec4(light.Dirction / directionLength, 1);
+            frame.DirectionalRadiance  = glm::vec4(light.Diffuse_Intensity, 0);
+            frame.DirectionalSpecular  = glm::vec4(light.Specular_Intensity, 0);
+        }
+        frame.DirectionalAmbient = glm::vec4(light.Ambient_Intensity, 0);
+        frame.LightingInfo       = {float(count), scene.sceneCamera.camera.GetExposure(), 0, 0};
+        return frame;
+    }
 } // namespace Kans
