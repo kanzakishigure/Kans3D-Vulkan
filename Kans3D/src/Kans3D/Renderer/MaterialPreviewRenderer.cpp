@@ -104,7 +104,9 @@ void main() {
         }
     } // namespace
 
-    MaterialPreviewRenderer::MaterialPreviewRenderer(SceneRenderer& scene) : m_Scene(scene), m_Device(scene.GetDevice())
+    MaterialPreviewRenderer::MaterialPreviewRenderer(SceneRenderer& scene) :
+        m_Scene(scene), m_Device(scene.GetDevice()), m_Renderer(scene.GetRenderer()),
+        m_Target(std::make_unique<ViewTarget>(m_Device, 1, false))
     {}
     MaterialPreviewRenderer::~MaterialPreviewRenderer() = default;
 
@@ -112,21 +114,9 @@ void main() {
     {
         if (!size.x || !size.y || size.x > 4096 || size.y > 4096)
             return false;
-        if (size == m_Size && m_Color)
+        if (size == m_Size && m_Target->GetColors()[0])
             return true;
-        using namespace RenderHardware;
-        TextureDesc desc;
-        desc.Width       = size.x;
-        desc.Height      = size.y;
-        desc.PixelFormat = Format::RGBA8Unorm;
-        desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
-                           RenderHardware::TextureUsage::CopySource;
-        m_Color          = m_Device->CreateTexture(desc);
-        desc.PixelFormat = Format::RGBA16Float;
-        m_HDRColor       = m_Device->CreateTexture(desc);
-        desc.PixelFormat = Format::Depth24Stencil8;
-        desc.Usage       = RenderHardware::TextureUsage::DepthStencil;
-        m_Depth          = m_Device->CreateTexture(desc);
+        m_Target->Resize(size);
         m_Size = size;
         return true;
     }
@@ -238,29 +228,23 @@ void main() {
         using namespace RenderHardware;
         if (!m_Checker)
         {
-            auto built = CreateInternalShader(*m_Device, "MaterialChecker", CheckerVertex, CheckerFragment);
-            if (auto* error = std::get_if<AssetError>(&built))
-            {
-                if (Log::GetCoreLogger())
-                    CORE_ERROR("{}", error->Message);
-                else
-                    std::cerr << error->Message << std::endl;
+            auto built = m_Renderer->GetInternalProgram("MaterialChecker", CheckerVertex, CheckerFragment);
+            if (!built)
                 return {};
-            }
             PipelineDesc desc;
-            desc.Program         = std::get<Handle<RenderHardware::Shader>>(std::move(built));
+            desc.Program         = std::move(built);
             desc.GroupLayouts    = {m_Device->CreateBindGroupLayout({0, {{0, BindingType::UniformBuffer}}})};
             desc.Rasterizer.Cull = CullMode::None;
             desc.ColorFormats    = {Format::RGBA8Unorm};
             desc.Blends.resize(1);
             desc.HasDepthStencil    = true;
             desc.DepthStencilFormat = Format::Depth24Stencil8;
-            m_Checker               = m_Device->CreatePipeline(desc);
+            m_Checker               = m_Renderer->CachedPipeline(desc);
         }
         auto          commands = m_Device->CreateCommandList();
         RenderingDesc target;
-        target.Colors       = {{m_Color}};
-        target.Depth.Target = m_Depth;
+        target.Colors       = {{m_Target->GetColors()[0]}};
+        target.Depth.Target = m_Target->GetDepth();
         commands->BeginRendering(target);
         commands->SetViewport({0, 0, float(options.Size.x), float(options.Size.y), 0, 1});
         commands->SetScissor({0, 0, options.Size.x, options.Size.y});
@@ -277,8 +261,9 @@ void main() {
         commands->EndRendering();
         const bool hdr = shader.OutputSpace == ShaderOutputSpace::LinearHDR;
         if (hdr)
-            m_ToneMapping.Record(*m_Device, *commands, m_Color, {m_HDRColor}, options.Exposure, true);
-        target.Colors[0].Target = hdr ? m_HDRColor : m_Color;
+            m_Renderer->GetToneMapping().Record(
+                *m_Device, *commands, m_Target->GetColors()[0], {m_Target->GetHDR()}, options.Exposure, true);
+        target.Colors[0].Target = hdr ? m_Target->GetHDR() : m_Target->GetColors()[0];
         target.Colors[0].Load   = LoadOp::Load;
         target.Depth.Load       = LoadOp::Load;
         commands->BeginRendering(target);
@@ -318,9 +303,10 @@ void main() {
         complete &= RecordMaterialDraw(*m_Scene.GetAssetCache(), *commands, shader, bindings, *m_Shapes[shape], pass);
         commands->EndRendering();
         if (hdr)
-            m_ToneMapping.Record(*m_Device, *commands, m_HDRColor, {m_Color}, options.Exposure);
+            m_Renderer->GetToneMapping().Record(
+                *m_Device, *commands, m_Target->GetHDR(), {m_Target->GetColors()[0]}, options.Exposure);
         m_Device->Submit(commands);
-        return {m_Color, complete};
+        return {m_Target->GetColors()[0], complete};
     }
 
     std::optional<MaterialThumbnail> MaterialPreviewRenderer::RenderThumbnail(AssetID                       material,
@@ -337,7 +323,7 @@ void main() {
         auto readback =
             m_Device->CreateBuffer({result.Pixels.size(), BufferUsage::CopyDestination, MemoryUsage::Readback});
         auto commands = m_Device->CreateCommandList();
-        commands->CopyTextureToBuffer(m_Color, {}, readback);
+        commands->CopyTextureToBuffer(m_Target->GetColors()[0], {}, readback);
         m_Device->Submit(commands);
         m_Device->WaitIdle();
         result.Pixels  = readback->Read(0, result.Pixels.size());

@@ -15,7 +15,8 @@ namespace Kans
         if (!renderer || !renderer->HasMaterialPass(context.View, m_Tag))
             return;
         auto       uses    = context.Target;
-        uses.push_back({context.Graph.ImportTexture("SceneHDR", renderer->m_HDRColor), GraphAccess::ColorReadWrite});
+        uses.push_back(
+            {context.Graph.ImportTexture("SceneHDR", renderer->m_Target->GetHDR()), GraphAccess::ColorReadWrite});
         const auto sampled = [&](const RenderHardware::Handle<RenderHardware::Texture>& image) {
             if (!image)
                 return;

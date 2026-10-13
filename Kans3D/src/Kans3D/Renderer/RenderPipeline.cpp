@@ -41,13 +41,13 @@ namespace Kans
     {
         using namespace RenderHardware;
         std::vector<GraphUse> clear;
-        for (size_t i = 0; i < renderer.m_Colors.size(); ++i)
+        for (size_t i = 0; i < renderer.m_Target->GetColors().size(); ++i)
         {
-            auto image = graph.ImportTexture("SceneColor" + std::to_string(i), renderer.m_Colors[i]);
+            auto image = graph.ImportTexture("SceneColor" + std::to_string(i), renderer.m_Target->GetColors()[i]);
             clear.push_back({image, GraphAccess::ColorWrite});
             graph.ExportTexture(image);
         }
-        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.m_Depth);
+        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.m_Target->GetDepth());
         clear.push_back({depth, GraphAccess::DepthWrite});
         graph.ExportTexture(depth);
         graph.AddPass("Clear", clear, [&renderer](auto& context) {
@@ -61,10 +61,10 @@ namespace Kans
         if (!graph.PassCount())
             Begin(graph, view, renderer);
         std::vector<GraphUse> target;
-        for (size_t i = 0; i < renderer.m_Colors.size(); ++i)
-            target.push_back({graph.ImportTexture("SceneColor" + std::to_string(i), renderer.m_Colors[i]),
+        for (size_t i = 0; i < renderer.m_Target->GetColors().size(); ++i)
+            target.push_back({graph.ImportTexture("SceneColor" + std::to_string(i), renderer.m_Target->GetColors()[i]),
                               GraphAccess::ColorReadWrite});
-        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.m_Depth);
+        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.m_Target->GetDepth());
         target.push_back({depth, GraphAccess::DepthReadWrite});
         // Preserve deterministic legacy order, even when two passes have disjoint writes.
         auto append = [&](std::string name, std::vector<GraphUse> uses, RenderGraph::Record record) {
@@ -133,9 +133,9 @@ namespace Kans
             // Material groups resolve asynchronous textures while recording. Record once now,
             // declare the exact retained images, then let graph execution submit the immutable list.
             // This keeps the existing per-draw allocation count and avoids resolving groups twice.
-            const auto hdr = graph.ImportTexture("SceneHDR", renderer.m_HDRColor);
+            const auto hdr = graph.ImportTexture("SceneHDR", renderer.m_Target->GetHDR());
             uses.push_back({hdr, GraphAccess::ColorReadWrite});
-            auto commands = renderer.m_Device->CreateCommandList();
+            auto                commands = renderer.m_Renderer->GetDevice()->CreateCommandList();
             Handle<CommandList> post;
             renderer.DrawShaderMaterials(
                 *commands, [&](const auto& image) { sampled(uses, image, "MaterialTexture"); }, {}, nullptr, &post);

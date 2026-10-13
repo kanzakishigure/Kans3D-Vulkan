@@ -4,7 +4,8 @@
 #include "Graph/RenderGraph.h"
 #include "RenderFeature.h"
 #include "RenderView.h"
-#include "Resource/ToneMappingPass.h"
+#include "Renderer.h"
+#include "ViewTarget.h"
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
@@ -14,13 +15,6 @@
 
 namespace Kans
 {
-    // Default sizes preserve the editor's environment precomputation. Small
-    // offscreen clients can select lower resolutions without changing shaders.
-    struct EnvironmentPrecomputeSizes
-    {
-        uint32_t Cubemap = 512, Irradiance = 512, Prefilter = 128, BrdfLUT = 512;
-    };
-
     struct SceneRendererSpecification
     {
         bool SwapChainTarget = false;
@@ -43,6 +37,10 @@ namespace Kans
         // The manager must outlive its use here; pass nullptr before destroying it.
         void              SetAssetManager(AssetManager* assets);
         RenderAssetCache* GetAssetCache() { return m_AssetCache.get(); }
+
+        const std::shared_ptr<Renderer>& GetRenderer() const { return m_Renderer; }
+        ViewTarget&                      GetViewTarget() { return *m_Target; }
+        const ViewTarget&                GetViewTarget() const { return *m_Target; }
 
         // Queues each part until EndScene, across all submitted models. Empty, pending or failed
         // Shaders use engine Standard; samplers use Shader-declared fallbacks.
@@ -93,26 +91,35 @@ namespace Kans
         void SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state = {});
 
         RenderHardware::RenderingDesc GetRenderTarget() const { return SceneTarget(RenderHardware::LoadOp::Load); }
-        const RenderHardware::Handle<RenderHardware::Texture>&         GetHDRTarget() const { return m_HDRColor; }
+        const RenderHardware::Handle<RenderHardware::Texture>& GetHDRTarget() const { return m_Target->GetHDR(); }
         uintptr_t              GetOutput(uint32_t index) const;
-        std::shared_ptr<RenderHardware::Device>                        GetDevice() const { return m_Device; }
+        std::shared_ptr<RenderHardware::Device>                GetDevice() const { return m_Renderer->GetDevice(); }
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> GetMaterialEnvironment();
         const RenderHardware::Handle<RenderHardware::Sampler>&         GetMaterialEnvironmentSampler() const
         {
-            return m_IBLSampler;
+            return m_Renderer->GetMaterialEnvironmentSampler();
         }
-        const Environment&     GetEnvironment() const { return m_Environment; }
-        const RenderHardware::Handle<RenderHardware::Texture>& GetBrdfLUT() const { return m_BrdfLUT; }
+        const Environment& GetEnvironment() const
+        {
+            RefreshEnvironment();
+            return m_EnvironmentLighting->Maps;
+        }
+        const RenderHardware::Handle<RenderHardware::Texture>& GetBrdfLUT() const
+        {
+            RefreshEnvironment();
+            return m_EnvironmentLighting->BrdfLUT;
+        }
         float                  GetElapsedTime() const
         {
             return std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
         }
-        const RenderHardware::Handle<RenderHardware::Texture> GetSkybox() { return m_SkyBox; }
+        const RenderHardware::Handle<RenderHardware::Texture> GetSkybox()
+        {
+            RefreshEnvironment();
+            return m_EnvironmentLighting->Skybox;
+        }
 
     private:
-        RenderHardware::Handle<RenderHardware::Pipeline> CachedPipeline(const RenderHardware::PipelineDesc& desc);
-        RenderHardware::PipelineDesc
-        ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled);
         using ShaderDraw   = ViewShaderDraw;
         using GeometryDraw = ViewGeometryDraw;
         bool HasMaterialPass(const RenderView& view, const std::string& tag);
@@ -127,7 +134,6 @@ namespace Kans
         void                 DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
         void                 PrepareDrawLists();
         RenderView           m_View;
-        TransientTexturePool m_TransientPool;
         RenderGraph          m_Graph;
         std::string          m_PipelineName = "Forward";
         RenderFeatureSet     m_Features;
@@ -145,24 +151,16 @@ namespace Kans
         SceneRendererSpecification m_Specification;
 
         uint32_t         m_ViewportWidth = 0, m_ViewportHeight = 0;
-        std::shared_ptr<RenderHardware::Device>                      m_Device;
-        std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Colors;
-        RenderHardware::Handle<RenderHardware::Texture>                m_Depth, m_HDRColor;
-        ToneMappingPass                                                m_ToneMapping;
-        RenderHardware::Handle<RenderHardware::Sampler>              m_IBLSampler;
-        std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> m_BlackEnvironment;
-        std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Shader>> m_InternalPrograms;
-        std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Pipeline>> m_InternalPipelines;
-        std::optional<GpuMesh>                                                          m_Cube;
-        void                          ResizeTarget();
+        std::shared_ptr<Renderer>                    m_Renderer;
+        std::unique_ptr<ViewTarget>                  m_Target;
+        mutable std::shared_ptr<EnvironmentLighting> m_EnvironmentLighting = std::make_shared<EnvironmentLighting>();
+        EnvironmentPrecomputeSizes                   m_EnvironmentSizes;
+        mutable std::filesystem::path                m_EnvironmentSource;
+        void                                         RefreshEnvironment() const;
         RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load, bool hdr = false) const;
 
-        Environment             m_Environment;
-        RenderHardware::Handle<RenderHardware::Texture> m_SkyBox;
-        RenderHardware::Handle<RenderHardware::Texture> m_BrdfLUT;
         bool                    m_Active = false;
-        Scope<RenderAssetCache> m_AssetCache;
-        EntityPicker            m_Picker;
+        std::shared_ptr<RenderAssetCache>     m_AssetCache;
         SelectionOutline        m_Outline;
         std::vector<ModelDraw>   m_Highlight;
         std::optional<ModelDraw> m_Preview;

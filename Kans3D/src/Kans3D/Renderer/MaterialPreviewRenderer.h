@@ -1,7 +1,8 @@
 #pragma once
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
-#include "Resource/ToneMappingPass.h"
+#include "Renderer.h"
+#include "ViewTarget.h"
 
 namespace Kans
 {
@@ -55,7 +56,7 @@ namespace Kans
         MaterialPreviewResult
         Render(const MaterialData& material, const ShaderData* shader, const MaterialPreviewOptions& options = {});
         MaterialPreviewResult Render(AssetID material, const MaterialPreviewOptions& options = {});
-        const RenderHardware::Handle<RenderHardware::Texture>& GetHDRTarget() const { return m_HDRColor; }
+        const RenderHardware::Handle<RenderHardware::Texture>& GetHDRTarget() const { return m_Target->GetHDR(); }
         // Offscreen rendering exposes a neutral image, without exporting it to the UI.
         MaterialPreviewImageResult
         RenderImage(const MaterialData& material, const ShaderData* shader, const MaterialPreviewOptions& options = {});
@@ -72,8 +73,8 @@ namespace Kans
         SceneRenderer&                        m_Scene;
         glm::uvec2                            m_Size {};
         std::shared_ptr<RenderHardware::Device>          m_Device;
-        RenderHardware::Handle<RenderHardware::Texture>  m_Color, m_Depth, m_HDRColor;
-        ToneMappingPass                                  m_ToneMapping;
+        std::shared_ptr<Renderer>                        m_Renderer;
+        std::unique_ptr<ViewTarget>                      m_Target;
         std::array<std::optional<GpuMesh>, 3> m_Shapes;
         RenderHardware::Handle<RenderHardware::Pipeline> m_Checker;
         std::optional<ShaderData>             m_ShaderSource;

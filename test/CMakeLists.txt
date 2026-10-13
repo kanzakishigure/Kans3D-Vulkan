@@ -88,6 +88,7 @@ add_executable(OpenGLTextureTests
     GpuTestContext.cpp
     ReferenceImage.cpp
     RendererReferenceOpenGLTests.cpp
+    RendererServicesTests.cpp
     ScenePassOpenGLTests.cpp
     EditorTextureOpenGLTests.cpp
     EditorStartupOpenGLTests.cpp
