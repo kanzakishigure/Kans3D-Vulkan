@@ -78,7 +78,6 @@ namespace Kans
         m_RenderScene(scene), m_Specification(spec)
     {
 
-        RegisterDefaultEditorFeatures(m_Features);
         m_Features.Register("MaterialOutline",
                             std::make_unique<MaterialPassFeature>("Outline", RenderExtensionPoint::AfterTransparent));
         Init();

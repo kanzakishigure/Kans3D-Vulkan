@@ -28,6 +28,7 @@
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Scene/Entity.h"
 #include "GpuTestContext.h"
 #include "MaterialShaderTestUtilities.h"
@@ -1174,6 +1175,7 @@ void main() { color = texture(other, vec2(0)); }
         RenderScene renderScene(scene);
         renderScene.OnViewportResize(16, 16);
         SceneRenderer renderer(&renderScene);
+        RegisterDefaultEditorFeatures(renderer.GetFeatures());
         renderer.SetAssetManager(&assets);
         auto& cache = *renderer.GetAssetCache();
         ASSERT_TRUE(Frames(cache, [&] {
@@ -1326,6 +1328,7 @@ void main() { color = texture(other, vec2(0)); }
         RenderScene  renderScene(scene);
         renderScene.OnViewportResize(16, 16);
         SceneRenderer renderer(&renderScene);
+        RegisterDefaultEditorFeatures(renderer.GetFeatures());
         renderer.SetAssetManager(&assets);
         auto& cache = *renderer.GetAssetCache();
         ASSERT_TRUE(Frames(cache, [&] {
@@ -1370,6 +1373,7 @@ void main() { color = texture(other, vec2(0)); }
             Render     = CreateScope<RenderScene>(LogicScene);
             Render->OnViewportResize(16, 16);
             Renderer = CreateRef<SceneRenderer>(Render.get());
+            RegisterDefaultEditorFeatures(Renderer->GetFeatures());
             Renderer->SetAssetManager(Assets.get());
             Info.sceneCamera.camera           = Camera(glm::mat4(1));
             Info.sceneCamera.viewMatrix       = glm::mat4(1);
@@ -2124,6 +2128,7 @@ void main() { o_Color = p.Tint; }
         // Deferred submissions must preserve write-reference/exclude-reference intent, not the last GL state.
         SceneRendererSpecification spec;
         Renderer             = CreateRef<SceneRenderer>(Render.get(), spec);
+        RegisterDefaultEditorFeatures(Renderer->GetFeatures());
         Renderer->SetAssetManager(Assets.get());
         const auto model = Quad(Color({0, 1, 0, 1}));
         Ready();
@@ -2214,6 +2219,7 @@ void main() { o_Color = p.Tint; }
         // Disabling culling paints the inflated front surface black outside its material silhouette.
         SceneRendererSpecification spec;
         Renderer             = CreateRef<SceneRenderer>(Render.get(), spec);
+        RegisterDefaultEditorFeatures(Renderer->GetFeatures());
         Renderer->SetAssetManager(Assets.get());
         const auto material = Color({0, 1, 0, 1}, MaterialAlphaMode::Opaque, true);
         const auto front    = Quad(material, 0, false, -1, -0.439f);

@@ -13,6 +13,7 @@
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Scene.h"
 #include "GpuTestContext.h"
@@ -43,6 +44,7 @@ namespace
             Scene = CreateScope<RenderScene>(Logic);
             Scene->OnViewportResize(Size, Size);
             Renderer                    = CreateRef<SceneRenderer>(Scene.get());
+            RegisterDefaultEditorFeatures(Renderer->GetFeatures());
             Info.sceneCamera.camera     = Camera(glm::mat4(1));
             Info.sceneCamera.viewMatrix = glm::mat4(1);
         }
@@ -129,6 +131,33 @@ namespace
         }
     };
 
+    TEST_P(ScenePassGL, FreshRenderersOmitEditorFeaturesSoRuntimeViewsDrawNoGrid)
+    {
+        // Bug: SceneRenderer registers the editor grid/outline features itself again,
+        // so game/runtime views (play mode, standalone apps) draw the editor grid.
+        SceneRenderer runtime(Scene.get());
+        EXPECT_THROW(runtime.GetFeatures().IsEnabled("EditorGrid"), std::invalid_argument);
+        EXPECT_THROW(runtime.GetFeatures().IsEnabled("EditorSelection"), std::invalid_argument);
+        EXPECT_TRUE(runtime.GetFeatures().IsEnabled("MaterialOutline")); // engine feature, not editor-only
+        auto camera = Logic->CreateEntity("Camera");
+        camera.AddComponent<CameraComponent>().SceneCamera.SetPerspectve(glm::radians(45.0f), .1f, 10.0f);
+        camera.GetComponent<TransformComponent>().Position = {0, 2, 2};
+        camera.GetComponent<TransformComponent>().Rotation = {glm::radians(-45.0f), 0, 0};
+        auto resource                                      = Scene->GetRenderResource();
+        resource.Piplinestate.EnableGridShader             = true;
+        Scene->SetRenderResource(resource);
+        Scene->OnRenderRuntime(Ref<SceneRenderer>(&runtime, [](SceneRenderer*) {}), TimeStep(0));
+        const auto& graph = runtime.GetRenderGraph();
+        for (auto pass : graph.ExecutionOrder())
+            EXPECT_NE(graph.PassName(pass), "Grid");
+        // The editor's renderer, with the features registered, still draws it.
+        Scene->OnRenderRuntime(Renderer, TimeStep(0));
+        bool grid = false;
+        for (auto pass : Renderer->GetRenderGraph().ExecutionOrder())
+            grid |= Renderer->GetRenderGraph().PassName(pass) == "Grid";
+        EXPECT_TRUE(grid);
+        Logic->DestroyEntity(camera);
+    }
     TEST_P(ScenePassGL, EquirectangularCaptureKeepsEveryFaceAndBothAxes)
     {
         Environment();

@@ -7,6 +7,7 @@
 #include "ImGuizmo.h"
 // TestInclude
 #include "Kans3D/Core/Log/Log.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include <Kans3D/Core/Hash.h>
 #include <Kans3D/Core/UUID.h>
 #include <Kans3D/ImGui/Colors.h>
@@ -119,6 +120,8 @@ namespace Kans
         {
 
             m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
+            // Grid, selection/preview outlines and debug shells exist only in editor views.
+            RegisterDefaultEditorFeatures(m_ViewportRenderer->GetFeatures());
             m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
             m_ViewportRenderer->PrepareEnvironment();
             // Material previews share the scene's environment and asset cache.

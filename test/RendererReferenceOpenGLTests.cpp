@@ -21,6 +21,7 @@
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Scene/Entity.h"
 #include "GpuTestContext.h"
 #include "ReferenceImage.h"
@@ -249,6 +250,7 @@ namespace
             Render->OnViewportResize(Size, Size);
             SceneRendererSpecification spec;
             Renderer              = CreateScope<SceneRenderer>(Render.get(), spec);
+            RegisterDefaultEditorFeatures(Renderer->GetFeatures());
             Renderer->SetAssetManager(Assets.get());
             Info.sceneCamera.Position   = {0, 0, 4};
             Info.sceneCamera.viewMatrix = glm::lookAt(Info.sceneCamera.Position, glm::vec3(0), glm::vec3(0, 1, 0));
@@ -584,6 +586,7 @@ namespace
         sprite.AddComponent<SpriteRendererComponent>(glm::vec4(.8f, .4f, .2f, .7f),
                                                      Renderer->GetAssetCache()->GetTexture(Albedo));
         auto runtime = CreateRef<SceneRenderer>(Render.get());
+        RegisterDefaultEditorFeatures(runtime->GetFeatures());
         runtime->SetAssetManager(Assets.get());
         runtime->PrepareEnvironment({32, 8, 32, 32});
         // Prewarm the same ready assets; this test isolates frame structure from async loading.
@@ -842,6 +845,7 @@ namespace
         // Bug: store feature instances/enabled flags globally or in the pipeline registry;
         // a marker or grid toggle on one view then affects the other renderer.
         auto                    other = CreateScope<SceneRenderer>(Render.get());
+        RegisterDefaultEditorFeatures(other->GetFeatures());
         std::array<unsigned, 5> records {};
         unsigned                preparations = 0;
         Renderer->GetFeatures().Register("private markers",

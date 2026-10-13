@@ -6,11 +6,12 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/RHI/Backend.h"
 using namespace Kans::RenderHardware;
-TEST(BackendSelection, DefaultsToOpenGLAndCommandLineOverridesTheIni)
+TEST(BackendSelection, DefaultsToVulkanAndCommandLineOverridesTheIni)
 {
+    // The user chose Vulkan as the default (2026-10-13); OpenGL stays selectable.
     auto path = std::filesystem::temp_directory_path() / "kans-backend-selection.ini";
     std::filesystem::remove(path);
-    EXPECT_EQ(ResolveBackend(path.string()), Backend::OpenGL);
+    EXPECT_EQ(ResolveBackend(path.string()), Backend::Vulkan);
     {
         std::ofstream out(path);
         out << "WorkSpace=x\nRenderBackend=Vulkan\n";
@@ -51,7 +52,7 @@ TEST(BackendSelection, CaptureArgumentsReachApplicationStartupAndRejectMalformed
     EXPECT_EQ(GetStartupFrameCapture().Path, "/tmp/editor.ppm");
     EXPECT_EQ(GetStartupFrameCapture().AfterFrames, 90u);
     SetStartupArguments(1, args);
-    EXPECT_EQ(ResolveStartupBackend(""), Backend::OpenGL);
+    EXPECT_EQ(ResolveStartupBackend(""), Backend::Vulkan);
     EXPECT_TRUE(GetStartupFrameCapture().Path.empty());
     EXPECT_EQ(ResolveFrameCaptureArguments({"--frame-capture=x.ppm"}).AfterFrames, 60u);
     for (const char* invalid : {"0", "-1", "", "30x", "4294967296"})

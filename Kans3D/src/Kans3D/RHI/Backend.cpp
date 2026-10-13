@@ -29,7 +29,7 @@ namespace Kans::RenderHardware
             return first == std::string::npos ? std::string {} :
                                                 value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1);
         };
-        Backend       result = Backend::OpenGL;
+        Backend       result = Backend::Vulkan;
         std::ifstream input(configPath);
         std::string   line;
         while (std::getline(input, line))
