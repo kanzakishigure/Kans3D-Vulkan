@@ -8,7 +8,6 @@
 
 namespace Kans
 {
-    class SceneRenderer;
     enum class MaterialPreviewShape
     {
         Sphere,
@@ -40,20 +39,17 @@ namespace Kans
         std::vector<uint8_t> Pixels;
     };
 
-    // Render thread only. Owns a dedicated world, target and background feature.
-    // The compatibility constructor requires its SceneRenderer to outlive this instance.
-    // The module/cache constructor is independent of any viewport.
+    // Render thread only. Owns a dedicated world, target and background feature;
+    // independent of any viewport.
     class MaterialPreviewRenderer
     {
     public:
-        explicit MaterialPreviewRenderer(SceneRenderer& scene);
         MaterialPreviewRenderer(std::shared_ptr<Renderer>            renderer,
                                 std::shared_ptr<RenderAssetCache>    assets,
                                 std::shared_ptr<EnvironmentLighting> environment = {});
-        // Rebind project resources without sharing any viewport state. Detaches the legacy provider.
+        // Rebind project resources without sharing any viewport state.
         void SetResources(std::shared_ptr<RenderAssetCache> assets, std::shared_ptr<EnvironmentLighting> environment)
         {
-            m_Scene       = nullptr;
             m_Assets      = std::move(assets);
             m_Environment = std::move(environment);
         }
@@ -84,7 +80,6 @@ namespace Kans
                                                               const MaterialPreviewOptions& options,
                                                               bool                          complete);
         bool                                  Resize(glm::uvec2 size);
-        SceneRenderer* m_Scene = nullptr; // Compatibility provider only; removed with the facade in 5b.
         std::shared_ptr<RenderAssetCache>                m_Assets;
         std::shared_ptr<EnvironmentLighting>             m_Environment;
         RenderWorld                                      m_World;

@@ -18,6 +18,7 @@
 #include "Kans3D/Scene/ScenePlaySession.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
+#include "ViewportClient.h"
 namespace Kans
 {
     // Identities of the editor panels (see PanelManager).
@@ -140,8 +141,7 @@ namespace Kans
 
 
         Ref<Scene>         m_ActiveScene;
-        Ref<RenderScene>   m_ActiveRenderScene;
-        Ref<SceneRenderer> m_ViewportRenderer;
+        Scope<ViewportClient> m_Viewport;
 
         Entity m_CameraEntity;
         Entity m_SecondCameraEntity;

@@ -7,7 +7,7 @@
 #include "RenderFrame.h"
 #include "Resource/InternalShader.h"
 #include "Resource/MaterialPass.h"
-#include "SceneRenderer.h"
+#include "Renderer.h"
 
 namespace Kans
 {
@@ -160,11 +160,6 @@ void main() {
         RenderHardware::Handle<RenderHardware::Pipeline> m_Checker;
     };
 
-    MaterialPreviewRenderer::MaterialPreviewRenderer(SceneRenderer& scene) :
-        MaterialPreviewRenderer(scene.GetRenderer(), {}, {})
-    {
-        m_Scene = &scene;
-    }
     MaterialPreviewRenderer::MaterialPreviewRenderer(std::shared_ptr<Renderer>            renderer,
                                                      std::shared_ptr<RenderAssetCache>    assets,
                                                      std::shared_ptr<EnvironmentLighting> environment) :
@@ -203,10 +198,10 @@ void main() {
                                                                     const ShaderData*             source,
                                                                     const MaterialPreviewOptions& options)
     {
-        if (!(m_Scene ? m_Scene->GetAssetCache() : m_Assets.get()))
+        if (!m_Assets)
             return {};
         PreviewRetirement retirement {*m_Device};
-        auto&             cache    = *(m_Scene ? m_Scene->GetAssetCache() : m_Assets.get());
+        auto&             cache    = *m_Assets;
         const GpuShader* shader   = nullptr;
         bool             complete = true;
         if (source && !IsStandardShader(material.Shader))
@@ -257,10 +252,10 @@ void main() {
     MaterialPreviewImageResult MaterialPreviewRenderer::RenderImage(AssetID                       material,
                                                                     const MaterialPreviewOptions& options)
     {
-        if (!(m_Scene ? m_Scene->GetAssetCache() : m_Assets.get()))
+        if (!m_Assets)
             return {};
         PreviewRetirement retirement {*m_Device};
-        auto&             cache    = *(m_Scene ? m_Scene->GetAssetCache() : m_Assets.get());
+        auto&             cache    = *m_Assets;
         auto  status   = cache.GetAssetManager().Request<MaterialDataAsset>(material);
         bool  complete = status.IsReady();
         if (status.Asset && !IsStandardShader(status.Asset->GetData().Shader))
@@ -293,13 +288,11 @@ void main() {
         }
         using namespace RenderHardware;
         RenderView view;
-        view.Assets =
-            m_Scene ? m_Scene->GetRenderer()->AcquireAssetCache(m_Scene->GetAssetCache()->GetAssetManager()) : m_Assets;
+        view.Assets                     = m_Assets;
         view.Viewport                   = options.Size;
         view.Features                   = &m_Features;
         view.DrawEnvironment            = false;
         view.Exposure                   = options.Exposure;
-        view.Time                       = m_Scene ? m_Scene->GetElapsedTime() : 0;
         view.Scene.sceneCamera.Position = {0, 0, 3.5f};
         view.Scene.sceneCamera.camera =
             Camera(glm::perspective(glm::radians(45.0f), float(options.Size.x) / options.Size.y, 0.1f, 20.0f));
@@ -320,16 +313,12 @@ void main() {
         lighting.PointSpecular[0]  = {1, 1, 1, 0};
         lighting.LightingInfo      = {1, options.Exposure, 0, 0};
         view.LightingUniforms      = lighting;
-        if (m_Scene)
         {
-            const auto images    = m_Scene->GetMaterialEnvironment();
+            // Missing maps (no environment yet) resolve to the renderer's fallbacks.
+            const EnvironmentLighting none;
+            const auto                images = m_Renderer->GetMaterialEnvironment(m_Environment ? *m_Environment : none);
             view.EnvironmentMaps = {images[0], images[1]};
             view.BrdfLUT         = images[2];
-        }
-        else if (m_Environment)
-        {
-            view.EnvironmentMaps = {m_Environment->Maps.IrradianceMap, m_Environment->Maps.RadianceMap};
-            view.BrdfLUT         = m_Environment->BrdfLUT;
         }
         const AssetID meshID, materialID;
         view.MeshResources[meshID] = std::make_shared<GpuMesh>(*m_Shapes[shape]);

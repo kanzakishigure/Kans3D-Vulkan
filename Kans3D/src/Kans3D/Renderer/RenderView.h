@@ -177,7 +177,7 @@ namespace Kans
         std::vector<ViewSprite>            Sprites;
         std::vector<ViewGrid>              Grids;
         std::vector<ViewSkybox>            Skyboxes;
-        std::vector<ViewSpriteBatch>       SpriteBatches; // Compatibility with direct Renderer2D callers.
+        std::vector<ViewSpriteBatch>       SpriteBatches; // Pre-recorded immediate sprite batches.
         std::vector<ViewImmediate>         ImmediateOrder;
         ViewEnvironment                    EnvironmentMaps;
         RenderHardware::Handle<RenderHardware::Texture> BrdfLUT;

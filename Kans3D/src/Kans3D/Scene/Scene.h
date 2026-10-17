@@ -19,8 +19,6 @@ namespace Kans
     struct PrefabNodeOverride;
     struct Bounds;
     struct MeshMaterialSlot;
-    class RenderScene;
-    class SceneRenderer;
     class Entity;
     struct SceneSnapshot;
 
@@ -36,7 +34,8 @@ namespace Kans
 
         void OnUpdate(TimeStep ts);
 
-        void OnViewportResize(uint32_t width, uint32_t height);
+        void       OnViewportResize(uint32_t width, uint32_t height);
+        glm::uvec2 GetViewportSize() const { return {m_ViewportWidth, m_ViewportHeight}; }
 
         Entity CreateEntity(const std::string name = std::string());
         Entity CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap);
@@ -63,7 +62,7 @@ namespace Kans
         // Copies the entity with its children (new IDs), placed right after it.
         Entity DuplicateEntity(Entity entity);
 
-        // Nonblocking; also called by RenderScene and runtime updates.
+        // Nonblocking; also called by rendering and runtime updates.
         void         SetPrefabAssetManager(AssetManager* assets);
         RenderWorld& GetRenderWorld() const { return *m_RenderWorld; }
         // Resolve CPU metadata, retaining prefab data while replacement assets load.
@@ -145,7 +144,6 @@ namespace Kans
 
     private:
         friend class Entity;
-        friend class RenderScene;
         friend class RenderWorld;
         friend class SceneSerializer;
     };

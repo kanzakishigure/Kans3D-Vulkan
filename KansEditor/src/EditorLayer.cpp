@@ -107,28 +107,22 @@ namespace Kans
             m_History.Reset(*m_ActiveScene);
         }
 
-        m_ActiveRenderScene = CreateRef<RenderScene>(m_ActiveScene);
-
+        // Viewport rendering
         {
-
-            // Renderer2D init
-            Renderer2D::Init();
-        }
-        // Scene Renderer Init
-        {
-
-            m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
-            // Grid, selection/preview outlines and debug shells exist only in editor views.
-            RegisterDefaultEditorFeatures(m_ViewportRenderer->GetFeatures());
-            m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
-            m_ViewportRenderer->PrepareEnvironment();
-            // Material previews share the scene's environment and asset cache.
-            m_MaterialPreview   = CreateScope<MaterialPreviewRenderer>(*m_ViewportRenderer);
-            m_ThumbnailRenderer = CreateScope<MaterialPreviewRenderer>(*m_ViewportRenderer);
+            m_Viewport = CreateScope<ViewportClient>();
+            m_Viewport->SetScene(m_ActiveScene);
+            m_ActiveScene->GetRenderWorld().EnvironmentPath = "assets/textures/HDR/studio_country_hall_2k.hdr";
+            m_Viewport->PrepareEnvironment();
+            // Material previews share the viewport's renderer and environment; their
+            // asset cache is bound when the project's assets are (RefreshProductAssets).
+            m_MaterialPreview   = CreateScope<MaterialPreviewRenderer>(m_Viewport->GetRenderer(), nullptr,
+                                                                     m_Viewport->GetEnvironment());
+            m_ThumbnailRenderer = CreateScope<MaterialPreviewRenderer>(m_Viewport->GetRenderer(), nullptr,
+                                                                       m_Viewport->GetEnvironment());
             m_MaterialEditorPanel.SetPreviewRenderer(m_MaterialPreview.get());
             m_ContentBrowserPanel.SetMaterialThumbnailProvider(
                 [this](const std::filesystem::path& file, uint32_t size) { return MaterialThumbnail(file, size); });
-            m_ViewportPanel.SetContext(m_ActiveScene, m_ActiveRenderScene, m_ViewportRenderer);
+            m_ViewportPanel.SetContext(m_ActiveScene, m_Viewport.get());
             m_ViewportPanel.SetFileDropCallback([this](const std::filesystem::path& file, std::optional<glm::vec3> position) {
                 if (file.extension() == ".kans")
                     Record(OpenScene(file));
@@ -165,10 +159,12 @@ namespace Kans
         }
         if (m_ActiveScene)
             m_Play.Discard(*m_ActiveScene);
-        if (m_ViewportRenderer)
+        if (m_Viewport)
         {
-            m_ViewportPanel.SetContext({}, {}, {});
-            m_ViewportRenderer->SetAssetManager(nullptr);
+            m_ViewportPanel.SetContext({}, nullptr);
+            m_MaterialPreview->SetResources({}, {});
+            m_ThumbnailRenderer->SetResources({}, {});
+            m_Viewport->SetAssetManager(nullptr);
             m_PropertiesPanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetPreviewRenderer(nullptr);
@@ -176,7 +172,7 @@ namespace Kans
             m_MaterialThumbnails.clear();
             m_MaterialPreview.reset();
             m_ThumbnailRenderer.reset();
-            m_ViewportRenderer.reset();
+            m_Viewport.reset();
         }
         m_Assets.reset();
         m_HierarchyPanel.SetScene({});
@@ -184,10 +180,8 @@ namespace Kans
         PROFILE_FUCTION();
         CLIENT_INFO_TAG("Editor", "editor layer call detach");
 
-        Renderer2D::Shutdown();
         EditorResources::ShutDown();
 
-        m_ActiveRenderScene.reset();
         m_ActiveScene.reset();
         m_AssetImports.reset();
         m_Console.Detach();

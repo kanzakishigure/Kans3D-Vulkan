@@ -518,15 +518,16 @@ namespace Kans
         if (ImGui::CollapsingHeader("Frame", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Text("%.1f FPS  (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
-            const auto viewport = m_ViewportRenderer->GetViewportSize();
-            ImGui::Text("Viewport: %u x %u", viewport[0], viewport[1]);
+            const auto viewport = m_Viewport->GetSize();
+            ImGui::Text("Viewport: %u x %u", viewport.x, viewport.y);
             ImGui::Text("UI: %d vertices, %d indices", io.MetricsRenderVertices, io.MetricsRenderIndices);
         }
         if (ImGui::CollapsingHeader("Renderer 2D", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Text("Draw calls: %d", Renderer2D::GetStats().DrawCalls);
-            ImGui::Text("Quads: %d", Renderer2D::GetStats().QuadCount);
-            ImGui::Text("Vertices: %d", Renderer2D::GetStats().GetTotalVertexCount());
+            const auto& sprites = m_Viewport->GetLastResult().SpriteStats;
+            ImGui::Text("Draw calls: %d", sprites.DrawCalls);
+            ImGui::Text("Quads: %d", sprites.QuadCount);
+            ImGui::Text("Vertices: %d", sprites.GetTotalVertexCount());
         }
         if (ImGui::CollapsingHeader("Assets", ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -540,9 +541,9 @@ namespace Kans
                                 states[static_cast<int>(std::get<EditorAssetImportSnapshot>(snapshot).State)]);
                 }
         }
-        if (m_ActiveRenderScene && ImGui::CollapsingHeader("Render Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        if (m_ActiveScene && ImGui::CollapsingHeader("Render Settings", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            auto  resource = m_ActiveRenderScene->GetRenderResource();
+            auto  resource = m_ActiveScene->GetRenderWorld().Settings;
             auto& state    = resource.Piplinestate;
             ImGui::Checkbox("Grid", &state.EnableGridShader);
             ImGui::Checkbox("Outline", &state.EnableOutline);
@@ -554,7 +555,7 @@ namespace Kans
             ImGui::Checkbox("EnableDefaultShader", &state.EnableDefaultShader);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Not used by the current renderer: models are always drawn.");
-            m_ActiveRenderScene->SetRenderResource(resource);
+            m_ActiveScene->GetRenderWorld().Settings = resource;
         }
     }
 } // namespace Kans

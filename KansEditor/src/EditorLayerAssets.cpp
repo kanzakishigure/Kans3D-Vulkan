@@ -76,7 +76,7 @@ namespace Kans
 
     std::variant<std::monostate, AssetError> EditorLayer::RefreshProductAssets(Ref<const AssetRegistry> snapshot)
     {
-        if (!m_AssetImports || !m_ViewportRenderer)
+        if (!m_AssetImports || !m_Viewport)
             return AssetError {AssetErrorCode::NotFound, "Project/scene renderer is unavailable"};
         if (!snapshot)
             snapshot = m_AssetImports->GetRuntimeAssetRegistry();
@@ -97,7 +97,9 @@ namespace Kans
         spec.Target = EditorAssetTarget;
         m_Assets    = CreateScope<AssetManager>(
             std::get<Ref<LooseFileAssetProvider>>(std::move(provider)), std::move(snapshot), std::move(spec));
-        m_ViewportRenderer->SetAssetManager(m_Assets.get());
+        m_Viewport->SetAssetManager(m_Assets.get());
+        m_MaterialPreview->SetResources(m_Viewport->GetAssetCache(), m_Viewport->GetEnvironment());
+        m_ThumbnailRenderer->SetResources(m_Viewport->GetAssetCache(), m_Viewport->GetEnvironment());
         m_PropertiesPanel.SetAssetManager(m_Assets.get());
         m_MaterialEditorPanel.SetAssetManager(m_Assets.get());
         return std::monostate {};
@@ -429,17 +431,17 @@ namespace Kans
 
     std::variant<std::monostate, AssetError> EditorLayer::ActivateScene(Ref<Scene> scene, std::filesystem::path path)
     {
-        if (!scene || !m_ViewportRenderer || !m_ActiveRenderScene)
+        if (!scene || !m_Viewport)
             return AssetError {AssetErrorCode::InvalidArgument, "Scene/renderer unavailable"};
-        const auto viewport = m_ViewportRenderer->GetViewportSize();
-        scene->OnViewportResize(std::max(1u, viewport[0]), std::max(1u, viewport[1]));
+        const auto viewport = m_Viewport->GetSize();
+        scene->OnViewportResize(std::max(1u, viewport.x), std::max(1u, viewport.y));
         // Leaving a playing scene drops its runtime state; the edit-time state is not kept.
         if (m_ActiveScene)
             m_Play.Discard(*m_ActiveScene);
         m_ActiveScene = std::move(scene);
-        m_ActiveRenderScene->SetLogicScene(m_ActiveScene);
+        m_Viewport->SetScene(m_ActiveScene);
         m_HierarchyPanel.SetScene(m_ActiveScene);
-        m_ViewportPanel.SetContext(m_ActiveScene, m_ActiveRenderScene, m_ViewportRenderer);
+        m_ViewportPanel.SetContext(m_ActiveScene, m_Viewport.get());
         m_CameraEntity       = {};
         m_SecondCameraEntity = {};
         m_ScenePath          = std::move(path);

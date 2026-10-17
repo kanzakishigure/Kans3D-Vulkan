@@ -9,7 +9,6 @@
 #include "RenderFeature.h"
 #include "RenderFrame.h"
 #include "RenderPipeline.h"
-#include "Renderer2D.h"
 #include "Resource/InternalShader.h"
 #include "Resource/MeshFactory.h"
 #include "Resource/SceneShaders.h"
@@ -60,7 +59,6 @@ namespace Kans
     }
     void Renderer::Shutdown()
     {
-        Renderer2D::Shutdown();
         ApplicationRenderer.reset();
         RenderHardware::ShutdownDevice();
     }

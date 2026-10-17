@@ -1,5 +1,6 @@
 #include "ViewportPanel.h"
 #include "Kans3D/Editor/DropPlacement.h"
+#include "Kans3D/Renderer/RenderWorld.h"
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -17,19 +18,18 @@ namespace Kans
     using Widgets::ToolButton;
     using Widgets::ToolSeparator;
 
-    void ViewportPanel::SetContext(Ref<Scene> scene, Ref<RenderScene> renderScene, Ref<SceneRenderer> renderer)
+    void ViewportPanel::SetContext(Ref<Scene> scene, ViewportClient* client)
     {
-        m_Scene       = std::move(scene);
-        m_RenderScene = std::move(renderScene);
-        m_Renderer    = std::move(renderer);
-        m_Size        = {0, 0}; // Re-applies the viewport size to the new scene.
+        m_Scene  = std::move(scene);
+        m_Client = client;
+        m_Size   = {0, 0}; // Re-applies the viewport size to the new scene.
     }
 
     void ViewportPanel::Draw()
     {
         m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         m_Hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
-        if (!m_Scene || !m_Renderer || !m_RenderScene)
+        if (!m_Scene || !m_Client)
         {
             ImGui::TextDisabled("No scene.");
             return;
@@ -42,11 +42,11 @@ namespace Kans
         // Outline the selection with its descendants' meshes; the renderer resolves
         // them after this frame's asset updates.
         Entity selected = m_Hierarchy.GetSelected();
-        m_Renderer->SetEntityHighlight(selected && !UsesSceneCamera() ? std::vector<UUID> {selected.GetUUID()} :
-                                                                        std::vector<UUID> {});
+        m_Client->SetHighlight(selected && !UsesSceneCamera() ? std::vector<UUID> {selected.GetUUID()} :
+                                                                std::vector<UUID> {});
         Render();
 
-        const auto output = static_cast<uintptr_t>(m_Renderer->GetOutput(0));
+        const auto output = m_Client->GetOutput();
         ImGui::Image(reinterpret_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
         m_ImageHovered = ImGui::IsItemHovered();
         if (m_Playing)
@@ -71,9 +71,8 @@ namespace Kans
         if (pixels == m_Size)
             return;
         m_Size = pixels;
-        m_Renderer->SetViewportSize(pixels.x, pixels.y);
+        m_Client->Resize(pixels);
         m_Camera.SetViewportSize(pixels.x, pixels.y);
-        m_RenderScene->OnViewportResize(pixels.x, pixels.y);
         m_Scene->OnViewportResize(pixels.x, pixels.y);
     }
 
@@ -94,16 +93,10 @@ namespace Kans
 
     void ViewportPanel::Render()
     {
-        const TimeStep step(ImGui::GetIO().DeltaTime);
-        m_Renderer->SetViewMode(UsesSceneCamera() ? SceneViewMode::Lit : m_ViewMode);
         // The game camera shows what the game renders: no editor grid or outlines.
-        auto& features = m_Renderer->GetFeatures();
-        for (const char* name : {"EditorGrid", "EditorSelection", "EditorPreview"})
-            features.SetEnabled(name, !UsesSceneCamera());
-        if (UsesSceneCamera())
-            m_RenderScene->OnRenderRuntime(m_Renderer, step);
-        else
-            m_RenderScene->OnRenderEditor(m_Renderer, step, m_Camera);
+        m_Client->SetViewMode(m_ViewMode);
+        if (!UsesSceneCamera() || !m_Client->RenderGame())
+            m_Client->RenderEditor(m_Camera);
     }
 
     void ViewportPanel::PickAt(ImVec2 mouse)
@@ -124,7 +117,7 @@ namespace Kans
         }
         // The framebuffer's origin is its bottom-left corner.
         const glm::uvec2 pixel(uint32_t(mouse.x - m_Min.x), uint32_t(m_Max.y - mouse.y - 1.0f));
-        const auto       hit  = m_Renderer->PickSceneSurface(*m_Scene, ViewProjection(), pixel);
+        const auto       hit  = m_Client->Pick(ViewProjection(), pixel);
         Entity           part = m_Scene->GetEntityByUUID(hit.EntityID);
         Entity           root = m_Scene->GetEntityByUUID(hit.InstanceRoot);
         // The first click on a model selects the whole instance; clicking again inside
@@ -159,7 +152,7 @@ namespace Kans
             {
                 position = DropPosition(ImGui::GetMousePos(), m_DragModel);
                 if (m_DragModel.IsValid())
-                    m_Renderer->SetPreview(m_DragModel, glm::translate(glm::mat4(1.0f), *position));
+                    m_Client->SetPreview(m_DragModel, glm::translate(glm::mat4(1.0f), *position));
             }
             if (data->IsDelivery())
             {
@@ -176,14 +169,13 @@ namespace Kans
         const glm::vec2 pixel(mouse.x - m_Min.x, mouse.y - m_Min.y);
         const auto [origin, direction] = m_Camera.ScreenRay(pixel);
         // The surface under the cursor; the picker uses a bottom-left pixel origin.
-        const auto hit = m_Renderer->PickSceneSurface(
-            *m_Scene,
+        const auto hit = m_Client->Pick(
             ViewProjection(),
             {uint32_t(std::clamp(pixel.x, 0.0f, float(m_Size.x - 1))),
              uint32_t(std::clamp(float(m_Size.y) - 1.0f - pixel.y, 0.0f, float(m_Size.y - 1)))});
         Bounds bounds;
-        if (model.IsValid() && m_Renderer->GetAssetCache())
-            bounds = m_Renderer->GetAssetCache()->GetModelBounds(model);
+        if (model.IsValid() && m_Client->GetAssetCache())
+            bounds = m_Client->GetAssetCache()->GetModelBounds(model);
         return ComputeDropPosition(origin, direction, hit.Position, bounds, m_Camera.GetDistance());
     }
 
@@ -402,7 +394,7 @@ namespace Kans
     {
         if (!m_ShowStats)
             return;
-        const auto&    stats = m_Renderer->GetStats();
+        const auto&    stats = m_Client->GetLastResult().Stats;
         const ImGuiIO& io    = ImGui::GetIO();
         OverlayGroup({m_Min.x + 10.0f, m_Max.y - 86.0f}, [&] {
             ImGui::Text("%.0f FPS  %.2f ms", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
@@ -567,7 +559,7 @@ namespace Kans
                     if (ImGui::RadioButton(name, m_ViewMode == mode))
                         m_ViewMode = mode;
                 ImGui::Separator();
-                auto  resource = m_RenderScene->GetRenderResource();
+                auto  resource = m_Scene->GetRenderWorld().Settings;
                 auto& state    = resource.Piplinestate;
                 const auto label = [](const char* icon, const char* text) { return std::string(icon) + "  " + text; };
                 ImGui::Checkbox(label(ICON_FA_LIGHTBULB, "Light and camera icons").c_str(), &m_ShowIcons);
@@ -576,7 +568,7 @@ namespace Kans
                 ImGui::Checkbox(label(ICON_FA_DRAW_POLYGON, "Outline (all models)").c_str(), &state.EnableOutline);
                 ImGui::Checkbox(label(ICON_FA_VECTOR_SQUARE, "Stencil (all models)").c_str(), &state.EnableStencil);
                 ImGui::Checkbox(label(ICON_FA_CROSSHAIRS, "Debug normals").c_str(), &state.EnableDebugNormal);
-                m_RenderScene->SetRenderResource(resource);
+                m_Scene->GetRenderWorld().Settings = resource;
                 if (m_Playing)
                 {
                     ImGui::Separator();

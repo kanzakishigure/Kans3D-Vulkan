@@ -4,8 +4,7 @@
 #include <optional>
 #include <imgui.h>
 #include "Kans3D/Editor/EditorCamera.h"
-#include "Kans3D/Renderer/Resource/RenderScene.h"
-#include "Kans3D/Renderer/SceneRenderer.h"
+#include "ViewportClient.h"
 #include "HierarchyPanel.h"
 
 namespace Kans
@@ -27,7 +26,8 @@ namespace Kans
 
         explicit ViewportPanel(HierarchyPanel& hierarchy) : m_Hierarchy(hierarchy) {}
 
-        void SetContext(Ref<Scene> scene, Ref<RenderScene> renderScene, Ref<SceneRenderer> renderer);
+        // The viewport renders `scene` through `client` (both may be null).
+        void SetContext(Ref<Scene> scene, ViewportClient* client);
         void SetFileDropCallback(FileDrop callback) { m_FileDrop = std::move(callback); }
         void SetModelResolver(ModelResolver resolver) { m_ResolveModel = std::move(resolver); }
         // While playing, the scene renders through its primary camera unless the
@@ -74,8 +74,7 @@ namespace Kans
 
         HierarchyPanel&    m_Hierarchy;
         Ref<Scene>         m_Scene;
-        Ref<RenderScene>   m_RenderScene;
-        Ref<SceneRenderer> m_Renderer;
+        ViewportClient*    m_Client = nullptr;
         FileDrop           m_FileDrop;
         ModelResolver      m_ResolveModel;
         // The file being dragged over the viewport and its model, resolved once per drag.

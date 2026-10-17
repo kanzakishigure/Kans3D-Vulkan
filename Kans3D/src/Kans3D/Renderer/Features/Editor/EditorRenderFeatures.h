@@ -37,7 +37,7 @@ namespace Kans
         void Prepare(RenderView& view, RenderFrame& frame) override;
         void AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context) override;
     };
-    // Temporary compatibility policy. Move this one call from SceneRenderer's constructor
-    // to editor view setup when the editor takes ownership of feature registration.
+    // Registers the editor's overlays (grid, debug shells, selection and drag-preview
+    // outlines); called by each editor viewport for its own feature set.
     void RegisterDefaultEditorFeatures(RenderFeatureSet& features);
 } // namespace Kans
