@@ -88,7 +88,7 @@ namespace
         parent.AddComponent<CameraComponent>().Primary = false;
         child.AddComponent<SpriteRendererComponent>().Color = {0.2f, 0.3f, 0.4f, 0.5f};
         child.AddComponent<ScriptComponent>("EditScript");
-        sibling.AddComponent<ProductModelComponent>().Model = {SourceAssetID::Generate(), 7};
+        sibling.AddComponent<PrefabInstanceComponent>().Prefab = {SourceAssetID::Generate(), 7};
         auto& light = removed.AddComponent<PointLightComponent>();
         light.Diffuse_Intensity = {1, 2, 3};
         light.Specular_Intensity = {4, 5, 6};
@@ -110,7 +110,7 @@ namespace
         child.GetComponent<ScriptComponent>().ClassName = "RuntimeScript";
         child.GetComponent<ScriptComponent>().IsLoaded = true;
         child.RemoveComponent<SpriteRendererComponent>();
-        sibling.GetComponent<ProductModelComponent>().Model = {};
+        sibling.GetComponent<PrefabInstanceComponent>().Prefab = {};
         ASSERT_TRUE(Current->SetParent(child, {}, parent, false));
         Current->DestroyEntity(removed);
         Entity created = Current->CreateEntity("Runtime entity");

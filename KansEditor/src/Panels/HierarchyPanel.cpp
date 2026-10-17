@@ -5,7 +5,6 @@
 #include <imgui_internal.h>
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Scene/Components.h"
-#include "Kans3D/Scene/ProductModelComponent.h"
 #include "UI/EditorIcons.h"
 
 namespace Kans
@@ -30,7 +29,9 @@ namespace Kans
                 return ICON_FA_SUN;
             if (entity.HasComponent<PointLightComponent>())
                 return ICON_FA_LIGHTBULB;
-            if (entity.HasComponent<ProductModelComponent>())
+            if (entity.HasComponent<PrefabInstanceComponent>())
+                return ICON_FA_CUBES;
+            if (entity.HasComponent<MeshComponent>())
                 return ICON_FA_CUBE;
             if (entity.HasComponent<SpriteRendererComponent>())
                 return ICON_FA_IMAGE;
@@ -170,14 +171,19 @@ namespace Kans
         const bool renaming = id == m_Renaming;
         const bool direct   = !filtering || Lowercase(name).find(Lowercase(m_Search.data())) != std::string::npos;
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, 2.0f});
+        // Prefab instances and their parts are tinted, as their structure comes from the prefab.
+        const bool owned  = entity.HasComponent<PrefabOwnedComponent>();
+        const bool prefab = owned || entity.HasComponent<PrefabInstanceComponent>();
         if (!direct)
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        else if (prefab)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.70f, 1.0f, 1.0f));
         const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(uintptr_t(uint64_t(id))),
                                             flags,
                                             "%s  %s",
                                             IconFor(entity),
                                             renaming ? "" : name.c_str());
-        if (!direct)
+        if (!direct || prefab)
             ImGui::PopStyleColor();
         ImGui::PopStyleVar();
 
@@ -186,7 +192,7 @@ namespace Kans
             if (m_Renaming != id)
                 CommitRename();
             m_Selected = id;
-            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !owned)
                 StartRename(entity);
         }
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
@@ -195,7 +201,8 @@ namespace Kans
             m_MenuEntity     = id;
             m_OpenEntityMenu = true;
         }
-        if (ImGui::BeginDragDropSource())
+        // A prefab part stays where the prefab puts it; it cannot be moved out.
+        if (!owned && ImGui::BeginDragDropSource())
         {
             const uint64_t payload = uint64_t(id);
             ImGui::SetDragDropPayload(EntityPayload, &payload, sizeof(payload));
@@ -316,7 +323,7 @@ namespace Kans
             Create("Entity", parent);
         ImGui::Separator();
         if (ImGui::MenuItem(Label(ICON_FA_CUBE, "Model").c_str()))
-            Create("Model", parent).AddComponent<ProductModelComponent>();
+            Create("Model", parent).AddComponent<PrefabInstanceComponent>();
         if (ImGui::MenuItem(Label(ICON_FA_VIDEO, "Camera").c_str()))
             Create("Camera", parent).AddComponent<CameraComponent>().Primary = false;
         if (ImGui::MenuItem(Label(ICON_FA_SUN, "Directional Light").c_str()))
@@ -342,11 +349,13 @@ namespace Kans
             ImGui::EndMenu();
         }
         ImGui::Separator();
-        if (ImGui::MenuItem(Label(ICON_FA_PEN, "Rename").c_str(), "F2"))
+        const bool owned = entity.HasComponent<PrefabOwnedComponent>();
+        if (ImGui::MenuItem(Label(ICON_FA_PEN, "Rename").c_str(), "F2", false, !owned))
             StartRename(entity);
         if (ImGui::MenuItem(Label(ICON_FA_CLONE, "Duplicate").c_str(), "Ctrl+D"))
             Duplicate(entity);
-        if (m_Scene->GetParent(entity) && ImGui::MenuItem(Label(ICON_FA_ARROW_UP, "Move to Top Level").c_str()))
+        if (m_Scene->GetParent(entity) && !owned &&
+            ImGui::MenuItem(Label(ICON_FA_ARROW_UP, "Move to Top Level").c_str()))
             m_Scene->SetParent(entity, {}, {}, true);
         ImGui::Separator();
         if (ImGui::MenuItem(Label(ICON_FA_COPY, "Copy ID").c_str()))
@@ -381,6 +390,9 @@ namespace Kans
 
     void HierarchyPanel::StartRename(Entity entity)
     {
+        // A part's name comes from the prefab and is restored on every expansion.
+        if (entity.HasComponent<PrefabOwnedComponent>())
+            return;
         m_Renaming = entity.GetUUID();
         m_RenameBuffer.fill(0);
         const auto& name = entity.GetComponent<TagComponent>().Tag;

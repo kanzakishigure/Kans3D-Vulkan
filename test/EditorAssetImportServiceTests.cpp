@@ -10,10 +10,12 @@
 #include "Kans3D/Renderer/RenderView.h"
 #include "Kans3D/Scene/Entity.h"
 #include "LegacyModelCacheFixture.h"
+#include "PrefabRenderTestUtilities.h"
 
 namespace
 {
     using namespace Kans;
+    using namespace Kans::Test;
     using namespace std::chrono_literals;
     namespace fs = std::filesystem;
 
@@ -533,9 +535,10 @@ namespace
         AssetManager assets(provider, Service->GetRuntimeAssetRegistry(), spec);
         auto         scene     = CreateRef<Scene>("existing scene");
         auto         entity    = scene->CreateEntityWithID(UUID(123), "Body", true);
-        auto&        component = entity.AddComponent<ProductModelComponent>();
+        ProductModelComponent component;
         component.Model        = Legacy::ID(1);
         component.Overrides    = {{Legacy::ID(4), Legacy::ID(3)}, {Legacy::ID(5), Legacy::ID(2)}};
+        SetLegacyPending(entity, component);
         auto old               = assets.Load<ModelAsset>(component.Model);
         ASSERT_TRUE(std::holds_alternative<AssetError>(old));
         EXPECT_EQ(std::get<AssetError>(old).Code, AssetErrorCode::UnsupportedVersion);
@@ -566,17 +569,19 @@ namespace
             ASSERT_EQ(data.Sections.size(), 2u);
             const auto& section = data.Sections[instance.Section];
             const auto& slot    = data.MaterialSlots[section.MaterialSlot];
-            ExtractModelPart(view,
-                             component,
-                             glm::mat4(1),
-                             ModelStencilMode::Disabled,
-                             SceneViewMode::Lit,
-                             instance,
-                             {section.LocalBounds, slot.DefaultMaterial, slot.AuthoredMaterial});
+            // The pending legacy record is converted by the scene system once
+            // the model and every CPU mesh have been loaded.
         }
-        ASSERT_EQ(view.Draws.size(), 2u);
-        EXPECT_EQ(view.Draws[0].Material, Legacy::ID(3));
-        EXPECT_EQ(view.Draws[1].Material, Legacy::ID(2));
+        scene->UpdatePrefabs(assets);
+        const auto parts = scene->GetMeshEntities(entity);
+        ASSERT_EQ(parts.size(), 2u);
+        EXPECT_EQ(parts[0].GetComponent<MeshComponent>().Materials[0], Legacy::ID(3));
+        const auto& right = parts[1].GetComponent<MeshComponent>();
+        const auto  data  = Legacy::Value(assets.Load<MeshAsset>(right.Mesh));
+        const auto  slot  = data->GetData().Sections.at(*right.Section).MaterialSlot;
+        EXPECT_EQ(right.Materials[slot], Legacy::ID(2));
+        EXPECT_FALSE(entity.HasComponent<ProductModelComponent>());
+        EXPECT_FALSE(entity.GetComponent<PrefabInstanceComponent>().LegacyPending);
         EXPECT_EQ(component.Model, Legacy::ID(1));
         ASSERT_EQ(component.Overrides.size(), 2u);
         EXPECT_EQ(component.Overrides[0].Authored, Legacy::ID(4));

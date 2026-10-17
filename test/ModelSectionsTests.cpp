@@ -12,10 +12,12 @@
 #include "Kans3D/Renderer/RenderView.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/SceneSerializer.h"
+#include "PrefabRenderTestUtilities.h"
 
 namespace
 {
     using namespace Kans;
+    using namespace Kans::Test;
     namespace fs = std::filesystem;
 
     class ModelSections : public testing::Test
@@ -130,6 +132,50 @@ namespace
         }
     };
 
+    TEST_F(ModelSections, PrefabNodeKeysSurviveSourceNodeReorderingAndKeepPartIdentities)
+    {
+        // Bug: importer keys entities by the node index instead of its source identity.
+        const auto                         first = Import();
+        std::map<std::string, std::string> keys;
+        for (const auto& node : first.Model.Nodes)
+            keys[node.Name] = node.Key;
+        EXPECT_EQ(keys.at("First"), "node:5:First");
+        EXPECT_EQ(keys.at("Second"), "node:6:Second");
+        ASSERT_EQ(first.Model.Entities.size(), 11u); // Four source nodes and seven source parts.
+        // Bug: loading v2 before StartOutdated finishes derives a different key
+        // from the v3 importer, changing the expanded entities' UUIDs on upgrade.
+        auto legacy = first.Model;
+        legacy.Entities.clear();
+        for (auto& node : legacy.Nodes)
+            node.Key.clear();
+        const auto inferred = BuildPrefabEntities(legacy);
+        ASSERT_EQ(inferred.size(), first.Model.Entities.size());
+        for (size_t i = 0; i < inferred.size(); ++i)
+            EXPECT_EQ(inferred[i].Key, first.Model.Entities[i].Key);
+        std::ifstream input(Context.SourceFile);
+        std::string   text {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        const auto original  = std::string("[{\"name\":\"First\",\"mesh\":0,\"translation\":[100,200,300],\"scale\":[2,"
+                                           "3,4]},\n{\"name\":\"Second\",\"mesh\":0,\"translation\":[-100,0,0]},");
+        const auto reordered = std::string("[{\"name\":\"Second\",\"mesh\":0,\"translation\":[-100,0,0]},\n{\"name\":"
+                                           "\"First\",\"mesh\":0,\"translation\":[100,200,300],\"scale\":[2,3,4]},");
+        const auto at        = text.find(original);
+        ASSERT_NE(at, std::string::npos);
+        text.replace(at, original.size(), reordered);
+        Write(Context.SourceFile, text);
+        Context.PreviousLocalIDs = first.Result.LocalIDs;
+        for (const auto& entry : fs::directory_iterator(Context.StagingDirectory))
+            fs::remove(entry.path());
+        const auto second = Import();
+        for (const auto& node : second.Model.Nodes)
+            EXPECT_EQ(node.Key, keys.at(node.Name));
+        ASSERT_EQ(second.Model.SectionIdentities.size(), first.Model.SectionIdentities.size());
+        for (size_t i = 0; i < first.Model.SectionIdentities.size(); ++i)
+        {
+            EXPECT_EQ(second.Model.SectionIdentities[i].ObjectKey, first.Model.SectionIdentities[i].ObjectKey);
+            EXPECT_EQ(second.Model.SectionIdentities[i].OldMesh, first.Model.SectionIdentities[i].OldMesh);
+        }
+    }
+
     TEST_F(ModelSections, GltfPrimitivesGroupByOrderedNodeTupleWithExactSlotsIndicesAndLocalBounds)
     {
         // Bugs: grouping by material/name merges unrelated objects; adding indices
@@ -237,7 +283,7 @@ namespace
             {{Context.SourceID, 22}, partChoice}, {{Context.SourceID, 2}, slotChoice}, {bound, boundChoice}};
         const auto sceneFile = Root / "old.scene";
         auto       scene     = CreateRef<Scene>("old scene");
-        scene->CreateEntityWithID(UUID(101), "Body", true).AddComponent<ProductModelComponent>(component);
+        SetLegacyPending(scene->CreateEntityWithID(UUID(101), "Body", true), component);
         ASSERT_TRUE(std::holds_alternative<std::monostate>(SceneSerializer(scene).SerializeChecked(sceneFile)));
         std::ifstream     oldInput(sceneFile, std::ios::binary);
         const std::string oldBytes {std::istreambuf_iterator<char>(oldInput), std::istreambuf_iterator<char>()};
@@ -251,7 +297,8 @@ namespace
         auto loaded = SceneSerializer::DeserializeChecked(sceneFile);
         ASSERT_TRUE(std::holds_alternative<Ref<Scene>>(loaded));
         const auto loadedScene = std::get<Ref<Scene>>(loaded);
-        auto       restored    = loadedScene->GetEntityByUUID(UUID(101)).GetComponent<ProductModelComponent>();
+        auto       restored =
+            (*loadedScene->GetEntityByUUID(UUID(101)).GetComponent<PrefabInstanceComponent>().LegacyPending);
         auto       instances   = std::get<ModelInstances>(FlattenModel(second.Model));
         RenderView view;
         for (const auto& instance : instances.Instances)
@@ -259,13 +306,14 @@ namespace
             const auto& data    = second.Meshes.at(instance.Mesh);
             const auto& section = data.Sections[instance.Section];
             const auto& slot    = data.MaterialSlots[section.MaterialSlot];
-            ExtractModelPart(view,
-                             restored,
-                             glm::mat4(1),
-                             ModelStencilMode::Disabled,
-                             SceneViewMode::Lit,
-                             instance,
-                             {section.LocalBounds, slot.DefaultMaterial, slot.AuthoredMaterial});
+            GpuMesh     gpu;
+            gpu.Sections      = data.Sections;
+            gpu.MaterialSlots = data.MaterialSlots;
+            std::vector<AssetID> materials(data.MaterialSlots.size());
+            materials[section.MaterialSlot] =
+                restored.ResolveMaterial(instance.Mesh, slot.DefaultMaterial, slot.AuthoredMaterial, instance.Part);
+            ExtractMeshDraws(
+                view, {{instance.Mesh, materials, instance.Section}, instance.Transform}, SceneViewMode::Lit, &gpu);
         }
         ASSERT_EQ(view.Draws.size(), 7u);
         const std::vector<AssetID> expected {slotChoice,

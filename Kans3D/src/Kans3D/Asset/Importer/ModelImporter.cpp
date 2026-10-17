@@ -367,10 +367,14 @@ namespace Kans
         descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmodel";
         for (const auto& key : groupKeys)
             AddUnique(descriptor.Dependencies, idFor(key));
+        std::vector<std::string> nodeKeys;
+        for (const auto& node : source.Nodes)
+            nodeKeys.push_back(ObjectKey("node", node.Name));
+        MakeUnique(nodeKeys, nodePaths);
         for (size_t i = 0; i < source.Nodes.size(); ++i)
         {
             const auto&   input = source.Nodes[i];
-            ModelNodeData node {input.Name, input.Parent, input.LocalTransform, {}};
+            ModelNodeData node {input.Name, input.Parent, input.LocalTransform, {}, nodeKeys[i]};
             if (nodeGroups[i] != size_t(-1))
             {
                 const auto id = idFor(groupKeys.at(nodeGroups[i]));

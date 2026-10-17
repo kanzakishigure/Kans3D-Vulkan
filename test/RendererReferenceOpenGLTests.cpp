@@ -26,12 +26,16 @@
 #include "Kans3D/Renderer/Resource/MaterialPass.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
 #include "Kans3D/Scene/Entity.h"
+#include "Kans3D/Scene/SceneSerializer.h"
+#include "Kans3D/Scene/SceneSnapshot.h"
 #include "GpuTestContext.h"
+#include "PrefabRenderTestUtilities.h"
 #include "ReferenceImage.h"
 
 namespace
 {
     using namespace Kans;
+    using namespace Kans::Test;
     using namespace Kans::Test;
     namespace fs = std::filesystem;
 
@@ -517,14 +521,14 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         void RenderProbe(const ProductModelComponent& model)
         {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(model, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
             Renderer->EndScene();
         }
         void TexturedScene()
         {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(Sphere, Transform({-0.38f, 0.22f, 0.15f}, {0.72f, 0.72f, 0.72f}, 0.23f));
-            Renderer->SubmitModel(Quad, Transform({0.57f, -0.46f, -0.35f}, {0.48f, 0.35f, 1}, -0.18f));
+            SubmitLegacyOracle(*Renderer, Sphere, Transform({-0.38f, 0.22f, 0.15f}, {0.72f, 0.72f, 0.72f}, 0.23f));
+            SubmitLegacyOracle(*Renderer, Quad, Transform({0.57f, -0.46f, -0.35f}, {0.48f, 0.35f, 1}, -0.18f));
             Renderer->EndScene();
             ASSERT_EQ(Renderer->GetStats().DrawCalls, 2u);
         }
@@ -556,12 +560,12 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         Renderer->BeginScene(Info);
         // Intentionally submit near before far and opaque last. Renderer must
         // sort across models, test opaque depth, and avoid writing blend depth.
-        Renderer->SubmitModel(near, Transform({0.1f, -0.15f, 0.5f}, {0.62f, 0.56f, 1}));
-        Renderer->SubmitModel(far, Transform({0.37f, 0.03f, 0.1f}, {0.67f, 0.6f, 1}));
-        Renderer->SubmitModel(masked, Transform({-0.58f, 0.4f, 0.65f}, {0.6f, 0.5f, 1}));
-        Renderer->SubmitModel(back, Transform({-0.83f, -0.75f, 0.3f}, {0.32f, 0.22f, 1}));
-        Renderer->SubmitModel(culled, Transform({0.9f, 0.92f, 0.2f}, {0.28f, 0.18f, 1}));
-        Renderer->SubmitModel(opaque, Transform({-0.1f, 0.1f, 0.35f}, {0.4f, 0.28f, 1}));
+        SubmitLegacyOracle(*Renderer, near, Transform({0.1f, -0.15f, 0.5f}, {0.62f, 0.56f, 1}));
+        SubmitLegacyOracle(*Renderer, far, Transform({0.37f, 0.03f, 0.1f}, {0.67f, 0.6f, 1}));
+        SubmitLegacyOracle(*Renderer, masked, Transform({-0.58f, 0.4f, 0.65f}, {0.6f, 0.5f, 1}));
+        SubmitLegacyOracle(*Renderer, back, Transform({-0.83f, -0.75f, 0.3f}, {0.32f, 0.22f, 1}));
+        SubmitLegacyOracle(*Renderer, culled, Transform({0.9f, 0.92f, 0.2f}, {0.28f, 0.18f, 1}));
+        SubmitLegacyOracle(*Renderer, opaque, Transform({-0.1f, 0.1f, 0.35f}, {0.4f, 0.28f, 1}));
         Renderer->EndScene();
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 6u);
         CompareScene("alpha-depth-sort-backfaces", {2, 0.0});
@@ -569,14 +573,14 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
     TEST_P(RendererReferenceGL, EmissionTextureAndToneMapping)
     {
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(EmissionSphere, Transform({0.25f, 0.28f, 0}, {0.8f, 0.8f, 0.8f}, -0.3f));
+        SubmitLegacyOracle(*Renderer, EmissionSphere, Transform({0.25f, 0.28f, 0}, {0.8f, 0.8f, 0.8f}, -0.3f));
         Renderer->EndScene();
         CompareScene("emission", {2, 0.0});
     }
     TEST_P(RendererReferenceGL, ImportedToonMaterial)
     {
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(ToonSphere, Transform({-0.22f, 0.13f, 0}, {0.93f, 0.93f, 0.93f}, 0.3f));
+        SubmitLegacyOracle(*Renderer, ToonSphere, Transform({-0.22f, 0.13f, 0}, {0.93f, 0.93f, 0.93f}, 0.3f));
         Renderer->EndScene();
         CompareScene("toon-imported", {1, 0.0});
     }
@@ -603,19 +607,26 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
     {
         const auto transform = Transform({-0.3f, 0.23f, 0.2f}, {0.55f, 0.4f, 1}, 0.15f);
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(Quad, transform);
-        Renderer->SetHighlight({{Quad, transform}});
+        SubmitLegacyOracle(*Renderer, Quad, transform);
+        HighlightLegacyOracle(*Renderer, *Logic, {{Quad, transform}});
         Renderer->EndScene();
         CompareScene("selection-outline", {2, 0.0});
-        std::vector<MeshDraw> draws;
-        Renderer->AppendModelDraws(Quad, transform, 37, draws);
-        Renderer->AppendModelDraws(Quad, Transform({-0.3f, 0.23f, -0.5f}, {0.7f, 0.6f, 1}), 91, draws);
-        ASSERT_EQ(draws.size(), 2u);
+        auto pickScene = CreateRef<Scene>();
+        auto nearRoot  = pickScene->CreateEntityWithID(UUID(37), "Near prefab", false);
+        nearRoot.AddComponent<PrefabInstanceComponent>().Prefab = Quad.Model;
+        ExactTransform(nearRoot, transform);
+        auto farRoot = pickScene->CreateEntityWithID(UUID(91), "Far prefab", false);
+        farRoot.AddComponent<PrefabInstanceComponent>().Prefab = Quad.Model;
+        ExactTransform(farRoot, Transform({-0.3f, 0.23f, -0.5f}, {0.7f, 0.6f, 1}));
+        pickScene->UpdatePrefabs(*Assets);
+        const auto nearPart = pickScene->GetMeshEntities(nearRoot).front().GetUUID();
+        const auto farPart  = pickScene->GetMeshEntities(farRoot).front().GetUUID();
+        ASSERT_EQ(pickScene->GetMeshEntities().size(), 2u);
         const auto       vp = Info.sceneCamera.camera.GetProjectionMatrix() * Info.sceneCamera.viewMatrix;
         const glm::uvec2 pixel {52, 73};
-        EXPECT_EQ(Renderer->Pick(draws, vp, pixel), 37u);
-        const auto hit = Renderer->PickSurface(draws, vp, pixel);
-        ASSERT_EQ(hit.ID, 37u);
+        const auto       hit = Renderer->PickSceneSurface(*pickScene, vp, pixel);
+        ASSERT_EQ(hit.EntityID, nearPart);
+        EXPECT_EQ(hit.InstanceRoot, UUID(37));
         ASSERT_TRUE(hit.Position);
         // Pixel centres unproject onto the known z=0.2 plane. This detects a
         // Vulkan depth-range mismatch as well as Y-origin/off-by-one errors.
@@ -624,12 +635,13 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         EXPECT_NEAR(hit.Position->x, ((pixel.x + 0.5f) / Size * 2 - 1) * extent, 0.0001f);
         EXPECT_NEAR(hit.Position->y, ((pixel.y + 0.5f) / Size * 2 - 1) * extent, 0.0001f);
         EXPECT_NEAR(hit.Position->z, 0.2f, 0.0001f);
-        const auto far = Renderer->PickSurface(draws, vp, {77, 80});
-        ASSERT_EQ(far.ID, 91u); // Exposed part of the larger, farther quad.
+        const auto far = Renderer->PickSceneSurface(*pickScene, vp, {77, 80});
+        EXPECT_EQ(far.InstanceRoot, UUID(91));
+        ASSERT_EQ(far.EntityID, farPart); // Exposed part of the larger, farther quad.
         ASSERT_TRUE(far.Position);
         EXPECT_NEAR(far.Position->z, -0.5f, 0.0001f);
-        const auto empty = Renderer->PickSurface(draws, vp, {2, 2});
-        EXPECT_EQ(empty.ID, 0u);
+        const auto empty = Renderer->PickSceneSurface(*pickScene, vp, {2, 2});
+        EXPECT_EQ(empty.EntityID, UUID(0));
         EXPECT_FALSE(empty.Position);
         if (GetParam() == GpuTestBackend::OpenGL)
             EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
@@ -888,11 +900,11 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         const auto hdr    = Probe("o_Color=vec4(4,2,1,1);", ShaderOutputSpace::LinearHDR);
         auto       render = [&](bool mixed, bool blended) {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(display, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, display, glm::mat4(1));
             if (mixed)
-                Renderer->SubmitModel(hdr, glm::translate(glm::mat4(1), glm::vec3(4, 0, 0)));
+                SubmitLegacyOracle(*Renderer, hdr, glm::translate(glm::mat4(1), glm::vec3(4, 0, 0)));
             if (blended)
-                Renderer->SubmitModel(blend, glm::translate(glm::mat4(1), glm::vec3(0, 0, .1f)));
+                SubmitLegacyOracle(*Renderer, blend, glm::translate(glm::mat4(1), glm::vec3(0, 0, .1f)));
             Renderer->EndScene();
             return Read(Renderer->GetRenderTarget().Colors[0].Target);
         };
@@ -994,6 +1006,176 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             }
         }
     }
+    TEST_P(RendererReferenceGL, MigratedMultipartFrameMatchesLegacyAfterSaveReloadAndPlayCopy)
+    {
+        // Bug: hierarchy multiplication or draw/pass order changes pixels, or a
+        // per-part override leaks to another section sharing its material slot.
+        auto mesh     = QuadData();
+        mesh.Material = Textured;
+        BuildSingleSection(mesh);
+        mesh.MaterialSlots[0].AuthoredMaterial = Textured;
+        const auto originalVertices            = mesh.Vertices;
+        const auto originalIndices             = mesh.Indices;
+        for (unsigned part = 1; part < 3; ++part)
+        {
+            const uint32_t base = mesh.Vertices.size(), first = mesh.Indices.size();
+            Bounds         bounds;
+            for (auto vertex : originalVertices)
+            {
+                vertex.Position[0] += .3f * part;
+                vertex.Position[2] -= .07f * part;
+                bounds.Expand(glm::vec3(vertex.Position[0], vertex.Position[1], vertex.Position[2]));
+                mesh.Vertices.push_back(vertex);
+            }
+            for (auto index : originalIndices)
+                mesh.Indices.push_back(base + index);
+            mesh.Sections.push_back({first, uint32_t(originalIndices.size()), 0, bounds});
+            mesh.LocalBounds.Expand(bounds);
+        }
+        const auto meshID = Add(AssetType::StaticMesh, Value(EncodeMeshProduct(mesh)));
+        Meshes.push_back(meshID);
+        const std::array<float, 16> identity {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        ModelData                   prefab;
+        prefab.Nodes = {
+            {"Root", -1, identity, {}, "root"}, {"A", 0, identity, {meshID}, "A"}, {"B", 0, identity, {meshID}, "B"}};
+        prefab.Nodes[0].LocalTransform[3] = .137f;
+        prefab.Nodes[1].LocalTransform[3] = -.47f;
+        prefab.Nodes[1].LocalTransform[7] = .293f;
+        prefab.Nodes[2].LocalTransform[3] = .23f;
+        prefab.Nodes[2].LocalTransform[7] = -.311f;
+        for (unsigned part = 0; part < 3; ++part)
+            prefab.SectionIdentities.push_back({"part" + std::to_string(part), {Source, 10000 + part}, meshID, part});
+        ProductModelComponent legacy;
+        legacy.Model = Add(AssetType::Model, Value(EncodeModelProduct(prefab)));
+        Models.push_back(legacy.Model);
+        legacy.SetOverride(Textured, Emissive);
+        legacy.SetOverride({Source, 10001}, Toon);
+        Ready();
+        auto root = Logic->CreateEntityWithID(UUID(1234), "Migrated multipart", false);
+        SetLegacyPending(root, legacy);
+        root.GetComponent<TransformComponent>() = {{.123f, .217f, -.11f}, {.13f, -.09f, .19f}, {.61f, .73f, .83f}};
+        const auto rootWorld                    = Logic->GetWorldTransform(root);
+        auto       camera                       = Logic->CreateEntity("Camera");
+        camera.GetComponent<TransformComponent>().Position = Info.sceneCamera.Position;
+        camera.AddComponent<CameraComponent>().SceneCamera.SetPerspectve(glm::radians(45.0f), .1f, 20);
+        Logic->OnViewportResize(Size, Size);
+        auto light                                        = Logic->CreateEntity("Light");
+        light.GetComponent<TransformComponent>().Position = Info.pointLight.Position;
+        auto& lighting                                    = light.AddComponent<PointLightComponent>();
+        lighting.Diffuse_Intensity                        = Info.pointLight.Diffuse_Intensity;
+        lighting.Specular_Intensity                       = Info.pointLight.Specular_Intensity;
+        lighting.Ambient_Intensity                        = Info.pointLight.Ambient_Intensity;
+        auto runtime                                      = CreateRef<SceneRenderer>(Render.get());
+        RegisterDefaultEditorFeatures(runtime->GetFeatures());
+        runtime->SetAssetManager(Assets.get());
+        runtime->PrepareEnvironment({32, 8, 32, 32});
+        RenderResource settings;
+        settings.Piplinestate.EnableStencil         = settings.Piplinestate.EnableOutline =
+            settings.Piplinestate.EnableDebugNormal = true;
+        settings.Piplinestate.EnableGridShader      = false;
+        Render->SetRenderResource(settings);
+        const auto oracleHighlights = HighlightLegacyOracle(*runtime, *Logic, {{legacy, rootWorld}});
+        runtime->BeginScene(Info);
+        SubmitLegacyOracle(*runtime, legacy, rootWorld, ModelStencilMode::WriteReference);
+        SubmitLegacyGeometryOracle(*runtime,
+                                   legacy,
+                                   rootWorld * glm::scale(glm::mat4(1), glm::vec3(1.007f)),
+                                   "StencilShader",
+                                   ModelGeometryMode::StencilOutline);
+        SubmitLegacyGeometryOracle(*runtime, legacy, rootWorld, "OutLineShader", ModelGeometryMode::BackFaces);
+        SubmitLegacyGeometryOracle(*runtime, legacy, rootWorld, "DebugNormalShader");
+        runtime->SubmitSkybox(runtime->GetEnvironment().IrradianceMap);
+        runtime->EndScene();
+        const auto expected      = Read(runtime->GetRenderTarget().Colors[0].Target).Pixels;
+        const auto expectedStats = runtime->GetStats();
+        for (auto id : oracleHighlights)
+            Logic->DestroyEntity(Logic->GetEntityByUUID(id));
+        const auto verify = [&] {
+            runtime->SetEntityHighlight({UUID(1234)});
+            Render->OnRenderRuntime(runtime, TimeStep(0));
+            EXPECT_EQ(Read(runtime->GetRenderTarget().Colors[0].Target).Pixels, expected);
+            EXPECT_EQ(runtime->GetStats().DrawCalls, expectedStats.DrawCalls);
+            EXPECT_EQ(runtime->GetStats().Triangles, expectedStats.Triangles);
+            EXPECT_EQ(runtime->GetRenderView().Draws.size(), 6u);
+        };
+        verify();
+        Value(SceneSerializer(Logic).SerializeChecked(Directory / "prefab.scene"));
+        auto loaded = Value(SceneSerializer::DeserializeChecked(Directory / "prefab.scene"));
+        loaded->UpdatePrefabs(*Assets);
+        EXPECT_EQ(loaded->Capture(), Logic->Capture());
+        Render->SetLogicScene(loaded);
+        verify();
+        auto copy = CreateRef<Scene>();
+        copy->Restore(loaded->Capture());
+        Render->SetLogicScene(copy);
+        verify();
+        Render->SetLogicScene(Logic);
+    }
+
+    TEST_P(RendererReferenceGL, PrefabSelectionOutlinesDescendantsAndPickingExposesOwnerAndRoot)
+    {
+        // Bug: a prefab root has no MeshComponent so its outline is empty;
+        // picking reports the root instead of the entity owning the section.
+        ModelData                   prefab;
+        const std::array<float, 16> identity {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        prefab.Nodes                      = {{"Root", -1, identity, {}, "root"},
+                                             {"Left", 0, identity, {Meshes[0]}, "left"},
+                                             {"Right", 0, identity, {Meshes[0]}, "right"}};
+        prefab.Nodes[1].LocalTransform[3] = -.65f;
+        prefab.Nodes[2].LocalTransform[3] = .65f;
+        for (auto index : {1u, 2u})
+            for (auto diagonal : {0u, 5u, 10u})
+                prefab.Nodes[index].LocalTransform[diagonal] = .4f;
+        const auto id = Add(AssetType::Model, Value(EncodeModelProduct(prefab)));
+        Models.push_back(id);
+        Ready();
+        auto root = Logic->InstantiatePrefab(id);
+        Logic->UpdatePrefabs(*Assets);
+        const auto parts = Logic->GetMeshEntities(root);
+        ASSERT_EQ(parts.size(), 2u);
+        const auto render = [&](std::vector<UUID> selection, std::vector<LegacyOracleDraw> legacy) {
+            Renderer->SetEntityHighlight(std::move(selection));
+            std::vector<UUID> oracleRoots;
+            if (!legacy.empty())
+                oracleRoots = HighlightLegacyOracle(*Renderer, *Logic, std::move(legacy));
+            Renderer->BeginScene(Info);
+            for (auto entity : parts)
+                Renderer->SubmitMesh({entity.GetComponent<MeshComponent>(),
+                                      Logic->GetWorldTransform(entity),
+                                      entity.GetUUID(),
+                                      root.GetUUID()});
+            Renderer->EndScene();
+            auto pixels = Read(Renderer->GetRenderTarget().Colors[0].Target).Pixels;
+            for (auto id : oracleRoots)
+                Logic->DestroyEntity(Logic->GetEntityByUUID(id));
+            return pixels;
+        };
+        const auto                    baseline = render({}, {});
+        const auto                    actual   = render({root.GetUUID()}, {});
+        std::vector<LegacyOracleDraw> legacy;
+        for (auto entity : parts)
+            legacy.push_back({Sphere, Logic->GetWorldTransform(entity)});
+        EXPECT_EQ(actual, render({}, legacy));
+        EXPECT_NE(actual, baseline);
+        const auto one = render({parts[0].GetUUID()}, {});
+        EXPECT_EQ(one, render({}, {legacy[0]}));
+        EXPECT_NE(one, actual);
+        std::vector<MeshDraw> draws;
+        Renderer->AppendEntityDraws(*Logic, root.GetUUID(), 7, draws);
+        ASSERT_EQ(draws.size(), 2u);
+        const auto projection = Info.sceneCamera.camera.GetProjectionMatrix() * Info.sceneCamera.viewMatrix;
+        for (auto part : parts)
+        {
+            const auto       clip = projection * glm::vec4(glm::vec3(Logic->GetWorldTransform(part)[3]), 1);
+            const auto       ndc  = glm::vec3(clip) / clip.w;
+            const glm::uvec2 pixel {uint32_t((ndc.x * .5f + .5f) * Size), uint32_t((ndc.y * .5f + .5f) * Size)};
+            const auto       hit = Renderer->PickSceneSurface(*Logic, projection, pixel);
+            EXPECT_EQ(hit.EntityID, part.GetUUID());
+            EXPECT_EQ(hit.InstanceRoot, root.GetUUID());
+            EXPECT_TRUE(hit.Position);
+        }
+    }
+
     TEST_P(RendererReferenceGL, FullRuntimeFrameIsByteIdenticalToPhaseTwoD)
     {
         // Deliberately captured phase-2d baseline (ACES fitted, diffuse radiance, distinct lights). All attachment
@@ -1011,7 +1193,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         lighting.Diffuse_Intensity                        = Info.pointLight.Diffuse_Intensity;
         lighting.Specular_Intensity                       = Info.pointLight.Specular_Intensity;
         auto model                                        = Logic->CreateEntity("frame model");
-        model.AddComponent<ProductModelComponent>(Sphere);
+        model.AddComponent<PrefabInstanceComponent>().Prefab = Sphere.Model;
         model.GetComponent<TransformComponent>().Scale     = glm::vec3(.7f);
         auto sprite                                        = Logic->CreateEntity("frame sprite");
         sprite.GetComponent<TransformComponent>().Position = {-.3f, .2f, .5f};
@@ -1034,8 +1216,8 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         settings.Piplinestate.EnableOutline     = true;
         settings.Piplinestate.EnableDebugNormal = true;
         Render->SetRenderResource(settings);
-        runtime->SetHighlight({{Sphere, glm::scale(glm::mat4(1), glm::vec3(.7f))}});
-        runtime->SetPreview(Quad, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
+        runtime->SetEntityHighlight({model.GetUUID()});
+        runtime->SetPreview(Quad.Model, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
         Logic->OnViewportResize(Size, Size);
         Render->OnRenderRuntime(runtime, TimeStep(0));
         EXPECT_EQ(runtime->GetStats().DrawCalls, 5u);
@@ -1122,8 +1304,8 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
                     EXPECT_TRUE(resource.Imported);
                 EXPECT_EQ(runtime->GetStats().DrawCalls, 4u);
             }
-            runtime->SetHighlight({{Sphere, glm::scale(glm::mat4(1), glm::vec3(.7f))}});
-            runtime->SetPreview(Quad, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
+            runtime->SetEntityHighlight({model.GetUUID()});
+            runtime->SetPreview(Quad.Model, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
             Render->OnRenderRuntime(runtime, TimeStep(0));
             const auto& next = runtime->GetRenderGraph();
             for (size_t i = 0; i < next.Resources().size(); ++i)
@@ -1185,14 +1367,14 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         std::array<unsigned, 5> records {};
         unsigned                preparations = 0;
         Renderer->GetFeatures().Register("point markers", std::make_unique<PointMarkerFeature>(records, preparations));
-        Renderer->SetHighlight({{Sphere, glm::mat4(1)}});
-        Renderer->SetPreview(Quad, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
+        HighlightLegacyOracle(*Renderer, *Logic, {{Sphere, glm::mat4(1)}});
+        Renderer->SetPreview(Quad.Model, Transform({.6f, -.4f, .3f}, {.4f, .3f, 1}));
         Renderer->BeginScene(Info);
         Renderer->SubmitGrid(.025f, 16.025f, glm::mat4(1));
         Renderer->SubmitSkybox(Renderer->GetSkybox());
         Renderer->SubmitGrid(.05f, 8, glm::mat4(1), {true, false});
-        Renderer->SubmitModel(Sphere, glm::mat4(1));
-        Renderer->SubmitModelGeometry(Sphere, glm::mat4(1), "DebugNormalShader");
+        SubmitLegacyOracle(*Renderer, Sphere, glm::mat4(1));
+        SubmitLegacyGeometryOracle(*Renderer, Sphere, glm::mat4(1), "DebugNormalShader");
         Renderer->EndScene();
         // EditorGrid was registered before the marker; both inject at Immediate.
         // At Skybox entries, only the marker injects before the core Skybox pass.
@@ -1227,12 +1409,12 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             Renderer->GetFeatures().SetEnabled(name, false);
         for (int frame = 0; frame < 3; ++frame)
         {
-            Renderer->SetHighlight({{Sphere, glm::mat4(1)}});
-            Renderer->SetPreview(Quad, glm::mat4(1));
+            HighlightLegacyOracle(*Renderer, *Logic, {{Sphere, glm::mat4(1)}});
+            Renderer->SetPreview(Quad.Model, glm::mat4(1));
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(Sphere, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, Sphere, glm::mat4(1));
             Renderer->SubmitGrid(.025f, 16.025f, glm::mat4(1));
-            Renderer->SubmitModelGeometry(Sphere, glm::mat4(1), "DebugNormalShader");
+            SubmitLegacyGeometryOracle(*Renderer, Sphere, glm::mat4(1), "DebugNormalShader");
             Renderer->EndScene();
             EXPECT_EQ(FeaturePassNames(*Renderer),
                       (std::vector<std::string> {
@@ -1248,12 +1430,12 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         for (const char* name : {"EditorGrid", "DebugGeometry", "EditorSelection", "EditorPreview"})
             Renderer->GetFeatures().SetEnabled(name, true);
         Renderer->SetViewMode(SceneViewMode::Normals);
-        Renderer->SetHighlight({{Sphere, glm::mat4(1)}});
-        Renderer->SetPreview(Quad, glm::mat4(1));
+        HighlightLegacyOracle(*Renderer, *Logic, {{Sphere, glm::mat4(1)}});
+        Renderer->SetPreview(Quad.Model, glm::mat4(1));
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(Sphere, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, Sphere, glm::mat4(1));
         Renderer->SubmitGrid(.025f, 16.025f, glm::mat4(1));
-        Renderer->SubmitModelGeometry(Sphere, glm::mat4(1), "DebugNormalShader");
+        SubmitLegacyGeometryOracle(*Renderer, Sphere, glm::mat4(1), "DebugNormalShader");
         Renderer->EndScene();
         EXPECT_EQ(FeaturePassNames(*Renderer),
                   (std::vector<std::string> {"Clear",

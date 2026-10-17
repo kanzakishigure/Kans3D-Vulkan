@@ -11,7 +11,6 @@
 #include "Kans3D/Renderer/Resource/RenderScene.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
-#include "Kans3D/Scene/ProductModelComponent.h"
 
 namespace Kans
 {
@@ -21,6 +20,11 @@ namespace Kans
     };
 
     class Scene;
+    struct ScenePickHit
+    {
+        UUID                     EntityID = 0, InstanceRoot = 0;
+        std::optional<glm::vec3> Position;
+    };
 
     struct SceneRenderStats
     {
@@ -42,30 +46,14 @@ namespace Kans
         ViewTarget&                      GetViewTarget() { return *m_Target; }
         const ViewTarget&                GetViewTarget() const { return *m_Target; }
 
-        // Queues each part until EndScene, across all submitted models. Empty, pending or failed
-        // Shaders use engine Standard; samplers use Shader-declared fallbacks.
-        void SubmitModel(const ProductModelComponent& model,
-                         const glm::mat4&             transform,
-                         ModelStencilMode             stencil = ModelStencilMode::Disabled);
-        // Queues built-in StencilShader, OutLineShader or DebugNormalShader geometry after materials.
-        void SubmitModelGeometry(const ProductModelComponent& model,
-                                 const glm::mat4&             transform,
-                                 const std::string&           shaderName,
-                                 ModelGeometryMode            mode = ModelGeometryMode::Default);
-
-        // Editor helpers: meshes of a model for immediate picking (skips parts still loading).
-        // Returned MeshDraws borrow GPU resources and are only valid until the asset cache
-        // is next updated (including BeginScene or subsequent cache requests).
-        void     AppendModelDraws(const ProductModelComponent& model,
-                                  const glm::mat4&             transform,
-                                  uint32_t                     id,
-                                  std::vector<MeshDraw>&       draws);
-        uint32_t Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
-        PickHit  PickSurface(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel);
-        // Model descriptions to outline, consumed by the next EndScene. Safe to queue before BeginScene.
-        void SetHighlight(std::vector<ModelDraw> models) { m_Highlight = std::move(models); }
-        // Lit model and blue outline, consumed by the next EndScene. Not pickable.
-        void     SetPreview(const ProductModelComponent& model, const glm::mat4& transform);
+        // Material and geometry submissions use mesh components, including section selections.
+        void         SubmitMesh(const ViewMeshSubmission& mesh);
+        void         AppendEntityDraws(Scene& scene, UUID entity, uint32_t id, std::vector<MeshDraw>& draws);
+        ScenePickHit PickSceneSurface(Scene& scene, const glm::mat4& viewProjection, glm::uvec2 pixel);
+        void         SetEntityHighlight(std::vector<UUID> entities) { m_EntityHighlight = std::move(entities); }
+        void         SubmitMeshGeometry(const ViewGeometryDraw& draw);
+        // Lit prefab and blue outline, consumed by the next EndScene. Not pickable.
+        void     SetPreview(AssetID prefab, const glm::mat4& transform);
         void     ClearPreview() { m_Preview.reset(); }
         void     SetViewMode(SceneViewMode mode) { m_ViewMode = mode; }
         // Counts of the last rendered scene.
@@ -129,6 +117,8 @@ namespace Kans
             const std::string&                                                                 tag       = {},
             const RenderView*                                                                  view      = nullptr,
             RenderHardware::Handle<RenderHardware::CommandList>*                               finalPost = nullptr);
+        void                 SubmitPrefabPreview(const PrefabPreview& preview);
+        void                 AppendPrefabPreviewDraws(const PrefabPreview& preview, std::vector<MeshDraw>& draws);
         void                 DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commands);
         void                 DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commands);
         void                 DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
@@ -162,8 +152,8 @@ namespace Kans
         bool                    m_Active = false;
         std::shared_ptr<RenderAssetCache>     m_AssetCache;
         SelectionOutline        m_Outline;
-        std::vector<ModelDraw>   m_Highlight;
-        std::optional<ModelDraw> m_Preview;
+        std::vector<UUID>                     m_EntityHighlight;
+        std::optional<PrefabPreview>          m_Preview;
         SceneViewMode          m_ViewMode = SceneViewMode::Lit;
         SceneRenderStats       m_Stats;
         std::chrono::steady_clock::time_point m_StartTime = std::chrono::steady_clock::now();

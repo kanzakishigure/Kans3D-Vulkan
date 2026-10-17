@@ -74,17 +74,21 @@ namespace
         ModelInstances instances;
         instances.Instances = {
             {ID(2), glm::translate(glm::mat4(1), {3, 0, 0})}, {ID(3), glm::mat4(1)}, {ID(4), glm::mat4(1)}};
-        auto metadata = [](AssetID id) -> std::optional<ViewMeshMetadata> {
-            if (id == ID(3))
-                return std::nullopt;
-            return ViewMeshMetadata {{{-1, -1, -1}, {1, 1, 1}}, ID(6), ID(5)};
-        };
-        const auto transform = glm::translate(glm::mat4(1), {1000, 0, 0}) * glm::scale(glm::mat4(1), glm::vec3(2));
-        ExtractModelDraws(
-            view, model, transform, ModelStencilMode::WriteReference, SceneViewMode::Normals, nullptr, metadata);
+        GpuMesh metadata;
+        metadata.MaterialSlots = {{"slot", "slot", ID(6), ID(5)}};
+        metadata.Sections      = {{0, 3, 0, {{-1, -1, -1}, {1, 1, 1}}}};
+        const auto transform   = glm::translate(glm::mat4(1), {1000, 0, 0}) * glm::scale(glm::mat4(1), glm::vec3(2));
+        ExtractMeshDraws(view, {{ID(2), {ID(9)}}, transform}, SceneViewMode::Normals, nullptr);
         EXPECT_TRUE(view.Draws.empty());
-        ExtractModelDraws(
-            view, model, transform, ModelStencilMode::WriteReference, SceneViewMode::Normals, &instances, metadata);
+        for (const auto& instance : instances.Instances)
+        {
+            const auto material = model.ResolveMaterial(instance.Mesh, ID(6), ID(5), instance.Part);
+            ExtractMeshDraws(
+                view,
+                {{instance.Mesh, {material}}, transform * instance.Transform, 0, 0, ModelStencilMode::WriteReference},
+                SceneViewMode::Normals,
+                instance.Mesh == ID(3) ? nullptr : &metadata);
+        }
         ASSERT_EQ(view.Draws.size(), 2u);
         EXPECT_EQ(view.Draws[0].Mesh, ID(2));
         EXPECT_EQ(view.Draws[1].Mesh, ID(4));
@@ -105,8 +109,7 @@ namespace
         auto parent                                        = scene->CreateEntity("parent");
         parent.GetComponent<TransformComponent>().Position = {2, 3, 4};
         auto  model                                        = scene->CreateEntity("model");
-        auto& modelComponent = model.AddComponent<ProductModelComponent>(ProductModelComponent {ID(1)});
-        modelComponent.SetOverride(ID(2), ID(9));
+        model.AddComponent<MeshComponent>(MeshComponent {ID(1), {ID(9)}});
         model.GetComponent<TransformComponent>().Position = {1, 0, 0};
         ASSERT_TRUE(scene->SetParent(model, parent, {}, false));
         auto sprite = scene->CreateEntity("sprite");
@@ -153,15 +156,13 @@ namespace
         EXPECT_EQ(view.Scene.dirLight.Ambient_Intensity, glm::vec3(3, 2, 1));
         EXPECT_EQ(view.Scene.dirLight.Diffuse_Intensity, glm::vec3(6, 5, 4));
         EXPECT_EQ(view.Scene.dirLight.Specular_Intensity, glm::vec3(9, 8, 7));
-        ASSERT_EQ(view.Models.size(), 1u);
-        EXPECT_EQ(view.Models[0].Model, ID(1));
-        EXPECT_EQ(view.Models[0].OverrideBegin, 0u);
-        EXPECT_EQ(view.Models[0].OverrideCount, 1u);
-        ASSERT_EQ(view.MaterialOverrides.size(), 1u);
-        EXPECT_EQ(view.MaterialOverrides[0].Authored, ID(2));
-        EXPECT_EQ(view.MaterialOverrides[0].Replacement, ID(9));
-        EXPECT_EQ(glm::vec3(view.Models[0].Transform[3]), glm::vec3(3, 3, 4));
-        EXPECT_EQ(view.Models[0].Stencil, ModelStencilMode::WriteReference);
+        ASSERT_EQ(view.Meshes.size(), 1u);
+        EXPECT_EQ(view.Meshes[0].Mesh.Mesh, ID(1));
+        ASSERT_EQ(view.Meshes[0].Mesh.Materials.size(), 1u);
+        EXPECT_EQ(view.Meshes[0].Mesh.Materials[0], ID(9));
+        EXPECT_EQ(view.Meshes[0].EntityID, model.GetUUID());
+        EXPECT_EQ(glm::vec3(view.Meshes[0].Transform[3]), glm::vec3(3, 3, 4));
+        EXPECT_EQ(view.Meshes[0].Stencil, ModelStencilMode::WriteReference);
         ASSERT_EQ(view.Geometry.size(), 3u);
         EXPECT_EQ(view.Geometry[0].ShaderName, "StencilShader");
         EXPECT_EQ(view.Geometry[0].Mode, ModelGeometryMode::StencilOutline);
@@ -188,7 +189,7 @@ namespace
         render.Extract(view);
         EXPECT_TRUE(view.Geometry.empty());
         EXPECT_TRUE(view.Grids.empty());
-        EXPECT_EQ(view.Models[0].Stencil, ModelStencilMode::Disabled);
+        EXPECT_EQ(view.Meshes[0].Stencil, ModelStencilMode::Disabled);
     }
     TEST(RenderViewCpu, PipelineRegistryProvidesForwardAndRejectsUnknownAndDuplicateNames)
     {

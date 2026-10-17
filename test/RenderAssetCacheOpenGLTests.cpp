@@ -39,10 +39,12 @@
 #include "LegacyModelCacheFixture.h"
 #include "MaterialShaderTestUtilities.h"
 #include "MultiPassTestUtilities.h"
+#include "PrefabRenderTestUtilities.h"
 
 namespace
 {
     using namespace Kans;
+    using namespace Kans::Test;
     using namespace std::chrono_literals;
 
     int AcesSrgbByte(double linear, double exposure = .8)
@@ -1162,7 +1164,8 @@ void main() { color = texture(other, vec2(0)); }
 
     TEST_P(RenderAssetCacheGPU, SceneSubmissionUsesStandardAndCustomShadersInLitDebugAndPreviewPasses)
     {
-        // Exercise SubmitModel itself: debug override and engine frame upload cannot be bypassed by a helper test.
+        // Exercise SubmitMesh through the independent fixture oracle: debug view and frame upload remain renderer
+        // responsibilities.
         const AssetID modelID {Source, 1}, leftID {Source, 2}, rightID {Source, 3}, standardID {Source, 4},
             customID {Source, 5}, shaderID {Source, 6};
         ShaderData shader;
@@ -1242,7 +1245,7 @@ void main() { color = texture(other, vec2(0)); }
             return pixel;
         };
         renderer.BeginScene(info);
-        renderer.SubmitModel(component, glm::mat4(1));
+        SubmitLegacyOracle(renderer, component, glm::mat4(1));
         renderer.EndScene();
         EXPECT_GT(read(4)[0], 150);
         EXPECT_EQ(read(12)[1], 255); // Custom shader still runs in the lit view.
@@ -1251,13 +1254,13 @@ void main() { color = texture(other, vec2(0)); }
         EXPECT_EQ(renderer.GetStats().Triangles, 4u);
         renderer.SetViewMode(SceneViewMode::BaseColor);
         renderer.BeginScene(info);
-        renderer.SubmitModel(component, glm::mat4(1));
+        SubmitLegacyOracle(renderer, component, glm::mat4(1));
         renderer.EndScene();
         EXPECT_EQ(read(4), (std::array<uint8_t, 4> {255, 0, 0, 255}));
         EXPECT_EQ(read(12), (std::array<uint8_t, 4> {255, 255, 255, 255}));
         renderer.SetViewMode(SceneViewMode::Normals);
         renderer.BeginScene(info);
-        renderer.SubmitModel(component, glm::mat4(1));
+        SubmitLegacyOracle(renderer, component, glm::mat4(1));
         renderer.EndScene();
         for (int x : {4, 12})
         {
@@ -1267,15 +1270,15 @@ void main() { color = texture(other, vec2(0)); }
             EXPECT_EQ(pixel[2], 255);
         }
         renderer.BeginScene(info);
-        renderer.SubmitModel(component, glm::mat4(1));
-        renderer.SetPreview(component, glm::translate(glm::mat4(1), {0, 0, -0.1f}));
+        SubmitLegacyOracle(renderer, component, glm::mat4(1));
+        renderer.SetPreview(component.Model, glm::translate(glm::mat4(1), {0, 0, -0.1f}));
         renderer.EndScene();
         EXPECT_EQ(renderer.GetStats().DrawCalls, 4u); // Preview submits both parts through the lit path.
         // Lit green plus the existing preview fill: .88 * (0,1,0) + .12 * (.35,.7,1).
         EXPECT_EQ(read(12), (std::array<uint8_t, 4> {11, 246, 31, 255}));
         renderer.SetViewMode(SceneViewMode::Wireframe);
         renderer.BeginScene(info);
-        renderer.SubmitModel(component, glm::mat4(1));
+        SubmitLegacyOracle(renderer, component, glm::mat4(1));
         renderer.EndScene();
         if (TestBackend() == GpuTestBackend::OpenGL)
         {
@@ -1291,17 +1294,20 @@ void main() { color = texture(other, vec2(0)); }
             EXPECT_EQ(polygon[0], GLint(GL_FILL));
         }
         EXPECT_LT(read(2)[0], 50); // Interior away from the triangulation diagonal stays clear.
-        std::vector<MeshDraw> draws;
-        renderer.AppendModelDraws(component, glm::mat4(1), 7, draws);
-        ASSERT_EQ(draws.size(), 2u);
-        EXPECT_EQ(renderer.Pick(draws, glm::mat4(1), {4, 8}), 7u);
+        auto selected = scene->CreateEntityWithID(UUID(7), "Pick prefab", false);
+        selected.AddComponent<PrefabInstanceComponent>().Prefab = component.Model;
+        scene->UpdatePrefabs(assets);
+        const auto parts = scene->GetMeshEntities(selected);
+        ASSERT_EQ(parts.size(), 2u);
+        EXPECT_EQ(renderer.PickSceneSurface(*scene, glm::mat4(1), {4, 8}).EntityID, parts[0].GetUUID());
+        EXPECT_EQ(renderer.PickSceneSurface(*scene, glm::mat4(1), {4, 8}).InstanceRoot, UUID(7));
         if (TestBackend() == GpuTestBackend::OpenGL)
             EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
     TEST_P(RenderAssetCacheGPU, ImportedRemappedModelDrawsAuthoredSlotAndPartOverrides)
     {
-        // Catches losing the authored slot during GPU upload or ignoring it in SubmitModel.
+        // Catches losing the authored slot during GPU upload or material resolution before mesh submission.
         namespace fs    = std::filesystem;
         const auto root = fs::temp_directory_path() / ("kans-remap-gl-" + SourceAssetID::Generate().ToString());
         struct Cleanup
@@ -1382,7 +1388,7 @@ void main() { color = texture(other, vec2(0)); }
         component.Model = modelID;
         const auto draw = [&] {
             renderer.BeginScene(info);
-            renderer.SubmitModel(component, glm::mat4(1));
+            SubmitLegacyOracle(renderer, component, glm::mat4(1));
             renderer.EndScene();
             auto                   pixels = ReadImage(renderer.GetRenderTarget().Colors[0].Target);
             std::array<uint8_t, 4> pixel {};
@@ -1426,9 +1432,10 @@ void main() { color = texture(other, vec2(0)); }
         AssetManager assets(provider, service->GetRuntimeAssetRegistry(), spec);
         auto         scene     = CreateRef<Scene>();
         auto         entity    = scene->CreateEntityWithID(UUID(123), "Body", true);
-        auto&        component = entity.AddComponent<ProductModelComponent>();
+        ProductModelComponent component;
         component.Model        = Legacy::ID(1);
         component.Overrides    = {{Legacy::ID(4), Legacy::ID(3)}, {Legacy::ID(5), Legacy::ID(2)}};
+        SetLegacyPending(entity, component);
         const auto failed      = assets.Load<ModelAsset>(component.Model);
         ASSERT_TRUE(std::holds_alternative<AssetError>(failed));
         EXPECT_EQ(std::get<AssetError>(failed).Code, AssetErrorCode::UnsupportedVersion);
@@ -1443,7 +1450,7 @@ void main() { color = texture(other, vec2(0)); }
         info.sceneCamera.Position   = {0, 0, 2};
         auto frame                  = [&] {
             renderer.BeginScene(info);
-            renderer.SubmitModel(component, glm::mat4(1));
+            SubmitSceneMeshes(renderer, *scene);
             renderer.EndScene();
         };
         frame();
@@ -1748,8 +1755,9 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         Ready();
         auto draw = [&] {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(left, glm::rotate(Transform(-.45f, .12f), glm::half_pi<float>(), glm::vec3(0, 0, 1)));
-            Renderer->SubmitModel(right, Transform(.45f, -.12f));
+            SubmitLegacyOracle(
+                *Renderer, left, glm::rotate(Transform(-.45f, .12f), glm::half_pi<float>(), glm::vec3(0, 0, 1)));
+            SubmitLegacyOracle(*Renderer, right, Transform(.45f, -.12f));
             Renderer->EndScene();
         };
         Renderer->GetFeatures().SetEnabled("MaterialOutline", false);
@@ -1831,7 +1839,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         auto occluder = Quad(Color({0, 0, 1, 1}), .6f, false, -.16f, .16f);
         Ready();
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(untagged, Transform(.45f));
+        SubmitLegacyOracle(*Renderer, untagged, Transform(.45f));
         Renderer->EndScene();
         EXPECT_EQ(TagPasses(), 0u);
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
@@ -1839,9 +1847,9 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         EXPECT_EQ(At(alone, 116, 64), (std::array<uint8_t, 4> {5, 5, 5, 255}));
         auto draw = [&] {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(tagged, Transform(-.45f));
-            Renderer->SubmitModel(untagged, Transform(.45f));
-            Renderer->SubmitModel(occluder, glm::translate(glm::mat4(1), {-.13f, 0, 0}));
+            SubmitLegacyOracle(*Renderer, tagged, Transform(-.45f));
+            SubmitLegacyOracle(*Renderer, untagged, Transform(.45f));
+            SubmitLegacyOracle(*Renderer, occluder, glm::translate(glm::mat4(1), {-.13f, 0, 0}));
             Renderer->EndScene();
         };
         Renderer->GetFeatures().SetEnabled("MaterialOutline", false);
@@ -1880,8 +1888,8 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         Ready();
         Renderer->GetFeatures().SetEnabled("MaterialOutline", false);
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(left, Transform(-.45f));
-        Renderer->SubmitModel(right, Transform(.45f));
+        SubmitLegacyOracle(*Renderer, left, Transform(-.45f));
+        SubmitLegacyOracle(*Renderer, right, Transform(.45f));
         Renderer->EndScene();
         const auto baseline = Image();
         RenderView view     = Renderer->GetRenderView();
@@ -1960,8 +1968,8 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         auto left = Sphere(Material(first)), right = Sphere(Material(second));
         Ready();
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(left, Transform(-.45f));
-        Renderer->SubmitModel(right, Transform(.45f));
+        SubmitLegacyOracle(*Renderer, left, Transform(-.45f));
+        SubmitLegacyOracle(*Renderer, right, Transform(.45f));
         Renderer->EndScene();
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
         auto* shader = Renderer->GetAssetCache()->GetShader(ShaderID);
@@ -1978,7 +1986,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
             "ShadowTest",
             std::make_unique<MaterialPassFeature>("ShadowCaster", RenderExtensionPoint::BeforePostProcess));
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(left, Transform(-.45f));
+        SubmitLegacyOracle(*Renderer, left, Transform(-.45f));
         Renderer->EndScene();
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u); // main + outline + explicitly registered shadow tag
         EXPECT_FALSE(shader->Passes[1].Pipelines.empty());
@@ -2003,7 +2011,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         for (unsigned frame = 0; frame < 2; ++frame)
         {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(model, Transform(0));
+            SubmitLegacyOracle(*Renderer, model, Transform(0));
             Renderer->EndScene();
         }
         auto* shader = Renderer->GetAssetCache()->GetShader(ShaderID);
@@ -2043,7 +2051,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         auto               frame = [&] {
             Renderer->BeginScene(Info);
             for (uint32_t i = 0; i < draws; ++i)
-                Renderer->SubmitModel(model, glm::mat4(1));
+                SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
             Renderer->EndScene();
             EXPECT_EQ(Renderer->GetStats().DrawCalls, draws);
             EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {255, 0, 0, 255}));
@@ -2087,7 +2095,8 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         transform.Position                          = {0, 2, 2};
         transform.Rotation                          = {glm::radians(-45.0f), 0, 0};
         auto model                                  = LogicScene->CreateEntity("blue model");
-        model.AddComponent<ProductModelComponent>() = Quad(Color({0, 0, 1, 1}, MaterialAlphaMode::Opaque, true));
+        model.AddComponent<PrefabInstanceComponent>().Prefab =
+            Quad(Color({0, 0, 1, 1}, MaterialAlphaMode::Opaque, true)).Model;
         auto& modelTransform                        = model.GetComponent<TransformComponent>();
         modelTransform.Position                     = {-.6f, .5f, 0};
         modelTransform.Scale                        = {.3f, .3f, .3f};
@@ -2170,7 +2179,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         const std::weak_ptr<RenderHardware::Buffer> oldArray = cache.GetMesh(meshID)->Vertices;
 
         // The viewport queues the selection before BeginScene, while it still resolves to the left half.
-        Renderer->SetHighlight({{model, glm::mat4(1)}});
+        HighlightLegacyOracle(*Renderer, *LogicScene, {{model, glm::mat4(1)}});
         Renderer->BeginScene(Info);
 
         // Republish the same mesh ID on the right half, as a model reimport does.
@@ -2191,7 +2200,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
             Store(meshID, AssetType::StaticMesh, std::get<std::vector<std::byte>>(EncodeMeshProduct(replacement)));
         ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
         ASSERT_TRUE(std::holds_alternative<Ref<const MeshAsset>>(Assets->Load<MeshAsset>(meshID)));
-        Renderer->SubmitModel(model, glm::mat4(1)); // Resolves the replacement and destroys the old GpuMesh.
+        SubmitLegacyOracle(*Renderer, model, glm::mat4(1)); // Resolves the replacement and destroys the old GpuMesh.
         ASSERT_TRUE(oldArray.expired());            // No retained GPU ownership can hide the dangling pointer.
         ASSERT_EQ(cache.GetMesh(meshID)->LocalBounds.Min.x, 0.0f);
         Renderer->EndScene();
@@ -2232,7 +2241,7 @@ void main() { o_Color = p.Tint; }
         for (const auto& model : {blend, opaque, mask})
         {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(model, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
             Renderer->EndScene();
             EXPECT_EQ(Pixel()[3], 255);
             if (ui)
@@ -2272,7 +2281,7 @@ void main() { o_Color = p.Tint; }
         const auto model = Quad(Color({0, 1, 0, 1}));
         Ready();
         auto entity = LogicScene->CreateEntity("Outlined");
-        entity.AddComponent<ProductModelComponent>(model);
+        entity.AddComponent<PrefabInstanceComponent>().Prefab = model.Model;
         entity.GetComponent<TransformComponent>().Scale = glm::vec3(0.56f);
         auto  cameraEntity                              = LogicScene->CreateEntity("Camera");
         auto& camera                                    = cameraEntity.AddComponent<CameraComponent>().SceneCamera;
@@ -2365,9 +2374,9 @@ void main() { o_Color = p.Tint; }
         const auto back     = Quad(material, 0, true, 0, 0.561f);
         Ready();
         auto frontEntity = LogicScene->CreateEntity("Front surface");
-        frontEntity.AddComponent<ProductModelComponent>(front);
+        frontEntity.AddComponent<PrefabInstanceComponent>().Prefab = front.Model;
         auto backEntity = LogicScene->CreateEntity("Back surface");
-        backEntity.AddComponent<ProductModelComponent>(back);
+        backEntity.AddComponent<PrefabInstanceComponent>().Prefab  = back.Model;
         auto  cameraEntity = LogicScene->CreateEntity("Camera");
         auto& camera       = cameraEntity.AddComponent<CameraComponent>().SceneCamera;
         camera.SetOrthographic(2, -1, 1);
@@ -2425,7 +2434,7 @@ void main() { o_Color = p.Tint; }
         clear->BeginRendering(clearedTarget);
         clear->EndRendering();
         Renderer->GetDevice()->Submit(clear);
-        Renderer->SubmitModelGeometry(component, glm::mat4(1), "DebugNormalShader");
+        SubmitLegacyGeometryOracle(*Renderer, component, glm::mat4(1), "DebugNormalShader");
         Renderer->EndScene();
         const auto target = Renderer->GetRenderTarget();
         auto       device = Renderer->GetDevice();
@@ -2544,10 +2553,11 @@ void main() { o_Color = p.Tint; }
         Renderer->BeginScene(Info);
         {
             RasterQueryTrace trace;
-            Renderer->SubmitModel(model, glm::mat4(1), ModelStencilMode::WriteReference);
-            Renderer->SubmitModel(model, glm::mat4(1));
-            Renderer->SubmitModelGeometry(model, glm::mat4(1), "StencilShader", ModelGeometryMode::StencilOutline);
-            Renderer->SubmitModelGeometry(model, glm::mat4(1), "OutLineShader", ModelGeometryMode::BackFaces);
+            SubmitLegacyOracle(*Renderer, model, glm::mat4(1), ModelStencilMode::WriteReference);
+            SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
+            SubmitLegacyGeometryOracle(
+                *Renderer, model, glm::mat4(1), "StencilShader", ModelGeometryMode::StencilOutline);
+            SubmitLegacyGeometryOracle(*Renderer, model, glm::mat4(1), "OutLineShader", ModelGeometryMode::BackFaces);
             EXPECT_EQ(trace.Queries, 0u);
         }
         Renderer->EndScene();
@@ -2566,18 +2576,18 @@ void main() { o_Color = p.Tint; }
         FrameUploadTrace trace;
         Renderer->BeginScene(Info);
         for (int i = 0; i < 4; ++i)
-            Renderer->SubmitModel(opaque, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, opaque, glm::mat4(1));
         Renderer->EndScene();
         EXPECT_EQ(trace.Views, (std::vector<float> {2}));
         EXPECT_EQ(trace.Objects, 4u);
         trace.Views.clear();
         trace.Objects = 0;
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(opaque, glm::mat4(1));
-        Renderer->SubmitModel(opaque, glm::mat4(1));
-        Renderer->SetPreview(opaque, glm::mat4(1));
-        Renderer->SubmitModel(blend, glm::mat4(1));
-        Renderer->SubmitModel(blend, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, opaque, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, opaque, glm::mat4(1));
+        Renderer->SetPreview(opaque.Model, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, blend, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, blend, glm::mat4(1));
         Renderer->EndScene();
         EXPECT_EQ(trace.Views, (std::vector<float> {2, 0, 2}));
         EXPECT_EQ(trace.Objects, 5u);
@@ -2725,8 +2735,8 @@ void main() { o_Color = p.Tint; }
             const auto bounds    = Renderer->GetAssetCache()->GetModelBounds(model.Model);
             const auto transform = glm::translate(glm::mat4(1), placement(bounds));
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(model, transform, ModelStencilMode::WriteReference);
-            Renderer->SetHighlight({{model, transform}});
+            SubmitLegacyOracle(*Renderer, model, transform, ModelStencilMode::WriteReference);
+            HighlightLegacyOracle(*Renderer, *LogicScene, {{model, transform}});
             Renderer->EndScene();
             return RenderAssetCacheGL::ReadImage(Renderer->GetRenderTarget().Colors[0].Target);
         };
@@ -2835,11 +2845,11 @@ void main() { o_Color = p.Tint; }
         }
         auto draw = [&](const ProductModelComponent& model, bool highlight, bool normals) {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(model, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
             if (highlight)
-                Renderer->SetHighlight({{model, glm::mat4(1)}});
+                HighlightLegacyOracle(*Renderer, *LogicScene, {{model, glm::mat4(1)}});
             if (normals)
-                Renderer->SubmitModelGeometry(model, glm::mat4(1), "DebugNormalShader");
+                SubmitLegacyGeometryOracle(*Renderer, model, glm::mat4(1), "DebugNormalShader");
             Renderer->EndScene();
             return ReadImage(Renderer->GetRenderTarget().Colors[0].Target);
         };
@@ -2907,9 +2917,9 @@ void main() { o_Color = p.Tint; }
         const auto background = Quad(Color({0, 1, 0, 1}), 0.9f);
         Ready();
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(near, glm::translate(glm::mat4(1), {0, 0, 0.3f}));
-        Renderer->SubmitModel(background, glm::mat4(1));
-        Renderer->SubmitModel(far, glm::translate(glm::mat4(1), {0, 0, -0.3f}));
+        SubmitLegacyOracle(*Renderer, near, glm::translate(glm::mat4(1), {0, 0, 0.3f}));
+        SubmitLegacyOracle(*Renderer, background, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, far, glm::translate(glm::mat4(1), {0, 0, -0.3f}));
         Renderer->EndScene();
         const auto pixel = Pixel();
         // Blue over green, then red: (0.5, 0.25, 0.25). RGBA8 rounds each blend operation.
@@ -2921,9 +2931,9 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
         EXPECT_EQ(Renderer->GetStats().Triangles, 6u);
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(near, glm::translate(glm::mat4(1), {0, 0, 0.3f}));
-        Renderer->SubmitModel(background, glm::mat4(1));
-        Renderer->SetPreview(far, glm::translate(glm::mat4(1), {0, 0, -0.3f}));
+        SubmitLegacyOracle(*Renderer, near, glm::translate(glm::mat4(1), {0, 0, 0.3f}));
+        SubmitLegacyOracle(*Renderer, background, glm::mat4(1));
+        Renderer->SetPreview(far.Model, glm::translate(glm::mat4(1), {0, 0, -0.3f}));
         Renderer->EndScene();
         // The same sorted colour, then the preview's 12% blue fill:
         // .88 * (.5,.25,.25) + .12 * (.35,.7,1) = (.482,.304,.34).
@@ -2947,8 +2957,8 @@ void main() { o_Color = p.Tint; }
         if (TestBackend() == GpuTestBackend::OpenGL)
             glDisable(GL_DEPTH_TEST);
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(blend, glm::mat4(1));
-        Renderer->SubmitModel(opaque, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, blend, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, opaque, glm::mat4(1));
         Renderer->EndScene();
         EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         EXPECT_NEAR(Pixel(4)[0], 130, 1); // 0.5 red + 0.5 * the 5/255 clear colour.
@@ -2970,7 +2980,7 @@ void main() { o_Color = p.Tint; }
         Ready();
         Info.sceneCamera.Position = {4, 0, 0}; // Red centre x=0.4 is nearer than blue centre x=-0.4.
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(component, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, component, glm::mat4(1));
         Renderer->EndScene();
         const auto pixel = Pixel();
         EXPECT_NEAR(pixel[0], 129, 1); // red .5 + blue .25 + clear .25
@@ -3022,7 +3032,7 @@ void main() { o_Color = p.Tint; }
         for (auto model : {mask, equality, lowCutoff, opaque})
         {
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(model, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
             Renderer->EndScene();
             const bool isOpaque = model.Model == opaque.Model;
             EXPECT_EQ(Pixel(2),
@@ -3035,7 +3045,7 @@ void main() { o_Color = p.Tint; }
             EXPECT_NEAR(Depth(2), isOpaque ? 0.5f : 1.0f, 1e-6f); // Discard must also leave a depth hole.
         }
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(blend, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, blend, glm::mat4(1));
         Renderer->EndScene();
         // Blend must use that same final alpha: .75 * .5 * 1 = .375 on the right texel.
         EXPECT_NEAR(Pixel(13)[0], 99, 1); // .375 * 255 + .625 * 5.
@@ -3046,7 +3056,7 @@ void main() { o_Color = p.Tint; }
         Info.pointLight.Ambient_Intensity = {0, 0, 0};
         Info.pointLight.Diffuse_Intensity = {0, 0, 0};
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(blend, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, blend, glm::mat4(1));
         Renderer->EndScene();
         // Lit blending retains alpha in linear HDR before ACES + exposure + sRGB.
         // Emission=1, alpha=.375, and the untouched clear byte 5 has an inverse-curve background.
@@ -3077,7 +3087,7 @@ void main() { o_Color = vec4(1); }
         {
             Renderer->SetViewMode(mode);
             Renderer->BeginScene(Info);
-            Renderer->SubmitModel(quad, glm::mat4(1));
+            SubmitLegacyOracle(*Renderer, quad, glm::mat4(1));
             Renderer->EndScene();
             EXPECT_GT(Pixel()[0], 150);     // Still double-sided when the Shader changes.
             EXPECT_FLOAT_EQ(Depth(), 1.0f); // Still blend: no depth writes even though Standard's fallback alpha is 1.
@@ -3098,15 +3108,15 @@ void main() { o_Color = vec4(1); }
             glDisable(GL_CULL_FACE);
         Renderer->SetViewMode(SceneViewMode::Normals);
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(doubleSided, glm::mat4(1));
-        Renderer->SubmitModel(singleSided, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, doubleSided, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, singleSided, glm::mat4(1));
         Renderer->EndScene();
         EXPECT_EQ(Pixel(4)[2], 0); // +Z geometric normal becomes -Z on the visible back face.
         EXPECT_NEAR(Pixel(4)[0], 128, 1);
         EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {5, 5, 5, 255}));
         Renderer->SetViewMode(SceneViewMode::Lit);
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(doubleSided, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, doubleSided, glm::mat4(1));
         Renderer->EndScene();
         EXPECT_GT(Pixel(4)[0], 150); // A light on -Z must illuminate the flipped back-face normal.
         if (TestBackend() == GpuTestBackend::OpenGL)
@@ -3119,7 +3129,7 @@ void main() { o_Color = vec4(1); }
         const auto model = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend, true), 0, false, -0.5f, 0.5f);
         Ready();
         Renderer->BeginScene(Info);
-        Renderer->SetPreview(model, glm::mat4(1));
+        Renderer->SetPreview(model.Model, glm::mat4(1));
         Renderer->EndScene();
         NativeUIFrame ui;
         glEnable(GL_CULL_FACE);
@@ -3839,7 +3849,7 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         Ready();
         Renderer->SetViewMode(SceneViewMode::Normals);
         Renderer->BeginScene(Info);
-        Renderer->SubmitModel(model, glm::mat4(1));
+        SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
         const auto              stats = Renderer->GetStats();
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({0, 1, 0, 1});

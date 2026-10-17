@@ -412,10 +412,9 @@ namespace Kans
             for (const auto& metadata : *list)
                 if (metadata.sourceAssetID == source)
                     name = metadata.Path.GetPath().stem().u8string();
-        auto entity                                        = m_ActiveScene->CreateEntity(name);
-        entity.AddComponent<ProductModelComponent>().Model = model;
-        if (Entity parent = m_ActiveScene->GetEntityByUUID(m_PendingPlacementParent))
-            m_ActiveScene->SetParent(entity, parent, {}, false);
+        // The instance's parts appear once the prefab system has the prefab's data.
+        auto entity = m_ActiveScene->InstantiatePrefab(model, {}, m_PendingPlacementParent);
+        entity.GetComponent<TagComponent>().Tag = name;
         if (m_PendingPlacementPosition)
         {
             // Keep the model's world position under the parent.

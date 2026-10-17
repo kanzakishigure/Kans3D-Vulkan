@@ -12,6 +12,7 @@
 #define ICON_FA_POINTER                "\xef\x89\x85" // U+F245
 #define ICON_FA_GLOBE                  "\xef\x82\xac" // U+F0AC
 #define ICON_FA_CUBE                   "\xef\x86\xb2" // U+F1B2
+#define ICON_FA_CUBES                  "\xef\x86\xb3" // U+F1B3
 #define ICON_FA_GRID                   "\xef\x80\x8a" // U+F00A
 #define ICON_FA_VIDEO                  "\xef\x80\xbd" // U+F03D
 #define ICON_FA_EYE                    "\xef\x81\xae" // U+F06E
@@ -30,6 +31,7 @@
 #define ICON_FA_TRIANGLE_EXCLAMATION   "\xef\x81\xb1" // U+F071
 #define ICON_FA_CIRCLE_XMARK           "\xef\x81\x97" // U+F057
 #define ICON_FA_BUG                    "\xef\x86\x88" // U+F188
+#define ICON_FA_ROTATE_LEFT            "\xef\x8b\xaa" // U+F2EA
 #define ICON_FA_ROTATE_RIGHT           "\xef\x8b\xb9" // U+F2F9
 #define ICON_FA_PLUS                   "\xef\x81\xa7" // U+F067
 #define ICON_FA_DRAW_POLYGON           "\xef\x97\xae" // U+F5EE

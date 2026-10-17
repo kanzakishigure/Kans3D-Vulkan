@@ -4,38 +4,33 @@
 
 namespace Kans
 {
-    void ExtractModelPart(RenderView&                  view,
-                          const ProductModelComponent& model,
-                          const glm::mat4&             transform,
-                          ModelStencilMode             stencil,
-                          SceneViewMode                mode,
-                          const ModelInstance&         instance,
-                          const ViewMeshMetadata&      metadata)
+    void
+    ExtractMeshDraws(RenderView& view, const ViewMeshSubmission& submission, SceneViewMode mode, const GpuMesh* mesh)
     {
-        view.Draws.push_back(
-            {instance.Mesh,
-             transform * instance.Transform,
-             model.ResolveMaterial(instance.Mesh, metadata.Material, metadata.AuthoredMaterial, instance.Part),
-             mode,
-             stencil,
-             metadata.LocalBounds,
-             {},
-             false,
-             instance.Section});
-    }
-    void ExtractModelDraws(RenderView&                                                    view,
-                           const ProductModelComponent&                                   model,
-                           const glm::mat4&                                               transform,
-                           ModelStencilMode                                               stencil,
-                           SceneViewMode                                                  mode,
-                           const ModelInstances*                                          instances,
-                           const std::function<std::optional<ViewMeshMetadata>(AssetID)>& mesh)
-    {
-        if (!instances)
+        if (!mesh)
             return;
-        for (const auto& instance : instances->Instances)
-            if (auto metadata = mesh(instance.Mesh))
-                ExtractModelPart(view, model, transform, stencil, mode, instance, *metadata);
+        const auto& component = submission.Mesh;
+        for (size_t i = 0; i < mesh->Sections.size(); ++i)
+        {
+            if (component.Section && *component.Section != i)
+                continue;
+            const auto& section  = mesh->Sections[i];
+            const auto  slot     = section.MaterialSlot;
+            const auto  material = slot < component.Materials.size() && component.Materials[slot].IsValid() ?
+                                       component.Materials[slot] :
+                                       mesh->MaterialSlots[slot].DefaultMaterial;
+            view.Draws.push_back({component.Mesh,
+                                  submission.Transform,
+                                  material,
+                                  mode,
+                                  submission.Stencil,
+                                  section.LocalBounds,
+                                  {},
+                                  false,
+                                  uint32_t(i),
+                                  submission.EntityID,
+                                  submission.InstanceRoot});
+        }
     }
     void ExtractDrawLists(RenderView& view)
     {

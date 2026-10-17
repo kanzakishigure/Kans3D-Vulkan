@@ -2,10 +2,13 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include "Kans3D/Asset/Product/ContentDigest.h"
+#include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/RenderFeature.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Scene/Entity.h"
 #include "GpuTestContext.h"
 
 namespace
@@ -232,22 +235,43 @@ namespace
         data.Vertices[2].Position        = {0, 1, 0};
         data.Indices                     = {0, 1, 2};
         BuildSingleSection(data);
-        auto                        mesh = std::get<GpuMesh>(UploadMesh(data, Device));
-        const std::vector<MeshDraw> draws {{&mesh, glm::mat4(1), 0xf1234567u}};
-        EXPECT_EQ(first->Pick(draws, glm::mat4(1), {8, 8}), 0xf1234567u);
+        class Provider final : public IAssetProvider
+        {
+        public:
+            std::vector<std::byte>                           Bytes;
+            std::variant<std::vector<std::byte>, AssetError> Read(const ProductRecord&) const override { return Bytes; }
+        };
+        auto provider   = CreateRef<Provider>();
+        provider->Bytes = std::get<std::vector<std::byte>>(EncodeMeshProduct(data));
+        const AssetID meshID {SourceAssetID::Generate(), 1};
+        ProductRecord record;
+        record.Metadata.assetID       = meshID;
+        record.Metadata.Type          = AssetType::StaticMesh;
+        record.Location.RelativeFile  = AssetPath("picker-mesh");
+        record.Location.ByteSize      = provider->Bytes.size();
+        record.Location.ContentDigest = ComputeContentDigest(provider->Bytes);
+        AssetManager assets(provider,
+                            CreateRef<AssetRegistry>(std::get<AssetRegistry>(AssetRegistry::FromProducts({record}))));
+        ASSERT_TRUE(std::holds_alternative<Ref<const MeshAsset>>(assets.Load<MeshAsset>(meshID)));
+        first->SetAssetManager(&assets);
+        second->SetAssetManager(&assets);
+        auto entity = Logic->CreateEntityWithID(UUID(0xf1234567u), "Pick owner", false);
+        entity.AddComponent<MeshComponent>(MeshComponent {meshID});
+        EXPECT_EQ(first->PickSceneSurface(*Logic, glm::mat4(1), {8, 8}).EntityID, UUID(0xf1234567u));
         first->SetViewportSize(32, 8);
-        auto hit = first->PickSurface(draws, glm::mat4(1), {16, 4});
-        EXPECT_EQ(hit.ID, 0xf1234567u);
+        auto hit = first->PickSceneSurface(*Logic, glm::mat4(1), {16, 4});
+        EXPECT_EQ(hit.EntityID, UUID(0xf1234567u));
         ASSERT_TRUE(hit.Position);
         EXPECT_EQ(hit.Position->x, 0.03125f);
         EXPECT_EQ(hit.Position->y, 0.125f);
         EXPECT_EQ(hit.Position->z, 0.0f);
-        EXPECT_EQ(second->Pick(draws, glm::mat4(1), {8, 8}), 0xf1234567u);
-        auto miss              = draws;
-        miss[0].Transform[3].x = 4.0f;
-        EXPECT_EQ(first->Pick(miss, glm::mat4(1), {16, 4}), 0u);
-        EXPECT_FALSE(first->PickSurface(miss, glm::mat4(1), {16, 4}).Position);
-        EXPECT_EQ(second->Pick(miss, glm::mat4(1), {8, 8}), 0u);
+        EXPECT_EQ(second->PickSceneSurface(*Logic, glm::mat4(1), {8, 8}).EntityID, UUID(0xf1234567u));
+        entity.GetComponent<TransformComponent>().Position.x = 4.0f;
+        EXPECT_EQ(first->PickSceneSurface(*Logic, glm::mat4(1), {16, 4}).EntityID, UUID(0));
+        EXPECT_FALSE(first->PickSceneSurface(*Logic, glm::mat4(1), {16, 4}).Position);
+        EXPECT_EQ(second->PickSceneSurface(*Logic, glm::mat4(1), {8, 8}).EntityID, UUID(0));
+        first->SetAssetManager(nullptr);
+        second->SetAssetManager(nullptr);
     }
     TEST_P(RendererServices, EnvironmentChangesReachExistingViewsAndRefreshSharedResults)
     {

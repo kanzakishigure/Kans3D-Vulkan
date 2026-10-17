@@ -48,6 +48,38 @@ namespace
         EXPECT_EQ(asset->GetData().Nodes[1].Meshes, asset->GetData().Nodes[0].Meshes);
     }
 
+    TEST(ModelProduct, PrefabV3PersistsEntityKeysMeshComponentsMaterialsAndMigrationTable)
+    {
+        // Bug: the product writer drops the prefab entity list or its stable keys,
+        // or replaces the old section identity table needed by scene migration.
+        auto data          = Model();
+        data.Nodes[0].Key  = "stable-root";
+        data.Nodes[1].Key  = "stable-child";
+        const auto    mesh = data.Nodes[0].Meshes[0];
+        const AssetID part {mesh.GetSourceID(), 9}, material {mesh.GetSourceID(), 10};
+        data.SectionIdentities = {{"old-part", part, mesh, 0}};
+        data.Entities          = BuildPrefabEntities(data);
+        ASSERT_EQ(data.Entities.size(), 4u);
+        data.Entities[1].Materials = {material};
+        const auto        bytes    = std::get<std::vector<std::byte>>(EncodeModelProduct(data));
+        const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        EXPECT_NE(text.find("version: 3"), std::string::npos);
+        const auto decoded = std::get<ModelData>(DecodeModelProduct(bytes.data(), bytes.size()));
+        ASSERT_EQ(decoded.Entities.size(), 4u);
+        EXPECT_EQ(decoded.Entities[0].Key, "stable-root");
+        EXPECT_EQ(decoded.Entities[1].Key, "stable-root/part:8:old-part");
+        EXPECT_EQ(decoded.Entities[1].Mesh, mesh);
+        EXPECT_EQ(decoded.Entities[1].Section, 0u);
+        EXPECT_EQ(decoded.Entities[1].Materials, std::vector<AssetID> {material});
+        EXPECT_EQ(decoded.Entities[2].Parent, 0);
+        ASSERT_EQ(decoded.SectionIdentities.size(), 1u);
+        EXPECT_EQ(decoded.SectionIdentities[0].OldMesh, part);
+        EXPECT_EQ(decoded.SectionIdentities[0].Mesh, mesh);
+        EXPECT_EQ(decoded.SectionIdentities[0].Section, 0u);
+        data.Entities[1].Key = data.Entities[0].Key;
+        EXPECT_TRUE(std::holds_alternative<AssetError>(EncodeModelProduct(data)));
+    }
+
     TEST(ModelProduct, RejectsCyclesMultipleRootsMissingReferencesAndNonFiniteTransforms)
     {
         auto data            = Model();
@@ -74,7 +106,7 @@ namespace
                                  "magic: KMOD\nversion: 2\nsection_identities: []\nnodes: [{name: root, parent: -1, "
                                  "transform: [1], meshes: []}]"})
             ExpectInvalid(text, DecodeModelProduct);
-        const std::string unsupported = "magic: KMOD\nversion: 3\nnodes: []";
+        const std::string unsupported = "magic: KMOD\nversion: 4\nnodes: []";
         EXPECT_EQ(std::get<AssetError>(
                       DecodeModelProduct(reinterpret_cast<const std::byte*>(unsupported.data()), unsupported.size()))
                       .Code,

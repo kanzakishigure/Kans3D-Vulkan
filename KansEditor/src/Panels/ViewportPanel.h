@@ -56,7 +56,6 @@ namespace Kans
         bool      UsesSceneCamera() const;
         glm::mat4 ViewProjection() const;
         // Draws of every model entity, with IDs indexing `entities` (ID - 1).
-        std::vector<MeshDraw> CollectDraws(std::vector<UUID>& entities, Entity root = {});
         void                  PickAt(ImVec2 mouse);
         void Render();
         // Icons for lights and cameras, camera frustums and light directions.

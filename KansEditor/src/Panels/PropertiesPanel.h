@@ -6,7 +6,6 @@
 #include "Kans3D/Editor/EditorAssetChoice.h"
 #include "HierarchyPanel.h"
 #include "Kans3D/Scene/Components.h"
-#include "Kans3D/Scene/ProductModelComponent.h"
 
 namespace Kans
 {
@@ -38,8 +37,9 @@ namespace Kans
         void DrawSprite(SpriteRendererComponent& component);
         void DrawDirectionalLight(DirLightComponent& component);
         void DrawPointLight(PointLightComponent& component);
-        void DrawModel(ProductModelComponent& component);
-        void DrawModelMaterials(ProductModelComponent& component);
+        void DrawPrefabPart(Entity entity);
+        void DrawPrefabInstance(Entity root);
+        void DrawMesh(Entity entity);
         void DrawScript(ScriptComponent& component);
 
         // Picks a published asset of `type` (also by dropping its source file);

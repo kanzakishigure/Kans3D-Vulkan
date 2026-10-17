@@ -142,6 +142,128 @@ namespace Kans
                 throw std::runtime_error(error->Message);
             return result;
         }
+        YAML::Node EncodeTransform(const TransformComponent& transform)
+        {
+            YAML::Node value;
+            value["Position"] = Vector(transform.Position, 3);
+            value["Rotation"] = Vector(transform.Rotation, 3);
+            value["Scale"]    = Vector(transform.Scale, 3);
+            // Preserve an imported matrix without a TRS round trip.
+            if (transform.ImportedMatrix)
+            {
+                const auto matrix = transform.GetTransform();
+                for (size_t c = 0; c < 4; ++c)
+                    for (size_t r = 0; r < 4; ++r)
+                        value["Matrix"].push_back(matrix[c][r]);
+            }
+            return value;
+        }
+        TransformComponent DecodeTransform(const YAML::Node& value)
+        {
+            Keys(value, {"Position", "Rotation", "Scale", "Matrix"});
+            TransformComponent result {Vec3(value["Position"]), Vec3(value["Rotation"]), Vec3(value["Scale"])};
+            if (const auto matrix = value["Matrix"])
+            {
+                Require(matrix.IsSequence() && matrix.size() == 16, "Invalid transform matrix");
+                glm::mat4 decoded;
+                for (size_t c = 0; c < 4; ++c)
+                    for (size_t r = 0; r < 4; ++r)
+                        decoded[c][r] = Number(matrix[c * 4 + r]);
+                result.ImportedMatrix   = decoded;
+                result.ImportedPosition = result.Position;
+                result.ImportedRotation = result.Rotation;
+                result.ImportedScale    = result.Scale;
+            }
+            return result;
+        }
+        YAML::Node EncodeMesh(const MeshComponent& mesh)
+        {
+            YAML::Node value;
+            value["Mesh"]      = IdentityText(mesh.Mesh);
+            value["Materials"] = YAML::Node(YAML::NodeType::Sequence);
+            Require(mesh.Materials.size() <= 65536, "Too many mesh materials");
+            for (auto material : mesh.Materials)
+                value["Materials"].push_back(IdentityText(material));
+            if (mesh.Section)
+                value["Section"] = *mesh.Section;
+            return value;
+        }
+        MeshComponent DecodeMesh(const YAML::Node& value)
+        {
+            Keys(value, {"Mesh", "Materials", "Section"});
+            MeshComponent mesh;
+            mesh.Mesh = Identity(value["Mesh"]);
+            Require(value["Materials"].IsSequence() && value["Materials"].size() <= 65536, "Invalid mesh materials");
+            for (const auto& material : value["Materials"])
+                mesh.Materials.push_back(Identity(material));
+            if (value["Section"])
+                mesh.Section = SceneIndex(value["Section"]);
+            return mesh;
+        }
+        YAML::Node EncodePrefab(const PrefabInstanceComponent& prefab)
+        {
+            YAML::Node value;
+            value["Prefab"]    = IdentityText(prefab.Prefab);
+            value["DrawOrder"] = prefab.DrawOrder;
+            value["Overrides"] = YAML::Node(YAML::NodeType::Sequence);
+            Require(prefab.Overrides.size() <= 65536, "Too many prefab overrides");
+            for (const auto& [key, change] : prefab.Overrides)
+            {
+                Require(!key.empty() && key.size() <= 4096, "Invalid prefab node key");
+                if (!change.LocalTransform && change.Materials.empty() && !change.Removed)
+                    continue;
+                YAML::Node item;
+                item["Node"]    = key;
+                item["Removed"] = change.Removed;
+                if (change.LocalTransform)
+                    item["Transform"] = EncodeTransform(*change.LocalTransform);
+                item["Materials"] = YAML::Node(YAML::NodeType::Sequence);
+                for (const auto& [slot, material] : change.Materials)
+                {
+                    Require(slot < 65536, "Prefab material slot limit");
+                    YAML::Node binding;
+                    binding["Slot"]     = slot;
+                    binding["Material"] = IdentityText(material);
+                    item["Materials"].push_back(binding);
+                }
+                value["Overrides"].push_back(item);
+            }
+            if (prefab.LegacyPending)
+                value["LegacyPending"] = EncodeModel(*prefab.LegacyPending);
+            return value;
+        }
+        PrefabInstanceComponent DecodePrefab(const YAML::Node& value)
+        {
+            Keys(value, {"Prefab", "DrawOrder", "Overrides", "LegacyPending"});
+            PrefabInstanceComponent prefab;
+            prefab.Prefab    = Identity(value["Prefab"]);
+            prefab.DrawOrder = UInt(value["DrawOrder"]);
+            Require(prefab.DrawOrder < UINT64_MAX, "Invalid prefab draw order");
+            const auto overrides = value["Overrides"];
+            Require(overrides.IsSequence() && overrides.size() <= 65536, "Invalid prefab overrides");
+            for (const auto& item : overrides)
+            {
+                Keys(item, {"Node", "Removed", "Transform", "Materials"});
+                const auto key = Text(item["Node"]);
+                Require(!key.empty() && !prefab.Overrides.count(key), "Duplicate/empty prefab override key");
+                auto& change   = prefab.Overrides[key];
+                change.Removed = item["Removed"].as<bool>();
+                if (item["Transform"])
+                    change.LocalTransform = DecodeTransform(item["Transform"]);
+                Require(item["Materials"].IsSequence() && item["Materials"].size() <= 65536,
+                        "Invalid prefab slot overrides");
+                for (const auto& binding : item["Materials"])
+                {
+                    Keys(binding, {"Slot", "Material"});
+                    const auto slot = SceneIndex(binding["Slot"]);
+                    Require(slot < 65536 && !change.Materials.count(slot), "Invalid/duplicate prefab slot");
+                    change.Materials[slot] = Identity(binding["Material"]);
+                }
+            }
+            if (value["LegacyPending"])
+                prefab.LegacyPending = DecodeModel(value["LegacyPending"]);
+            return prefab;
+        }
         void ValidateCamera(SceneCamera& camera)
         {
             Require(std::isfinite(camera.GetExposure()) && std::isfinite(camera.GetAspectRatio()) &&
@@ -175,8 +297,17 @@ namespace Kans
             value["Position"]           = Vector(transform.Position, 3);
             value["Rotation"]           = Vector(transform.Rotation, 3);
             value["Scale"]              = Vector(transform.Scale, 3);
-            if (entity.HasComponent<ProductModelComponent>())
-                node["ProductModelComponent"] = EncodeModel(entity.GetComponent<ProductModelComponent>());
+            node["TransformComponent"]  = EncodeTransform(transform);
+            if (entity.HasComponent<PrefabInstanceComponent>())
+                node["PrefabInstanceComponent"] = EncodePrefab(entity.GetComponent<PrefabInstanceComponent>());
+            if (entity.HasComponent<MeshComponent>())
+                node["MeshComponent"] = EncodeMesh(entity.GetComponent<MeshComponent>());
+            if (entity.HasComponent<PrefabAttachmentComponent>())
+            {
+                const auto& attachment           = entity.GetComponent<PrefabAttachmentComponent>();
+                node["PrefabParent"]["Instance"] = uint64_t(attachment.Instance);
+                node["PrefabParent"]["Node"]     = attachment.NodeKey;
+            }
             if (entity.HasComponent<CameraComponent>())
             {
                 auto& component = entity.GetComponent<CameraComponent>();
@@ -238,6 +369,21 @@ namespace Kans
         std::filesystem::path temporary;
         try
         {
+            m_Scene->UpdatePrefabs();
+            // Capture attachments before filtering out generated entities.
+            for (auto handle : m_Scene->m_Registry.view<RelationshipComponent>())
+            {
+                Entity entity {handle, m_Scene.get()};
+                Entity parent = m_Scene->GetParent(entity);
+                if (!entity.HasComponent<PrefabOwnedComponent>() && parent &&
+                    parent.HasComponent<PrefabOwnedComponent>())
+                {
+                    const auto& owner = parent.GetComponent<PrefabOwnedComponent>();
+                    if (!entity.HasComponent<PrefabAttachmentComponent>())
+                        entity.AddComponent<PrefabAttachmentComponent>();
+                    entity.GetComponent<PrefabAttachmentComponent>() = {owner.Instance, owner.NodeKey};
+                }
+            }
             auto& registry = m_Scene->m_Registry;
             if (!registry.view<NativeScriptComponent>().empty())
                 return AssetError {AssetErrorCode::NotImplemented,
@@ -255,22 +401,25 @@ namespace Kans
                 Entity entity {handle, m_Scene.get()};
                 Require(entity.HasComponent<IDComponent, TagComponent, TransformComponent>(),
                         "Incomplete Scene entity");
+                if (entity.HasComponent<PrefabOwnedComponent>())
+                    return;
                 auto id = uint64_t(entity.GetComponent<IDComponent>().ID);
                 Require(id && entities.emplace(id, entity).second && entities.size() <= 65536,
                         "Invalid/duplicate Scene identity");
                 auto textBytes = entity.GetComponent<TagComponent>().Tag.size();
                 if (entity.HasComponent<ScriptComponent>())
                     textBytes += entity.GetComponent<ScriptComponent>().ClassName.size();
-                budget.Add(textBytes,
-                           entity.HasComponent<ProductModelComponent>() ?
-                               &entity.GetComponent<ProductModelComponent>() :
-                               nullptr);
+                const auto* prefab = registry.try_get<PrefabInstanceComponent>(handle);
+                budget.Add(textBytes, prefab && prefab->LegacyPending ? &*prefab->LegacyPending : nullptr);
             });
             // Parents before children, siblings in order.
             size_t                      encoded = 0;
             std::function<void(Entity)> write   = [&](Entity entity) {
-                root["Entities"].push_back(EncodeEntity(entity));
-                ++encoded;
+                if (!entity.HasComponent<PrefabOwnedComponent>())
+                {
+                    root["Entities"].push_back(EncodeEntity(entity));
+                    ++encoded;
+                }
                 for (Entity child : m_Scene->GetChildren(entity))
                     write(child);
             };
@@ -347,6 +496,9 @@ namespace Kans
                       "TagComponent",
                       "TransformComponent",
                       "ProductModelComponent",
+                      "PrefabInstanceComponent",
+                      "MeshComponent",
+                      "PrefabParent",
                       "CameraComponent",
                       "DirLightComponent",
                       "PointLightComponent",
@@ -357,7 +509,7 @@ namespace Kans
                 if (node["Parent"])
                     parents.emplace_back(id, UInt(node["Parent"]));
                 Keys(node["TagComponent"], {"Tag"});
-                Keys(node["TransformComponent"], {"Position", "Rotation", "Scale"});
+                Keys(node["TransformComponent"], {"Position", "Rotation", "Scale", "Matrix"});
                 auto tag       = Text(node["TagComponent"]["Tag"]);
                 auto textBytes = tag.size();
                 if (node["ScriptComponent"])
@@ -375,8 +527,29 @@ namespace Kans
                 transform.Position                      = Vec3(value["Position"]);
                 transform.Rotation                      = Vec3(value["Rotation"]);
                 transform.Scale                         = Vec3(value["Scale"]);
+                transform                               = DecodeTransform(value);
+                if (node["PrefabInstanceComponent"])
+                {
+                    Require(!model, "Scene entity has both prefab and legacy model");
+                    entity.AddComponent<PrefabInstanceComponent>(DecodePrefab(node["PrefabInstanceComponent"]));
+                }
+                if (node["MeshComponent"])
+                    entity.AddComponent<MeshComponent>(DecodeMesh(node["MeshComponent"]));
+                if (node["PrefabParent"])
+                {
+                    const auto attachment = node["PrefabParent"];
+                    Keys(attachment, {"Instance", "Node"});
+                    const UUID instance = UInt(attachment["Instance"]);
+                    const auto key      = Text(attachment["Node"]);
+                    Require(instance && !key.empty(), "Invalid prefab parent");
+                    entity.AddComponent<PrefabAttachmentComponent>(instance, key);
+                }
                 if (model)
-                    entity.AddComponent<ProductModelComponent>(std::move(*model));
+                {
+                    auto& prefab         = entity.AddComponent<PrefabInstanceComponent>();
+                    prefab.Prefab        = model->Model;
+                    prefab.LegacyPending = std::move(*model);
+                }
                 if (node["CameraComponent"])
                 {
                     value.reset(node["CameraComponent"]);
@@ -444,12 +617,24 @@ namespace Kans
                     Require(sprite.TilingFactor >= 0, "Invalid Sprite tiling");
                 }
             }
+            candidate->m_ReconcilingPrefab = true;
             for (const auto& [child, parent] : parents)
             {
                 Entity entity = candidate->GetEntityByUUID(UUID(child));
                 Entity owner  = candidate->GetEntityByUUID(UUID(parent));
+                if (!owner && entity.HasComponent<PrefabAttachmentComponent>())
+                {
+                    const auto& attachment = entity.GetComponent<PrefabAttachmentComponent>();
+                    Entity      root       = candidate->GetEntityByUUID(attachment.Instance);
+                    Require(root && root.HasComponent<PrefabInstanceComponent>() &&
+                                Scene::PrefabEntityUUID(attachment.Instance, attachment.NodeKey) == UUID(parent),
+                            "Invalid pending prefab parent");
+                    owner = root;
+                }
                 Require(owner && candidate->SetParent(entity, owner, {}, false), "Invalid Scene entity parent");
             }
+            candidate->m_ReconcilingPrefab = false;
+            candidate->UpdatePrefabs();
             return candidate;
         }
         catch (const std::exception& error)

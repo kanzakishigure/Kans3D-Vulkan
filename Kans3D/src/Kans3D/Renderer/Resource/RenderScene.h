@@ -57,6 +57,7 @@ namespace Kans
         // CPU-only scene extraction. Caller supplies camera, viewport and debug mode.
         void Extract(RenderView& view) const;
         void OnViewportResize(uint32_t width, uint32_t height);
+        const Ref<Scene>& GetLogicScene() const { return m_LogicScene; }
         void SetLogicScene(const Ref<Scene>& scene);
 
         const RenderResource& GetRenderResource() { return m_RenderResource; }

@@ -55,10 +55,12 @@ namespace Kans
                 // Resolve at consumption, preserving phase one's cache replacement safety.
                 std::vector<MeshDraw> draws;
                 if (preview)
-                    renderer.AppendModelDraws(view.Preview->Model, view.Preview->Transform, 0, draws);
+                    renderer.AppendPrefabPreviewDraws(*view.Preview, draws);
                 else
-                    for (const auto& model : view.Highlight)
-                        renderer.AppendModelDraws(model.Model, model.Transform, 0, draws);
+                {
+                    for (auto entity : view.HighlightEntities)
+                        renderer.AppendEntityDraws(*renderer.m_RenderScene->GetLogicScene(), entity, 0, draws);
+                }
                 renderer.m_Outline.RecordMask(context.Commands,
                                               context.Texture(mask),
                                               draws,
@@ -79,7 +81,7 @@ namespace Kans
 
     void EditorSelectionFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
-        if (!context.View.Highlight.empty())
+        if (!context.View.HighlightEntities.empty())
             AddOutline(context, "Selection", false, {1, .62f, .15f, 1});
     }
     void EditorPreviewFeature::Prepare(RenderView& view, SceneRenderer& renderer)
@@ -89,7 +91,7 @@ namespace Kans
         // Keep the ghost in the original shared, sorted material batch, always lit.
         const SceneViewMode viewMode = renderer.m_ViewMode;
         renderer.m_ViewMode          = SceneViewMode::Lit;
-        renderer.SubmitModel(view.Preview->Model, view.Preview->Transform);
+        renderer.SubmitPrefabPreview(*view.Preview);
         renderer.m_ViewMode = viewMode;
     }
     void EditorPreviewFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)

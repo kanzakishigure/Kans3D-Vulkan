@@ -7,6 +7,11 @@
 
 namespace Kans
 {
+    class AssetManager;
+    struct TransformComponent;
+    struct PrefabNodeOverride;
+    struct Bounds;
+    struct MeshMaterialSlot;
     class RenderScene;
     class SceneRenderer;
     class Entity;
@@ -51,6 +56,30 @@ namespace Kans
         // Copies the entity with its children (new IDs), placed right after it.
         Entity DuplicateEntity(Entity entity);
 
+        // Nonblocking; also called by RenderScene and runtime updates.
+        void SetPrefabAssetManager(AssetManager* assets) { m_PrefabAssets = assets; }
+        void UpdatePrefabs();
+        void UpdatePrefabs(AssetManager& assets)
+        {
+            SetPrefabAssetManager(&assets);
+            UpdatePrefabs();
+        }
+        Entity              InstantiatePrefab(AssetID prefab, const glm::vec3& position = {}, UUID parent = 0);
+        Entity              GetPrefabInstanceRoot(Entity entity) const;
+        static UUID         PrefabEntityUUID(UUID instance, const std::string& nodeKey);
+        std::vector<Entity> GetMeshEntities(Entity subtree) const;
+        std::vector<Entity> GetMeshEntities() const;
+        void                CapturePrefabOverrides();
+        void   SetPrefabTransformOverride(Entity root, const std::string& key, const TransformComponent& transform);
+        void   SetPrefabMaterialOverride(Entity root, const std::string& key, uint32_t slot, AssetID material);
+        void   SetPrefabNodeRemoved(Entity root, const std::string& key, bool removed);
+        void   ClearPrefabOverride(Entity root, const std::string& key);
+        Bounds GetWorldBounds(Entity entity) const;
+        // CPU-only pre-placement bounds; empty until the prefab/meshes are ready.
+        Bounds                        GetPrefabBounds(AssetID prefab, const glm::mat4& transform = glm::mat4(1));
+        std::vector<MeshMaterialSlot> GetMeshSlots(Entity entity) const;
+        void                          UpdateBounds();
+
         // ---- undo/redo (SceneSnapshot.h) ----
         SceneSnapshot Capture() const;
         // Replaces every entity with the snapshot's; UUIDs are preserved.
@@ -73,6 +102,10 @@ namespace Kans
         void DestroyNativeScriptInstances();
 
     private:
+        AssetManager*     m_PrefabAssets      = nullptr;
+        uint64_t          m_NextDrawOrder     = 1;
+        bool              m_ReconcilingPrefab = false;
+        void              ExpandPrefab(Entity root);
         entt::registry m_Registry;
         uint32_t       m_ViewportWidth = 0, m_ViewportHeight = 0;
         std::string    m_Name;

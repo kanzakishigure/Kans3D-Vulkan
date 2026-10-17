@@ -106,21 +106,14 @@ namespace Kans
     void RenderScene::Render(SceneRenderer& renderer, const SceneInfo& info)
     {
         renderer.SetScene(this);
+        if (renderer.GetAssetCache())
+            m_LogicScene->UpdatePrefabs(renderer.GetAssetCache()->GetAssetManager());
+        else
+            m_LogicScene->UpdatePrefabs();
         renderer.BeginScene(info);
         Extract(renderer.m_View);
-        // Reuse one override vector while preparing parts; no allocation for each model.
-        ProductModelComponent preparation;
-        size_t                maxOverrides = 0;
-        for (const auto& model : renderer.m_View.Models)
-            maxOverrides = std::max(maxOverrides, model.OverrideCount);
-        preparation.Overrides.reserve(maxOverrides);
-        for (const auto& model : renderer.m_View.Models)
-        {
-            preparation.Model = model.Model;
-            const auto begin  = renderer.m_View.MaterialOverrides.begin() + model.OverrideBegin;
-            preparation.Overrides.assign(begin, begin + model.OverrideCount);
-            renderer.SubmitModel(preparation, model.Transform, model.Stencil);
-        }
+        for (const auto& mesh : renderer.m_View.Meshes)
+            renderer.SubmitMesh(mesh);
         if (renderer.GetEnvironment().IrradianceMap)
             renderer.SubmitSkybox(renderer.GetEnvironment().IrradianceMap);
         renderer.EndScene();
@@ -128,37 +121,72 @@ namespace Kans
 
     void RenderScene::Extract(RenderView& output) const
     {
+        m_LogicScene->UpdatePrefabs();
         CollectLights(output.Scene);
-        output.Models.clear();
-        output.MaterialOverrides.clear();
+        output.Meshes.clear();
         output.Geometry.clear();
         output.Sprites.clear();
         output.Grids.clear();
         output.ImmediateOrder.clear();
         const auto& state = m_RenderResource.Piplinestate;
-        auto        models = m_LogicScene->m_Registry.view<TransformComponent, ProductModelComponent>();
-        for (auto entity : models)
+        for (Entity entity : m_LogicScene->GetMeshEntities())
         {
-            const auto&     model     = models.get<ProductModelComponent>(entity);
-            const glm::mat4 transform = m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()});
-            output.Models.push_back(
-                {model.Model,
-                 transform,
-                 state.EnableStencil ? ModelStencilMode::WriteReference : ModelStencilMode::Disabled,
-                 output.MaterialOverrides.size(),
-                 model.Overrides.size()});
-            output.MaterialOverrides.insert(
-                output.MaterialOverrides.end(), model.Overrides.begin(), model.Overrides.end());
+            const auto& mesh  = entity.GetComponent<MeshComponent>();
+            const auto  world = m_LogicScene->GetWorldTransform(entity);
+            const auto  root  = m_LogicScene->GetPrefabInstanceRoot(entity);
+            output.Meshes.push_back(
+                {mesh,
+                 world,
+                 entity.GetUUID(),
+                 root ? root.GetUUID() : UUID(0),
+                 state.EnableStencil ? ModelStencilMode::WriteReference : ModelStencilMode::Disabled});
             if (state.EnableStencil)
-                output.Geometry.push_back({model,
-                                           transform * glm::scale(glm::mat4(1), glm::vec3(1.007f)),
+            {
+                auto outline = world * glm::scale(glm::mat4(1), glm::vec3(1.007f));
+                if (root && entity.HasComponent<PrefabOwnedComponent>())
+                {
+                    std::function<glm::mat4(Entity)> relative = [&](Entity part) {
+                        auto parent = m_LogicScene->GetParent(part);
+                        auto local  = part.GetComponent<TransformComponent>().GetTransform();
+                        return parent && parent != root ? relative(parent) * local : local;
+                    };
+                    outline = m_LogicScene->GetWorldTransform(root) * glm::scale(glm::mat4(1), glm::vec3(1.007f)) *
+                              relative(entity);
+                }
+                output.Geometry.push_back({outline,
                                            "StencilShader",
-                                           ModelGeometryMode::StencilOutline});
+                                           ModelGeometryMode::StencilOutline,
+                                           mesh.Mesh,
+                                           mesh.Section,
+                                           entity.GetUUID()});
+            }
             if (state.EnableOutline)
-                output.Geometry.push_back({model, transform, "OutLineShader", ModelGeometryMode::BackFaces});
+                output.Geometry.push_back(
+                    {world, "OutLineShader", ModelGeometryMode::BackFaces, mesh.Mesh, mesh.Section, entity.GetUUID()});
             if (state.EnableDebugNormal)
-                output.Geometry.push_back({model, transform, "DebugNormalShader", ModelGeometryMode::Default});
+                output.Geometry.push_back({world,
+                                           "DebugNormalShader",
+                                           ModelGeometryMode::Default,
+                                           mesh.Mesh,
+                                           mesh.Section,
+                                           entity.GetUUID()});
         }
+        std::stable_sort(
+            output.Geometry.begin(), output.Geometry.end(), [&](const ViewGeometryDraw& a, const ViewGeometryDraw& b) {
+                const auto ae = m_LogicScene->GetEntityByUUID(a.EntityID),
+                           be = m_LogicScene->GetEntityByUUID(b.EntityID);
+                const auto ar = m_LogicScene->GetPrefabInstanceRoot(ae), br = m_LogicScene->GetPrefabInstanceRoot(be);
+                const auto ao = ar ? ar.GetComponent<PrefabInstanceComponent>().DrawOrder : uint64_t(uint32_t(ae));
+                const auto bo = br ? br.GetComponent<PrefabInstanceComponent>().DrawOrder : uint64_t(uint32_t(be));
+                if (ao != bo)
+                    return ao > bo;
+                auto rank = [](const auto& draw) {
+                    return draw.Mode == ModelGeometryMode::StencilOutline ? 0 :
+                           draw.Mode == ModelGeometryMode::BackFaces      ? 1 :
+                                                                            2;
+                };
+                return rank(a) < rank(b);
+            });
         if (!m_LogicScene->m_Registry.view<SpriteRendererComponent>().empty())
         {
             auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);

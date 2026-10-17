@@ -86,6 +86,7 @@ namespace Kans
         // Row-major local transform, matching imported node data.
         std::array<float, 16> LocalTransform {};
         std::vector<AssetID>  Meshes;
+        std::string           Key; // Stable source-node identity, independent of array position.
     };
 
     struct ModelSectionIdentity
@@ -95,11 +96,25 @@ namespace Kans
         uint32_t    Section = 0;
     };
 
+    struct PrefabNodeData
+    {
+        std::string             Key, Name;
+        int64_t                 Parent = -1;
+        std::array<float, 16>   LocalTransform {};
+        AssetID                 Mesh;
+        std::optional<uint32_t> Section;   // A source part may select one shared-mesh section.
+        std::vector<AssetID>    Materials; // Empty entries use mesh defaults.
+    };
+
     struct ModelData
     {
         std::vector<ModelNodeData> Nodes;
         std::vector<ModelSectionIdentity> SectionIdentities;
+        std::vector<PrefabNodeData>       Entities;
     };
+
+    // Builds the prefab entity list while retaining the stage-2 model view.
+    std::vector<PrefabNodeData> BuildPrefabEntities(const ModelData& data);
 
     class ModelAsset final : public Asset
     {
@@ -111,10 +126,13 @@ namespace Kans
         const ModelData& GetData() const { return m_EditorData; }
         // Canonical product: nodes reference shared meshes, identities name sections.
         const ModelData& GetMeshData() const { return m_Data; }
+        const std::vector<PrefabNodeData>& GetEntities() const { return m_Data.Entities; }
 
     private:
         ModelData m_Data, m_EditorData;
     };
+
+    using PrefabAsset = ModelAsset;
 
     // CPU runtime material. The existing renderer MaterialAsset remains a legacy
     // rendering wrapper until the renderer bridge is migrated to this data.

@@ -7,7 +7,7 @@
 namespace Kans
 {
     // One mesh to draw with a model-space transform and an identifier.
-    // Borrows its GPU resource. Draw immediately: a result from AppendModelDraws is only
+    // Borrows its GPU resource. Draw immediately: a result from AppendEntityDraws is only
     // valid until the asset cache is next updated (frame eviction, Clear, or a resolving request).
     // Store model descriptions instead when queuing work across cache updates.
     struct MeshDraw

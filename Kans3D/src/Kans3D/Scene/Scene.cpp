@@ -19,6 +19,8 @@ namespace Kans
     void Scene::OnUpdate(TimeStep ts)
     {
 
+        UpdatePrefabs();
+
         // update ScripteableEntity
         {
 
@@ -84,6 +86,20 @@ namespace Kans
     }
     void Scene::DestroyEntity(Entity entity)
     {
+        if (!m_ReconcilingPrefab && entity.HasComponent<PrefabOwnedComponent>())
+        {
+            const auto owned = entity.GetComponent<PrefabOwnedComponent>();
+            Entity     root  = GetEntityByUUID(owned.Instance);
+            if (root && root.HasComponent<PrefabInstanceComponent>())
+            {
+                SetPrefabNodeRemoved(root, owned.NodeKey, true);
+                UpdateBounds();
+                return;
+            }
+        }
+        const bool reconciling = m_ReconcilingPrefab;
+        if (entity.HasComponent<PrefabInstanceComponent>())
+            m_ReconcilingPrefab = true;
         // Children go with their parent.
         const auto children = entity.GetComponent<RelationshipComponent>().Children;
         for (UUID child : children)
@@ -93,6 +109,7 @@ namespace Kans
         auto& id = entity.GetComponent<IDComponent>().ID;
         m_EntityMap.erase(id);
         m_Registry.destroy(entity);
+        m_ReconcilingPrefab = reconciling;
     }
 
     void Scene::Detach(Entity entity)
@@ -139,6 +156,8 @@ namespace Kans
 
     bool Scene::SetParent(Entity entity, Entity parent, Entity before, bool keepWorld)
     {
+        if (!m_ReconcilingPrefab && entity.HasComponent<PrefabOwnedComponent>())
+            return false;
         if (parent && (parent == entity || IsDescendantOf(parent, entity)))
             return false;
         const glm::mat4 world = GetWorldTransform(entity);
@@ -148,6 +167,18 @@ namespace Kans
         auto       at       = before ? std::find(siblings.begin(), siblings.end(), before.GetUUID()) : siblings.end();
         siblings.insert(at, id);
         entity.GetComponent<RelationshipComponent>().Parent = parent ? parent.GetUUID() : UUID(0);
+        if (!m_ReconcilingPrefab && !entity.HasComponent<PrefabOwnedComponent>())
+        {
+            if (parent && parent.HasComponent<PrefabOwnedComponent>())
+            {
+                const auto& owned = parent.GetComponent<PrefabOwnedComponent>();
+                if (!entity.HasComponent<PrefabAttachmentComponent>())
+                    entity.AddComponent<PrefabAttachmentComponent>();
+                entity.GetComponent<PrefabAttachmentComponent>() = {owned.Instance, owned.NodeKey};
+            }
+            else if (entity.HasComponent<PrefabAttachmentComponent>())
+                entity.RemoveComponent<PrefabAttachmentComponent>();
+        }
         if (keepWorld)
             SetWorldTransform(entity, world);
         return true;
@@ -158,6 +189,17 @@ namespace Kans
     glm::mat4 Scene::GetWorldTransform(Entity entity) const
     {
         const glm::mat4 local  = entity.GetComponent<TransformComponent>().GetTransform();
+        if (entity.HasComponent<PrefabOwnedComponent>())
+        {
+            const auto                       root     = GetPrefabInstanceRoot(entity);
+            std::function<glm::mat4(Entity)> relative = [&](Entity part) {
+                const auto parent = GetParent(part);
+                const auto matrix = part.GetComponent<TransformComponent>().GetTransform();
+                return parent && parent != root ? relative(parent) * matrix : matrix;
+            };
+            // Preserve phase-2 multiplication grouping: rootWorld * modelSpace.
+            return root ? GetWorldTransform(root) * relative(entity) : local;
+        }
         const Entity    parent = GetParent(entity);
         return parent ? GetWorldTransform(parent) * local : local;
     }
@@ -191,13 +233,33 @@ namespace Kans
         CopyComponent<TransformComponent>(source, copy);
         CopyComponent<CameraComponent>(source, copy);
         CopyComponent<SpriteRendererComponent>(source, copy);
-        CopyComponent<ProductModelComponent>(source, copy);
+        CopyComponent<MeshComponent>(source, copy);
+        if (source.HasComponent<PrefabInstanceComponent>())
+        {
+            auto instance     = source.GetComponent<PrefabInstanceComponent>();
+            instance.Expanded = false;
+            instance.Nodes.clear();
+            instance.DrawOrder = 0;
+            copy.AddComponent<PrefabInstanceComponent>(std::move(instance));
+        }
         CopyComponent<DirLightComponent>(source, copy);
         CopyComponent<PointLightComponent>(source, copy);
         CopyComponent<ScriptComponent>(source, copy);
         SetParent(copy, parent, before, false);
+        if (copy.HasComponent<PrefabInstanceComponent>())
+            ExpandPrefab(copy);
         for (Entity child : GetChildren(source))
-            CopyEntity(child, copy, {});
+            if (!child.HasComponent<PrefabOwnedComponent>())
+                CopyEntity(child, copy, {});
+        if (source.HasComponent<PrefabInstanceComponent>())
+        {
+            const auto& instance = source.GetComponent<PrefabInstanceComponent>();
+            for (const auto& [key, state] : instance.Nodes)
+                if (auto part = GetEntityByUUID(PrefabEntityUUID(source.GetUUID(), key)))
+                    for (auto child : GetChildren(part))
+                        if (!child.HasComponent<PrefabOwnedComponent>())
+                            CopyEntity(child, GetEntityByUUID(PrefabEntityUUID(copy.GetUUID(), key)), {});
+        }
         return copy;
     }
 
@@ -289,8 +351,25 @@ namespace Kans
     void Scene::OnComponentAdd<TransformComponent>(Entity entity, TransformComponent& component)
     {}
     template<>
-    void Scene::OnComponentAdd<ProductModelComponent>(Entity entity, ProductModelComponent& component)
+    void Scene::OnComponentAdd<MeshComponent>(Entity entity, MeshComponent& component)
     {}
+    template<>
+    void Scene::OnComponentAdd<BoundsComponent>(Entity entity, BoundsComponent& component)
+    {}
+    template<>
+    void Scene::OnComponentAdd<PrefabOwnedComponent>(Entity entity, PrefabOwnedComponent& component)
+    {}
+    template<>
+    void Scene::OnComponentAdd<PrefabAttachmentComponent>(Entity entity, PrefabAttachmentComponent& component)
+    {}
+    template<>
+    void Scene::OnComponentAdd<PrefabInstanceComponent>(Entity entity, PrefabInstanceComponent& component)
+    {
+        if (!component.DrawOrder)
+            component.DrawOrder = m_NextDrawOrder++;
+        else
+            m_NextDrawOrder = std::max(m_NextDrawOrder, component.DrawOrder + 1);
+    }
     template<>
     void Scene::OnComponentAdd<TagComponent>(Entity entity, TagComponent& component)
     {}

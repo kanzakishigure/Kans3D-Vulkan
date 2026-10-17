@@ -28,7 +28,7 @@ namespace
     {
         Entity child = Current->CreateEntity("Child");
         ASSERT_TRUE(Current->SetParent(child, Camera()));
-        child.AddComponent<ProductModelComponent>().Model = {SourceAssetID::Generate(), 3};
+        child.AddComponent<PrefabInstanceComponent>().Prefab = {SourceAssetID::Generate(), 3};
         const UUID childID  = child.GetUUID();
         const auto snapshot = Current->Capture();
 
@@ -41,7 +41,7 @@ namespace
         Entity restored = Current->GetEntityByUUID(childID);
         ASSERT_TRUE(restored);
         EXPECT_EQ(Current->GetParent(restored).GetUUID(), CameraID);
-        EXPECT_TRUE(restored.HasComponent<ProductModelComponent>());
+        EXPECT_TRUE(restored.HasComponent<PrefabInstanceComponent>());
         EXPECT_TRUE(Camera().HasComponent<CameraComponent>());
         EXPECT_EQ(Current->GetRootEntities().size(), 2u);
     }

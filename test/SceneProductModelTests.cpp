@@ -5,10 +5,12 @@
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/SceneSerializer.h"
+#include "PrefabRenderTestUtilities.h"
 
 namespace
 {
     using namespace Kans;
+    using namespace Kans::Test;
     class SceneProductModelTest : public ::testing::Test
     {
     protected:
@@ -25,7 +27,7 @@ namespace
             Component.Overrides = {{authored, replacement}};
             Current = CreateRef<Scene>("CPU scene");
             auto entity = Current->CreateEntityWithID(EntityID, "Logical Product", true);
-            entity.AddComponent<ProductModelComponent>(Component);
+            SetLegacyPending(entity, Component);
             entity.GetComponent<TransformComponent>().Position = {2.5f, -3, 4};
         }
         void TearDown() override
@@ -98,8 +100,9 @@ namespace
         EXPECT_EQ(candidate->GetName(), "CPU scene");
         auto entity = candidate->GetEntityByUUID(EntityID);
         ASSERT_TRUE(entity);
-        ASSERT_TRUE(entity.HasComponent<ProductModelComponent>());
-        EXPECT_TRUE(Same(Component, entity.GetComponent<ProductModelComponent>()));
+        ASSERT_FALSE(entity.HasComponent<ProductModelComponent>());
+        ASSERT_TRUE(entity.GetComponent<PrefabInstanceComponent>().LegacyPending);
+        EXPECT_TRUE(Same(Component, (*entity.GetComponent<PrefabInstanceComponent>().LegacyPending)));
         EXPECT_EQ(entity.GetComponent<TransformComponent>().Position, glm::vec3(2.5f, -3, 4));
         const auto serialized = Read(Root / "logical.scene");
         EXPECT_NE(serialized.find(Component.Model.ToString()), std::string::npos);
@@ -108,13 +111,16 @@ namespace
 
     TEST_F(SceneProductModelTest, UnassignedReferencesCanBeSavedWhileAuthoring)
     {
-        auto& component = Current->GetEntityByUUID(EntityID).GetComponent<ProductModelComponent>();
+        auto& component = (*Current->GetEntityByUUID(EntityID).GetComponent<PrefabInstanceComponent>().LegacyPending);
         component.Model = {};
+        Current->GetEntityByUUID(EntityID).GetComponent<PrefabInstanceComponent>().Prefab = {};
         component.Overrides.push_back({});
         auto candidate = SaveAndLoad("authoring.scene");
         ASSERT_TRUE(candidate);
-        const auto& loaded = candidate->GetEntityByUUID(EntityID).GetComponent<ProductModelComponent>();
+        const auto& loaded =
+            (*candidate->GetEntityByUUID(EntityID).GetComponent<PrefabInstanceComponent>().LegacyPending);
         EXPECT_FALSE(loaded.Model.IsValid());
+        EXPECT_FALSE(candidate->GetEntityByUUID(EntityID).GetComponent<PrefabInstanceComponent>().Prefab.IsValid());
         ASSERT_EQ(loaded.Overrides.size(), 2u);
         EXPECT_FALSE(loaded.Overrides[1].Authored.IsValid());
         EXPECT_FALSE(loaded.Overrides[1].Replacement.IsValid());
@@ -159,11 +165,11 @@ namespace
         invalid.Overrides.push_back({Component.Overrides[0].Authored, {SourceAssetID::Generate(), 4}});
         EXPECT_TRUE(std::holds_alternative<AssetError>(ValidateProductModelComponent(invalid)));
         auto entity = Current->GetEntityByUUID(EntityID);
-        entity.GetComponent<ProductModelComponent>() = invalid;
+        (*entity.GetComponent<PrefabInstanceComponent>().LegacyPending) = invalid;
         EXPECT_TRUE(std::holds_alternative<AssetError>(SceneSerializer(Current).SerializeChecked(file)));
         EXPECT_EQ(Read(file), previous);
 
-        entity.GetComponent<ProductModelComponent>()          = Component;
+        (*entity.GetComponent<PrefabInstanceComponent>().LegacyPending) = Component;
         entity.GetComponent<TransformComponent>().Position[0] = std::numeric_limits<float>::quiet_NaN();
         EXPECT_TRUE(std::holds_alternative<AssetError>(SceneSerializer(Current).SerializeChecked(file)));
         EXPECT_EQ(Read(file), previous);
@@ -173,7 +179,15 @@ namespace
     {
         const auto file = Root / "earlier.scene";
         ASSERT_TRUE(std::holds_alternative<std::monostate>(SceneSerializer(Current).SerializeChecked(file)));
-        auto       text   = Read(file);
+        // Construct the actual earlier scene representation. Current saves use
+        // PrefabInstanceComponent and retain unconverted data under LegacyPending.
+        auto document                   = YAML::Load(Read(file));
+        auto entity                     = document["Entities"][0];
+        entity["ProductModelComponent"] = YAML::Clone(entity["PrefabInstanceComponent"]["LegacyPending"]);
+        entity.remove("PrefabInstanceComponent");
+        YAML::Emitter previousFormat;
+        previousFormat << document;
+        auto       text   = std::string(previousFormat.c_str());
         const auto marker = std::string("Overrides:");
         const auto at     = text.find(marker);
         ASSERT_NE(at, std::string::npos);
@@ -183,8 +197,11 @@ namespace
         Write(file, text);
         auto loaded = SceneSerializer::DeserializeChecked(file);
         ASSERT_TRUE(std::holds_alternative<Ref<Scene>>(loaded)) << text;
-        EXPECT_TRUE(Same(
-            Component, std::get<Ref<Scene>>(loaded)->GetEntityByUUID(EntityID).GetComponent<ProductModelComponent>()));
+        EXPECT_TRUE(Same(Component,
+                         (*std::get<Ref<Scene>>(loaded)
+                               ->GetEntityByUUID(EntityID)
+                               .GetComponent<PrefabInstanceComponent>()
+                               .LegacyPending)));
     }
 
     TEST_F(SceneProductModelTest, SyntacticallyValidYamlWithBrokenProductIdentityRejects)

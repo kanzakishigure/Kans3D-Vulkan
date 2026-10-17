@@ -27,6 +27,7 @@ add_executable(Kans3DTests
     MeshProductTests.cpp
     ModelProductTests.cpp
     SceneProductModelTests.cpp
+    PrefabSystemTests.cpp
     SceneHierarchyTests.cpp
     SceneHistoryTests.cpp
     ScenePlaySessionTests.cpp

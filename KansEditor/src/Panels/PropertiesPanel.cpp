@@ -48,6 +48,7 @@ namespace Kans
             return;
         }
         DrawHeader(entity);
+        DrawPrefabPart(entity);
         ImGui::Spacing();
 
         Section<TransformComponent>(
@@ -58,10 +59,13 @@ namespace Kans
             entity, ICON_FA_VIDEO, "Camera", true,
             [](CameraComponent& c) { c = CameraComponent(); },
             [this](CameraComponent& c) { DrawCamera(c); });
-        Section<ProductModelComponent>(
-            entity, ICON_FA_CUBE, "Model", true,
-            [](ProductModelComponent& c) { c.Overrides.clear(); },
-            [this](ProductModelComponent& c) { DrawModel(c); });
+        Section<PrefabInstanceComponent>(
+            entity, ICON_FA_CUBES, "Prefab", !entity.HasComponent<PrefabOwnedComponent>(),
+            [](PrefabInstanceComponent& c) { c.Overrides.clear(); },
+            [this, entity](PrefabInstanceComponent&) { DrawPrefabInstance(entity); });
+        Section<MeshComponent>(
+            entity, ICON_FA_CUBE, "Mesh", !entity.HasComponent<PrefabOwnedComponent>(), {},
+            [this, entity](MeshComponent&) { DrawMesh(entity); });
         Section<SpriteRendererComponent>(
             entity, ICON_FA_IMAGE, "Sprite Renderer", true,
             [](SpriteRendererComponent& c) {
@@ -122,8 +126,8 @@ namespace Kans
         const Option options[] = {
             {ICON_FA_VIDEO, "Camera", entity.HasComponent<CameraComponent>(),
              [&] { entity.AddComponent<CameraComponent>(); }},
-            {ICON_FA_CUBE, "Model", entity.HasComponent<ProductModelComponent>(),
-             [&] { entity.AddComponent<ProductModelComponent>(); }},
+            {ICON_FA_CUBES, "Prefab", entity.HasComponent<PrefabInstanceComponent>(),
+             [&] { entity.AddComponent<PrefabInstanceComponent>(); }},
             {ICON_FA_IMAGE, "Sprite Renderer", entity.HasComponent<SpriteRendererComponent>(),
              [&] { entity.AddComponent<SpriteRendererComponent>().Texture = Renderer::GetWhiteTexture(); }},
             {ICON_FA_SUN, "Directional Light", entity.HasComponent<DirLightComponent>(),
@@ -312,118 +316,189 @@ namespace Kans
         PropertyGrid::End();
     }
 
-    void PropertiesPanel::DrawModel(ProductModelComponent& c)
+    void PropertiesPanel::DrawPrefabPart(Entity entity)
     {
-        if (PropertyGrid::Begin("##Model"))
+        // A part of a prefab instance: its structure comes from the prefab; transform and
+        // material edits are kept as overrides on the instance.
+        if (!entity.HasComponent<PrefabOwnedComponent>())
+            return;
+        Scene*      scene = m_Hierarchy.GetScene();
+        const auto& owned = entity.GetComponent<PrefabOwnedComponent>();
+        Entity      root  = scene ? scene->GetEntityByUUID(owned.Instance) : Entity {};
+        if (!root)
+            return;
+        ImGui::Spacing();
+        ImGui::TextDisabled(ICON_FA_CUBES "  Part of %s", root.GetComponent<TagComponent>().Tag.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Select instance"))
+            m_Hierarchy.SetSelected(root);
+        const auto& overrides = root.GetComponent<PrefabInstanceComponent>().Overrides;
+        if (overrides.count(owned.NodeKey))
         {
-            if (AssetPicker("Model", AssetType::Model, c.Model))
-                c.Overrides.clear(); // Overrides refer to the previous model's parts.
+            ImGui::SameLine();
+            if (ImGui::SmallButton(ICON_FA_ROTATE_RIGHT " Revert part"))
+                scene->ClearPrefabOverride(root, owned.NodeKey);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Restore this part's transform and materials from the prefab");
+        }
+    }
+
+    void PropertiesPanel::DrawPrefabInstance(Entity root)
+    {
+        Scene* scene    = m_Hierarchy.GetScene();
+        auto&  instance = root.GetComponent<PrefabInstanceComponent>();
+        if (PropertyGrid::Begin("##Prefab"))
+        {
+            if (AssetPicker("Prefab", AssetType::Model, instance.Prefab))
+                instance.Overrides.clear(); // Overrides refer to the previous prefab's nodes.
             PropertyGrid::End();
         }
-        if (!c.Model.IsValid())
+        if (!instance.Prefab.IsValid())
         {
             ImGui::TextDisabled("Pick an imported model, or drop a model file on the field.");
             return;
         }
-        DrawModelMaterials(c);
-    }
-
-    void PropertiesPanel::DrawModelMaterials(ProductModelComponent& component)
-    {
-        if (!m_Assets)
-            return;
-        const auto model = m_Assets->Request<ModelAsset>(component.Model);
-        if (model.State == AssetLoadState::Loading)
+        if (instance.LegacyPending || !instance.Source)
         {
-            ImGui::TextDisabled("Loading model...");
+            ImGui::TextDisabled("Loading prefab...");
             return;
         }
-        if (!model.IsReady())
-        {
-            ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextColored(ErrorColor, "Model unavailable: %s", model.Error ? model.Error->Message.c_str() : "");
-            ImGui::PopTextWrapPos();
+        if (!scene)
             return;
-        }
 
-        // A part is one Mesh Product of the model, named after the node using it.
-        // `Slot` is the model's own material for the part; `Material` is what the
-        // model draws by default (the slot, or a material remapped on import).
-        struct Part
+        // Replace a material on every part of this instance that uses it.
+        struct Use
         {
-            AssetID     Mesh, Slot, Material;
-            std::string Name;
+            Entity   Part;
+            uint32_t Slot;
         };
-        std::vector<Part>    parts;
-        std::vector<AssetID> slots;
-        for (const auto& node : model.Asset->GetData().Nodes)
-            for (size_t i = 0; i < node.Meshes.size(); ++i)
-            {
-                const AssetID mesh = node.Meshes[i];
-                if (std::any_of(parts.begin(), parts.end(), [&](const Part& part) { return part.Mesh == mesh; }))
-                    continue;
-                Part part {mesh, {}, {}, node.Name.empty() ? "Part " + std::to_string(parts.size()) : node.Name};
-                if (node.Meshes.size() > 1)
-                    part.Name += " (" + std::to_string(i + 1) + ")";
-                const auto loaded = m_Assets->Request<MeshAsset>(mesh);
-                if (loaded.IsReady())
-                {
-                    part.Material = loaded.Asset->GetData().Material;
-                    part.Slot     = loaded.Asset->GetData().AuthoredMaterial;
-                    if (!part.Slot.IsValid())
-                        part.Slot = part.Material;
-                }
-                if (part.Slot.IsValid() &&
-                    std::none_of(parts.begin(), parts.end(), [&](const Part& other) { return other.Slot == part.Slot; }))
-                    slots.push_back(part.Slot);
-                parts.push_back(std::move(part));
-            }
-
-        if (ImGui::TreeNodeEx("##Parts", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
-                              "Parts (%zu)", parts.size()))
+        std::vector<std::pair<AssetID, std::vector<Use>>> materials;
+        for (Entity part : scene->GetMeshEntities(root))
         {
-            if (PropertyGrid::Begin("##PartGrid"))
+            if (!part.HasComponent<PrefabOwnedComponent>())
+                continue;
+            const auto& key   = part.GetComponent<PrefabOwnedComponent>().NodeKey;
+            auto        state = instance.Nodes.find(key);
+            if (state == instance.Nodes.end())
+                continue;
+            const auto& base = state->second.BaseMesh.Materials;
+            for (uint32_t slot = 0; slot < base.size(); ++slot)
             {
-                for (const auto& part : parts)
-                {
-                    ImGui::PushID(part.Mesh.ToString().c_str());
-                    AssetID    chosen;
-                    const auto current = component.ResolveMaterial(part.Mesh, part.Material, part.Slot);
-                    if (MaterialPicker(part.Name.c_str(), part.Material, current, chosen))
-                        component.SetOverride(part.Mesh, chosen);
-                    ImGui::PopID();
-                }
-                PropertyGrid::End();
+                auto found = std::find_if(materials.begin(), materials.end(),
+                                          [&](const auto& item) { return item.first == base[slot]; });
+                if (found == materials.end())
+                    found = materials.insert(materials.end(), {base[slot], {}});
+                found->second.push_back({part, slot});
             }
-            ImGui::TreePop();
         }
-        if (ImGui::TreeNodeEx("##Slots", ImGuiTreeNodeFlags_SpanAvailWidth, "Material slots (%zu)", slots.size()))
+        if (ImGui::TreeNodeEx("##Materials", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
+                              "Materials (%zu)", materials.size()))
         {
             ImGui::TextDisabled("Replaces the material on every part using it.");
-            if (PropertyGrid::Begin("##SlotGrid"))
+            if (PropertyGrid::Begin("##MaterialGrid"))
             {
-                for (AssetID slot : slots)
+                for (const auto& [imported, uses] : materials)
                 {
-                    ImGui::PushID(slot.ToString().c_str());
-                    // Slot overrides are keyed by the model's own material, so they survive remapping.
-                    AssetID bound = slot;
-                    for (const auto& part : parts)
-                        if (part.Slot == slot)
-                            bound = part.Material;
-                    AssetID     chosen;
-                    const auto* overridden = component.FindOverride(slot);
-                    const auto  name       = MaterialName(slot);
-                    if (MaterialPicker(name.c_str(), bound, overridden ? overridden->Replacement : bound, chosen))
-                        component.SetOverride(slot, chosen);
+                    ImGui::PushID(imported.ToString().c_str());
+                    // Shown as replaced only when every use carries the same replacement.
+                    AssetID current = uses.front().Part.GetComponent<MeshComponent>().Materials.at(uses.front().Slot);
+                    for (const auto& use : uses)
+                        if (use.Part.GetComponent<MeshComponent>().Materials.at(use.Slot) != current)
+                            current = imported;
+                    AssetID chosen;
+                    if (MaterialPicker(MaterialName(imported).c_str(), imported, current, chosen))
+                        for (const auto& use : uses)
+                            scene->SetPrefabMaterialOverride(
+                                root, use.Part.GetComponent<PrefabOwnedComponent>().NodeKey, use.Slot, chosen);
                     ImGui::PopID();
                 }
                 PropertyGrid::End();
             }
             ImGui::TreePop();
         }
-        if (!component.Overrides.empty() &&
-            ImGui::Button(ICON_FA_ROTATE_RIGHT "  Restore imported materials", {-FLT_MIN, 0.0f}))
-            component.Overrides.clear();
+        size_t removed = 0;
+        for (const auto& [key, change] : instance.Overrides)
+            removed += change.Removed ? 1 : 0;
+        if (removed && ImGui::Button((ICON_FA_ROTATE_LEFT "  Restore " + std::to_string(removed) + " removed part" +
+                                      (removed > 1 ? "s" : ""))
+                                         .c_str(),
+                                     {-FLT_MIN, 0.0f}))
+            for (const auto& [key, change] : std::map(instance.Overrides))
+                if (change.Removed)
+                    scene->SetPrefabNodeRemoved(root, key, false);
+        if (!instance.Overrides.empty() &&
+            ImGui::Button(ICON_FA_ROTATE_RIGHT "  Revert all overrides", {-FLT_MIN, 0.0f}))
+            for (const auto& [key, change] : std::map(instance.Overrides))
+                scene->ClearPrefabOverride(root, key);
+    }
+
+    void PropertiesPanel::DrawMesh(Entity entity)
+    {
+        Scene* scene = m_Hierarchy.GetScene();
+        auto&  mesh  = entity.GetComponent<MeshComponent>();
+        Entity root  = scene ? scene->GetPrefabInstanceRoot(entity) : Entity {};
+        const bool owned = root && entity.HasComponent<PrefabOwnedComponent>();
+        if (PropertyGrid::Begin("##Mesh"))
+        {
+            if (owned)
+                PropertyGrid::Text("Mesh", mesh.Section ? "Section " + std::to_string(*mesh.Section + 1) : "All sections");
+            else if (AssetPicker("Mesh", AssetType::StaticMesh, mesh.Mesh))
+                mesh.Materials.clear();
+            PropertyGrid::End();
+        }
+        if (!mesh.Mesh.IsValid() || !scene)
+            return;
+        const auto slots = scene->GetMeshSlots(entity);
+        if (slots.empty())
+        {
+            ImGui::TextDisabled("Loading mesh...");
+            return;
+        }
+        // A part shows only the slots its sections use.
+        std::vector<uint32_t> shown;
+        if (mesh.Section && m_Assets)
+        {
+            if (const auto data = m_Assets->Request<MeshAsset>(mesh.Mesh); data.IsReady() &&
+                                                                         *mesh.Section < data.Asset->GetData().Sections.size())
+                shown.push_back(data.Asset->GetData().Sections[*mesh.Section].MaterialSlot);
+        }
+        if (shown.empty())
+            for (uint32_t slot = 0; slot < slots.size(); ++slot)
+                shown.push_back(slot);
+        const MeshComponent* base = nullptr;
+        if (owned)
+        {
+            const auto& nodes = root.GetComponent<PrefabInstanceComponent>().Nodes;
+            auto        state = nodes.find(entity.GetComponent<PrefabOwnedComponent>().NodeKey);
+            if (state != nodes.end())
+                base = &state->second.BaseMesh;
+        }
+        if (!PropertyGrid::Begin("##Slots"))
+            return;
+        for (uint32_t slot : shown)
+        {
+            ImGui::PushID(int(slot));
+            const AssetID imported = base && slot < base->Materials.size() ? base->Materials[slot] :
+                                                                             slots[slot].DefaultMaterial;
+            const AssetID current  = slot < mesh.Materials.size() && mesh.Materials[slot].IsValid() ?
+                                         mesh.Materials[slot] :
+                                         imported;
+            AssetID       chosen;
+            const auto    label = slots[slot].Name.empty() ? "Slot " + std::to_string(slot + 1) : slots[slot].Name;
+            if (MaterialPicker(label.c_str(), imported, current, chosen))
+            {
+                if (owned)
+                    scene->SetPrefabMaterialOverride(root, entity.GetComponent<PrefabOwnedComponent>().NodeKey, slot,
+                                                     chosen);
+                else
+                {
+                    mesh.Materials.resize(std::max<size_t>(mesh.Materials.size(), slot + 1));
+                    mesh.Materials[slot] = chosen;
+                }
+            }
+            ImGui::PopID();
+        }
+        PropertyGrid::End();
     }
 
     // ---------------------------------------------------------------------- pickers

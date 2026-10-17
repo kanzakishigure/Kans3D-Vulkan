@@ -1,4 +1,5 @@
 #include "kspch.h"
+#include "Kans3D/Scene/Entity.h"
 
 #include <string>
 #include "Kans3D/Core/Log/Log.h"
@@ -80,30 +81,7 @@ namespace Kans
     void SceneRenderer::SetAssetManager(AssetManager* assets)
     {
         m_AssetCache = assets ? m_Renderer->AcquireAssetCache(*assets) : nullptr;
-    }
-
-    void
-    SceneRenderer::SubmitModel(const ProductModelComponent& model, const glm::mat4& transform, ModelStencilMode stencil)
-    {
-        if (!m_AssetCache)
-            return;
-        const ModelInstances* instances = m_AssetCache->GetModel(model.Model);
-        if (!instances)
-            return;
-        // Prepare and extract one part at a time, preserving readiness observed by
-        // the former SubmitModel, even if duplicate mesh requests finish mid-loop.
-        for (const auto& instance : instances->Instances)
-            if (const auto* mesh = m_AssetCache->GetMesh(instance.Mesh))
-                ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
-                    const auto& slot = mesh->MaterialSlots[section.MaterialSlot];
-                    ExtractModelPart(m_View,
-                                     model,
-                                     transform,
-                                     stencil,
-                                     m_ViewMode,
-                                     part,
-                                     {section.LocalBounds, slot.DefaultMaterial, slot.AuthoredMaterial});
-                });
+        m_RenderScene->GetLogicScene()->SetPrefabAssetManager(assets);
     }
 
     void SceneRenderer::PrepareDrawLists()
@@ -304,20 +282,68 @@ namespace Kans
         return m_Renderer->GetMaterialEnvironment(*m_EnvironmentLighting);
     }
 
-    void SceneRenderer::SubmitModelGeometry(const ProductModelComponent& model,
-                                            const glm::mat4&             transform,
-                                            const std::string&           shaderName,
-                                            ModelGeometryMode            mode)
+    void SceneRenderer::SubmitMesh(const ViewMeshSubmission& submission)
     {
-        m_View.Geometry.push_back({model, transform, shaderName, mode});
+        if (!m_AssetCache)
+            return;
+        const auto* mesh = m_AssetCache->GetMesh(submission.Mesh.Mesh);
+        ExtractMeshDraws(m_View, submission, m_ViewMode, mesh);
     }
+
+    void SceneRenderer::AppendEntityDraws(Scene& scene, UUID entity, uint32_t id, std::vector<MeshDraw>& draws)
+    {
+        if (!m_AssetCache)
+            return;
+        const auto selected = scene.GetEntityByUUID(entity);
+        if (!selected)
+            return;
+        for (auto part : scene.GetMeshEntities(selected))
+        {
+            const auto& component = part.GetComponent<MeshComponent>();
+            if (const auto* mesh = m_AssetCache->GetMesh(component.Mesh))
+                for (size_t i = 0; i < mesh->Sections.size(); ++i)
+                    if (!component.Section || *component.Section == i)
+                        draws.push_back({mesh, scene.GetWorldTransform(part), id, uint32_t(i)});
+        }
+    }
+
+    ScenePickHit SceneRenderer::PickSceneSurface(Scene& scene, const glm::mat4& viewProjection, glm::uvec2 pixel)
+    {
+        if (m_AssetCache)
+            scene.UpdatePrefabs(m_AssetCache->GetAssetManager());
+        const auto            entities = scene.GetMeshEntities();
+        std::vector<MeshDraw> draws;
+        for (size_t i = 0; i < entities.size(); ++i)
+        {
+            auto        entity    = entities[i];
+            const auto& component = entity.GetComponent<MeshComponent>();
+            if (!m_AssetCache)
+                break;
+            if (const auto* mesh = m_AssetCache->GetMesh(component.Mesh))
+                for (size_t section = 0; section < mesh->Sections.size(); ++section)
+                    if (!component.Section || *component.Section == section)
+                        draws.push_back({mesh, scene.GetWorldTransform(entity), uint32_t(i + 1), uint32_t(section)});
+        }
+        const auto hit = m_Renderer->GetPickingService().PickSurface(
+            draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, pixel);
+        if (!hit.ID || hit.ID > entities.size())
+            return {};
+        const auto entity = entities[hit.ID - 1];
+        const auto root   = scene.GetPrefabInstanceRoot(entity);
+        return {entity.GetUUID(), root ? root.GetUUID() : UUID(0), hit.Position};
+    }
+
+    void SceneRenderer::SubmitMeshGeometry(const ViewGeometryDraw& draw) { m_View.Geometry.push_back(draw); }
 
     void SceneRenderer::DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commandList)
     {
         using namespace RenderHardware;
         if (!m_AssetCache)
             return;
-        const ModelInstances* instances = m_AssetCache->GetModel(draw.Model.Model);
+        ModelInstances direct;
+        if (draw.Mesh.IsValid())
+            direct.Instances.push_back({draw.Mesh, glm::mat4(1), draw.Section.value_or(0), {}, !draw.Section});
+        const ModelInstances* instances = &direct;
         if (!instances)
             return;
         const bool  normals  = draw.ShaderName == "DebugNormalShader";
@@ -436,8 +462,7 @@ namespace Kans
         m_View.Draws.clear();
         m_View.MaterialOrder.clear();
         m_View.Geometry.clear();
-        m_View.Models.clear();
-        m_View.MaterialOverrides.clear();
+        m_View.Meshes.clear();
         m_View.Sprites.clear();
         m_View.Grids.clear();
         m_View.Skyboxes.clear();
@@ -464,29 +489,36 @@ namespace Kans
         });
     }
 
-    void SceneRenderer::AppendModelDraws(const ProductModelComponent& model,
-                                         const glm::mat4&             transform,
-                                         uint32_t                     id,
-                                         std::vector<MeshDraw>&       draws)
+    void SceneRenderer::SubmitPrefabPreview(const PrefabPreview& preview)
     {
         if (!m_AssetCache)
             return;
-        if (const ModelInstances* instances = m_AssetCache->GetModel(model.Model))
+        if (const auto* instances = m_AssetCache->GetModel(preview.Prefab))
             for (const auto& instance : instances->Instances)
-                if (const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh))
+                if (const auto* mesh = m_AssetCache->GetMesh(instance.Mesh))
                     ForEachSection(instance, *mesh, [&](const auto& part, const auto&) {
-                        draws.push_back({mesh, transform * part.Transform, id, part.Section});
+                        ExtractMeshDraws(m_View,
+                                         {{part.Mesh, {}, part.Section}, preview.Transform * part.Transform},
+                                         m_ViewMode,
+                                         mesh);
                     });
     }
 
-    uint32_t SceneRenderer::Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel)
+    void SceneRenderer::AppendPrefabPreviewDraws(const PrefabPreview& preview, std::vector<MeshDraw>& draws)
     {
-        return m_Renderer->GetPickingService().Pick(draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, pixel);
+        if (!m_AssetCache)
+            return;
+        if (const auto* instances = m_AssetCache->GetModel(preview.Prefab))
+            for (const auto& instance : instances->Instances)
+                if (const auto* mesh = m_AssetCache->GetMesh(instance.Mesh))
+                    ForEachSection(instance, *mesh, [&](const auto& part, const auto&) {
+                        draws.push_back({mesh, preview.Transform * part.Transform, 0, part.Section});
+                    });
     }
 
     void SceneRenderer::EndScene()
     {
-        m_View.Highlight = std::move(m_Highlight);
+        m_View.HighlightEntities = std::move(m_EntityHighlight);
         m_View.Preview   = std::move(m_Preview);
         m_Features.Prepare(m_View, *this);
         PrepareDrawLists();
@@ -494,7 +526,6 @@ namespace Kans
         pipeline->Build(m_Graph, m_View, *this);
         m_Graph.Compile();
         m_Graph.Execute(*m_Renderer->GetDevice(), m_Target->GetTransientPool());
-        m_Highlight.clear();
         m_Preview.reset();
         Renderer2D::SetSubmissionSink({});
         Renderer2D::ClearTarget();
@@ -516,17 +547,9 @@ namespace Kans
             m_View.ImmediateOrder.push_back({ViewImmediateKind::Sprites, 0});
     }
 
-    PickHit SceneRenderer::PickSurface(const std::vector<MeshDraw>& draws,
-                                       const glm::mat4&             viewProjection,
-                                       glm::uvec2                   pixel)
+    void SceneRenderer::SetPreview(AssetID prefab, const glm::mat4& transform)
     {
-        return m_Renderer->GetPickingService().PickSurface(
-            draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, pixel);
-    }
-
-    void SceneRenderer::SetPreview(const ProductModelComponent& model, const glm::mat4& transform)
-    {
-        m_Preview = ModelDraw {model, transform};
+        m_Preview = PrefabPreview {prefab, transform};
     }
 
     void SceneRenderer::SetScene(RenderScene* scene)

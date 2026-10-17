@@ -4,7 +4,7 @@
 #include <glm/glm.hpp>
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
-#include "Kans3D/Scene/ProductModelComponent.h"
+#include "Kans3D/Scene/Components.h"
 #include "ImmediatePassState.h"
 
 namespace Kans
@@ -41,17 +41,17 @@ namespace Kans
         Normals,
         Wireframe
     };
-    struct ModelDraw
+    struct PrefabPreview
     {
-        ProductModelComponent Model;
-        glm::mat4             Transform {1};
+        AssetID   Prefab;
+        glm::mat4 Transform {1};
     };
-    struct ViewModelSubmission
+    struct ViewMeshSubmission
     {
-        AssetID          Model;
+        MeshComponent    Mesh;
         glm::mat4        Transform {1};
-        ModelStencilMode Stencil       = ModelStencilMode::Disabled;
-        size_t           OverrideBegin = 0, OverrideCount = 0;
+        UUID             EntityID = 0, InstanceRoot = 0;
+        ModelStencilMode Stencil = ModelStencilMode::Disabled;
     };
     struct ViewShaderDraw
     {
@@ -65,13 +65,16 @@ namespace Kans
         MaterialRenderState Render;
         bool                Ready = false;
         uint32_t            Section = 0;
+        UUID                EntityID = 0, InstanceRoot = 0;
     };
     struct ViewGeometryDraw
     {
-        ProductModelComponent Model;
         glm::mat4             Transform;
         std::string           ShaderName;
         ModelGeometryMode     Mode;
+        AssetID                 Mesh;
+        std::optional<uint32_t> Section;
+        UUID                    EntityID = 0;
     };
     struct ViewReadyDraw
     {
@@ -124,8 +127,8 @@ namespace Kans
         SceneInfo                          Scene {};
         glm::uvec2                         Viewport {0};
         SceneViewMode                      DebugMode = SceneViewMode::Lit;
-        std::vector<ViewModelSubmission>   Models;
-        std::vector<SceneMaterialOverride> MaterialOverrides;
+        std::vector<ViewMeshSubmission>    Meshes;
+        std::vector<UUID>                  HighlightEntities;
         std::vector<ViewShaderDraw>        Draws;
         std::vector<ViewReadyDraw>         MaterialOrder;
         std::vector<size_t>                Opaque, Mask, Blend; // Draw indices, in their filtered execution order.
@@ -137,30 +140,11 @@ namespace Kans
         std::vector<ViewImmediate>         ImmediateOrder;
         ViewEnvironment                    EnvironmentMaps;
         RenderHardware::Handle<RenderHardware::Texture> BrdfLUT;
-        std::vector<ModelDraw>                          Highlight;
-        std::optional<ModelDraw>                        Preview;
+        std::optional<PrefabPreview>                    Preview;
     };
-    struct ViewMeshMetadata
-    {
-        Bounds  LocalBounds;
-        AssetID Material, AuthoredMaterial;
-    };
-    // Missing instances/metadata skip unloaded parts, exactly as the former SubmitModel.
-    // There is intentionally no frustum or alpha culling: phase one submitted offscreen models too.
-    void ExtractModelPart(RenderView&                  view,
-                          const ProductModelComponent& model,
-                          const glm::mat4&             transform,
-                          ModelStencilMode             stencil,
-                          SceneViewMode                mode,
-                          const ModelInstance&         instance,
-                          const ViewMeshMetadata&      metadata);
-    void ExtractModelDraws(RenderView&                                                    view,
-                           const ProductModelComponent&                                   model,
-                           const glm::mat4&                                               transform,
-                           ModelStencilMode                                               stencil,
-                           SceneViewMode                                                  mode,
-                           const ModelInstances*                                          instances,
-                           const std::function<std::optional<ViewMeshMetadata>(AssetID)>& mesh);
+    // CPU-only extraction of an available mesh; absent data emits no draws.
+    void
+    ExtractMeshDraws(RenderView& view, const ViewMeshSubmission& submission, SceneViewMode mode, const GpuMesh* mesh);
     void ExtractDrawLists(RenderView& view);
     // CPU-only packing shared by rendering and analytic contract tests.
     EngineFrameUniforms MakeLightingUniforms(const SceneInfo& scene);

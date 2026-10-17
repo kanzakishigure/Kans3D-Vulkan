@@ -16,7 +16,8 @@ namespace Kans
     public:
         using FileDrop = std::function<void(const std::filesystem::path& file, Entity parent)>;
 
-        void SetScene(Ref<Scene> scene);
+        void   SetScene(Ref<Scene> scene);
+        Scene* GetScene() const { return m_Scene.get(); }
         // The selected entity, or a null Entity (also after it was deleted).
         Entity GetSelected() const;
         // Selects and reveals the entity in the tree.

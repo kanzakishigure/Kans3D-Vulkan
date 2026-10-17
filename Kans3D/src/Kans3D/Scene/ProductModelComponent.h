@@ -13,7 +13,8 @@ namespace Kans
         AssetID Authored, Replacement;
     };
 
-    // Persistent logical references to a Model Product. GPU resources live in the renderer.
+    // Decoded legacy scene data, held only in PrefabInstanceComponent::LegacyPending.
+    // Never attached to an entity or passed to the renderer.
     struct ProductModelComponent
     {
         AssetID                            Model;
