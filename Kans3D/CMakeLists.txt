@@ -48,7 +48,6 @@ if(WIN32)
     target_compile_definitions(Kans3D PUBLIC
         PLATFORM_WINDOWS
         _CRT_SECURE_NO_WARNINGS)
-    target_link_libraries(Kans3D PUBLIC opengl32.lib)
 elseif(LINUX)
     target_compile_definitions(Kans3D PUBLIC
         PLATFORM_LINUX)
@@ -63,7 +62,6 @@ target_include_directories(Kans3D PUBLIC
 # ---- Link vendor dependencies (all defined in vendor/CMakeLists.txt) ----
 target_link_libraries(Kans3D PUBLIC
     glfw
-    Glad
     ImGui
     yaml-cpp
     stb_image

@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <imgui.h>
 #include <algorithm>
 #include <chrono>
@@ -135,14 +134,11 @@ namespace
                 if (Window.Native)
                     EXPECT_EQ(glfwGetWindowAttrib(Window.Native, GLFW_CLIENT_API), GLFW_NO_API);
             }
-            else
-                GPU = InitializeDevice(GetParam(), &Window);
             ImGui::CreateContext();
             Context                    = true;
             ImGui::GetIO().IniFilename = nullptr;
             UI                         = CreateImGuiRenderer(GetParam(), &Window);
-            CapturePath = std::filesystem::temp_directory_path() /
-                          (GetParam() == Backend::Vulkan ? "kans-present-vk.ppm" : "kans-present-gl.ppm");
+            CapturePath                = std::filesystem::temp_directory_path() / "kans-present-vk.ppm";
             std::filesystem::remove(CapturePath);
         }
         void TearDown() override
@@ -243,7 +239,7 @@ TEST_P(WindowPresentation, ReleasedTextureSurvivesUIEndAndInterveningIdleUntilPr
     ImGui::Render();
     UI->Render(ImGui::GetDrawData());
     UI->EndFrame();
-    // GL's existing contract ends at UI draw completion. Vulkan needs the present boundary.
+    // Vulkan retains UI images through the present boundary.
     if (GetParam() == Backend::Vulkan)
     {
         GPU->WaitIdle();
@@ -256,7 +252,7 @@ TEST_P(WindowPresentation, ReleasedTextureSurvivesUIEndAndInterveningIdleUntilPr
     GPU->WaitIdle();
     EXPECT_TRUE(weak.expired());
 }
-TEST_P(WindowPresentation, RenderTargetExportPreservesTheEditorsOpenGLUVConvention)
+TEST_P(WindowPresentation, RenderTargetExportPreservesTheEditorsUVConvention)
 {
     // Concrete bug: Vulkan viewport/preview appears vertically mirrored with the
     // editor's unchanged (0,1)->(1,0) UVs. Each half has a different exact colour.
@@ -294,10 +290,9 @@ TEST_P(WindowPresentation, RenderTargetExportPreservesTheEditorsOpenGLUVConventi
     EXPECT_EQ(capture.At(capture.Width / 2, capture.Height / 4), (std::array<uint8_t, 3> {37, 91, 163}));
     EXPECT_EQ(capture.At(capture.Width / 2, capture.Height * 3 / 4), (std::array<uint8_t, 3> {51, 102, 153}));
 }
-INSTANTIATE_TEST_SUITE_P(Software,
-                         WindowPresentation,
-                         testing::Values(Backend::OpenGL, Backend::Vulkan),
-                         [](const auto& info) { return info.param == Backend::OpenGL ? "OpenGL" : "Vulkan"; });
+INSTANTIATE_TEST_SUITE_P(Software, WindowPresentation, testing::Values(Backend::Vulkan), [](const auto& info) {
+    return "Vulkan";
+});
 TEST_P(WindowPresentation, MinimizedSurfaceDefersCaptureUntilTheRestoredFrame)
 {
     if (Window.Native)

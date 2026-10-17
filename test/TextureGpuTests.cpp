@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -14,20 +13,17 @@
 #include "Kans3D/Asset/Product/TextureProduct.h"
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
+#include "GpuReadback.h"
 #include "GpuTestContext.h"
 
 namespace
 {
-    class OpenGLTextureMipmap : public testing::Test
+    class TextureGpuMipmap : public testing::Test
     {
     protected:
         void SetUp() override
         {
             ASSERT_NO_FATAL_FAILURE(GpuContext.SetUp());
-            ASSERT_NE(glGenerateTextureMipmap, nullptr) << "DSA mipmap entry point was not loaded";
-            RecordProperty("renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
-            RecordProperty("version", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
-            ASSERT_EQ(glGetError(), GL_NO_ERROR);
             temp =
                 std::filesystem::temp_directory_path() /
                 ("kans-mipmap-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".tga");
@@ -72,65 +68,51 @@ namespace
             ASSERT_TRUE(out.good());
         }
 
-        void CheckChain(GLuint texture, int width, int height)
+        void CheckChain(const Kans::Ref<Kans::Texture2D>& texture, int width, int height)
         {
-            glBindTexture(GL_TEXTURE_2D, texture);
-            int level = 0;
+            uint32_t level = 0;
             for (;;)
             {
-                GLint w = 0, h = 0;
-                glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_WIDTH, &w);
-                glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_HEIGHT, &h);
-                EXPECT_EQ(w, width) << "level " << level;
-                EXPECT_EQ(h, height) << "level " << level;
+                SCOPED_TRACE(level);
+                const auto pixels = ReadGpuTexture(texture->GetResource(), level);
+                EXPECT_EQ(pixels.size(), size_t(width) * height * 4);
                 ++level;
                 if (width == 1 && height == 1)
                     break;
                 width  = std::max(1, width / 2);
                 height = std::max(1, height / 2);
             }
-            GLint levels = 0, minFilter = 0, magFilter = 0;
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &minFilter);
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &magFilter);
-            EXPECT_EQ(levels, level);
-            EXPECT_EQ(minFilter, GL_LINEAR_MIPMAP_LINEAR);
-            EXPECT_EQ(magFilter, GL_LINEAR);
-            EXPECT_EQ(glGetError(), GL_NO_ERROR);
+            EXPECT_EQ(texture->GetResource()->GetDesc().MipLevels, level);
+            EXPECT_EQ(texture->GetSampling().Min, Kans::RenderHardware::Filter::Linear);
+            EXPECT_EQ(texture->GetSampling().Mip, Kans::RenderHardware::Filter::Linear);
+            EXPECT_EQ(texture->GetSampling().Mag, Kans::RenderHardware::Filter::Linear);
         }
 
         std::filesystem::path temp;
-        GpuTestContext        GpuContext {GpuTestBackend::OpenGL};
+        GpuTestContext        GpuContext {GpuTestBackend::Vulkan};
     };
 
-    TEST_F(OpenGLTextureMipmap, FileGeneratesCompleteChainAndAveragedPixels)
+    TEST_F(TextureGpuMipmap, FileGeneratesCompleteChainAndAveragedPixels)
     {
         ASSERT_NO_FATAL_FAILURE(WriteCheckerboard());
         auto texture = Kans::Texture2D::Create(Specification(), temp);
-        ASSERT_EQ(glGetError(), GL_NO_ERROR);
-        CheckChain(texture->GetImGuiTextureID(), 8, 4);
-        std::array<unsigned char, 4> pixel {};
-        glGetTexImage(GL_TEXTURE_2D, 3, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data());
-        ASSERT_EQ(glGetError(), GL_NO_ERROR);
+        CheckChain(texture, 8, 4);
+        const auto pixel = ReadGpuTexture(texture->GetResource(), 3);
         for (int i = 0; i < 3; ++i)
             EXPECT_NEAR(pixel[i], 128, 1);
         EXPECT_EQ(pixel[3], 255);
     }
 
-    TEST_F(OpenGLTextureMipmap, DisabledKeepsOnlyBaseLevel)
+    TEST_F(TextureGpuMipmap, DisabledKeepsOnlyBaseLevel)
     {
         ASSERT_NO_FATAL_FAILURE(WriteCheckerboard());
         auto                  texture = Kans::Texture2D::Create(Specification(false), temp);
-        GLint                 levels = 0, filter = 0;
-        glBindTexture(GL_TEXTURE_2D, texture->GetImGuiTextureID());
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &filter);
-        EXPECT_EQ(levels, 1);
-        EXPECT_EQ(filter, GL_LINEAR);
-        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        EXPECT_EQ(texture->GetResource()->GetDesc().MipLevels, 1u);
+        EXPECT_EQ(texture->GetSampling().Min, Kans::RenderHardware::Filter::Linear);
+        EXPECT_EQ(texture->GetSampling().MaxLod, 0);
     }
 
-    TEST_F(OpenGLTextureMipmap, EditorIconsGenerateNonPowerOfTwoChains)
+    TEST_F(TextureGpuMipmap, EditorIconsGenerateNonPowerOfTwoChains)
     {
         for (const char* name : {"FBX",
                                  "Folder",
@@ -153,18 +135,14 @@ namespace
             const auto path = std::filesystem::path(KANS_TEST_ICON_DIR) / (std::string(name) + ".png");
             ASSERT_TRUE(std::filesystem::exists(path));
             auto texture = Kans::Texture2D::Create(Specification(), path);
-            ASSERT_EQ(glGetError(), GL_NO_ERROR);
-            CheckChain(texture->GetImGuiTextureID(), texture->GetWidth(), texture->GetHeight());
-            GLint levels = 0;
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
-            std::array<unsigned char, 4> pixel {};
-            glGetTexImage(GL_TEXTURE_2D, levels - 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data());
+            CheckChain(texture, texture->GetWidth(), texture->GetHeight());
+            const auto levels = texture->GetResource()->GetDesc().MipLevels;
+            const auto pixel  = ReadGpuTexture(texture->GetResource(), levels - 1);
             EXPECT_GT(pixel[3], 0);
             EXPECT_GT(pixel[0] + pixel[1] + pixel[2], 0);
-            EXPECT_EQ(glGetError(), GL_NO_ERROR);
         }
     }
-    TEST_F(OpenGLTextureMipmap, ProductUploadPreservesAuthoredMipsSrgbAndUnpackState)
+    TEST_F(TextureGpuMipmap, ProductUploadPreservesAuthoredMipsAndSrgb)
     {
         using namespace Kans;
         TextureData data;
@@ -183,58 +161,21 @@ namespace
         auto        loaded = Loader<TextureAsset> {}.Load(
             {AssetID {SourceAssetID::Generate(), 1}, AssetType::Texture, bytes.data(), bytes.size()});
         ASSERT_TRUE(std::holds_alternative<Ref<TextureAsset>>(loaded));
-        GLuint pbo = 0;
-        glGenBuffers(1, &pbo);
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-        glBufferData(GL_PIXEL_UNPACK_BUFFER, 128, nullptr, GL_STATIC_DRAW);
-        const GLenum names[]  = {GL_UNPACK_ALIGNMENT,
-                                 GL_UNPACK_ROW_LENGTH,
-                                 GL_UNPACK_IMAGE_HEIGHT,
-                                 GL_UNPACK_SKIP_PIXELS,
-                                 GL_UNPACK_SKIP_ROWS,
-                                 GL_UNPACK_SKIP_IMAGES,
-                                 GL_UNPACK_SWAP_BYTES,
-                                 GL_UNPACK_LSB_FIRST};
-        const GLint  values[] = {8, 9, 11, 2, 3, 1, GL_TRUE, GL_TRUE};
-        for (size_t i = 0; i < 8; ++i)
-            glPixelStorei(names[i], values[i]);
-        const auto previousBackend = RenderHardware::GetBackend();
-        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
         auto uploaded = Texture2D::CreateFromProduct(std::get<Ref<TextureAsset>>(loaded)->GetData());
-        RenderHardware::SetBackend(previousBackend);
-        for (size_t i = 0; i < 8; ++i)
-        {
-            GLint restored = 0;
-            glGetIntegerv(names[i], &restored);
-            EXPECT_EQ(restored, values[i]);
-            glPixelStorei(names[i], i == 0 ? 4 : 0);
-        }
-        GLint bound = 0;
-        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &bound);
-        EXPECT_EQ(bound, GLint(pbo));
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-        glDeleteBuffers(1, &pbo);
         ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(uploaded));
         const auto& texture = std::get<Ref<Texture2D>>(uploaded);
-        glBindTexture(GL_TEXTURE_2D, texture->GetImGuiTextureID());
-        GLint internal = 0, levels = 0, maximum = 0;
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &internal);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, &maximum);
-        EXPECT_EQ(internal, GL_SRGB8_ALPHA8);
-        EXPECT_EQ(levels, 2);
-        EXPECT_EQ(maximum, 1);
-        std::vector<std::byte> actual(24);
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, actual.data());
-        EXPECT_TRUE(std::equal(actual.begin(), actual.begin() + 12, data.Mips[0].Pixels.begin() + 12));
-        EXPECT_TRUE(std::equal(actual.begin() + 12, actual.end(), data.Mips[0].Pixels.begin()));
-        std::array<std::byte, 4> mip {};
-        glGetTexImage(GL_TEXTURE_2D, 1, GL_RGBA, GL_UNSIGNED_BYTE, mip.data());
-        EXPECT_TRUE(std::equal(mip.begin(), mip.end(), data.Mips[1].Pixels.begin()));
-        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        EXPECT_EQ(texture->GetResource()->GetDesc().PixelFormat, RenderHardware::Format::RGBA8Srgb);
+        EXPECT_EQ(texture->GetResource()->GetDesc().MipLevels, 2u);
+        const auto actual = ReadGpuTexture(texture->GetResource());
+        EXPECT_TRUE(std::equal(
+            actual.begin(), actual.begin() + 12, reinterpret_cast<const uint8_t*>(data.Mips[0].Pixels.data()) + 12));
+        EXPECT_TRUE(std::equal(
+            actual.begin() + 12, actual.end(), reinterpret_cast<const uint8_t*>(data.Mips[0].Pixels.data())));
+        const auto mip = ReadGpuTexture(texture->GetResource(), 1);
+        EXPECT_TRUE(std::equal(mip.begin(), mip.end(), reinterpret_cast<const uint8_t*>(data.Mips[1].Pixels.data())));
     }
 
-    TEST_F(OpenGLTextureMipmap, ProductUploadSupportsOddWidthDataAndNativeFloatValues)
+    TEST_F(TextureGpuMipmap, ProductUploadSupportsOddWidthDataAndNativeFloatValues)
     {
         using namespace Kans;
         for (auto format : {TexturePixelFormat::R8,
@@ -266,28 +207,23 @@ namespace
             }
             auto uploaded = Texture2D::CreateFromProduct(data);
             ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(uploaded));
-            glBindTexture(GL_TEXTURE_2D, std::get<Ref<Texture2D>>(uploaded)->GetImGuiTextureID());
-            const GLenum external = components == 1 ? GL_RED : components == 2 ? GL_RG : GL_RGBA;
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
             if (format == TexturePixelFormat::RGBA32Float)
             {
-                std::vector<float> actual(3 * components);
-                glGetTexImage(GL_TEXTURE_2D, 0, external, GL_FLOAT, actual.data());
+                const auto actual = ReadGpuFloatTexture(std::get<Ref<Texture2D>>(uploaded)->GetResource());
                 for (size_t i = 0; i < actual.size(); ++i)
                     EXPECT_FLOAT_EQ(actual[i], float(i) * 0.25f - 1);
             }
             else
             {
                 std::vector<std::byte> actual(3 * components);
-                glGetTexImage(GL_TEXTURE_2D, 0, external, GL_UNSIGNED_BYTE, actual.data());
+                const auto             bytes = ReadGpuTexture(std::get<Ref<Texture2D>>(uploaded)->GetResource());
+                std::memcpy(actual.data(), bytes.data(), bytes.size());
                 EXPECT_EQ(actual, data.Mips[0].Pixels);
             }
-            glPixelStorei(GL_PACK_ALIGNMENT, 4);
-            EXPECT_EQ(glGetError(), GL_NO_ERROR);
         }
     }
 
-    TEST_F(OpenGLTextureMipmap, ProductUploadRejectsMalformedAndUnsupportedShapes)
+    TEST_F(TextureGpuMipmap, ProductUploadRejectsMalformedAndUnsupportedShapes)
     {
         using namespace Kans;
         TextureData data;
@@ -297,6 +233,5 @@ namespace
         data.Layers              = 2;
         data.Mips                = {{std::vector<std::byte>(8)}};
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
-        EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 } // namespace

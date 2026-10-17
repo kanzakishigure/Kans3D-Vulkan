@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <imgui.h>
 #include <png.h>
 #include <stb_image.h>
@@ -16,7 +15,9 @@
 #include "Kans3D/ImGui/EditorFonts.h"
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/ImGuiRenderer.h"
+#include "Kans3D/RHI/Vulkan/VulkanPresentation.h"
 #include "../KansEditor/src/Panels/ContentBrowser/ThumbnailCache.h"
+#include "GpuReadback.h"
 #include "GpuTestContext.h"
 
 using namespace Kans;
@@ -24,10 +25,10 @@ namespace RH = Kans::RenderHardware;
 namespace fs = std::filesystem;
 namespace
 {
-    class EditorStartupGL : public testing::Test
+    class EditorStartupGpu : public testing::Test
     {
     protected:
-        GpuTestContext Context {GpuTestBackend::OpenGL};
+        GpuTestContext Context {GpuTestBackend::Vulkan};
         fs::path       PreviousCwd, Temp;
         bool           FileSystemReady = false;
         void           SetUp() override
@@ -106,34 +107,27 @@ namespace
             EXPECT_EQ(Read(texture), expected);
             const auto id = texture->GetImGuiTextureID();
             EXPECT_EQ(id, texture->GetDevice()->GetImGuiTextureID(texture->GetResource(), &texture->GetSampling()));
-            EXPECT_EQ(glIsTexture(GLuint(id)), GL_TRUE);
+            EXPECT_NE(id, 0u);
             // Startup icons retain the old complete chain, trilinear minification and clamped edges.
             uint32_t levels = 1;
             for (auto extent = std::max(w, h); extent > 1; extent >>= 1)
                 ++levels;
             EXPECT_EQ(texture->GetResource()->GetDesc().MipLevels, levels);
-            GLint min = 0, mag = 0, wrap = 0;
-            glBindTexture(GL_TEXTURE_2D, GLuint(id));
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &min);
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &mag);
-            glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &wrap);
-            EXPECT_EQ(min, GL_LINEAR_MIPMAP_LINEAR);
-            EXPECT_EQ(mag, GL_LINEAR);
-            EXPECT_EQ(wrap, GL_CLAMP_TO_EDGE);
+            const auto& sampling = texture->GetSampling();
+            EXPECT_EQ(sampling.Min, RH::Filter::Linear);
+            EXPECT_EQ(sampling.Mip, RH::Filter::Linear);
+            EXPECT_EQ(sampling.Mag, RH::Filter::Linear);
+            EXPECT_EQ(sampling.U, RH::AddressMode::ClampToEdge);
         }
         void DrawFont()
         {
-            auto renderer = RH::CreateImGuiRenderer(RH::Backend::OpenGL, nullptr);
+            auto renderer = RH::CreateImGuiRenderer(RH::Backend::Vulkan, nullptr);
             renderer->NewFrame();
             ImGui::NewFrame();
             ImGui::GetBackgroundDrawList()->AddText({0, 0}, IM_COL32_WHITE, "A");
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glClearColor(0, 0, 0, 1);
-            glClear(GL_COLOR_BUFFER_BIT);
             ImGui::Render();
             renderer->Render(ImGui::GetDrawData());
-            std::array<uint8_t, 16 * 16 * 4> pixels {};
-            glReadPixels(0, 0, 16, 16, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            auto pixels = ReadGpuTexture(RH::GetVulkanImGuiOffscreenTarget(*renderer));
             // A missing/default font or an unuploaded font atlas must still produce visible text.
             size_t visible = 0;
             for (size_t p = 0; p < pixels.size(); p += 4)
@@ -141,11 +135,10 @@ namespace
                     ++visible;
             EXPECT_GT(visible, 10u); // 'A' at 16 px has substantially more than ten covered pixels.
             renderer->EndFrame();
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         }
     };
 
-    TEST_F(EditorStartupGL, RealStartupLoadsRelativeResourcesFromChangedCwd)
+    TEST_F(EditorStartupGpu, RealStartupLoadsRelativeResourcesFromChangedCwd)
     {
         // Bug: passing Resources/Editor/... to the absolute-only asset importer aborts every editor startup.
         ASSERT_NE(fs::current_path(), PreviousCwd);
@@ -191,7 +184,7 @@ namespace
         ASSERT_NO_FATAL_FAILURE(DrawFont());
     }
 
-    TEST_F(EditorStartupGL, MissingResourcesLogAndStillRenderWithFallbacks)
+    TEST_F(EditorStartupGpu, MissingResourcesLogAndStillRenderWithFallbacks)
     {
         // Bug: a missing icon asserts/throws, or a missing Roboto file reaches ImGui's file-loader assertion.
         Configure("MissingResources/");
@@ -227,7 +220,7 @@ namespace
         ASSERT_NO_FATAL_FAILURE(DrawFont());
     }
 
-    TEST_F(EditorStartupGL, ThreeChannelOddWidthFilePreservesBytesAndOrientation)
+    TEST_F(EditorStartupGpu, ThreeChannelOddWidthFilePreservesBytesAndOrientation)
     {
         // Bugs: RGB is rejected/padded incorrectly, tight odd-width rows use GL's default unpack alignment,
         // or migration restricts the legacy decoder to the importer's smaller set of formats (PNM here).
@@ -248,10 +241,9 @@ namespace
             for (size_t p = 0; p < row.size(); p += 3)
                 expected.insert(expected.end(), {row[p], row[p + 1], row[p + 2], 255});
         EXPECT_EQ(Read(texture), expected);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(EditorStartupGL, SixteenBitLdrIsTruncatedToLegacyBytesWithoutMetadataTransforms)
+    TEST_F(EditorStartupGpu, SixteenBitLdrIsTruncatedToLegacyBytesWithoutMetadataTransforms)
     {
         // Bugs: 16-bit PNG is mistaken for HDR and stored at half precision, rounded instead of truncated,
         // or a nonstandard gAMA chunk makes the runtime display loader reject/transform legacy stored values.
@@ -280,10 +272,9 @@ namespace
         auto texture = Texture2D::Create({}, fs::path("wide.png"));
         ASSERT_EQ(texture->GetResource()->GetDesc().PixelFormat, RH::Format::RGBA8Unorm);
         EXPECT_EQ(Read(texture), (std::vector<uint8_t> {1, 128, 255, 255, 127, 0, 64, 255}));
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(EditorStartupGL, HdrStaysLinearHalfPrecisionWithOpaqueAlphaAndFlippedRows)
+    TEST_F(EditorStartupGpu, HdrStaysLinearHalfPrecisionWithOpaqueAlphaAndFlippedRows)
     {
         // Bugs: HDR inherits an sRGB request, clips values above one, loses RGB's implicit opaque alpha,
         // stores full-float instead of legacy half, or fails to flip/generate the complete mip chain.
@@ -302,9 +293,7 @@ namespace
         auto texture          = Texture2D::Create(spec, fs::path("light.hdr"));
         ASSERT_EQ(texture->GetResource()->GetDesc().PixelFormat, RH::Format::RGBA16Float);
         ASSERT_EQ(texture->GetResource()->GetDesc().MipLevels, 2u);
-        glBindTexture(GL_TEXTURE_2D, GLuint(texture->GetImGuiTextureID()));
-        std::array<float, 24> pixels {};
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
+        const auto pixels = ReadGpuFloatTexture(texture->GetResource());
         for (int y = 0; y < 2; ++y)
             for (int x = 0; x < 3; ++x)
             {
@@ -315,12 +304,12 @@ namespace
                               expected[c]); // All values are exactly representable binary16.
             }
         std::array<float, 4> mip {};
-        glGetTexImage(GL_TEXTURE_2D, 1, GL_RGBA, GL_FLOAT, mip.data());
+        const auto           mipValues = ReadGpuFloatTexture(texture->GetResource(), 1);
+        std::copy(mipValues.begin(), mipValues.end(), mip.begin());
         EXPECT_EQ(mip, (std::array<float, 4> {1.5f, 1.5f, 1.75f, 1}));
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_F(EditorStartupGL, MalformedAndEmptyFilesReturnAUsableChecker)
+    TEST_F(EditorStartupGpu, MalformedAndEmptyFilesReturnAUsableChecker)
     {
         // Bug: only NotFound is handled, leaving corrupt/empty resources to terminate startup.
         std::ofstream("empty.png");
@@ -336,11 +325,11 @@ namespace
             EXPECT_EQ(texture->GetPath(), fs::path(path));
             EXPECT_EQ(Read(texture),
                       (std::vector<uint8_t> {255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255}));
-            EXPECT_EQ(glIsTexture(GLuint(texture->GetImGuiTextureID())), GL_TRUE);
+            EXPECT_NE(texture->GetImGuiTextureID(), 0u);
         }
     }
 
-    TEST_F(EditorStartupGL, RealThumbnailWorkerUploadsPixelsFromAbsoluteBrowserPaths)
+    TEST_F(EditorStartupGpu, RealThumbnailWorkerUploadsPixelsFromAbsoluteBrowserPaths)
     {
         // Bug: the replacement Product upload changes browser thumbnail format/row origin or fails with a new CWD.
         // Browser paths remain absolute (Project canonicalizes AssetDirectory); reuse the unedited real worker.
@@ -366,6 +355,5 @@ namespace
         stbi_image_free(pixels);
         EXPECT_EQ(thumbnail->GetResource()->GetDesc().PixelFormat, RH::Format::RGBA8Unorm);
         EXPECT_EQ(Read(thumbnail), expected);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 } // namespace

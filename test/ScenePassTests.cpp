@@ -24,7 +24,7 @@ namespace
     using namespace Kans::RenderHardware;
     using Image             = RenderHardware::Texture;
     constexpr uint32_t Size = 64;
-    class ScenePassGL : public testing::TestWithParam<GpuTestBackend>
+    class ScenePassGpu : public testing::TestWithParam<GpuTestBackend>
     {
     protected:
         std::unique_ptr<GpuTestContext> Context;
@@ -131,7 +131,7 @@ namespace
         }
     };
 
-    TEST_P(ScenePassGL, FreshRenderersOmitEditorFeaturesSoRuntimeViewsDrawNoGrid)
+    TEST_P(ScenePassGpu, FreshRenderersOmitEditorFeaturesSoRuntimeViewsDrawNoGrid)
     {
         // Bug: SceneRenderer registers the editor grid/outline features itself again,
         // so game/runtime views (play mode, standalone apps) draw the editor grid.
@@ -158,7 +158,7 @@ namespace
         EXPECT_TRUE(grid);
         Logic->DestroyEntity(camera);
     }
-    TEST_P(ScenePassGL, EquirectangularCaptureKeepsEveryFaceAndBothAxes)
+    TEST_P(ScenePassGpu, EquirectangularCaptureKeepsEveryFaceAndBothAxes)
     {
         Environment();
         auto cube = Renderer->GetSkybox();
@@ -181,7 +181,7 @@ namespace
         }
     }
 
-    TEST_P(ScenePassGL, PrefilterRoughnessMipsActuallyBroadenTheDirectionalLobe)
+    TEST_P(ScenePassGpu, PrefilterRoughnessMipsActuallyBroadenTheDirectionalLobe)
     {
         Environment();
         auto image = Renderer->GetEnvironment().RadianceMap;
@@ -235,7 +235,7 @@ namespace
         }
         return sum / 1024.0;
     }
-    TEST_P(ScenePassGL, BrdfLutMatchesIntegrationAtAsymmetricCoordinates)
+    TEST_P(ScenePassGpu, BrdfLutMatchesIntegrationAtAsymmetricCoordinates)
     {
         // Catches a V flip, swapped NdotV/roughness or a lost integration channel.
         Environment();
@@ -252,7 +252,7 @@ namespace
         }
     }
 
-    TEST_P(ScenePassGL, ExplicitGridOverlayLeavesDepthAndBlendsAlphaWhileSkyboxStaysBehindSprites)
+    TEST_P(ScenePassGpu, ExplicitGridOverlayLeavesDepthAndBlendsAlphaWhileSkyboxStaysBehindSprites)
     {
         Renderer2D::Init();
         // Projection maps the XZ grid to screen XY, with constant depth 0.
@@ -288,7 +288,7 @@ namespace
         EXPECT_EQ(Pixel(color, 4, 4), (std::array<uint8_t, 4> {0, 230, 0, 255}));
     }
 
-    TEST_P(ScenePassGL, SpriteTextureChangesBeyond32SlotsPreserveBindingsAndBlendOrder)
+    TEST_P(ScenePassGpu, SpriteTextureChangesBeyond32SlotsPreserveBindingsAndBlendOrder)
     {
         Renderer2D::Init();
         Renderer->BeginScene(Info);
@@ -332,7 +332,7 @@ namespace
         EXPECT_NEAR(actual[3], 143, 1);
         EXPECT_EQ(Renderer2D::GetStats().DrawCalls, 3u);
     }
-    TEST_P(ScenePassGL, DefaultSpritesKeepLegacyAlphaDepthWritesAndEqualDepthOrder)
+    TEST_P(ScenePassGpu, DefaultSpritesKeepLegacyAlphaDepthWritesAndEqualDepthOrder)
     {
         // Catches accidental straight-alpha blending, LESS instead of LEQUAL,
         // or disabled depth writes in the runtime/editor sprite defaults.
@@ -352,7 +352,7 @@ namespace
         EXPECT_EQ(word >> 8, 0x800000u);
     }
 
-    TEST_P(ScenePassGL, SpriteCapacityFlushKeepsTheLastQuadAndStatistics)
+    TEST_P(ScenePassGpu, SpriteCapacityFlushKeepsTheLastQuadAndStatistics)
     {
         // Catches an overflowing vertex/index batch, lost final quad, or reuse of
         // an already submitted upload range when the 10000-quad capacity is hit.
@@ -375,7 +375,7 @@ namespace
         EXPECT_EQ(Renderer2D::GetStats().GetTotalIndexCount(), 60006u);
     }
 
-    TEST_P(ScenePassGL, RuntimeWhiteSpriteDeclaresItsActualSampledFallback)
+    TEST_P(ScenePassGpu, RuntimeWhiteSpriteDeclaresItsActualSampledFallback)
     {
         // Pixel checks prove the runtime draw; the independent access declaration
         // catches omitting the internal white image from whole-frame backend planning.
@@ -406,7 +406,7 @@ namespace
         EXPECT_EQ(graph.PassName(image.Accesses[0].Pass), "Renderer2D sprites");
     }
 
-    TEST_P(ScenePassGL, GraphExecutesTransientClearReadbackAndReusesStableViewport)
+    TEST_P(ScenePassGpu, GraphExecutesTransientClearReadbackAndReusesStableViewport)
     {
         // Catches graph dropping readbacks, failing to record/submit, or allocating
         // a new physical image every frame. Exact bytes also catch wrong clears.
@@ -476,7 +476,7 @@ namespace
         }
     }
 
-    TEST_P(ScenePassGL, WarmFramesKeepSpriteGridAndSkyPipelinesAfterRetirement)
+    TEST_P(ScenePassGpu, WarmFramesKeepSpriteGridAndSkyPipelinesAfterRetirement)
     {
         // Bug: relying only on the device's weak cache recreates each immediate
         // pipeline after EndFrame releases the last command-list reference.
@@ -511,9 +511,7 @@ namespace
     }
 
     INSTANTIATE_TEST_SUITE_P(Backends,
-                             ScenePassGL,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             ScenePassGpu,
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
 } // namespace

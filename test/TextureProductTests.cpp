@@ -448,7 +448,7 @@ namespace
             RenderHardware::Backend Previous = RenderHardware::GetBackend();
             ~BackendRestore() { RenderHardware::SetBackend(Previous); }
         } restore;
-        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
+        RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidArgument);
         RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidArgument);

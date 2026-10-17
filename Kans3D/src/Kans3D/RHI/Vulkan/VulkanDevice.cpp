@@ -32,6 +32,7 @@ namespace Kans::RenderHardware
             std::vector<VkDescriptorPool>                         DescriptorPools;
             std::unordered_map<std::string, std::weak_ptr<VKSet>> DescriptorCache;
             uint64_t        PipelineCreations = 0, DescriptorAllocations = 0, GroupCreationNanoseconds = 0;
+            VulkanTestProbes::BufferWriteObserver BufferWrites;
             DeviceStats     Stats;
             bool            InFrame = false, Alive = true;
             std::thread::id Thread = std::this_thread::get_id();
@@ -238,6 +239,8 @@ namespace Kans::RenderHardware
                 // Host writes precede submission; the next inferred use includes
                 // the host access in its dependency (also for noncoherent memory).
                 Last = {VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_WRITE_BIT};
+                if (Memory.Owner->BufferWrites)
+                    Memory.Owner->BufferWrites(Desc, offset, data, bytes);
             }
             std::vector<uint8_t> Read(size_t offset, size_t bytes) const override
             {
@@ -1649,6 +1652,12 @@ namespace Kans::RenderHardware
 
 namespace Kans::RenderHardware::VulkanTestProbes
 {
+    void SetBufferWriteObserver(const Device& device, BufferWriteObserver observer)
+    {
+        auto owner = dynamic_cast<const VKDevice&>(device).GetOwner();
+        owner->CheckThread();
+        owner->BufferWrites = std::move(observer);
+    }
     Diagnostics Inspect(const Device& device)
     {
         const auto& state   = dynamic_cast<const VKDevice&>(device).GetState();

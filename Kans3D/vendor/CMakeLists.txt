@@ -30,21 +30,6 @@ set_target_properties(glfw PROPERTIES
     FOLDER "Dependencies"
 )
 # ============================================================
-# Glad — StaticLib (C)
-# ============================================================
-add_library(Glad STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/Glad/include/glad/glad.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/Glad/include/KHR/khrplatform.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/Glad/src/glad.c
-)
-target_include_directories(Glad PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Glad/include)
-kans_set_output_dirs(Glad)
-set_target_properties(Glad PROPERTIES
-    FOLDER "Dependencies"
-    MSVC_RUNTIME_LIBRARY "MultiThreaded" 
-)
-
-# ============================================================
 # ImGui — StaticLib (C++17)
 # ============================================================
 add_library(ImGui STATIC
@@ -208,7 +193,6 @@ if(VULKAN_SDK_DIR)
         target_link_libraries(vulkan_sdk INTERFACE
             ${VULKAN_SDK_DIR}/Lib/shaderc_combined.lib
             ${VULKAN_SDK_DIR}/Lib/spirv-cross-core.lib
-            ${VULKAN_SDK_DIR}/Lib/spirv-cross-glsl.lib
             ${VULKAN_SDK_DIR}/Lib/SPIRV-Tools$<$<CONFIG:Debug>:d>.lib
             ${VULKAN_SDK_DIR}/Lib/vulkan-1.lib
         )
@@ -226,7 +210,6 @@ if(VULKAN_SDK_DIR)
         find_library(GLSLANG_LIBRARY glslang REQUIRED)
 
         # spirv-cross (install: sudo apt install libspirv-cross-dev or equivalent)
-        find_library(SPIRV_CROSS_GLSL_LIB spirv-cross-glsl)
         find_library(SPIRV_CROSS_CORE_LIB spirv-cross-core)
         find_path(SPIRV_CROSS_INCLUDE_DIR spirv_cross/spirv_cross.hpp)
         if(NOT SPIRV_CROSS_CORE_LIB OR NOT SPIRV_CROSS_INCLUDE_DIR)
@@ -246,7 +229,6 @@ if(VULKAN_SDK_DIR)
             Vulkan::Vulkan
             ${SHADERC_LIBRARY}
             ${GLSLANG_LIBRARY}
-            ${SPIRV_CROSS_GLSL_LIB}
             ${SPIRV_CROSS_CORE_LIB}
             ${SPIRV_TOOLS_OPT_LIB}
             ${SPIRV_TOOLS_LINK_LIB}

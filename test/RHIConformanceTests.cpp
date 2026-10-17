@@ -160,7 +160,7 @@ void main() { color = p.Color; })";
     {
         // Bug: renderer consumers silently keep/use a GL shared device even
         // though the fixture requested Vulkan, or a live shared device can be replaced.
-        const auto expected = GetParam() == GpuTestBackend::OpenGL ? Backend::OpenGL : Backend::Vulkan;
+        const auto expected = Backend::Vulkan;
         EXPECT_EQ(GetBackend(), expected);
         const auto shared = GetSharedDevice();
         ASSERT_TRUE(shared);
@@ -2005,8 +2005,6 @@ void main() { color=vec4(vec3(texelFetch(depthImage,ivec2(gl_FragCoord.xy),0).r)
 
     INSTANTIATE_TEST_SUITE_P(Backends,
                              RHIConformance,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
 } // namespace

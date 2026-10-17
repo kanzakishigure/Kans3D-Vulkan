@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -57,7 +56,7 @@ namespace
     };
 
     // Each backend parameter owns its context and environment. CTest runs these serially.
-    class RendererReferenceGL : public testing::TestWithParam<GpuTestBackend>
+    class RendererReferenceGpu : public testing::TestWithParam<GpuTestBackend>
     {
     protected:
         static constexpr uint32_t                     Size = 128;
@@ -317,8 +316,6 @@ namespace
             Toon                      = Material(toon, &shader);
             ToonSphere                = Model(SphereData(), Toon);
             ASSERT_NO_FATAL_FAILURE(Ready());
-            if (GetParam() == GpuTestBackend::OpenGL)
-                EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         }
         void TearDown() override
         {
@@ -342,10 +339,7 @@ namespace
         {
             ASSERT_NO_FATAL_FAILURE(SetUpResources());
             ASSERT_TRUE(Renderer);
-            RecordProperty("renderer",
-                           GetParam() == GpuTestBackend::OpenGL ?
-                               reinterpret_cast<const char*>(glGetString(GL_RENDERER)) :
-                               "lavapipe");
+            RecordProperty("renderer", "lavapipe");
             Renderer->SetViewMode(SceneViewMode::Lit);
         }
         RgbaImage Read(const RenderHardware::Handle<RenderHardware::Texture>& texture)
@@ -369,28 +363,8 @@ namespace
         }
         void Compare(const char* name, const RgbaImage& image, ImageTolerance tolerance)
         {
-            WritePng(fs::path(KANS_TEST_OUTPUT_DIR) / "phase2d" /
-                         (GetParam() == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan") / (std::string(name) + ".png"),
-                     image);
-            if (GetParam() == GpuTestBackend::OpenGL)
-            {
-                // Exact pre-2d oracles. Wireframe/sky were audited against the saved phase-one library;
-                // their <=1-byte differences from the older PNGs already existed before this task.
-                const std::pair<const char*, const char*> unchanged[] = {
-                    {"debug-base-color", "03aa1f06506ba842db0743d478f3354e78b4d7a5ea27610a2d6d7b0206312aa4"},
-                    {"debug-normals", "0281fd1ef71c99837b1e79f1fc850010ad72ff9ec17c77da5ec8e20c11ac9750"},
-                    {"debug-wireframe", "38b0fea0e64248d077bc9e80f256bb11861279f4697763a896f1c0f239905c39"},
-                    {"grid", "f6730a0d1a3f7d1508c853bb268c542a8ff8a108a50d0a867070168053ffe3f1"},
-                    {"skybox", "9ff26345a562e96a39db980386b33ff417bfecc759ea55020dbc18b3e8743399"},
-                    {"renderer2d-sprite", "b5d42010d764ec7af44e4cb0e5b4b30a3dd401a37b16f0ebf4ab376d6397b192"}};
-                for (const auto& [scene, digest] : unchanged)
-                    if (std::string(name) == scene)
-                    {
-                        std::vector<std::byte> bytes(image.Pixels.size());
-                        std::memcpy(bytes.data(), image.Pixels.data(), bytes.size());
-                        EXPECT_EQ(ComputeContentDigest(bytes), digest);
-                    }
-            }
+            WritePng(fs::path(KANS_TEST_OUTPUT_DIR) / "phase2d" / "Vulkan" / (std::string(name) + ".png"), image);
+
             if (GetParam() == GpuTestBackend::Vulkan)
             {
                 // Native SPIR-V evaluation and finite-precision filtered sampling
@@ -411,12 +385,9 @@ namespace
             }
             const auto result = CompareReference(image,
                                                  fs::path(KANS_TEST_REFERENCE_DIR) / (std::string(name) + ".png"),
-                                                 fs::path(KANS_TEST_OUTPUT_DIR) /
-                                                     (GetParam() == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan"),
+                                                 fs::path(KANS_TEST_OUTPUT_DIR) / "Vulkan",
                                                  tolerance);
             EXPECT_TRUE(result.Passed) << result.Message;
-            if (GetParam() == GpuTestBackend::OpenGL)
-                EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         }
         void AuditHDR(const RenderHardware::Handle<RenderHardware::Texture>& hdr,
                       const char*                                            name,
@@ -438,9 +409,8 @@ namespace
                     std::swap_ranges(bytes.begin() + y * Size * 8,
                                      bytes.begin() + (y + 1) * Size * 8,
                                      bytes.begin() + (Size - 1 - y) * Size * 8);
-            const auto path = fs::path(KANS_TEST_OUTPUT_DIR) / "phase2d" /
-                              (GetParam() == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan") /
-                              (std::string(name) + ".hdr.rgba16f");
+            const auto path =
+                fs::path(KANS_TEST_OUTPUT_DIR) / "phase2d" / "Vulkan" / (std::string(name) + ".hdr.rgba16f");
             fs::create_directories(path.parent_path());
             std::ofstream dump(path, std::ios::binary);
             dump.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
@@ -538,12 +508,12 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
     // NO outlier pixels are allowed: edges, orientation and coverage remain strict.
     // Unlit geometry/debug images need only 1/255 rounding tolerance. These are
     // fixed explicit budgets, not inferred or increased after reference comparison.
-    TEST_P(RendererReferenceGL, StandardTexturedIblPointLight)
+    TEST_P(RendererReferenceGpu, StandardTexturedIblPointLight)
     {
         ASSERT_NO_FATAL_FAILURE(TexturedScene());
         CompareScene("standard-ibl-point", {2, 0.0});
     }
-    TEST_P(RendererReferenceGL, AlphaModesDepthSortingAndBackFaces)
+    TEST_P(RendererReferenceGpu, AlphaModesDepthSortingAndBackFaces)
     {
         const auto     opaque = Model(QuadData(), Color({0.12f, 0.32f, 0.8f, 1}));
         MaterialSource mask;
@@ -570,40 +540,40 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 6u);
         CompareScene("alpha-depth-sort-backfaces", {2, 0.0});
     }
-    TEST_P(RendererReferenceGL, EmissionTextureAndToneMapping)
+    TEST_P(RendererReferenceGpu, EmissionTextureAndToneMapping)
     {
         Renderer->BeginScene(Info);
         SubmitLegacyOracle(*Renderer, EmissionSphere, Transform({0.25f, 0.28f, 0}, {0.8f, 0.8f, 0.8f}, -0.3f));
         Renderer->EndScene();
         CompareScene("emission", {2, 0.0});
     }
-    TEST_P(RendererReferenceGL, ImportedToonMaterial)
+    TEST_P(RendererReferenceGpu, ImportedToonMaterial)
     {
         Renderer->BeginScene(Info);
         SubmitLegacyOracle(*Renderer, ToonSphere, Transform({-0.22f, 0.13f, 0}, {0.93f, 0.93f, 0.93f}, 0.3f));
         Renderer->EndScene();
         CompareScene("toon-imported", {1, 0.0});
     }
-    TEST_P(RendererReferenceGL, DebugBaseColor)
+    TEST_P(RendererReferenceGpu, DebugBaseColor)
     {
         Renderer->SetViewMode(SceneViewMode::BaseColor);
         ASSERT_NO_FATAL_FAILURE(TexturedScene());
         CompareScene("debug-base-color", {1, 0.0});
     }
-    TEST_P(RendererReferenceGL, DebugNormals)
+    TEST_P(RendererReferenceGpu, DebugNormals)
     {
         Renderer->SetViewMode(SceneViewMode::Normals);
         ASSERT_NO_FATAL_FAILURE(TexturedScene());
         CompareScene("debug-normals", {1, 0.0});
     }
-    TEST_P(RendererReferenceGL, DebugWireframe)
+    TEST_P(RendererReferenceGpu, DebugWireframe)
     {
         Renderer->SetViewMode(SceneViewMode::Wireframe);
         ASSERT_NO_FATAL_FAILURE(TexturedScene());
         // Raster coverage is the regression being tested, so no edge exclusions.
         CompareScene("debug-wireframe", {1, 0.0});
     }
-    TEST_P(RendererReferenceGL, SelectionOutlineAndNumericSurfacePicker)
+    TEST_P(RendererReferenceGpu, SelectionOutlineAndNumericSurfacePicker)
     {
         const auto transform = Transform({-0.3f, 0.23f, 0.2f}, {0.55f, 0.4f, 1}, 0.15f);
         Renderer->BeginScene(Info);
@@ -643,10 +613,8 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         const auto empty = Renderer->PickSceneSurface(*pickScene, vp, {2, 2});
         EXPECT_EQ(empty.EntityID, UUID(0));
         EXPECT_FALSE(empty.Position);
-        if (GetParam() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
-    TEST_P(RendererReferenceGL, MaterialPreviewSphere)
+    TEST_P(RendererReferenceGpu, MaterialPreviewSphere)
     {
         MaterialPreviewRenderer preview(*Renderer);
         MaterialPreviewOptions  options;
@@ -657,7 +625,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         AuditHDR(preview.GetHDRTarget(), "preview-sphere", {Size, Size, thumbnail->Pixels}, options.Exposure, true);
         Compare("preview-sphere", {Size, Size, thumbnail->Pixels}, {2, 0.0});
     }
-    TEST_P(RendererReferenceGL, Grid)
+    TEST_P(RendererReferenceGpu, Grid)
     {
         SceneInfo info              = Info;
         info.sceneCamera.Position   = {2, 2.2f, 3};
@@ -667,7 +635,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         Renderer->EndScene();
         CompareScene("grid", {1, 0.0});
     }
-    TEST_P(RendererReferenceGL, Skybox)
+    TEST_P(RendererReferenceGpu, Skybox)
     {
         SceneInfo info = Info;
         info.sceneCamera.viewMatrix =
@@ -677,14 +645,14 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         Renderer->EndScene();
         CompareScene("skybox", {2, 0.0});
     }
-    TEST_P(RendererReferenceGL, Renderer2DSprite)
+    TEST_P(RendererReferenceGpu, Renderer2DSprite)
     {
-        // Renderer2D locates its real TextureShader through the filesystem service.
+        // Preserve filesystem initialization; Renderer2D compiles its embedded shader.
         // Only a temp ini is written; editor resources remain read-only.
         if (!SpriteInitialized)
         {
             std::ofstream config(Directory / "filesystem.ini");
-            config << "ShaderDir=" << fs::path(KANS_TEST_SHADER_DIR).parent_path().generic_string() << "/\n";
+            config << "ShaderDir=" << fs::path(KANS_TEST_SHADER_DIR).generic_string() << "/\n";
             config.close();
             ASSERT_TRUE(config.good());
             KansFileSystem::Init(Directory / "filesystem.ini");
@@ -705,7 +673,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         EXPECT_EQ(Renderer2D::GetStats().QuadCount, 1u);
         CompareScene("renderer2d-sprite", {1, 0.0});
     }
-    TEST_P(RendererReferenceGL, HdrValuesAboveOneAndExposureHaveAnalyticFilmicBytes)
+    TEST_P(RendererReferenceGpu, HdrValuesAboveOneAndExposureHaveAnalyticFilmicBytes)
     {
         // Bugs: RGBA8 clamps before the post pass, exposure is ignored, or HDR skips/doubles tone mapping.
         const auto model = Probe("o_Color=vec4(4.0,0.5,0.125,1);", ShaderOutputSpace::LinearHDR);
@@ -732,7 +700,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             EXPECT_EQ(red, 0x4400u); // IEEE binary16, exactly 4.0. Catches hidden clamping.
         }
     }
-    TEST_P(RendererReferenceGL, PointPbrUsesDistinctDiffuseRadianceCountAndSpecularScale)
+    TEST_P(RendererReferenceGpu, PointPbrUsesDistinctDiffuseRadianceCountAndSpecularScale)
     {
         // Bugs: four copies, ambient radiance, ignored count/zero-slot NaNs, missing fifth light, unused specular.
         const auto model =
@@ -765,7 +733,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         for (unsigned c = 0; c < 3; ++c)
             EXPECT_NEAR(pixel[c], FilmicByte(.96 * .5 / pi * 15 / 4, .8), 1);
     }
-    TEST_P(RendererReferenceGL, PbrLightCountIgnoresPoisonedUnusedSlots)
+    TEST_P(RendererReferenceGpu, PbrLightCountIgnoresPoisonedUnusedSlots)
     {
         // Bug: loop over the engine limit instead of the live count; zero-radiance padding alone cannot detect this.
         Probe("o_Color=vec4(KansShadePbr(vec3(0.5),0,1,0,vec3(0,0,1),vec3(0)),1);", ShaderOutputSpace::LinearHDR);
@@ -818,7 +786,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             EXPECT_NEAR(pixel[c], FilmicByte(.96 * .5 / 3.141592653589793, .8), 1);
         device->WaitIdle();
     }
-    TEST_P(RendererReferenceGL, AppendedCameraExposureAndLightCountAreBoundToShaders)
+    TEST_P(RendererReferenceGpu, AppendedCameraExposureAndLightCountAreBoundToShaders)
     {
         // Bug: the post gets exposure but the appended KansFrame tail is misbound or never uploaded.
         const auto model = Probe("o_Color=vec4(KansExposure()/4.0,float(KansPointLightCount())/16.0,0.25,1);",
@@ -828,7 +796,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         RenderProbe(model);
         EXPECT_EQ(Centre(), (std::array<uint8_t, 4> {128, 80, 64, 255}));
     }
-    TEST_P(RendererReferenceGL, DirectionalPbrReachesShadersWithAmbientAndSpecular)
+    TEST_P(RendererReferenceGpu, DirectionalPbrReachesShadersWithAmbientAndSpecular)
     {
         // Bugs: drop directional light, use travel direction as to-light, or omit ambient/specular.
         // Black environment isolates analytic direct + ambient terms.
@@ -858,7 +826,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
                 FilmicByte((.96 * .5 / 3.141592653589793 + .05 + .04 / 3.141592653589793 / 4.001 * 4) * (c + 1), .8),
                 1);
     }
-    TEST_P(RendererReferenceGL, PublishedV6ProductsBindPrefixAndFourDistinctLights)
+    TEST_P(RendererReferenceGpu, PublishedV6ProductsBindPrefixAndFourDistinctLights)
     {
         // Bug: accept old products but misbind prefix offsets, duplicate slots, or classify them as HDR.
         auto           bytes  = Value(ReadProductFile(fs::path(KANS_TEST_MULTIPASS_DIR) / "lights-prefix-v6.kshd"));
@@ -886,7 +854,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             EXPECT_EQ(Centre(), (std::array<uint8_t, 4> {48, 96, 143, 255}));
         }
     }
-    TEST_P(RendererReferenceGL, DisplayMaterialsAndBlendsRemainByteExactAcrossHdrTransitions)
+    TEST_P(RendererReferenceGpu, DisplayMaterialsAndBlendsRemainByteExactAcrossHdrTransitions)
     {
         // Bug: tone map display pixels twice, transform custom output, reorder blends,
         // or damage untouched pixels during the inverse -> binary16 -> forward conversion.
@@ -934,7 +902,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             }
         }
     }
-    TEST_P(RendererReferenceGL, DebugViewsBypassExposureAndPostPassExactly)
+    TEST_P(RendererReferenceGpu, DebugViewsBypassExposureAndPostPassExactly)
     {
         // Bug: normal/base/wireframe views enter HDR or are tone mapped by the final pass.
         for (auto mode : {SceneViewMode::BaseColor, SceneViewMode::Normals, SceneViewMode::Wireframe})
@@ -950,7 +918,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
                 EXPECT_NE(Renderer->GetRenderGraph().PassName(pass), "Tone mapping (ACES fitted + sRGB)");
         }
     }
-    TEST_P(RendererReferenceGL, PreviewUsesSceneHdrCurveAndExplicitExposure)
+    TEST_P(RendererReferenceGpu, PreviewUsesSceneHdrCurveAndExplicitExposure)
     {
         // Bug: thumbnails use the old LDR material path or preview cache loses output-space metadata.
         const auto              hdr = Probe("o_Color=vec4(4,0.5,0.125,1);", ShaderOutputSpace::LinearHDR);
@@ -976,7 +944,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         EXPECT_EQ(thumbnail->Pixels[i + 1], 128);
         EXPECT_EQ(thumbnail->Pixels[i + 2], 191);
     }
-    TEST_P(RendererReferenceGL, PreviewCacheTracksOutputSpaceEvenWithIdenticalBytecode)
+    TEST_P(RendererReferenceGpu, PreviewCacheTracksOutputSpaceEvenWithIdenticalBytecode)
     {
         // Bug: unsaved preview cache compares only shader bytecode and ignores output-space metadata.
         Probe("o_Color=vec4(0.25,0.5,0.75,1);", ShaderOutputSpace::Display);
@@ -1006,7 +974,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             }
         }
     }
-    TEST_P(RendererReferenceGL, MigratedMultipartFrameMatchesLegacyAfterSaveReloadAndPlayCopy)
+    TEST_P(RendererReferenceGpu, MigratedMultipartFrameMatchesLegacyAfterSaveReloadAndPlayCopy)
     {
         // Bug: hierarchy multiplication or draw/pass order changes pixels, or a
         // per-part override leaks to another section sharing its material slot.
@@ -1112,7 +1080,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         Render->SetLogicScene(Logic);
     }
 
-    TEST_P(RendererReferenceGL, PrefabSelectionOutlinesDescendantsAndPickingExposesOwnerAndRoot)
+    TEST_P(RendererReferenceGpu, PrefabSelectionOutlinesDescendantsAndPickingExposesOwnerAndRoot)
     {
         // Bug: a prefab root has no MeshComponent so its outline is empty;
         // picking reports the root instead of the entity owning the section.
@@ -1176,7 +1144,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         }
     }
 
-    TEST_P(RendererReferenceGL, FullRuntimeFrameIsByteIdenticalToPhaseTwoD)
+    TEST_P(RendererReferenceGpu, FullRuntimeFrameIsByteIdenticalToPhaseTwoD)
     {
         // Deliberately captured phase-2d baseline (ACES fitted, diffuse radiance, distinct lights). All attachment
         // bytes detect moving sprites/grid/sky after materials, shell state, or outline order.
@@ -1244,16 +1212,12 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
                                      bytes.begin() + (Size - 1 - y) * Size * 4);
             fs::create_directories(KANS_TEST_OUTPUT_DIR);
             std::ofstream dump(fs::path(KANS_TEST_OUTPUT_DIR) /
-                                   (std::string("runtime-") + (GetParam() == GpuTestBackend::OpenGL ? "gl-" : "vk-") +
-                                    std::to_string(i) + ".bin"),
+                                   (std::string("runtime-") + "vk-" + std::to_string(i) + ".bin"),
                                std::ios::binary);
             dump.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
             std::vector<std::byte> digestBytes(bytes.size());
             std::memcpy(digestBytes.data(), bytes.data(), bytes.size());
-            const char* expected[] = {"3b60ff2f4b8a27b07ba6f82c2be76ea45f000af0e72a8d3491c9a9079a9643cd",
-                                      "d1b4803bb70e5b8e4a1b68ed184ddfd2a8fe31cba2a72561c6870b0da2feb6db",
-                                      "62d92c7f002105fa75ac102c333e394e9b3706a8c5ad7a9da310d49680544988"};
-            // Preserve an exact byte oracle on each backend. Conversion of the
+            // Preserve the exact Vulkan byte oracle. Conversion of the
             // projection's depth range changes D24 rounding by -4..+3 LSBs; one
             // Bresenham debug-line boundary pixel and filtered material samples
             // differ too. Color-1 and stencil are preserved by the HDR resolve.
@@ -1261,9 +1225,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             const char* vulkanExpected[] = {"44727924897d5193e0820f9bda06ac0caa0f224adaff83a71eda0e418d2456c7",
                                             "d1b4803bb70e5b8e4a1b68ed184ddfd2a8fe31cba2a72561c6870b0da2feb6db",
                                             "9a31a96d79d6b7dba14d006d111a6780e4aae7257f2b992437d0ef93e570fc28"};
-            EXPECT_EQ(ComputeContentDigest(digestBytes),
-                      GetParam() == GpuTestBackend::OpenGL ? expected[i] : vulkanExpected[i])
-                << "attachment " << i;
+            EXPECT_EQ(ComputeContentDigest(digestBytes), vulkanExpected[i]) << "attachment " << i;
         }
         const auto&              graph = runtime->GetRenderGraph();
         std::vector<std::string> passes;
@@ -1360,7 +1322,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             names.push_back(graph.PassName(pass));
         return names;
     }
-    TEST_P(RendererReferenceGL, FeaturePointsPreserveInterleavedImmediateAndMaterialOverlayOrder)
+    TEST_P(RendererReferenceGpu, FeaturePointsPreserveInterleavedImmediateAndMaterialOverlayOrder)
     {
         // Bug: emit all grids together, inject BeforeOpaque before the immediate sequence,
         // put AfterTransparent before materials, or put Overlay before either outline.
@@ -1401,7 +1363,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         EXPECT_EQ(preparations, 1u);
         Renderer->GetFeatures().SetEnabled("point markers", false);
     }
-    TEST_P(RendererReferenceGL, DisabledEditorFeaturesSkipGhostPreparationPassesAndTransientResources)
+    TEST_P(RendererReferenceGpu, DisabledEditorFeaturesSkipGhostPreparationPassesAndTransientResources)
     {
         // Bug: gate only AddPasses while still submitting the lit ghost in Prepare,
         // or let grid/debug/outline passes or masks survive a disabled feature.
@@ -1459,7 +1421,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         EXPECT_EQ(transients, 2u);
         Renderer->SetViewMode(SceneViewMode::Lit);
     }
-    TEST_P(RendererReferenceGL, FeatureRegistrationAndEnablingAreIsolatedBetweenSceneRenderers)
+    TEST_P(RendererReferenceGpu, FeatureRegistrationAndEnablingAreIsolatedBetweenSceneRenderers)
     {
         // Bug: store feature instances/enabled flags globally or in the pipeline registry;
         // a marker or grid toggle on one view then affects the other renderer.
@@ -1492,9 +1454,7 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
         Renderer->GetFeatures().SetEnabled("EditorGrid", true);
     }
     INSTANTIATE_TEST_SUITE_P(Backends,
-                             RendererReferenceGL,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             RendererReferenceGpu,
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
 } // namespace

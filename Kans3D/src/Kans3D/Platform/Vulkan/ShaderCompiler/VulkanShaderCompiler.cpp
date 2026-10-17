@@ -23,10 +23,6 @@ namespace Kans
             {
                 return KansFileSystem::GetShaderCacheFolder() / "Vulkan";
             }
-            if constexpr (API == RenderHardware::Backend::OpenGL)
-            {
-                return KansFileSystem::GetShaderCacheFolder() / "OpenGL";
-            }
         }
         template<RenderHardware::Backend API>
         bool CreateCacheDirectoryIfNeeded()

@@ -8,7 +8,7 @@
 using namespace Kans::RenderHardware;
 TEST(BackendSelection, DefaultsToVulkanAndCommandLineOverridesTheIni)
 {
-    // The user chose Vulkan as the default (2026-10-13); OpenGL stays selectable.
+    // Vulkan is the only supported startup backend.
     auto path = std::filesystem::temp_directory_path() / "kans-backend-selection.ini";
     std::filesystem::remove(path);
     EXPECT_EQ(ResolveBackend(path.string()), Backend::Vulkan);
@@ -17,12 +17,20 @@ TEST(BackendSelection, DefaultsToVulkanAndCommandLineOverridesTheIni)
         out << "WorkSpace=x\nRenderBackend=Vulkan\n";
     }
     EXPECT_EQ(ResolveBackend(path.string()), Backend::Vulkan);
-    EXPECT_EQ(ResolveBackend(path.string(), {"--render-backend=opengl"}), Backend::OpenGL);
+    EXPECT_EQ(ResolveBackend(path.string(), {"--render-backend=vulkan"}), Backend::Vulkan);
+    EXPECT_THROW(ResolveBackend(path.string(), {"--render-backend=opengl"}), std::invalid_argument);
     {
         std::ofstream out(path);
-        out << "RenderBackend=OpenGL\n";
+        out << "RenderBackend=OpenGL\nRenderBackend=opengl\n";
     }
-    EXPECT_EQ(ResolveBackend(path.string(), {"--render-backend=vulkan"}), Backend::Vulkan);
+    testing::internal::CaptureStderr();
+    EXPECT_EQ(ResolveBackend(path.string()), Backend::Vulkan);
+    const auto warning = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(warning, "Warning: RenderBackend=OpenGL is no longer supported; using Vulkan.\n");
+    std::ifstream     input(path);
+    const std::string contents((std::istreambuf_iterator<char>(input)), {});
+    EXPECT_EQ(contents, "RenderBackend=OpenGL\nRenderBackend=opengl\n");
+    input.close();
     std::filesystem::remove(path);
 }
 TEST(BackendSelection, RejectsInvalidEmptyAndDuplicateSelections)

@@ -388,8 +388,6 @@ namespace
     }
     INSTANTIATE_TEST_SUITE_P(Backends,
                              RendererServices,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::Vulkan ? "Vulkan" : "OpenGL";
-                             });
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
 } // namespace

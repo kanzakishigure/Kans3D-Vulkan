@@ -3,7 +3,7 @@
 #include "Kans3D/Asset/Storage/ProductFiles.h"
 
 // Private decoder: display loading must not inherit or change another caller's stb flip/gamma settings.
-// Keep all stb formats enabled, as in the deleted OpenGLTexture2D file constructor.
+// Keep all stb formats enabled for display loading.
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO

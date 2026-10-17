@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <imgui.h>
 #include <chrono>
 #include <cstring>
@@ -6,6 +5,7 @@
 #include "Kans3D/RHI/ImGuiRenderer.h"
 #include "Kans3D/RHI/Vulkan/VulkanPresentation.h"
 #include "GpuTestContext.h"
+#include "data/ImGuiHeadPixels.h"
 using namespace Kans::RenderHardware;
 namespace
 {
@@ -245,16 +245,11 @@ TEST(VulkanWindowFrames, SlotReuseRetiresOnlyCompletedResourcesAtBoundsOneTwoAnd
     }
 }
 
-TEST(VulkanImGuiParity, OpaqueAlphaAndFontPixelsMatchTheOpenGLUI)
+TEST(VulkanImGuiParity, OpaqueAlphaAndFontPixelsMatchHead)
 {
-    // Both drivers must be software even though this cross-backend check carries
-    // the Vulkan label. Exact comparison detects shifted colour space, blending,
-    // font UV/coverage, and framebuffer row conventions independently of oracles.
-    ASSERT_STREQ(std::getenv("LIBGL_ALWAYS_SOFTWARE"), "1");
-    ASSERT_STREQ(std::getenv("MESA_LOADER_DRIVER_OVERRIDE"), "llvmpipe");
-    ASSERT_STREQ(std::getenv("GALLIUM_DRIVER"), "llvmpipe");
-    std::vector<uint8_t> reference;
-    for (auto backend : {GpuTestBackend::OpenGL, GpuTestBackend::Vulkan})
+    // Exact HEAD (5a8a2af) Vulkan pixels: opaque/alpha rectangles and the default font.
+    const std::vector<uint8_t> reference(std::begin(ImGuiHeadPixels), std::end(ImGuiHeadPixels));
+    for (auto backend : {GpuTestBackend::Vulkan})
     {
         GpuTestContext context(backend);
         context.SetUp();
@@ -262,8 +257,7 @@ TEST(VulkanImGuiParity, OpaqueAlphaAndFontPixelsMatchTheOpenGLUI)
         auto device = GetSharedDevice();
         ImGui::CreateContext();
         ImGui::GetIO().IniFilename = nullptr;
-        auto renderer =
-            CreateImGuiRenderer(backend == GpuTestBackend::OpenGL ? Backend::OpenGL : Backend::Vulkan, nullptr);
+        auto renderer              = CreateImGuiRenderer(Backend::Vulkan, nullptr);
         renderer->NewFrame();
         ImGui::GetIO().DisplaySize = {16, 16};
         ImGui::GetIO().DeltaTime   = 1.0f / 60;
@@ -276,15 +270,6 @@ TEST(VulkanImGuiParity, OpaqueAlphaAndFontPixelsMatchTheOpenGLUI)
         renderer->Render(ImGui::GetDrawData());
         renderer->EndFrame();
         std::vector<uint8_t> pixels(16 * 16 * 4);
-        if (backend == GpuTestBackend::OpenGL)
-        {
-            glReadPixels(0, 0, 16, 16, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-            for (unsigned y = 0; y < 8; ++y)
-                std::swap_ranges(
-                    pixels.begin() + y * 64, pixels.begin() + (y + 1) * 64, pixels.begin() + (15 - y) * 64);
-            reference = pixels;
-        }
-        else
         {
             auto target   = GetVulkanImGuiOffscreenTarget(*renderer);
             auto buffer   = device->CreateBuffer({pixels.size(), BufferUsage::CopyDestination, MemoryUsage::Readback});

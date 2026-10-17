@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <imgui.h>
 #include <chrono>
 #include <cmath>
@@ -25,7 +24,6 @@
 #include "Kans3D/Project/Project.h"
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/ImGuiRenderer.h"
-#include "Kans3D/RHI/OpenGL/OpenGLTestProbes.h"
 #include "Kans3D/RHI/Vulkan/VulkanTestProbes.h"
 #include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/Features/MaterialPassFeature.h"
@@ -62,61 +60,6 @@ namespace
         return 2 * c / (std::sqrt(b * b - 4 * a * c) - b) / exposure;
     }
 
-    // Native probes and immediate draws in these legacy GL tests live here rather
-    // than requiring preview-only binding methods on the engine's RHI owners.
-    namespace NativeProbe = Kans::RenderHardware::OpenGLTestProbes;
-    uint32_t NativeProgram(const GpuShader& shader) { return NativeProbe::ProgramName(shader.Program); }
-    uint32_t NativeBuffer(const GpuUniformBuffer& buffer) { return NativeProbe::BufferName(buffer.Resource()); }
-    void     NativeBind(const GpuShader& shader) { glUseProgram(NativeProgram(shader)); }
-    void     NativeBind(const GpuUniformBuffer& buffer, uint32_t point)
-    {
-        glBindBufferBase(GL_UNIFORM_BUFFER, point, NativeBuffer(buffer));
-    }
-    uint32_t MaterialBlockPoint(const GpuShader& shader, uint32_t binding)
-    {
-        return NativeProbe::UniformPoint(shader.Program, 1, binding);
-    }
-    uint32_t MaterialSamplerUnit(const GpuShader& shader, uint32_t binding)
-    {
-        return NativeProbe::TextureUnit(shader.Program, 1, binding);
-    }
-    bool BindMaterialTextures(RenderAssetCache& cache, const GpuShader& shader, const GpuMaterialBindings& bindings)
-    {
-        bool complete = true;
-        cache.GetMaterialGroup(shader, bindings, &complete);
-        size_t i = 0;
-        for (const auto& [binding, role] : shader.MaterialSamplerFallbacks())
-            NativeProbe::BindTexture(bindings.Images.at(i++), MaterialSamplerUnit(shader, binding));
-        return complete;
-    }
-    struct NativeMeshArray
-    {
-        RenderHardware::Handle<RenderHardware::Pipeline> Pipeline;
-        RenderHardware::Handle<RenderHardware::Buffer>   Vertices, Indices;
-        explicit NativeMeshArray(const GpuMesh& mesh) : Vertices(mesh.Vertices), Indices(mesh.Indices)
-        {
-            auto program = CreateInternalShader(
-                *mesh.Device,
-                "Test mesh layout",
-                "#version 450\nlayout(location=0) in vec3 Position; void main(){gl_Position=vec4(Position,1);}",
-                "#version 450\nlayout(location=0) out vec4 Color; void main(){Color=vec4(1);}");
-            RenderHardware::PipelineDesc desc;
-            desc.Program        = std::get<RenderHardware::Handle<RenderHardware::Shader>>(program);
-            desc.VertexBindings = mesh.VertexBindings;
-            desc.Attributes     = mesh.Attributes;
-            desc.ColorFormats   = {RenderHardware::Format::RGBA8Unorm};
-            desc.Blends.resize(1);
-            Pipeline = mesh.Device->CreatePipeline(desc);
-        }
-        void Bind() const
-        {
-            glBindVertexArray(NativeProbe::PipelineVertexArrayName(Pipeline));
-            glBindVertexBuffer(0, NativeProbe::BufferName(Vertices), 0, Pipeline->GetDesc().VertexBindings[0].Stride);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, NativeProbe::BufferName(Indices));
-        }
-        void Unbind() const { glBindVertexArray(0); }
-    };
-
     class GatedProvider final : public IAssetProvider
     {
     public:
@@ -139,20 +82,20 @@ namespace
         }
     };
 
-    class NativeUIFrame
+    class TestUIFrame
     {
         std::unique_ptr<RenderHardware::ImGuiRenderer> UI;
         bool                                           Rendered = false, Ended = false;
 
     public:
-        NativeUIFrame()
+        TestUIFrame()
         {
             ImGui::CreateContext();
             auto& io       = ImGui::GetIO();
             io.DisplaySize = {16, 16};
             io.DeltaTime   = 1.0f / 60;
             io.IniFilename = nullptr;
-            UI             = RenderHardware::CreateImGuiRenderer(RenderHardware::Backend::OpenGL, nullptr);
+            UI             = RenderHardware::CreateImGuiRenderer(RenderHardware::Backend::Vulkan, nullptr);
             UI->NewFrame();
             ImGui::NewFrame();
             ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, {16, 16}, IM_COL32(64, 128, 192, 255));
@@ -174,7 +117,7 @@ namespace
                 Ended = true;
             }
         }
-        ~NativeUIFrame()
+        ~TestUIFrame()
         {
             End();
             UI.reset();
@@ -182,10 +125,10 @@ namespace
         }
     };
 
-    class RenderAssetCacheGL : public testing::Test
+    class RenderAssetCacheGpu : public testing::Test
     {
     protected:
-        virtual GpuTestBackend TestBackend() const { return GpuTestBackend::OpenGL; }
+        virtual GpuTestBackend TestBackend() const { return GpuTestBackend::Vulkan; }
         void SetUp() override
         {
             if (!Log::GetCoreLogger())
@@ -193,8 +136,6 @@ namespace
             GpuContext = std::make_unique<GpuTestContext>(TestBackend());
             ASSERT_NO_FATAL_FAILURE(GpuContext->SetUp());
             previousBackend = RenderHardware::GetBackend();
-            if (TestBackend() == GpuTestBackend::OpenGL)
-                ASSERT_EQ(glGetError(), GL_NO_ERROR);
         }
 
         void TearDown() override
@@ -324,13 +265,13 @@ namespace
         std::unique_ptr<GpuTestContext> GpuContext;
     };
 
-    class RenderAssetCacheGPU : public RenderAssetCacheGL, public testing::WithParamInterface<GpuTestBackend>
+    class RenderAssetCacheGPU : public RenderAssetCacheGpu, public testing::WithParamInterface<GpuTestBackend>
     {
     protected:
         GpuTestBackend TestBackend() const override { return GetParam(); }
     };
 
-    TEST_F(RenderAssetCacheGL, UploadMeshCreatesIndexedVertexArrayWithEngineLayout)
+    TEST_F(RenderAssetCacheGpu, UploadMeshCreatesIndexedBuffersWithEngineLayout)
     {
         auto data     = Triangles(2);
         data.Material = {Source, 9};
@@ -340,21 +281,38 @@ namespace
         const auto& mesh = std::get<GpuMesh>(uploaded);
         EXPECT_EQ(mesh.IndexCount, 6u);
         EXPECT_EQ(mesh.Material, data.Material);
-        NativeMeshArray array(mesh);
-        array.Bind();
-        GLint elements = 0;
-        glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &elements);
-        EXPECT_NE(elements, 0);
-        for (GLuint attribute = 0; attribute < 5; ++attribute)
+        ASSERT_TRUE(mesh.Vertices);
+        ASSERT_TRUE(mesh.Indices);
+        EXPECT_EQ(mesh.Vertices->GetDesc().Bytes, data.Vertices.size() * sizeof(MeshVertexData));
+        EXPECT_EQ(mesh.Indices->GetDesc().Bytes, data.Indices.size() * sizeof(uint32_t));
+        ASSERT_EQ(mesh.VertexBindings.size(), 1u);
+        EXPECT_EQ(mesh.VertexBindings[0].Stride, sizeof(MeshVertexData));
+        ASSERT_EQ(mesh.Attributes.size(), 5u);
+        const std::array<RenderHardware::VertexFormat, 5> formats {RenderHardware::VertexFormat::Float3,
+                                                                   RenderHardware::VertexFormat::Float3,
+                                                                   RenderHardware::VertexFormat::Float2,
+                                                                   RenderHardware::VertexFormat::Float4,
+                                                                   RenderHardware::VertexFormat::Float4};
+        const std::array<uint32_t, 5>                     offsets {0, 12, 24, 32, 48};
+        for (uint32_t attribute = 0; attribute < 5; ++attribute)
         {
-            GLint enabled = 0, size = 0;
-            glGetVertexAttribiv(attribute, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &enabled);
-            glGetVertexAttribiv(attribute, GL_VERTEX_ATTRIB_ARRAY_SIZE, &size);
-            EXPECT_TRUE(enabled) << attribute;
-            EXPECT_EQ(size, (std::array<GLint, 5> {3, 3, 2, 4, 4}[attribute])) << attribute;
+            EXPECT_EQ(mesh.Attributes[attribute].Location, attribute);
+            EXPECT_EQ(mesh.Attributes[attribute].BufferSlot, 0u);
+            EXPECT_EQ(mesh.Attributes[attribute].Type, formats[attribute]);
+            EXPECT_EQ(mesh.Attributes[attribute].Offset, offsets[attribute]);
         }
-        array.Unbind();
-        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        auto shader =
+            CreateInternalShader(*mesh.Device,
+                                 "mesh layout",
+                                 "#version 450\nlayout(location=0) in vec3 p; void main(){gl_Position=vec4(p,1);}",
+                                 "#version 450\nlayout(location=0) out vec4 c; void main(){c=vec4(1);}");
+        RenderHardware::PipelineDesc desc;
+        desc.Program        = std::get<RenderHardware::Handle<RenderHardware::Shader>>(shader);
+        desc.VertexBindings = mesh.VertexBindings;
+        desc.Attributes     = mesh.Attributes;
+        desc.ColorFormats   = {RenderHardware::Format::RGBA8Unorm};
+        desc.Blends.resize(1);
+        EXPECT_TRUE(mesh.Device->CreatePipeline(desc));
 
         data.Indices[0] = 100;
         EXPECT_EQ(std::get<AssetError>(UploadMesh(data)).Code, AssetErrorCode::InvalidData);
@@ -386,8 +344,6 @@ namespace
             EXPECT_EQ(cache.GetMesh(textureID), nullptr);
             std::this_thread::sleep_for(1ms);
         }
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 
     TEST_P(RenderAssetCacheGPU, ReimportedAssetKeepsLastUploadUntilReplacementIsReady)
@@ -408,8 +364,6 @@ namespace
 
         Provider->SetClosed(false);
         ASSERT_TRUE(Frames(cache, [&] { return cache.GetMesh(meshID)->IndexCount == 12u; }));
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 
     TEST_P(RenderAssetCacheGPU, ModelInstancesResolveMeshesAndUnusedEntriesAreEvicted)
@@ -432,17 +386,15 @@ namespace
             cache.BeginFrame(1);
         EXPECT_EQ(assets.CollectUnused(), 2u);
         ASSERT_TRUE(Frames(cache, [&] { return cache.GetMesh(meshID) != nullptr; }));
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 
-    class StandardMaterialGL : public RenderAssetCacheGL, public testing::WithParamInterface<GpuTestBackend>
+    class StandardMaterialGpu : public RenderAssetCacheGpu, public testing::WithParamInterface<GpuTestBackend>
     {
     protected:
         GpuTestBackend TestBackend() const override { return GetParam(); }
         void SetUp() override
         {
-            ASSERT_NO_FATAL_FAILURE(RenderAssetCacheGL::SetUp());
+            ASSERT_NO_FATAL_FAILURE(RenderAssetCacheGpu::SetUp());
             Assets = CreateScope<AssetManager>(Provider, Registry({}));
             Cache       = CreateScope<RenderAssetCache>(*Assets);
             auto device = Cache->GetDevice();
@@ -499,7 +451,7 @@ namespace
             Environment = {};
             Brdf.reset();
             Sampling.reset();
-            RenderAssetCacheGL::TearDown();
+            RenderAssetCacheGpu::TearDown();
         }
         AssetID Image(const std::vector<std::array<float, 4>>& pixels)
         {
@@ -642,7 +594,7 @@ namespace
             Pipelines;
     };
 
-    TEST_P(StandardMaterialGL, PackingFailureLogsOnceDrawsStandardAndRetriesEitherChangedSource)
+    TEST_P(StandardMaterialGpu, PackingFailureLogsOnceDrawsStandardAndRetriesEitherChangedSource)
     {
         // A stale recipe can load but fail packing; retrying a null cache value floods logs every frame.
         const AssetID shaderID {Source, 100}, materialID {Source, 101};
@@ -740,7 +692,7 @@ namespace
         EXPECT_EQ(errorCount(), 2);
     }
 
-    TEST_P(StandardMaterialGL, UnassignedNormalIsGeometricAndUnassignedEmissionIsDark)
+    TEST_P(StandardMaterialGpu, UnassignedNormalIsGeometricAndUnassignedEmissionIsDark)
     {
         // White in the normal slot rotates +Z toward (1,1,1); flat must stay +Z.
         Frame.DebugView = 2;
@@ -758,7 +710,7 @@ namespace
         EXPECT_EQ(dark[2], 0);
     }
 
-    TEST_P(StandardMaterialGL, VertexColorIsOptInAndStrengthOneAppliesIt)
+    TEST_P(StandardMaterialGpu, VertexColorIsOptInAndStrengthOneAppliesIt)
     {
         // Character vertex colors may contain auxiliary data; enabling tint by default changes existing looks.
         Frame.DebugView = 1;
@@ -775,7 +727,7 @@ namespace
         EXPECT_EQ(tinted[2], 0);
     }
 
-    TEST_P(StandardMaterialGL, TangentDirectionHandednessAndDerivativeFallbackOrientNormalMap)
+    TEST_P(StandardMaterialGpu, TangentDirectionHandednessAndDerivativeFallbackOrientNormalMap)
     {
         Frame.DebugView = 2;
         MaterialSource source;
@@ -799,7 +751,7 @@ namespace
         EXPECT_NEAR(disabled[2], 1.0f, 1e-6f);
     }
 
-    TEST_P(StandardMaterialGL, UvTilingRepeatsAndOffsetIsAppliedAfterScaling)
+    TEST_P(StandardMaterialGpu, UvTilingRepeatsAndOffsetIsAppliedAfterScaling)
     {
         Frame.DebugView = 1;
         MaterialSource source;
@@ -816,7 +768,7 @@ namespace
         }
     }
 
-    TEST_P(StandardMaterialGL, EmissiveFactorAndMapMultiplyBeforeToneMapping)
+    TEST_P(StandardMaterialGpu, EmissiveFactorAndMapMultiplyBeforeToneMapping)
     {
         // Zero lighting isolates linear HDR emission and catches missing factor, intensity, map, or an accidental
         // material encode.
@@ -842,7 +794,7 @@ namespace
         EXPECT_EQ(zeroFactor[0] + zeroFactor[1] + zeroFactor[2], 0);
     }
 
-    TEST_P(StandardMaterialGL, StandardFactorsShadeWithSceneLightsAndGltfPackedChannels)
+    TEST_P(StandardMaterialGpu, StandardFactorsShadeWithSceneLightsAndGltfPackedChannels)
     {
         for (auto& light : Frame.LightColors)
             light = {2, 2, 2, 1};
@@ -871,7 +823,7 @@ namespace
             EXPECT_NEAR(packed[channel], equivalent[channel], 2e-6f);
     }
 
-    TEST_P(StandardMaterialGL, OcclusionRedChannelAndStrengthOnlyAttenuateIbl)
+    TEST_P(StandardMaterialGpu, OcclusionRedChannelAndStrengthOnlyAttenuateIbl)
     {
         // Known diffuse IBL: dielectric kD=0.96, irradiance=0.5, albedo=0.25.
         SetIrradiance({0.5f, 0.5f, 0.5f, 1});
@@ -1109,8 +1061,7 @@ namespace
             commands->EndRendering();
             device->Submit(commands);
             auto pixels = ReadImage(color);
-            if (TestBackend() == GpuTestBackend::OpenGL)
-                EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+            
             // The left half stays clear: the object transform was applied.
             EXPECT_EQ(pixels[(Size / 2 * Size + Size / 4) * 4 + 1], 0);
             const uint8_t* p = &pixels[(Size / 2 * Size + 3 * Size / 4) * 4];
@@ -1144,7 +1095,7 @@ void main() { color = texture(other, vec2(0)); }
     }
 
     // The editor's sample products create from the same bytecode on each backend.
-    TEST_P(RenderAssetCacheGPU, EditorSampleShaderProductsCreateOnBothBackends)
+    TEST_P(RenderAssetCacheGPU, EditorSampleShaderProductsCreateOnVulkan)
     {
         const auto read = [](const std::string& name) {
             std::ifstream     file(std::string(KANS_TEST_EDITOR_ASSET_DIR) + "/shaders/" + name);
@@ -1230,13 +1181,7 @@ void main() { color = texture(other, vec2(0)); }
         info.pointLight.Diffuse_Intensity = {2, 2, 2};
         ProductModelComponent component;
         component.Model = modelID;
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            glDisable(GL_CULL_FACE);
-            glDisable(GL_BLEND);
-            glEnable(GL_DEPTH_TEST);
-            glViewport(0, 0, 16, 16);
-        }
+
         const auto read = [&](int x) {
             // Model submissions are consumed at EndScene; inspect the scene texture after unbinding it.
             auto                   image = ReadImage(renderer.GetRenderTarget().Colors[0].Target);
@@ -1280,19 +1225,7 @@ void main() { color = texture(other, vec2(0)); }
         renderer.BeginScene(info);
         SubmitLegacyOracle(renderer, component, glm::mat4(1));
         renderer.EndScene();
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            NativeUIFrame ui;
-            GLint         polygon[2] {};
-            // ImGui must establish filled drawing after a wireframe RHI pass; it restores wireframe afterwards.
-            ImGui::GetBackgroundDrawList()->AddCallback(
-                [](const ImDrawList*, const ImDrawCmd* command) {
-                    glGetIntegerv(GL_POLYGON_MODE, static_cast<GLint*>(command->UserCallbackData));
-                },
-                polygon);
-            ui.Draw();
-            EXPECT_EQ(polygon[0], GLint(GL_FILL));
-        }
+
         EXPECT_LT(read(2)[0], 50); // Interior away from the triangulation diagonal stays clear.
         auto selected = scene->CreateEntityWithID(UUID(7), "Pick prefab", false);
         selected.AddComponent<PrefabInstanceComponent>().Prefab = component.Model;
@@ -1301,8 +1234,6 @@ void main() { color = texture(other, vec2(0)); }
         ASSERT_EQ(parts.size(), 2u);
         EXPECT_EQ(renderer.PickSceneSurface(*scene, glm::mat4(1), {4, 8}).EntityID, parts[0].GetUUID());
         EXPECT_EQ(renderer.PickSceneSurface(*scene, glm::mat4(1), {4, 8}).InstanceRoot, UUID(7));
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
     TEST_P(RenderAssetCacheGPU, ImportedRemappedModelDrawsAuthoredSlotAndPartOverrides)
@@ -1400,8 +1331,6 @@ void main() { color = texture(other, vec2(0)); }
         EXPECT_EQ(draw(), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         component.SetOverride(meshID, materials.at("part"));
         EXPECT_EQ(draw(), (std::array<uint8_t, 4> {0, 0, 255, 255}));
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
     TEST_P(RenderAssetCacheGPU, UnsupportedLegacyModelAppearsWithItsOldPartOverridesAfterOpenTimeSweep)
@@ -1503,13 +1432,13 @@ void main() { color = texture(other, vec2(0)); }
         EXPECT_EQ(component.Overrides[1].Authored, Legacy::ID(5));
     }
 
-    class MaterialSceneGL : public RenderAssetCacheGL, public testing::WithParamInterface<GpuTestBackend>
+    class MaterialSceneGpu : public RenderAssetCacheGpu, public testing::WithParamInterface<GpuTestBackend>
     {
     protected:
         GpuTestBackend TestBackend() const override { return GetParam(); }
         void SetUp() override
         {
-            ASSERT_NO_FATAL_FAILURE(RenderAssetCacheGL::SetUp());
+            ASSERT_NO_FATAL_FAILURE(RenderAssetCacheGpu::SetUp());
             Assets     = CreateScope<AssetManager>(Provider, Registry({}));
             LogicScene = CreateRef<Scene>();
             Render     = CreateScope<RenderScene>(LogicScene);
@@ -1530,8 +1459,6 @@ layout(location = 0) out vec4 o_Color;
 void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlpha(p.Tint.a)); }
 )");
             ShaderID                          = Add(AssetType::Shader, EncodeShaderProduct(Custom.Code));
-            if (TestBackend() == GpuTestBackend::OpenGL)
-                glDisable(GL_FRAMEBUFFER_SRGB);
         }
         void TearDown() override
         {
@@ -1539,7 +1466,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
             Render.reset();
             LogicScene.reset();
             Assets.reset();
-            RenderAssetCacheGL::TearDown();
+            RenderAssetCacheGpu::TearDown();
         }
         AssetID Add(AssetType type, std::variant<std::vector<std::byte>, AssetError> encoded)
         {
@@ -1651,18 +1578,18 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         std::vector<AssetID>       Models, Meshes, Materials;
     };
 
-    class MaterialSceneNativeGL : public MaterialSceneGL
+    class MaterialSceneNativeGpu : public MaterialSceneGpu
     {
     protected:
-        GpuTestBackend TestBackend() const override { return GpuTestBackend::OpenGL; }
+        GpuTestBackend TestBackend() const override { return GpuTestBackend::Vulkan; }
     };
-    class MultiPassSceneGL : public MaterialSceneGL
+    class MultiPassSceneGpu : public MaterialSceneGpu
     {
     protected:
         static constexpr uint32_t Size = 128;
         void                      SetUp() override
         {
-            MaterialSceneGL::SetUp();
+            MaterialSceneGpu::SetUp();
             Render->OnViewportResize(Size, Size);
             Renderer->SetViewportSize(Size, Size);
             Info.sceneCamera.camera     = Camera(glm::ortho(-1.f, 1.f, -1.f, 1.f, .1f, 10.f));
@@ -1746,7 +1673,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         }
     };
 
-    TEST_P(MultiPassSceneGL, InvertedHullSphereHasExteriorRingAndExactUnchangedInteriorAndDepth)
+    TEST_P(MultiPassSceneGpu, InvertedHullSphereHasExteriorRingAndExactUnchangedInteriorAndDepth)
     {
         // Bugs: wrong cull/depth/write state, outline before opaque, lost material width or object transform/normal
         // matrix.
@@ -1827,7 +1754,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         EXPECT_EQ(state.Blends[0].WriteMask, 7u);
     }
 
-    TEST_P(MultiPassSceneGL, ForegroundOpaqueOccludesHullAndUnTaggedMaterialsAddNoPass)
+    TEST_P(MultiPassSceneGpu, ForegroundOpaqueOccludesHullAndUnTaggedMaterialsAddNoPass)
     {
         // Bugs: no tag filter, missing depth test, or feature draws cached but unsubmitted models.
         auto       tagged       = Sphere(Color({1, 0, 0, 1}));
@@ -1881,7 +1808,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         EXPECT_FALSE(shader->Passes[0].Pipelines.empty());
     }
 
-    TEST_P(MultiPassSceneGL, FeatureHonorsPreparedOrderAndUnreadyDrawsAtConfigurablePoint)
+    TEST_P(MultiPassSceneGpu, FeatureHonorsPreparedOrderAndUnreadyDrawsAtConfigurablePoint)
     {
         // Bug: feature scans View.Draws or cache contents and reintroduces draws culled by a pipeline.
         auto left = Sphere(Color({1, 0, 0, 1})), right = Sphere(Color({0, 1, 0, 1}));
@@ -1939,7 +1866,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
         EXPECT_EQ(unready.PassCount(), 0u);
     }
 
-    TEST_P(MultiPassSceneGL, ExtraPassReceivesEachObjectsMaterialRenderDataAndOnlyMatchingTagsRun)
+    TEST_P(MultiPassSceneGpu, ExtraPassReceivesEachObjectsMaterialRenderDataAndOnlyMatchingTagsRun)
     {
         // Bug: the extra pass gets an old/short object block or the previous object's alpha mode/cutoff/double-sided
         // values.
@@ -1992,7 +1919,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_FALSE(shader->Passes[1].Pipelines.empty());
     }
 
-    TEST_P(MultiPassSceneGL, RuntimeUsesEveryPassStateAndCachesIndependentlyOfMainMaterial)
+    TEST_P(MultiPassSceneGpu, RuntimeUsesEveryPassStateAndCachesIndependentlyOfMainMaterial)
     {
         // Bug: extra pipelines inherit main cull/depth/blend state, or share its cached pipeline.
         Custom.Passes[0].State = {ShaderCullMode::None,
@@ -2041,7 +1968,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(At(Image(), 64, 64)[2], 0u);
     }
 
-    TEST_P(MaterialSceneGL, PerDrawGroupsReusePoolsAndPipelinesAfterWarmup)
+    TEST_P(MaterialSceneGpu, PerDrawGroupsReusePoolsAndPipelinesAfterWarmup)
     {
         // Bugs: rebuilding a graphics pipeline per draw, creating a descriptor
         // pool per group, or retaining retired per-draw sets until pools grow each frame.
@@ -2081,7 +2008,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
                 frame();
     }
 
-    TEST_P(MaterialSceneGL, RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel)
+    TEST_P(MaterialSceneGpu, RuntimeGridPreservesLegacyOpaquePixelsAndOccludesSkyAroundModel)
     {
         using namespace RenderHardware;
         constexpr uint32_t size = 64;
@@ -2169,7 +2096,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u); // The model really executed.
     }
 
-    TEST_P(MaterialSceneGL, HighlightUsesReimportedMeshAfterQueuedGpuResourceIsDestroyed)
+    TEST_P(MaterialSceneGpu, HighlightUsesReimportedMeshAfterQueuedGpuResourceIsDestroyed)
     {
         const auto material = Color({0, 1, 0, 1});
         const auto model    = Quad(material, 0, false, -1, 0);
@@ -2209,8 +2136,6 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {31, 243, 5, 255}));  // Green material plus orange fill.
         EXPECT_EQ(Pixel(2), (std::array<uint8_t, 4> {5, 5, 5, 255}));      // No stale left silhouette.
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
 
         // Highlights are consumed by EndScene, rather than leaking into later frames.
         Renderer->BeginScene(Info);
@@ -2219,7 +2144,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         EXPECT_EQ(Pixel(12), (std::array<uint8_t, 4> {5, 5, 5, 255}));
     }
 
-    TEST_P(MaterialSceneGL, TargetAlphaIsOpaqueEvenWhenProjectShadersReturnFractionalAlpha)
+    TEST_P(MaterialSceneGpu, TargetAlphaIsOpaqueEvenWhenProjectShadersReturnFractionalAlpha)
     {
         // A project shader can bypass KansOutputAlpha; opaque/mask draws must not punch holes in ImGui.
         Custom.Code       = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
@@ -2232,29 +2157,14 @@ void main() { o_Color = p.Tint; }
         const auto opaque = Quad(Color({0, 1, 0, 0.3}));
         const auto mask   = Quad(Color({0, 0, 1, 0.3}, MaterialAlphaMode::Mask));
         Ready();
-        std::unique_ptr<NativeUIFrame> ui;
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            ui = std::make_unique<NativeUIFrame>();
-            glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
-        }
+
         for (const auto& model : {blend, opaque, mask})
         {
             Renderer->BeginScene(Info);
             SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
             Renderer->EndScene();
             EXPECT_EQ(Pixel()[3], 255);
-            if (ui)
-            {
-                glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
-                ui->Draw();
-                GLboolean mask[4];
-                glGetBooleanv(GL_COLOR_WRITEMASK, mask);
-                EXPECT_EQ(mask[0], GL_FALSE);
-                EXPECT_EQ(mask[1], GL_TRUE);
-                EXPECT_EQ(mask[2], GL_FALSE);
-                EXPECT_EQ(mask[3], GL_TRUE);
-            }
+
             if (model.Model == blend.Model)
             {
                 EXPECT_NEAR(Pixel()[0], 68, 1); // .25 red + .75 * 5/255 clear colour.
@@ -2265,13 +2175,9 @@ void main() { o_Color = p.Tint; }
             else
                 EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {0, 0, 255, 255}));
         }
-        if (ui)
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        if (ui)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_P(MaterialSceneGL, LegacyStencilOptionDrawsARingOutsideTheModelAndClearsPreviousReferences)
+    TEST_P(MaterialSceneGpu, LegacyStencilOptionDrawsARingOutsideTheModelAndClearsPreviousReferences)
     {
         // Deferred submissions must preserve write-reference/exclude-reference intent, not the last GL state.
         SceneRendererSpecification spec;
@@ -2291,23 +2197,9 @@ void main() { o_Color = p.Tint; }
         resource.Piplinestate.EnableStencil    = true;
         resource.Piplinestate.EnableGridShader = false;
         Render->SetRenderResource(resource);
-        // EGL's default framebuffer has no stencil bits and clamps stencil references to 0.
+        // EGpu's default framebuffer has no stencil bits and clamps stencil references to 0.
         // Verify restoration against a real external stencil target, as another render pass would.
-        GLuint external = 0, externalColour = 0, externalDepth = 0;
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            glGenFramebuffers(1, &external);
-            glBindFramebuffer(GL_FRAMEBUFFER, external);
-            glGenRenderbuffers(1, &externalColour);
-            glBindRenderbuffer(GL_RENDERBUFFER, externalColour);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, 16, 16);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, externalColour);
-            glGenRenderbuffers(1, &externalDepth);
-            glBindRenderbuffer(GL_RENDERBUFFER, externalDepth);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 16, 16);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, externalDepth);
-            ASSERT_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GLenum(GL_FRAMEBUFFER_COMPLETE));
-        }
+
         for (const float x : {0.0f, -0.125f})
         {
             entity.GetComponent<TransformComponent>().Position.x = x;
@@ -2320,49 +2212,9 @@ void main() { o_Color = p.Tint; }
             EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {0, 255, 0, 255}));
             EXPECT_EQ(Renderer->GetStats().DrawCalls, 2u);
         }
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            NativeUIFrame ui;
-            glBindFramebuffer(GL_FRAMEBUFFER, external);
-            glEnable(GL_STENCIL_TEST);
-            glStencilFuncSeparate(GL_FRONT, GL_EQUAL, 3, 0x37);
-            glStencilFuncSeparate(GL_BACK, GL_GREATER, 4, 0x73);
-            glStencilMaskSeparate(GL_FRONT, 0x12);
-            glStencilMaskSeparate(GL_BACK, 0x21);
-            glStencilOpSeparate(GL_FRONT, GL_INCR, GL_DECR, GL_INVERT);
-            glStencilOpSeparate(GL_BACK, GL_ZERO, GL_REPLACE, GL_KEEP);
-            glClearStencil(9);
-            ui.Draw();
-            EXPECT_EQ(glIsEnabled(GL_STENCIL_TEST), GL_TRUE);
-            for (auto [property, expected] : {std::pair {GL_STENCIL_FUNC, GL_EQUAL},
-                                              {GL_STENCIL_REF, 3},
-                                              {GL_STENCIL_VALUE_MASK, 0x37},
-                                              {GL_STENCIL_WRITEMASK, 0x12},
-                                              {GL_STENCIL_FAIL, GL_INCR},
-                                              {GL_STENCIL_PASS_DEPTH_FAIL, GL_DECR},
-                                              {GL_STENCIL_PASS_DEPTH_PASS, GL_INVERT},
-                                              {GL_STENCIL_BACK_FUNC, GL_GREATER},
-                                              {GL_STENCIL_BACK_REF, 4},
-                                              {GL_STENCIL_BACK_VALUE_MASK, 0x73},
-                                              {GL_STENCIL_BACK_WRITEMASK, 0x21},
-                                              {GL_STENCIL_BACK_FAIL, GL_ZERO},
-                                              {GL_STENCIL_BACK_PASS_DEPTH_FAIL, GL_REPLACE},
-                                              {GL_STENCIL_BACK_PASS_DEPTH_PASS, GL_KEEP},
-                                              {GL_STENCIL_CLEAR_VALUE, 9}})
-            {
-                GLint value;
-                glGetIntegerv(property, &value);
-                EXPECT_EQ(value, expected) << property;
-            }
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glDeleteFramebuffers(1, &external);
-            glDeleteRenderbuffers(1, &externalColour);
-            glDeleteRenderbuffers(1, &externalDepth);
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
-        }
     }
 
-    TEST_P(MaterialSceneGL, LegacyOutlineCullsFrontFacesAndKeepsTheInflatedBackShell)
+    TEST_P(MaterialSceneGpu, LegacyOutlineCullsFrontFacesAndKeepsTheInflatedBackShell)
     {
         // Disabling culling paints the inflated front surface black outside its material silhouette.
         SceneRendererSpecification spec;
@@ -2393,11 +2245,9 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Pixel(3), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         EXPECT_EQ(Pixel(11), (std::array<uint8_t, 4> {0, 255, 0, 255}));
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_P(MaterialSceneGL, DebugNormalLinesKeepIndexedEndpointsWithoutDepthOrAlphaWrites)
+    TEST_P(MaterialSceneGpu, DebugNormalLinesKeepIndexedEndpointsWithoutDepthOrAlphaWrites)
     {
         // Catches a missing endpoint expansion, wrong line stride/count, and depth
         // writes. A .05 clip displacement spans 1.6 pixels in this 64-pixel target.
@@ -2469,96 +2319,43 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Renderer->GetStats().Triangles, 1u);
     }
 
-    // Instrument actual driver calls, forwarding every call and restoring GLAD pointers on scope exit.
+    // Observe actual Vulkan uniform writes, without changing engine submission.
     class FrameUploadTrace
     {
     public:
         FrameUploadTrace()
         {
-            Active               = this;
-            glad_glBufferSubData = Record;
+            RenderHardware::VulkanTestProbes::SetBufferWriteObserver(
+                *RenderHardware::GetSharedDevice(),
+                [this](const RenderHardware::BufferDesc& desc, size_t, const void* data, size_t bytes) {
+                    if (!(uint32_t(desc.Usage) & uint32_t(RenderHardware::BufferUsage::Uniform)))
+                        return;
+                    if (bytes == sizeof(EngineFrameUniforms))
+                        Views.push_back(static_cast<const EngineFrameUniforms*>(data)->DebugView);
+                    else if (bytes == sizeof(EngineObjectUniforms))
+                        ++Objects;
+                });
         }
         ~FrameUploadTrace()
         {
-            glad_glBufferSubData = Original;
-            Active               = nullptr;
+            RenderHardware::VulkanTestProbes::SetBufferWriteObserver(*RenderHardware::GetSharedDevice(), {});
         }
         std::vector<float> Views;
         uint32_t           Objects = 0;
-
-    private:
-        static FrameUploadTrace* Active;
-        PFNGLBUFFERSUBDATAPROC   Original = glad_glBufferSubData;
-        static void APIENTRY     Record(GLenum target, GLintptr offset, GLsizeiptr bytes, const void* data)
-        {
-            if (target == GL_COPY_WRITE_BUFFER)
-            {
-                if (bytes == sizeof(EngineFrameUniforms))
-                    Active->Views.push_back(static_cast<const EngineFrameUniforms*>(data)->DebugView);
-                else if (bytes == sizeof(EngineObjectUniforms))
-                    ++Active->Objects;
-            }
-            Active->Original(target, offset, bytes, data);
-        }
     };
-    FrameUploadTrace* FrameUploadTrace::Active = nullptr;
 
-    class RasterQueryTrace
+    TEST_F(MaterialSceneNativeGpu, DeferredSubmissionPreservesQueuedMaterialAndGeometryDraws)
     {
-    public:
-        RasterQueryTrace()
-        {
-            Active             = this;
-            glad_glGetIntegerv = RecordInteger;
-            glad_glGetBooleanv = RecordBoolean;
-            glad_glIsEnabled   = RecordEnabled;
-        }
-        ~RasterQueryTrace()
-        {
-            glad_glGetIntegerv = Integer;
-            glad_glGetBooleanv = Boolean;
-            glad_glIsEnabled   = Enabled;
-            Active             = nullptr;
-        }
-        uint32_t Queries = 0;
-
-    private:
-        static RasterQueryTrace* Active;
-        PFNGLGETINTEGERVPROC     Integer = glad_glGetIntegerv;
-        PFNGLGETBOOLEANVPROC     Boolean = glad_glGetBooleanv;
-        PFNGLISENABLEDPROC       Enabled = glad_glIsEnabled;
-        static void APIENTRY     RecordInteger(GLenum name, GLint* value)
-        {
-            ++Active->Queries;
-            Active->Integer(name, value);
-        }
-        static void APIENTRY RecordBoolean(GLenum name, GLboolean* value)
-        {
-            ++Active->Queries;
-            Active->Boolean(name, value);
-        }
-        static GLboolean APIENTRY RecordEnabled(GLenum name)
-        {
-            ++Active->Queries;
-            return Active->Enabled(name);
-        }
-    };
-    RasterQueryTrace* RasterQueryTrace::Active = nullptr;
-
-    TEST_F(MaterialSceneNativeGL, DeferredSubmissionDoesNotQueryDriverRasterState)
-    {
-        // Per-submission GL snapshots make driver-query cost grow with every entity/outline.
+        // Deferred submission must retain both material and geometry passes.
         const auto model = Quad(Color({1, 0, 0, 1}));
         Ready();
         Renderer->BeginScene(Info);
         {
-            RasterQueryTrace trace;
             SubmitLegacyOracle(*Renderer, model, glm::mat4(1), ModelStencilMode::WriteReference);
             SubmitLegacyOracle(*Renderer, model, glm::mat4(1));
             SubmitLegacyGeometryOracle(
                 *Renderer, model, glm::mat4(1), "StencilShader", ModelGeometryMode::StencilOutline);
             SubmitLegacyGeometryOracle(*Renderer, model, glm::mat4(1), "OutLineShader", ModelGeometryMode::BackFaces);
-            EXPECT_EQ(trace.Queries, 0u);
         }
         Renderer->EndScene();
         // Engine-owned built-ins are available without Renderer::Init; both
@@ -2566,7 +2363,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 4u);
     }
 
-    TEST_F(MaterialSceneNativeGL, FrameUniformsUploadOnlyAtDebugViewTransitionsIncludingLitPreview)
+    TEST_F(MaterialSceneNativeGpu, FrameUniformsUploadOnlyAtDebugViewTransitionsIncludingLitPreview)
     {
         // Re-uploading frame data for every object regresses scene submission cost; preview still needs Lit data.
         const auto opaque = Quad(Color({1, 0, 0, 1}));
@@ -2592,11 +2389,9 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(trace.Views, (std::vector<float> {2, 0, 2}));
         EXPECT_EQ(trace.Objects, 5u);
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 5u);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_P(MaterialSceneGL, ImportedGyLightPlacementAndSelectedFrameMatchLegacyParts)
+    TEST_P(MaterialSceneGpu, ImportedGyLightPlacementAndSelectedFrameMatchLegacyParts)
     {
         // Bug: transforming the merged AABB instead of each part's AABB changes
         // drop placement by sub-micrometres, perturbing Standard shading pixels.
@@ -2738,7 +2533,7 @@ void main() { o_Color = p.Tint; }
             SubmitLegacyOracle(*Renderer, model, transform, ModelStencilMode::WriteReference);
             HighlightLegacyOracle(*Renderer, *LogicScene, {{model, transform}});
             Renderer->EndScene();
-            return RenderAssetCacheGL::ReadImage(Renderer->GetRenderTarget().Colors[0].Target);
+            return RenderAssetCacheGpu::ReadImage(Renderer->GetRenderTarget().Colors[0].Target);
         };
         const auto expected = draw(baseline);
         const auto oldStats = Renderer->GetStats();
@@ -2780,7 +2575,7 @@ void main() { o_Color = p.Tint; }
         }
     }
 
-    TEST_P(MaterialSceneGL, SharedSectionsMatchSeparatePartsByteForByteIncludingOverridesOrderAndPicking)
+    TEST_P(MaterialSceneGpu, SharedSectionsMatchSeparatePartsByteForByteIncludingOverridesOrderAndPicking)
     {
         // Bugs: drawing the full shared index buffer for each part, dropping the
         // third part's old-ID override, sorting with whole-mesh bounds, or
@@ -2909,7 +2704,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(picker.Pick({{uploaded, glm::mat4(1), 99, 2}}, glm::mat4(1), {16, 16}, {1, 1}), 0u);
     }
 
-    TEST_P(MaterialSceneGL, BlendSortsAcrossModelsAndPreviewByTransformedBoundsAfterOpaque)
+    TEST_P(MaterialSceneGpu, BlendSortsAcrossModelsAndPreviewByTransformedBoundsAfterOpaque)
     {
         // Submission order and object-origin distance both put red before blue, which gives the wrong colour.
         const auto near       = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), -0.8f);
@@ -2944,18 +2739,15 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(preview[3], 255);
         EXPECT_NEAR(Depth(), 0.95f, 1e-6f);
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    TEST_P(MaterialSceneGL, BlendTestsOpaqueDepthAndLeavesUncoveredDepthClear)
+    TEST_P(MaterialSceneGpu, BlendTestsOpaqueDepthAndLeavesUncoveredDepthClear)
     {
         // A blend behind the opaque half must be occluded, and must not write depth in the other half.
         const auto opaque = Quad(Color({0, 1, 0, 1}), 0, false, 0, 1);
         const auto blend  = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), 0.5f);
         Ready();
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            glDisable(GL_DEPTH_TEST);
+
         Renderer->BeginScene(Info);
         SubmitLegacyOracle(*Renderer, blend, glm::mat4(1));
         SubmitLegacyOracle(*Renderer, opaque, glm::mat4(1));
@@ -2967,7 +2759,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_NEAR(Depth(12), 0.5f, 1e-6f);
     }
 
-    TEST_P(MaterialSceneGL, BlendDistanceUsesTheCameraAndEachPartsBoundsWithinOneModel)
+    TEST_P(MaterialSceneGpu, BlendDistanceUsesTheCameraAndEachPartsBoundsWithinOneModel)
     {
         // Equal-depth parts need radial distance from the camera, not node origin or camera-space Z.
         Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend), 0, false, -0.2f, 1);
@@ -2988,7 +2780,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(pixel[3], 255);
     }
 
-    TEST_P(MaterialSceneGL, StandardMaskMultipliesTextureFactorAndVertexAlphaAndRetainsCutoffEquality)
+    TEST_P(MaterialSceneGpu, StandardMaskMultipliesTextureFactorAndVertexAlphaAndRetainsCutoffEquality)
     {
         TextureData texture;
         texture.Width        = 3;
@@ -3064,7 +2856,7 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Pixel(13)[3], 255);
     }
 
-    TEST_P(MaterialSceneGL, FailedCustomShaderAndDebugFallbackKeepBlendAndDoubleSidedState)
+    TEST_P(MaterialSceneGpu, FailedCustomShaderAndDebugFallbackKeepBlendAndDoubleSidedState)
     {
         // Falling back to Standard must not reset render state along with the incompatible named parameters.
         const auto     broken   = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
@@ -3095,7 +2887,7 @@ void main() { o_Color = vec4(1); }
         }
     }
 
-    TEST_P(MaterialSceneGL, DoubleSidedBackFacesFlipNormalsAndDoNotDisableCullingForTheNextPart)
+    TEST_P(MaterialSceneGpu, DoubleSidedBackFacesFlipNormalsAndDoNotDisableCullingForTheNextPart)
     {
         MaterialSource source;
         source.Parameters["BaseColor"] = {1, 0, 0, 1};
@@ -3104,8 +2896,7 @@ void main() { o_Color = vec4(1); }
         source.Render.DoubleSided      = false;
         const auto singleSided         = Quad(Material(source, false), 0, true, 0, 1);
         Ready();
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            glDisable(GL_CULL_FACE);
+
         Renderer->SetViewMode(SceneViewMode::Normals);
         Renderer->BeginScene(Info);
         SubmitLegacyOracle(*Renderer, doubleSided, glm::mat4(1));
@@ -3119,68 +2910,28 @@ void main() { o_Color = vec4(1); }
         SubmitLegacyOracle(*Renderer, doubleSided, glm::mat4(1));
         Renderer->EndScene();
         EXPECT_GT(Pixel(4)[0], 150); // A light on -Z must illuminate the flipped back-face normal.
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_FALSE);
     }
 
-    TEST_F(MaterialSceneNativeGL, ImGuiRestoresDepthCullBlendFunctionsAndWireframeModeAfterPreviewOutline)
+    TEST_F(MaterialSceneNativeGpu, ImGuiPreservesPreviewOutlineAlpha)
     {
-        // Bug: the surviving native UI renderer leaks raster state after rendering over a scene preview.
         const auto model = Quad(Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend, true), 0, false, -0.5f, 0.5f);
         Ready();
         Renderer->BeginScene(Info);
         Renderer->SetPreview(model.Model, glm::mat4(1));
         Renderer->EndScene();
-        NativeUIFrame ui;
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            glDisable(GL_DEPTH_TEST);
-        glDepthFunc(GL_GREATER);
-        glDepthMask(GL_FALSE);
-        glEnable(GL_BLEND);
-        glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
-        glBlendEquationSeparate(GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        TestUIFrame ui;
         ui.Draw();
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glIsEnabled(GL_CULL_FACE), GL_TRUE);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glIsEnabled(GL_DEPTH_TEST), GL_FALSE);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glIsEnabled(GL_BLEND), GL_TRUE);
-        GLboolean depthWrite;
-        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
-        EXPECT_EQ(depthWrite, GL_FALSE);
-        for (auto [property, expected] : {std::pair {GL_CULL_FACE_MODE, GL_FRONT},
-                                          {GL_DEPTH_FUNC, GL_GREATER},
-                                          {GL_BLEND_SRC_RGB, GL_ONE},
-                                          {GL_BLEND_DST_RGB, GL_ZERO},
-                                          {GL_BLEND_SRC_ALPHA, GL_ONE},
-                                          {GL_BLEND_DST_ALPHA, GL_ZERO},
-                                          {GL_BLEND_EQUATION_RGB, GL_FUNC_SUBTRACT},
-                                          {GL_BLEND_EQUATION_ALPHA, GL_FUNC_REVERSE_SUBTRACT}})
-        {
-            GLint actual;
-            glGetIntegerv(property, &actual);
-            EXPECT_EQ(actual, expected) << property;
-        }
-        GLint polygon[2];
-        glGetIntegerv(GL_POLYGON_MODE, polygon);
-        EXPECT_EQ(polygon[0], GLint(GL_LINE));
         EXPECT_EQ(Pixel(8)[3], 255);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
-    class SurfacePickerGL : public RenderAssetCacheGL,
-                            public testing::WithParamInterface<std::tuple<GpuTestBackend, bool>>
+    class SurfacePickerGpu : public RenderAssetCacheGpu,
+                             public testing::WithParamInterface<std::tuple<GpuTestBackend, bool>>
     {
     protected:
         GpuTestBackend TestBackend() const override { return std::get<0>(GetParam()); }
     };
 
-    TEST_P(SurfacePickerGL, UnprojectsNearestDepthAtPixelCentreAndClearsPreviousHit)
+    TEST_P(SurfacePickerGpu, UnprojectsNearestDepthAtPixelCentreAndClearsPreviousHit)
     {
         MeshData quad;
         for (auto [x, y] : {std::pair {-3.0f, -3.0f}, {3.0f, -3.0f}, {3.0f, 3.0f}, {-3.0f, 3.0f}})
@@ -3202,13 +2953,7 @@ void main() { o_Color = vec4(1); }
         const MeshDraw  far {&mesh, glm::translate(glm::mat4(1.0f), {10, 20, 24}), 9};
 
         // Picking must establish its depth state even after other render passes.
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            glDepthMask(GL_FALSE);
-            glDepthFunc(GL_GREATER);
-            glDepthRange(0.25, 0.75);
-            glClearDepth(0.0);
-        }
+
         EntityPicker picker;
         const auto   hit = picker.PickSurface({near, far}, viewProjection, {32, 16}, {19, 5});
         ASSERT_EQ(hit.ID, 7u);
@@ -3219,19 +2964,7 @@ void main() { o_Color = vec4(1); }
         EXPECT_NEAR(hit.Position->x, 11.75f, 2e-5f);
         EXPECT_NEAR(hit.Position->y, 18.75f, 2e-5f);
         EXPECT_NEAR(hit.Position->z, 26.0f, 2e-5f);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            NativeUIFrame ui;
-            glDepthMask(GL_FALSE);
-            glDepthFunc(GL_GREATER);
-            ui.Draw();
-            GLboolean depthMask     = GL_TRUE;
-            GLint     depthFunction = 0;
-            glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
-            glGetIntegerv(GL_DEPTH_FUNC, &depthFunction);
-            EXPECT_EQ(depthMask, GL_FALSE);
-            EXPECT_EQ(depthFunction, GL_GREATER);
-        }
+
         // Reusing the pixel must clear its old nearer depth.
         const auto farther = picker.PickSurface({far}, viewProjection, {32, 16}, {19, 5});
         ASSERT_EQ(farther.ID, 9u);
@@ -3244,17 +2977,13 @@ void main() { o_Color = vec4(1); }
         const auto empty = picker.PickSurface({elsewhere}, viewProjection, {32, 16}, {19, 5});
         EXPECT_EQ(empty.ID, 0u);
         EXPECT_FALSE(empty.Position);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
     INSTANTIATE_TEST_SUITE_P(Projections,
-                             SurfacePickerGL,
-                             testing::Combine(testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                                              testing::Values(true, false)),
+                             SurfacePickerGpu,
+                             testing::Combine(testing::Values(GpuTestBackend::Vulkan), testing::Values(true, false)),
                              [](const testing::TestParamInfo<std::tuple<GpuTestBackend, bool>>& info) {
-                                 return std::string(std::get<0>(info.param) == GpuTestBackend::OpenGL ? "OpenGL" :
-                                                                                                        "Vulkan") +
+                                 return std::string("Vulkan") +
                                         (std::get<1>(info.param) ? "Perspective" : "Orthographic");
                              });
 
@@ -3282,36 +3011,13 @@ void main() { o_Color = vec4(1); }
         EXPECT_EQ(picker.Pick(draws, glm::mat4(1.0f), {Size, Size}, {4, 8}), 7u);
         EXPECT_EQ(picker.Pick(draws, glm::mat4(1.0f), {Size, Size}, {12, 8}), 0u);
         EXPECT_EQ(picker.Pick({}, glm::mat4(1.0f), {Size, Size}, {4, 8}), 0u);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
 
-        GLuint framebuffer = 0, color = 0;
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            glGenFramebuffers(1, &framebuffer);
-            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-            glGenTextures(1, &color);
-            glBindTexture(GL_TEXTURE_2D, color);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Size, Size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
-            glViewport(0, 0, Size, Size);
-            glClearColor(0, 0, 0, 1);
-            glClear(GL_COLOR_BUFFER_BIT);
-        }
         auto                        device = mesh.Device;
         RenderHardware::TextureDesc outlineDesc;
         outlineDesc.Width = outlineDesc.Height = Size;
         outlineDesc.Usage  = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
         auto outlineTarget = device->CreateTexture(outlineDesc);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            glFramebufferTexture2D(GL_FRAMEBUFFER,
-                                   GL_COLOR_ATTACHMENT0,
-                                   GL_TEXTURE_2D,
-                                   GLuint(device->GetImGuiTextureID(outlineTarget)),
-                                   0);
-            glClear(GL_COLOR_BUFFER_BIT);
-        }
+
         RenderHardware::RenderingDesc target;
         target.Colors = {
             {outlineTarget, {}, RenderHardware::LoadOp::Clear, RenderHardware::StoreOp::Store, {0, 0, 0, 1}}};
@@ -3322,21 +3028,8 @@ void main() { o_Color = vec4(1); }
         target.Colors[0].Load = RenderHardware::LoadOp::Load;
         SelectionOutline outline(device);
         outline.Draw(target, draws, glm::mat4(1.0f), {Size, Size}, {1, 0, 0, 1}, 2.0f);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+
         std::array<uint8_t, Size * Size * 4> pixels {};
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            NativeUIFrame ui;
-            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-            ui.Draw();
-            // ImGui restores the caller's target; outline pixels are still read from that image.
-            GLint bound = 0;
-            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &bound);
-            EXPECT_EQ(GLuint(bound), framebuffer);
-            glReadPixels(0, 0, Size, Size, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-        }
-        else
         {
             auto bytes = ReadImage(outlineTarget);
             std::copy(bytes.begin(), bytes.end(), pixels.begin());
@@ -3346,14 +3039,8 @@ void main() { o_Color = vec4(1); }
         EXPECT_EQ(red(14, 8), 0);   // Far from it.
         EXPECT_GT(red(4, 8), 0);    // Faint fill inside.
         EXPECT_LT(red(4, 8), 80);
-        if (TestBackend() == GpuTestBackend::OpenGL)
-        {
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glDeleteTextures(1, &color);
-            glDeleteFramebuffers(1, &framebuffer);
-        }
     }
-    class MaterialPreviewGL : public MaterialSceneGL
+    class MaterialPreviewGpu : public MaterialSceneGpu
     {
     protected:
         MaterialPreviewOptions Options {{64, 64}, MaterialPreviewShape::Plane, {0, 0}};
@@ -3363,15 +3050,6 @@ void main() { o_Color = vec4(1); }
             if (auto* error = std::get_if<AssetError>(&result))
                 throw std::runtime_error(error->Message);
             return std::get<MaterialData>(std::move(result));
-        }
-        std::array<uint8_t, 4> PreviewPixel(uint32_t texture, int x = 32, int y = 32)
-        {
-            std::vector<uint8_t> image(size_t(Options.Size.x) * Options.Size.y * 4);
-            glBindTexture(GL_TEXTURE_2D, texture);
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data());
-            std::array<uint8_t, 4> pixel;
-            std::copy_n(image.data() + (y * Options.Size.x + x) * 4, 4, pixel.data());
-            return pixel;
         }
         std::array<uint8_t, 4>
         PreviewPixel(const RenderHardware::Handle<RenderHardware::Texture>& texture, int x = 32, int y = 32)
@@ -3399,13 +3077,13 @@ void main() { o_Color = vec4(1); }
         }
     };
 
-    class MaterialPreviewNativeGL : public MaterialPreviewGL
+    class MaterialPreviewNativeGpu : public MaterialPreviewGpu
     {
     protected:
-        GpuTestBackend TestBackend() const override { return GpuTestBackend::OpenGL; }
+        GpuTestBackend TestBackend() const override { return GpuTestBackend::Vulkan; }
     };
 
-    TEST_P(MaterialPreviewGL, UnsavedValuesAndShaderChangesReachPixelsInLitMode)
+    TEST_P(MaterialPreviewGpu, UnsavedValuesAndShaderChangesReachPixelsInLitMode)
     {
         MaterialPreviewRenderer preview(*Renderer);
         Renderer->SetViewMode(SceneViewMode::Normals);
@@ -3427,7 +3105,7 @@ void main() { color = vec4(p.Tint.bgr + vec3(u_Frame.DebugView), 1); }
         auto changed              = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
         EXPECT_EQ(PreviewPixel(changed.Target), (std::array<uint8_t, 4> {0, 0, 255, 255}));
     }
-    TEST_P(MaterialPreviewGL, BlendCompositesOverBothCheckerColorsAndKeepsOpaqueAlpha)
+    TEST_P(MaterialPreviewGpu, BlendCompositesOverBothCheckerColorsAndKeepsOpaqueAlpha)
     {
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({1, 0, 0, 0.5});
@@ -3445,7 +3123,7 @@ void main() { color = vec4(p.Tint.bgr + vec3(u_Frame.DebugView), 1); }
         EXPECT_EQ(dark[3], 255);
         EXPECT_EQ(light[3], 255);
     }
-    TEST_P(MaterialPreviewGL, MaskCutoffChangesCoverageAndRetainsEquality)
+    TEST_P(MaterialPreviewGpu, MaskCutoffChangesCoverageAndRetainsEquality)
     {
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({1, 0, 0, 0.5});
@@ -3457,7 +3135,7 @@ void main() { color = vec4(p.Tint.bgr + vec3(u_Frame.DebugView), 1); }
         auto equality             = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
         EXPECT_EQ(PreviewPixel(equality.Target), (std::array<uint8_t, 4> {255, 0, 0, 255}));
     }
-    TEST_P(MaterialPreviewGL, YawPitchAndDoubleSidedControlPlaneVisibility)
+    TEST_P(MaterialPreviewGpu, YawPitchAndDoubleSidedControlPlaneVisibility)
     {
         MaterialPreviewRenderer preview(*Renderer);
         auto                    source = Tint({0, 1, 0, 1});
@@ -3474,7 +3152,7 @@ void main() { color = vec4(p.Tint.bgr + vec3(u_Frame.DebugView), 1); }
         back                      = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
         EXPECT_EQ(PreviewPixel(back.Target), (std::array<uint8_t, 4> {0, 255, 0, 255}));
     }
-    TEST_P(MaterialPreviewGL, ProceduralTangentsMapNormalAlongIncreasingTextureV)
+    TEST_P(MaterialPreviewGpu, ProceduralTangentsMapNormalAlongIncreasingTextureV)
     {
         // A normal map pointing along +V detects zero tangents and wrong sphere handedness.
         ShaderData shader;
@@ -3525,7 +3203,7 @@ void main() {
             EXPECT_NEAR(value[2], shape == MaterialPreviewShape::Sphere ? 130 : 128, 1);
         }
     }
-    TEST_P(MaterialPreviewGL, StandardRemainsLitAndUsesSceneIrradianceChanges)
+    TEST_P(MaterialPreviewGpu, StandardRemainsLitAndUsesSceneIrradianceChanges)
     {
         MaterialPreviewRenderer preview(*Renderer);
         Renderer->SetViewMode(SceneViewMode::Normals);
@@ -3569,7 +3247,7 @@ void main() {
         EXPECT_EQ(redPixel[3], 255);
         EXPECT_EQ(greenPixel[3], 255);
     }
-    TEST_P(MaterialPreviewGL, FailedCustomShaderFallsBackWithRenderStateAndIncompleteResult)
+    TEST_P(MaterialPreviewGpu, FailedCustomShaderFallsBackWithRenderStateAndIncompleteResult)
     {
         MaterialPreviewRenderer preview(*Renderer);
         ShaderData              broken;
@@ -3589,7 +3267,7 @@ void main() { wrongOutput=vec4(1); }
         EXPECT_EQ(pixel[1], pixel[2]);
         EXPECT_EQ(pixel[3], 255);
     }
-    TEST_P(MaterialPreviewGL, ThumbnailWaitsForTextureThenReadsTopRowFirstAfterReimport)
+    TEST_P(MaterialPreviewGpu, ThumbnailWaitsForTextureThenReadsTopRowFirstAfterReimport)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
@@ -3644,206 +3322,45 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         EXPECT_EQ(thumbnail->Pixels[(32 * 64 + 32) * 4], 0);
         EXPECT_EQ(thumbnail->Pixels[(32 * 64 + 32) * 4 + 3], 255);
     }
-    TEST_F(MaterialPreviewNativeGL, ImGuiRestoresHostileNativeStateIncludingBindingsAndBufferRanges)
+
+    TEST_F(MaterialPreviewNativeGpu, ImGuiAndPreviewPreserveCallerUniformsAndPixels)
     {
         MaterialPreviewRenderer preview(*Renderer);
-        auto program = CreateInternalShader(*Renderer->GetDevice(),
-                                            "HostileStateTest",
-                                            "#version 450\nvoid main(){gl_Position=vec4(0);}",
-                                            "#version 450\nlayout(location=0) out vec4 c;void main(){c=vec4(1);}");
-        ASSERT_TRUE(std::holds_alternative<RenderHardware::Handle<RenderHardware::Shader>>(program));
         auto source = Tint({1, 0, 0, 1});
-        auto result = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        auto id     = Material(source);
+        auto                    result = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        auto                    id     = Material(source);
         ASSERT_TRUE(std::holds_alternative<Ref<const MaterialDataAsset>>(Assets->Load<MaterialDataAsset>(id)));
         ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(ShaderID)));
         auto thumbnailOptions = Options;
         thumbnailOptions.Size = {32, 48};
         EXPECT_TRUE(preview.RenderThumbnail(id, thumbnailOptions).has_value());
-        NativeUIFrame ui;
-        GLuint array, buffer, textures[2], sampler, framebuffer, renderbuffer;
-        glGenVertexArrays(1, &array);
-        glGenBuffers(1, &buffer);
-        glGenTextures(2, textures);
-        glGenSamplers(1, &sampler);
-        glGenFramebuffers(1, &framebuffer);
-        glGenRenderbuffers(1, &renderbuffer);
-        glBindVertexArray(array);
-        glBindBuffer(GL_UNIFORM_BUFFER, buffer);
-        glBufferData(GL_UNIFORM_BUFFER, 4096, nullptr, GL_STATIC_DRAW);
-        GLint alignment = 0;
-        glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
-        for (GLuint point : {0u, 1u, 2u, 11u})
-            glBindBufferRange(GL_UNIFORM_BUFFER, point, buffer, alignment, 256);
+        auto                     device = Renderer->GetDevice();
         std::array<uint8_t, 256> untouched;
-        untouched.fill(0xa5);
-        glBufferSubData(GL_UNIFORM_BUFFER, alignment, 256, untouched.data());
-        glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, buffer);
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, textures[0]);
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, textures[1]);
-        glBindSampler(0, sampler);
-        glBindSampler(3, sampler);
-        glActiveTexture(GL_TEXTURE9);
-        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-        glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
-        glUseProgram(NativeProbe::ProgramName(std::get<RenderHardware::Handle<RenderHardware::Shader>>(program)));
-        glViewport(3, 5, 19, 23);
-        glScissor(1, 2, 3, 4);
-        glEnable(GL_SCISSOR_TEST);
-        glEnable(GL_STENCIL_TEST);
-        glEnable(GL_CULL_FACE);
-        glEnable(GL_FRAMEBUFFER_SRGB);
-        glEnable(GL_RASTERIZER_DISCARD);
-        glEnable(GL_COLOR_LOGIC_OP);
-        glEnable(GL_CLIP_DISTANCE0);
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glEnable(GL_PRIMITIVE_RESTART);
-        glEnable(GL_DEPTH_TEST);
-        glDepthFunc(GL_GREATER);
-        glDepthMask(GL_FALSE);
-        glDepthRange(.2, .7);
-        glCullFace(GL_FRONT);
-        glFrontFace(GL_CW);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glEnablei(GL_BLEND, 0);
-        glBlendFuncSeparatei(0, GL_ONE, GL_ZERO, GL_DST_ALPHA, GL_SRC_ALPHA);
-        glBlendEquationSeparatei(0, GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_SUBTRACT);
-        glColorMaski(0, GL_FALSE, GL_TRUE, GL_FALSE, GL_FALSE);
-        glPixelStorei(GL_PACK_ALIGNMENT, 8);
-        glPixelStorei(GL_PACK_ROW_LENGTH, 17);
-        glPixelStorei(GL_PACK_SKIP_ROWS, 2);
-        glPixelStorei(GL_PACK_SKIP_PIXELS, 3);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 19);
-        glPixelStorei(GL_UNPACK_SKIP_ROWS, 4);
-        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 5);
-        const auto snapshot = [&] {
-            std::vector<GLint64> values;
-            for (auto name : {GL_DRAW_FRAMEBUFFER_BINDING,
-                              GL_READ_FRAMEBUFFER_BINDING,
-                              GL_CURRENT_PROGRAM,
-                              GL_VERTEX_ARRAY_BINDING,
-                              GL_ARRAY_BUFFER_BINDING,
-                              GL_UNIFORM_BUFFER_BINDING,
-                              GL_RENDERBUFFER_BINDING,
-                              GL_ACTIVE_TEXTURE,
-                              GL_DEPTH_FUNC,
-                              GL_CULL_FACE_MODE,
-                              GL_FRONT_FACE,
-                              GL_PIXEL_PACK_BUFFER_BINDING,
-                              GL_PIXEL_UNPACK_BUFFER_BINDING,
-                              GL_PACK_ALIGNMENT,
-                              GL_PACK_ROW_LENGTH,
-                              GL_PACK_SKIP_ROWS,
-                              GL_PACK_SKIP_PIXELS,
-                              GL_UNPACK_ALIGNMENT,
-                              GL_UNPACK_ROW_LENGTH,
-                              GL_UNPACK_SKIP_ROWS,
-                              GL_UNPACK_SKIP_PIXELS})
-            {
-                GLint v;
-                glGetIntegerv(name, &v);
-                values.push_back(v);
-            }
-            for (auto name : {GL_VIEWPORT, GL_SCISSOR_BOX, GL_COLOR_WRITEMASK})
-            {
-                GLint v[4];
-                glGetIntegerv(name, v);
-                values.insert(values.end(), v, v + 4);
-            }
-            GLint polygon[2];
-            glGetIntegerv(GL_POLYGON_MODE, polygon);
-            values.insert(values.end(), polygon, polygon + 2);
-            for (auto name : {GL_DEPTH_WRITEMASK,
-                              GL_BLEND_SRC_RGB,
-                              GL_BLEND_DST_RGB,
-                              GL_BLEND_SRC_ALPHA,
-                              GL_BLEND_DST_ALPHA,
-                              GL_BLEND_EQUATION_RGB,
-                              GL_BLEND_EQUATION_ALPHA})
-            {
-                GLint v;
-                glGetIntegerv(name, &v);
-                values.push_back(v);
-            }
-            for (auto cap : {GL_DEPTH_TEST,
-                             GL_BLEND,
-                             GL_SCISSOR_TEST,
-                             GL_STENCIL_TEST,
-                             GL_CULL_FACE,
-                             GL_FRAMEBUFFER_SRGB,
-                             GL_RASTERIZER_DISCARD,
-                             GL_COLOR_LOGIC_OP,
-                             GL_CLIP_DISTANCE0,
-                             GL_POLYGON_OFFSET_FILL,
-                             GL_PRIMITIVE_RESTART})
-                values.push_back(glIsEnabled(cap));
-            GLdouble range[2];
-            glGetDoublev(GL_DEPTH_RANGE, range);
-            for (double v : range)
-                values.push_back(GLint64(v * 1000000));
-            GLint active;
-            glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
-            for (GLuint unit = 0; unit < 16; ++unit)
-            {
-                glActiveTexture(GL_TEXTURE0 + unit);
-                for (auto name : {GL_TEXTURE_BINDING_2D, GL_TEXTURE_BINDING_CUBE_MAP})
-                {
-                    GLint v;
-                    glGetIntegerv(name, &v);
-                    values.push_back(v);
-                }
-                GLint v;
-                glGetIntegeri_v(GL_SAMPLER_BINDING, unit, &v);
-                values.push_back(v);
-            }
-            glActiveTexture(active);
-            for (GLuint point : {0u, 1u, 2u, 11u})
-            {
-                GLint v;
-                glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, point, &v);
-                values.push_back(v);
-                for (auto name : {GL_UNIFORM_BUFFER_START, GL_UNIFORM_BUFFER_SIZE})
-                {
-                    GLint64 r;
-                    glGetInteger64i_v(name, point, &r);
-                    values.push_back(r);
-                }
-            }
-            return values;
-        };
-        const auto before = snapshot();
+        for (size_t i = 0; i < untouched.size(); ++i)
+            untouched[i] = uint8_t(i);
+        auto uniform =
+            device->CreateBuffer({untouched.size(),
+                                  RenderHardware::BufferUsage::Uniform | RenderHardware::BufferUsage::CopySource,
+                                  RenderHardware::MemoryUsage::Upload});
+        uniform->Write(0, untouched.data(), untouched.size());
+        TestUIFrame ui;
         ui.Draw();
-        EXPECT_EQ(snapshot(), before);
         ui.Draw();
-        EXPECT_EQ(snapshot(), before);
-        // Engine frame/object data held by the caller must also remain byte-for-byte intact.
+        auto readback = device->CreateBuffer(
+            {untouched.size(), RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+        auto commands = device->CreateCommandList();
+        commands->CopyBuffer(uniform, 0, readback, 0, untouched.size());
+        device->Submit(commands);
+        device->WaitIdle();
         std::array<uint8_t, 256> after;
-        glGetBufferSubData(GL_UNIFORM_BUFFER, alignment, 256, after.data());
+        const auto               bytes = readback->Read(0, after.size());
+        std::copy(bytes.begin(), bytes.end(), after.begin());
         EXPECT_EQ(after, untouched);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-        for (auto name : {GL_PACK_ROW_LENGTH, GL_PACK_SKIP_ROWS, GL_PACK_SKIP_PIXELS})
-            glPixelStorei(name, 0);
-        // RHI rendering must still establish correct state after a hostile native UI caller.
-        result = preview.Render(Resolve(source, &Custom), &Custom, Options);
-        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {255, 0, 0, 255}));
-        glUseProgram(0);
-        glBindVertexArray(0);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteVertexArrays(1, &array);
-        glDeleteBuffers(1, &buffer);
-        glDeleteTextures(2, textures);
-        glDeleteSamplers(1, &sampler);
-        glDeleteFramebuffers(1, &framebuffer);
-        glDeleteRenderbuffers(1, &renderbuffer);
+        result = preview.RenderImage(Resolve(source, &Custom), &Custom, Options);
+        EXPECT_EQ(PreviewPixel(result.Target), (std::array<uint8_t, 4> {255, 0, 0, 255}));
     }
-    TEST_P(MaterialPreviewGL, PreviewBetweenSceneSubmissionAndDrawPreservesQueueModeAndStats)
+
+    TEST_P(MaterialPreviewGpu, PreviewBetweenSceneSubmissionAndDrawPreservesQueueModeAndStats)
     {
         auto model = Quad(Color({1, 0, 0, 1}));
         Ready();
@@ -3860,7 +3377,7 @@ void main() { color=vec4(texture(image,v_UV).r, v_UV.y, 0, 1); }
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 1u);
         EXPECT_EQ(Pixel(), (std::array<uint8_t, 4> {128, 128, 255, 255}));
     }
-    TEST_F(MaterialPreviewNativeGL, PublishedShaderReloadAndCacheEvictionDoNotRetainGpuPointers)
+    TEST_F(MaterialPreviewNativeGpu, PublishedShaderReloadAndCacheEvictionDoNotRetainGpuPointers)
     {
         const auto material = Color({1, 0, 0, 1});
         Ready();
@@ -3890,9 +3407,8 @@ void main() { color=vec4(p.Tint.brg,1); }
         EXPECT_EQ(changed->Pixels[(32 * 64 + 32) * 4], 0);
         EXPECT_EQ(changed->Pixels[(32 * 64 + 32) * 4 + 1], 255);
         EXPECT_EQ(changed->Pixels[(32 * 64 + 32) * 4 + 2], 0);
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
-    TEST_P(MaterialPreviewGL, CustomOpaqueOutputAlphaCannotMakeThePreviewTransparent)
+    TEST_P(MaterialPreviewGpu, CustomOpaqueOutputAlphaCannotMakeThePreviewTransparent)
     {
         // Project shaders may emit arbitrary alpha even in opaque mode; the editor image must stay opaque.
         ShaderData shader;
@@ -3906,7 +3422,7 @@ void main() { color=vec4(0,0,1,0.125); }
         auto                    result = preview.RenderImage(Resolve(source, &shader), &shader, Options);
         EXPECT_EQ(PreviewPixel(result.Target), (std::array<uint8_t, 4> {0, 0, 255, 255}));
     }
-    TEST_P(MaterialPreviewGL, ThumbnailRejectsFailedTextureUploadDespiteAnOlderGpuTexture)
+    TEST_P(MaterialPreviewGpu, ThumbnailRejectsFailedTextureUploadDespiteAnOlderGpuTexture)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader();
@@ -3942,7 +3458,7 @@ void main() { color=vec4(0,0,1,0.125); }
         EXPECT_FALSE(preview.RenderThumbnail(materialID, Options).has_value());
         EXPECT_FALSE(preview.RenderImage(materialID, Options).Complete);
     }
-    TEST_F(MaterialPreviewNativeGL, PreviewReplacementsAreReleasedWithoutBeginFrame)
+    TEST_F(MaterialPreviewNativeGpu, PreviewReplacementsAreReleasedWithoutBeginFrame)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader();
@@ -3968,9 +3484,10 @@ void main() { color=vec4(0,0,1,0.125); }
         for (int path = 0; path < 3; ++path)
         {
             SCOPED_TRACE(path);
-            const auto oldProgram         = NativeProgram(*cache.GetShader(shaderID));
-            const auto oldBuffer          = NativeBuffer(cache.GetMaterialBindings(materialID)->Blocks.front().second);
-            const auto oldTexture         = cache.GetTexture(textureID)->GetImGuiTextureID();
+            std::weak_ptr<RenderHardware::Shader> oldProgram = cache.GetShader(shaderID)->Program;
+            std::weak_ptr<RenderHardware::Buffer> oldBuffer =
+                cache.GetMaterialBindings(materialID)->Blocks.front().second.Resource();
+            std::weak_ptr<RenderHardware::Texture> oldTexture = cache.GetTexture(textureID)->GetResource();
             source.Parameters["Strength"] = {0.5f + 0.1f * path};
             shader.Code            = CompileTestMaterialShader(TestMaterialVertex,
                                                                R"(#version 450
@@ -4006,18 +3523,18 @@ void main() { color=p.Tint*p.Strength*texture(u_Albedo,v_UV)*vec4(1, )" +
                 ASSERT_TRUE(preview.RenderThumbnail(materialID, Options).has_value());
             else
                 ASSERT_TRUE(preview.Render(Resolve(source, &shader), &shader, Options).Complete);
-            EXPECT_FALSE(glIsTexture(oldTexture));
+            Renderer->GetDevice()->WaitIdle();
+            EXPECT_TRUE(oldTexture.expired());
             // Resolved previews own their program/UBOs; only published previews
             // replace the cache's shader and material bindings.
             if (path < 2)
             {
-                EXPECT_FALSE(glIsProgram(oldProgram));
-                EXPECT_FALSE(glIsBuffer(oldBuffer));
+                EXPECT_TRUE(oldProgram.expired());
+                EXPECT_TRUE(oldBuffer.expired());
             }
-            EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
         }
     }
-    TEST_F(MaterialPreviewNativeGL, ReimportRetainsRecordedProgramsTexturesAndUniformBuffersUntilNextFrame)
+    TEST_F(MaterialPreviewNativeGpu, ReimportRetainsRecordedProgramsTexturesAndUniformBuffersUntilNextFrame)
     {
         ShaderData shader;
         shader.Code          = CompileTestMaterialShader();
@@ -4043,19 +3560,84 @@ void main() { color=p.Tint*p.Strength*texture(u_Albedo,v_UV)*vec4(1, )" +
         ASSERT_NE(oldShader, nullptr);
         auto          oldGroup   = cache.GetMaterialGroup(*oldShader, *oldBindings);
         auto          oldProgram = oldShader->Program;
-        NativeUIFrame ui;
-        NativeBind(*oldShader);
-        for (const auto& [binding, buffer] : oldBindings->Blocks)
-            NativeBind(buffer, MaterialBlockPoint(*oldShader, binding));
-        ASSERT_TRUE(BindMaterialTextures(cache, *oldShader, *oldBindings));
-        GLint program, ubo, image;
-        glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &ubo);
-        glActiveTexture(GL_TEXTURE3);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &image);
-        std::array<float, 4> oldTint;
-        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-        glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(oldTint), oldTint.data());
+        auto               device     = Renderer->GetDevice();
+        constexpr uint32_t Size       = 64;
+        MeshData           quad;
+        for (auto position : {glm::vec3(-1, -1, 0), glm::vec3(1, -1, 0), glm::vec3(1, 1, 0), glm::vec3(-1, 1, 0)})
+        {
+            MeshVertexData vertex;
+            vertex.Position = {position.x, position.y, position.z};
+            vertex.UV       = {0.5f, 0.5f};
+            quad.Vertices.push_back(vertex);
+        }
+        quad.Indices = {0, 1, 2, 2, 3, 0};
+        BuildSingleSection(quad);
+        auto uploaded = UploadMesh(quad);
+        ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
+        const auto& mesh  = std::get<GpuMesh>(uploaded);
+        auto        color = device->CreateTexture(
+            {Size,
+             Size,
+             1,
+             RenderHardware::TextureDimension::Texture2D,
+             RenderHardware::Format::RGBA8Unorm,
+             RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource});
+        std::weak_ptr<RenderHardware::Shader>  program = oldProgram;
+        std::weak_ptr<RenderHardware::Buffer>  ubo     = oldBindings->Blocks.front().second.Resource();
+        std::weak_ptr<RenderHardware::Texture> image   = cache.GetTexture(textureID)->GetResource();
+        EngineFrameUniforms                    frame;
+        EngineObjectUniforms                   object;
+        frame.ViewProjection = DeviceProjection(frame.ViewProjection, device->GetCoordinateConventions());
+        GpuUniformBuffer             frameBuffer(sizeof(frame), &frame), objectBuffer(sizeof(object), &object);
+        RenderHardware::PipelineDesc desc;
+        desc.Program         = oldShader->Program;
+        desc.GroupLayouts    = {oldShader->EngineLayout, oldShader->MaterialLayout};
+        desc.VertexBindings  = mesh.VertexBindings;
+        desc.Attributes      = mesh.Attributes;
+        desc.Rasterizer.Cull = RenderHardware::CullMode::None;
+        desc.ColorFormats    = {RenderHardware::Format::RGBA8Unorm};
+        desc.Blends.resize(1);
+        auto                          pipeline = device->CreatePipeline(desc);
+        RenderHardware::BindGroupDesc engineDesc;
+        engineDesc.Layout = oldShader->EngineLayout;
+        auto uploads      = device->CreateCommandList();
+        for (const auto& binding : oldShader->EngineResources)
+        {
+            RenderHardware::BindGroupEntry entry;
+            entry.Slot = binding.Binding;
+            if (binding.Binding < 2)
+                entry.BufferResource = binding.Binding == 0 ? frameBuffer.Resource() : objectBuffer.Resource();
+            else
+            {
+                RenderHardware::TextureDesc imageDesc;
+                imageDesc.Dimension = binding.Binding == 4 ? RenderHardware::TextureDimension::Texture2D :
+                                                             RenderHardware::TextureDimension::Cube;
+                imageDesc.Usage = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+                entry.TextureResource = device->CreateTexture(imageDesc);
+                entry.SamplerResource = device->CreateSampler();
+                uint32_t black        = 0xff000000u;
+                auto     buffer       = device->CreateBuffer(
+                    {4, RenderHardware::BufferUsage::CopySource, RenderHardware::MemoryUsage::Upload});
+                buffer->Write(0, &black, 4);
+                for (uint32_t face = 0; face < (binding.Binding == 4 ? 1u : 6u); ++face)
+                    uploads->CopyBufferToTexture(buffer, 0, entry.TextureResource, {0, face});
+            }
+            engineDesc.Entries.push_back(entry);
+        }
+        device->Submit(uploads);
+        auto                          engine   = device->CreateBindGroup(engineDesc);
+        auto                          recorded = device->CreateCommandList();
+        RenderHardware::RenderingDesc target;
+        target.Colors = {{color, {}, RenderHardware::LoadOp::Clear, RenderHardware::StoreOp::Store, {0, 0, 0, 1}}};
+        recorded->BeginRendering(target);
+        recorded->SetViewport({0, 0, Size, Size});
+        recorded->BindPipeline(pipeline);
+        recorded->BindGroup(engine);
+        recorded->BindGroup(oldGroup);
+        recorded->BindVertexBuffers({{0, mesh.Vertices}});
+        recorded->BindIndexBuffer(mesh.Indices, RenderHardware::IndexType::Uint32);
+        recorded->DrawIndexed(mesh.IndexCount);
+        recorded->EndRendering();
         shader.Code               = CompileTestMaterialShader(TestMaterialVertex, R"(#version 450
 layout(set=1,binding=0,std140) uniform Parameters { vec4 Tint; float Strength; int Steps; vec2 Offsets[2]; } p;
 layout(set=1,binding=1) uniform sampler2D u_Albedo;
@@ -4083,68 +3665,43 @@ void main() { color=(p.Tint*p.Strength*texture(u_Albedo,v_UV)).bgra; }
         ASSERT_TRUE(std::holds_alternative<Ref<const ShaderDataAsset>>(Assets->Load<ShaderDataAsset>(shaderID)));
         ASSERT_TRUE(std::holds_alternative<Ref<const TextureAsset>>(Assets->Load<TextureAsset>(textureID)));
         MaterialPreviewRenderer preview(*Renderer);
-        auto                    result = preview.Render(materialID, Options);
+        auto                    result = preview.RenderImage(materialID, Options);
         ASSERT_TRUE(result.Complete);
-        glUseProgram(program);
-        glBindBufferBase(GL_UNIFORM_BUFFER, 2, ubo);
-        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-        glBindTexture(GL_TEXTURE_2D, image);
-        ui.Draw();
-        GLint restored;
-        glGetIntegerv(GL_CURRENT_PROGRAM, &restored);
-        EXPECT_EQ(restored, program);
-        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 2, &restored);
-        EXPECT_EQ(restored, ubo);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &restored);
-        EXPECT_EQ(restored, image);
-        EXPECT_TRUE(glIsTexture(image));
-        EXPECT_TRUE(glIsProgram(program));
-        EXPECT_TRUE(glIsBuffer(ubo));
-        std::array<float, 4> restoredTint;
-        glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(restoredTint), restoredTint.data());
-        EXPECT_EQ(restoredTint, oldTint);
-        EXPECT_EQ(PreviewPixel(result.Texture), (std::array<uint8_t, 4> {0, 255, 0, 255}));
-        EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
-        glUseProgram(0);
-        glBindBufferBase(GL_UNIFORM_BUFFER, 2, 0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        ui.End();
+        EXPECT_FALSE(program.expired());
+        EXPECT_FALSE(ubo.expired());
+        EXPECT_FALSE(image.expired());
+        device->Submit(recorded);
+        EXPECT_EQ(PreviewPixel(color), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        EXPECT_EQ(PreviewPixel(result.Target), (std::array<uint8_t, 4> {0, 255, 0, 255}));
+        recorded.reset();
+        pipeline.reset();
+        desc.Program.reset();
         oldGroup.reset();
         oldProgram.reset();
         cache.BeginFrame();
-        // Deferral must be bounded; holding every replaced object forever leaks on each edit/reimport.
-        EXPECT_FALSE(glIsProgram(program));
-        EXPECT_FALSE(glIsTexture(image));
-        EXPECT_FALSE(glIsBuffer(ubo));
+        device->WaitIdle();
+        EXPECT_TRUE(program.expired());
+        EXPECT_TRUE(image.expired());
+        EXPECT_TRUE(ubo.expired());
     }
     INSTANTIATE_TEST_SUITE_P(Backends,
-                             MaterialSceneGL,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             MaterialSceneGpu,
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
     INSTANTIATE_TEST_SUITE_P(Backends,
-                             MultiPassSceneGL,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             MultiPassSceneGpu,
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
     INSTANTIATE_TEST_SUITE_P(Backends,
-                             StandardMaterialGL,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             StandardMaterialGpu,
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
     INSTANTIATE_TEST_SUITE_P(Backends,
-                             MaterialPreviewGL,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             MaterialPreviewGpu,
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
     INSTANTIATE_TEST_SUITE_P(Backends,
                              RenderAssetCacheGPU,
-                             testing::Values(GpuTestBackend::OpenGL, GpuTestBackend::Vulkan),
-                             [](const testing::TestParamInfo<GpuTestBackend>& info) {
-                                 return info.param == GpuTestBackend::OpenGL ? "OpenGL" : "Vulkan";
-                             });
+                             testing::Values(GpuTestBackend::Vulkan),
+                             [](const testing::TestParamInfo<GpuTestBackend>& info) { return "Vulkan"; });
 } // namespace

@@ -258,7 +258,7 @@ namespace
             RenderHardware::Backend Previous = RenderHardware::GetBackend();
             ~BackendRestore() { RenderHardware::SetBackend(Previous); }
         } restore;
-        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
+        RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
         EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::InvalidArgument);
         RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
         EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::InvalidArgument);

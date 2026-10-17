@@ -4,7 +4,6 @@
 
 enum class GpuTestBackend
 {
-    OpenGL,
     Vulkan
 };
 
@@ -23,7 +22,6 @@ public:
     std::unique_ptr<Kans::RenderHardware::Device> CreateDevice(const Kans::RenderHardware::DeviceDesc& desc = {});
 
 private:
-    struct State;
-    std::unique_ptr<State> m_State;
+    bool                   m_Initialized = false;
     GpuTestBackend         m_Backend;
 };

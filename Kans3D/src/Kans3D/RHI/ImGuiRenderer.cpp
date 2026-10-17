@@ -2,7 +2,6 @@
 #include "ImGuiRenderer.h"
 #include "Vulkan/VulkanPresentation.h"
 #include <stdexcept>
-#include "OpenGL/OpenGLImGuiRenderer.h"
 namespace Kans::RenderHardware
 {
     namespace
@@ -14,9 +13,7 @@ namespace Kans::RenderHardware
     {
         if (backend == Backend::Vulkan)
             return CreateVulkanImGuiRenderer(window);
-        if (backend != Backend::OpenGL)
-            throw std::invalid_argument("ImGui renderer backend is not implemented");
-        return CreateOpenGLImGuiRenderer(window);
+        throw std::invalid_argument("ImGui renderer backend is not implemented");
     }
     void RetainImGuiTexture(const Handle<Texture>& texture)
     {

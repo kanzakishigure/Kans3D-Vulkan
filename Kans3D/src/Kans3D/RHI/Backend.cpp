@@ -4,8 +4,8 @@
 #include "Vulkan/VulkanPresentation.h"
 #include <charconv>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
-#include "OpenGL/OpenGLDevice.h"
 namespace Kans::RenderHardware
 {
     namespace
@@ -18,8 +18,6 @@ namespace Kans::RenderHardware
     Backend ResolveBackend(const std::string& configPath, const std::vector<std::string>& arguments)
     {
         auto parse = [](std::string value) {
-            if (value == "OpenGL" || value == "opengl")
-                return Backend::OpenGL;
             if (value == "Vulkan" || value == "vulkan")
                 return Backend::Vulkan;
             throw std::invalid_argument("Invalid RenderBackend: " + value);
@@ -32,19 +30,34 @@ namespace Kans::RenderHardware
         Backend       result = Backend::Vulkan;
         std::ifstream input(configPath);
         std::string   line;
+        bool          warnedLegacy = false;
         while (std::getline(input, line))
         {
             if (line.compare(0, 3, "\xef\xbb\xbf") == 0)
                 line.erase(0, 3);
             auto split = line.find('=');
             if (split != std::string::npos && trim(line.substr(0, split)) == "RenderBackend")
-                result = parse(trim(line.substr(split + 1)));
+            {
+                const auto value = trim(line.substr(split + 1));
+                if (value == "OpenGL" || value == "opengl")
+                {
+                    if (!warnedLegacy)
+                    {
+                        // Startup parsing precedes logger initialization.
+                        std::cerr << "Warning: RenderBackend=OpenGL is no longer supported; using Vulkan.\n";
+                        warnedLegacy = true;
+                    }
+                    result = Backend::Vulkan;
+                }
+                else
+                    result = parse(value);
+            }
         }
         bool seen = false;
         for (const auto& argument : arguments)
         {
             if (argument == "--render-backend")
-                throw std::invalid_argument("Use --render-backend=opengl|vulkan");
+                throw std::invalid_argument("Use --render-backend=vulkan");
             if (argument.rfind("--render-backend=", 0) == 0)
             {
                 if (seen)
@@ -107,8 +120,6 @@ namespace Kans::RenderHardware
             throw std::invalid_argument("Frame capture path is empty");
         if (Selected == Backend::Vulkan)
             RequestVulkanFrameCapture(*GetSharedDevice(), window, path);
-        else if (Selected == Backend::OpenGL)
-            RequestOpenGLFrameCapture(window, path);
         else
             throw std::logic_error("No presentation backend");
     }
@@ -121,8 +132,6 @@ namespace Kans::RenderHardware
     Backend GetBackend() { return Selected; }
     void*   CreateWindowSurface(Backend backend, const WindowSpecification& specification)
     {
-        if (backend == Backend::OpenGL)
-            return CreateOpenGLWindow(specification);
         if (backend == Backend::Vulkan)
             return CreateVulkanWindow(specification);
         throw std::invalid_argument("Window backend is not implemented");
@@ -136,9 +145,7 @@ namespace Kans::RenderHardware
             return Shared;
         }
         std::shared_ptr<Device> device;
-        if (backend == Backend::OpenGL)
-            device = CreateOpenGLDevice(window, desc);
-        else if (backend == Backend::Vulkan)
+        if (backend == Backend::Vulkan)
         {
             device = window ? CreateVulkanWindowDevice(*window, desc) : CreateVulkanDevice(desc);
         }
@@ -174,16 +181,12 @@ namespace Kans::RenderHardware
     }
     void PresentWindow(Window& window)
     {
-        if (Selected == Backend::OpenGL)
-            PresentOpenGLWindow(window);
-        else if (Selected == Backend::Vulkan)
+        if (Selected == Backend::Vulkan)
             PresentVulkanWindow(*GetSharedDevice(), window);
     }
     void SetWindowVSync(Window& window, bool enabled)
     {
-        if (Selected == Backend::OpenGL)
-            SetOpenGLWindowVSync(window, enabled);
-        else if (Selected == Backend::Vulkan)
+        if (Selected == Backend::Vulkan)
             SetVulkanWindowVSync(*GetSharedDevice(), window, enabled);
     }
 } // namespace Kans::RenderHardware
