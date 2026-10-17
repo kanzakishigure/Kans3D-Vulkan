@@ -139,6 +139,7 @@ endif()
 # ============================================================
 add_subdirectory(${KANSEDITOR_DIR})
 
-if(BUILD_TESTING)
+# Tests live in the Kans3D-tests submodule; the engine builds without it.
+if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/CMakeLists.txt")
     add_subdirectory(test)
 endif()

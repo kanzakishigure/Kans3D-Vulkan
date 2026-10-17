@@ -17,3 +17,7 @@
 [submodule "Kans3D/vendor/ImGuizmo"]
 	path = Kans3D/vendor/ImGuizmo
 	url = https://github.com/kanzakishigure/ImGuizmo.git
+[submodule "test"]
+	path = test
+	url = https://github.com/kanzakishigure/Kans3D-tests.git
+	branch = main
