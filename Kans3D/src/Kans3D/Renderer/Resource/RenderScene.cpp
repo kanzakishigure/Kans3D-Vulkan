@@ -3,7 +3,6 @@
 
 #include "Kans3D/Renderer/RenderWorld.h"
 #include "Kans3D/Renderer/Renderer.h"
-#include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
 
 #include "Kans3D/Scene/Entity.h"
@@ -22,12 +21,9 @@ namespace Kans
     void RenderScene::SetLogicScene(const Ref<Scene>& scene)
     {
         CORE_ASSERT(scene, "RenderScene requires a logical scene");
-        // Until stage 5, replacing the logical scene retains this wrapper's
-        // visual settings, as the editor's reload/play path has always done.
+        // Preserve the editor reload/play compatibility policy.
         const auto resource    = GetRenderResource();
         const auto environment = GetEnvironmentPath();
-        m_2DRenderable.clear();
-        m_3DRenderable.clear();
         m_LogicScene = scene;
         SetRenderResource(resource);
         PrepareEnvironment(environment);
@@ -39,48 +35,27 @@ namespace Kans
         m_ViewportHeight = height;
     }
 
-    void RenderScene::CollectLights(SceneInfo& info) const
-    {
-        m_LogicScene->GetRenderWorld().Synchronize();
-        m_LogicScene->GetRenderWorld().CollectLights(info);
-    }
-
     void RenderScene::OnRenderEditor(Ref<SceneRenderer> renderer, TimeStep ts, const EditorCamera& camera)
     {
         SceneInfo info              = {};
         info.sceneCamera.Position   = camera.GetPosition();
         info.sceneCamera.viewMatrix = camera.GetViewMatrix();
         info.sceneCamera.camera     = camera;
-        CollectLights(info);
         Render(*renderer, info);
     }
 
     void RenderScene::OnRenderRuntime(Ref<SceneRenderer> renderer, TimeStep ts)
     {
-        Entity cameraEntity = m_LogicScene->GetCameraEntity();
-        if (!cameraEntity)
-            return;
-        const glm::mat4 world       = m_LogicScene->GetWorldTransform(cameraEntity);
-        SceneInfo       info        = {};
-        info.sceneCamera.camera     = cameraEntity.GetComponent<CameraComponent>().SceneCamera;
-        info.sceneCamera.Position   = glm::vec3(world[3]);
-        info.sceneCamera.viewMatrix = glm::inverse(world);
-        CollectLights(info);
-        Render(*renderer, info);
+        if (auto view = MakeRuntimeView(*m_LogicScene, {m_ViewportWidth, m_ViewportHeight}))
+            Render(*renderer, view->Scene);
     }
 
     void RenderScene::Render(SceneRenderer& renderer, const SceneInfo& info)
     {
         renderer.SetScene(this);
-        if (renderer.GetAssetCache())
-            m_LogicScene->UpdatePrefabs(renderer.GetAssetCache()->GetAssetManager());
-        else
-            m_LogicScene->UpdatePrefabs();
         renderer.BeginScene(info);
-        Extract(renderer.m_View);
-
-        if (renderer.GetEnvironment().IrradianceMap)
-            renderer.SubmitSkybox(renderer.GetEnvironment().IrradianceMap);
+        renderer.m_View.ExtractWorld    = true;
+        renderer.m_View.DrawEnvironment = true;
         renderer.EndScene();
     }
 

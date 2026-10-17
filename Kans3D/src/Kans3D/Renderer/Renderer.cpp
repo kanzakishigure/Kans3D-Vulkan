@@ -6,10 +6,14 @@
 #include <glm/gtc/packing.hpp>
 #include "Kans3D/Asset/Importer/TextureSource.h"
 #include "Kans3D/RHI/PipelineKey.h"
+#include "RenderFeature.h"
+#include "RenderFrame.h"
+#include "RenderPipeline.h"
 #include "Renderer2D.h"
 #include "Resource/InternalShader.h"
 #include "Resource/MeshFactory.h"
 #include "Resource/SceneShaders.h"
+#include "SpriteBatch.h"
 namespace Kans
 {
     namespace
@@ -42,7 +46,9 @@ namespace Kans
         return renderer;
     }
     Renderer::Renderer(std::shared_ptr<RenderHardware::Device> device) : m_Device(std::move(device)), m_Picker(m_Device)
-    {}
+    {
+        m_Outline.SetDevice(m_Device);
+    }
     Renderer::~Renderer() { m_Device->WaitIdle(); }
     void Renderer::Init()
     {
@@ -448,4 +454,166 @@ namespace Kans
         return cached;
     }
 
+} // namespace Kans
+
+namespace Kans
+{
+    RenderResult Renderer::Render(RenderWorld& world, const RenderView& input, ViewTarget& target)
+    {
+        if (target.GetDevice() != m_Device)
+            throw std::invalid_argument("Renderer target belongs to another device");
+        RenderResult result;
+        result.View = input;
+        auto& view  = result.View;
+        if (view.Viewport == glm::uvec2(0))
+            view.Viewport = target.GetSize();
+        if (target.GetSize() != view.Viewport)
+            target.Resize(view.Viewport);
+        if (!view.Assets && world.GetAssetManager())
+            view.Assets = AcquireAssetCache(*world.GetAssetManager());
+        if (view.Assets)
+        {
+            if (view.Assets->GetDevice() != m_Device)
+                throw std::invalid_argument("Renderer asset cache belongs to another device");
+            world.SetAssetManager(&view.Assets->GetAssetManager());
+            view.Assets->BeginFrame();
+        }
+        world.Synchronize();
+        if (view.ExtractWorld)
+        {
+            world.Extract(view, world.Settings);
+            const auto spriteOffset = view.Sprites.size(), gridOffset = view.Grids.size();
+            for (auto& immediate : view.ImmediateOrder)
+                if (immediate.Kind == ViewImmediateKind::Sprites)
+                    immediate.Count = spriteOffset;
+            view.Draws.insert(view.Draws.end(), input.Draws.begin(), input.Draws.end());
+            view.Meshes.insert(view.Meshes.end(), input.Meshes.begin(), input.Meshes.end());
+            view.Geometry.insert(view.Geometry.end(), input.Geometry.begin(), input.Geometry.end());
+            view.Sprites.insert(view.Sprites.end(), input.Sprites.begin(), input.Sprites.end());
+            view.Grids.insert(view.Grids.end(), input.Grids.begin(), input.Grids.end());
+            for (auto immediate : input.ImmediateOrder)
+            {
+                if (immediate.Kind == ViewImmediateKind::Sprites)
+                {
+                    if (immediate.Count == SIZE_MAX)
+                        immediate.Count = input.Sprites.size() - immediate.Index;
+                    immediate.Index += spriteOffset;
+                }
+                if (immediate.Kind == ViewImmediateKind::Grid)
+                    immediate.Index += gridOffset;
+                view.ImmediateOrder.push_back(immediate);
+            }
+        }
+        const auto path =
+            view.EnvironmentPath.value_or(view.UseWorldEnvironment ? world.EnvironmentPath : std::filesystem::path {});
+        if (!path.empty() && (view.EnvironmentPath.has_value() || !view.EnvironmentMaps.IrradianceMap))
+        {
+            if (auto environment = PrepareEnvironment(path))
+            {
+                view.EnvironmentMaps = {environment->Maps.IrradianceMap, environment->Maps.RadianceMap};
+                view.BrdfLUT         = environment->BrdfLUT;
+            }
+        }
+        if (view.EnvironmentPath && view.EnvironmentPath->empty())
+        {
+            view.EnvironmentMaps = {};
+            view.BrdfLUT.reset();
+        }
+        if (view.DrawEnvironment && view.EnvironmentMaps.IrradianceMap)
+        {
+            view.ImmediateOrder.push_back({ViewImmediateKind::Skybox, view.Skyboxes.size()});
+            view.Skyboxes.push_back({view.EnvironmentMaps.IrradianceMap, {}});
+        }
+        RenderFrame frame {world, view, target, *this, result.Stats, result.SpriteStats, result.Complete};
+        auto        pipeline = RenderPipelineRegistry::Create(view.Pipeline);
+        m_Device->BeginFrame();
+        try
+        {
+            if (view.Features)
+                view.Features->Prepare(view, frame);
+            frame.PrepareDrawLists();
+            pipeline->Prepare(view);
+            pipeline->Build(result.Graph, frame);
+            result.Graph.Compile();
+            result.Graph.Execute(*m_Device, target.GetTransientPool());
+            result.Graph.ReleaseRecorders();
+        }
+        catch (...)
+        {
+            if (m_Sprites)
+                m_Sprites->ClearTarget();
+            m_Device->EndFrame();
+            throw;
+        }
+        m_Device->EndFrame();
+        return result;
+    }
+    void Renderer::AppendEntityDraws(RenderWorld&           world,
+                                     const RenderView&      view,
+                                     UUID                   entity,
+                                     uint32_t               id,
+                                     std::vector<MeshDraw>& draws)
+    {
+        auto cache = view.Assets;
+        if (!cache && world.GetAssetManager())
+            cache = AcquireAssetCache(*world.GetAssetManager());
+        if (!cache && view.MeshResources.empty())
+            return;
+        if (cache)
+            world.SetAssetManager(&cache->GetAssetManager());
+        world.Synchronize();
+        for (const auto& proxy : world.CollectDraws(entity))
+        {
+            const auto  resource = view.MeshResources.find(proxy.Mesh);
+            const auto* mesh     = resource != view.MeshResources.end() ? resource->second.get() :
+                                   cache                                ? cache->GetMesh(proxy.Mesh) :
+                                                                          nullptr;
+            if (mesh && proxy.Section < mesh->Sections.size())
+                draws.push_back({mesh, proxy.Transform, id, proxy.Section});
+        }
+    }
+    ScenePickHit Renderer::PickSceneSurface(RenderWorld& world, const RenderView& view, glm::uvec2 pixel)
+    {
+        auto cache = view.Assets;
+        if (!cache && world.GetAssetManager())
+            cache = AcquireAssetCache(*world.GetAssetManager());
+        if (!cache && view.MeshResources.empty())
+            return {};
+        if (cache)
+            world.SetAssetManager(&cache->GetAssetManager());
+        world.Synchronize();
+        const auto            proxies = world.CollectDraws();
+        std::vector<MeshDraw> draws;
+        for (size_t i = 0; i < proxies.size(); ++i)
+        {
+            const auto  resource = view.MeshResources.find(proxies[i].Mesh);
+            const auto* mesh     = resource != view.MeshResources.end() ? resource->second.get() :
+                                   cache                                ? cache->GetMesh(proxies[i].Mesh) :
+                                                                          nullptr;
+            if (mesh && proxies[i].Section < mesh->Sections.size())
+                draws.push_back({mesh, proxies[i].Transform, uint32_t(i + 1), proxies[i].Section});
+        }
+        const auto hit = m_Picker.PickSurface(draws,
+                                              view.Scene.sceneCamera.camera.GetProjectionMatrix() *
+                                                  view.Scene.sceneCamera.viewMatrix,
+                                              view.Viewport,
+                                              pixel);
+        if (!hit.ID || hit.ID > proxies.size())
+            return {};
+        const auto& proxy = proxies[hit.ID - 1];
+        return {proxy.EntityID, proxy.InstanceRoot, hit.Position};
+    }
+} // namespace Kans
+
+namespace Kans
+{
+    SpriteBatch& Renderer::GetSpriteBatch()
+    {
+        if (!m_Sprites)
+        {
+            m_Sprites = std::make_unique<SpriteBatch>();
+            m_Sprites->Init(m_Device);
+        }
+        return *m_Sprites;
+    }
 } // namespace Kans

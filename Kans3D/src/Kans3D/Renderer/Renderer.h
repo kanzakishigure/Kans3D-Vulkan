@@ -4,12 +4,24 @@
 #include <tuple>
 #include "Kans3D/Core/Window.h"
 #include "Kans3D/RHI/Backend.h"
+#include "Graph/RenderGraph.h"
+#include "RenderView.h"
 #include "Resource/Environment.h"
 #include "Resource/SelectionTools.h"
 #include "Resource/ToneMappingPass.h"
 
 namespace Kans
 {
+    class ViewTarget;
+    class SpriteBatch;
+    struct RenderResult
+    {
+        RenderView       View;
+        RenderGraph      Graph;
+        SceneRenderStats Stats;
+        SpriteStatistics SpriteStats;
+        bool             Complete = true;
+    };
     struct EnvironmentPrecomputeSizes
     {
         uint32_t Cubemap = 512, Irradiance = 512, Prefilter = 128, BrdfLUT = 512;
@@ -31,6 +43,15 @@ namespace Kans
         static void Shutdown();
         static Ref<Texture2D> GetWhiteTexture();
         ~Renderer();
+        RenderResult      Render(RenderWorld& world, const RenderView& view, ViewTarget& target);
+        ScenePickHit      PickSceneSurface(RenderWorld& world, const RenderView& view, glm::uvec2 pixel);
+        void              AppendEntityDraws(RenderWorld&           world,
+                                            const RenderView&      view,
+                                            UUID                   entity,
+                                            uint32_t               id,
+                                            std::vector<MeshDraw>& draws);
+        SpriteBatch&      GetSpriteBatch();
+        SelectionOutline& GetOutlineService() { return m_Outline; }
         Renderer(const Renderer&)            = delete;
         Renderer& operator=(const Renderer&) = delete;
 
@@ -79,6 +100,8 @@ namespace Kans
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3>                    m_BlackEnvironment;
         std::optional<GpuMesh>                                                            m_Cube;
         EntityPicker                                                                      m_Picker;
+        SelectionOutline                                                                  m_Outline;
+        std::unique_ptr<SpriteBatch>                                                      m_Sprites;
         ToneMappingPass                                                                   m_ToneMapping;
     };
 } // namespace Kans

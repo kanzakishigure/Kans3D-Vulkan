@@ -2,9 +2,9 @@
 #include "RenderPipeline.h"
 #include <map>
 #include <stdexcept>
-#include "Renderer2D.h"
+#include "RenderFrame.h"
 #include "Resource/InternalShader.h"
-#include "SceneRenderer.h"
+#include "SpriteBatch.h"
 
 namespace Kans
 {
@@ -36,7 +36,8 @@ namespace Kans
     }
     void RenderPipeline::Inject(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
-        context.Renderer->GetFeatures().Inject(point, context);
+        if (context.View.Features)
+            context.View.Features->Inject(point, context);
     }
     void ForwardPipeline::Prepare(RenderView& view)
     {
@@ -47,17 +48,18 @@ namespace Kans
         const Frustum frustum(projection * view.Scene.sceneCamera.viewMatrix);
         ExtractDrawLists(view, &frustum);
     }
-    void ForwardPipeline::Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer)
+    void ForwardPipeline::Begin(RenderGraph& graph, RenderFrame& renderer)
     {
+        const auto& view = renderer.View;
         using namespace RenderHardware;
         std::vector<GraphUse> clear;
-        for (size_t i = 0; i < renderer.m_Target->GetColors().size(); ++i)
+        for (size_t i = 0; i < renderer.Output.GetColors().size(); ++i)
         {
-            auto image = graph.ImportTexture("SceneColor" + std::to_string(i), renderer.m_Target->GetColors()[i]);
+            auto image = graph.ImportTexture("SceneColor" + std::to_string(i), renderer.Output.GetColors()[i]);
             clear.push_back({image, GraphAccess::ColorWrite});
             graph.ExportTexture(image);
         }
-        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.m_Target->GetDepth());
+        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.Output.GetDepth());
         clear.push_back({depth, GraphAccess::DepthWrite});
         graph.ExportTexture(depth);
         graph.AddPass("Clear", clear, [&renderer](auto& context) {
@@ -65,16 +67,17 @@ namespace Kans
             context.Commands.EndRendering();
         });
     }
-    void ForwardPipeline::Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer)
+    void ForwardPipeline::Build(RenderGraph& graph, RenderFrame& renderer)
     {
+        const auto& view = renderer.View;
         using namespace RenderHardware;
         if (!graph.PassCount())
-            Begin(graph, view, renderer);
+            Begin(graph, renderer);
         std::vector<GraphUse> target;
-        for (size_t i = 0; i < renderer.m_Target->GetColors().size(); ++i)
-            target.push_back({graph.ImportTexture("SceneColor" + std::to_string(i), renderer.m_Target->GetColors()[i]),
+        for (size_t i = 0; i < renderer.Output.GetColors().size(); ++i)
+            target.push_back({graph.ImportTexture("SceneColor" + std::to_string(i), renderer.Output.GetColors()[i]),
                               GraphAccess::ColorReadWrite});
-        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.m_Target->GetDepth());
+        const auto depth = graph.ImportTexture("SceneDepthStencil", renderer.Output.GetDepth());
         target.push_back({depth, GraphAccess::DepthReadWrite});
         // Preserve deterministic legacy order, even when two passes have disjoint writes.
         auto append = [&](std::string name, std::vector<GraphUse> uses, RenderGraph::Record record) {
@@ -111,19 +114,27 @@ namespace Kans
             {
                 // Flush reports the actual image, including the internal white fallback.
                 // Record each original batch once and declare its exact sampled resource.
-                Renderer2D::ResetStats();
-                Renderer2D::SetSubmissionSink([&](auto commands, auto image) {
+                auto& sprites = renderer.Services.GetSpriteBatch();
+                sprites.ResetStats();
+                sprites.SetTarget(renderer.GetDevice(), renderer.SceneTarget(LoadOp::Load));
+                sprites.SetSubmissionSink([&](auto commands, auto image) {
                     auto batchUses = target;
                     sampled(batchUses, image, "SpriteTexture");
                     auto pass = graph.AddRecordedPass("Renderer2D sprites", std::move(batchUses), std::move(commands));
                     if (pass)
                         graph.OrderAfter(pass, pass - 1);
                 });
-                Renderer2D::BeginScene(view.Scene.sceneCamera.camera, view.Scene.sceneCamera.viewMatrix);
-                for (const auto& sprite : view.Sprites)
-                    Renderer2D::DrawQuad(sprite.Transform, sprite.Texture, sprite.Color);
-                Renderer2D::EndScene();
-                Renderer2D::SetSubmissionSink({});
+                sprites.BeginScene(view.Scene.sceneCamera.camera, view.Scene.sceneCamera.viewMatrix);
+                const auto end = immediate.Count == SIZE_MAX ? view.Sprites.size() : immediate.Index + immediate.Count;
+                for (size_t i = immediate.Index; i < end; ++i)
+                {
+                    const auto& sprite = view.Sprites.at(i);
+                    sprites.DrawQuad(sprite.Transform, sprite.Texture, sprite.Color);
+                }
+                sprites.EndScene();
+                renderer.SpriteStats.DrawCalls += sprites.GetStats().DrawCalls;
+                renderer.SpriteStats.QuadCount += sprites.GetStats().QuadCount;
+                sprites.ClearTarget();
             }
             else
             {
@@ -143,9 +154,9 @@ namespace Kans
             // Material groups resolve asynchronous textures while recording. Record once now,
             // declare the exact retained images, then let graph execution submit the immutable list.
             // This keeps the existing per-draw allocation count and avoids resolving groups twice.
-            const auto hdr = graph.ImportTexture("SceneHDR", renderer.m_Target->GetHDR());
+            const auto hdr = graph.ImportTexture("SceneHDR", renderer.Output.GetHDR());
             uses.push_back({hdr, GraphAccess::ColorReadWrite});
-            auto                commands = renderer.m_Renderer->GetDevice()->CreateCommandList();
+            auto                commands = renderer.GetDevice()->CreateCommandList();
             Handle<CommandList> post;
             renderer.DrawShaderMaterials(
                 *commands, [&](const auto& image) { sampled(uses, image, "MaterialTexture"); }, {}, nullptr, &post);

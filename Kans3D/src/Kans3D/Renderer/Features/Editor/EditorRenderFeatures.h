@@ -34,7 +34,7 @@ namespace Kans
     class EditorPreviewFeature final : public EditorOutlineFeature
     {
     public:
-        void Prepare(RenderView& view, SceneRenderer& renderer) override;
+        void Prepare(RenderView& view, RenderFrame& frame) override;
         void AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context) override;
     };
     // Temporary compatibility policy. Move this one call from SceneRenderer's constructor

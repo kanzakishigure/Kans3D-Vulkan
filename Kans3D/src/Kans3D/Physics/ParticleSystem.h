@@ -5,6 +5,7 @@
 #include "Kans3D/Renderer/Resource/OrthographicCameraController.h"
 namespace Kans
 {
+    class SpriteBatch;
     struct ParticleProps
     {
         glm::vec2 Position;
@@ -19,7 +20,7 @@ namespace Kans
     public:
         ParticleSystem(uint32_t MaxParticle = 100000);
         void OnUpdate(TimeStep ts);
-        void OnRender(OrthographicCamera& camera);
+        void OnRender(OrthographicCamera& camera, SpriteBatch& sprites);
         void Emit(const ParticleProps& particleprops);
 
     private:

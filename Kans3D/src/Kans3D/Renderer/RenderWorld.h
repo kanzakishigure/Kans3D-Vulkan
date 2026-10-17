@@ -1,10 +1,12 @@
 #pragma once
 #include <map>
 #include <unordered_set>
+#include <entt.hpp>
 #include "RenderView.h"
 
 namespace Kans
 {
+    class Entity;
     // Persistent CPU data, owned by Scene. No device, camera or frame resources.
     class RenderWorld
     {
@@ -23,7 +25,16 @@ namespace Kans
             size_t EntitiesVisited = 0, PrefabsVisited = 0, PrefabNodesVisited = 0, BoundsUpdated = 0,
                    SpriteOrderVisits = 0;
         };
-        explicit RenderWorld(Scene& scene) : m_Scene(scene) {}
+        explicit RenderWorld(Scene& scene) : m_Scene(&scene) {}
+        RenderWorld() = default; // Dedicated procedural worlds (e.g. material preview).
+        void SetProceduralDraws(std::vector<DrawProxy> draws) { m_ProceduralDraws = std::move(draws); }
+        void SetProceduralLights(std::vector<PointLight> points, std::optional<DirLight> directional = {})
+        {
+            m_ProceduralPointLights = std::move(points);
+            m_ProceduralDirectional = std::move(directional);
+        }
+        AssetManager*                 GetAssetManager() const;
+        void                          SetAssetManager(AssetManager* assets);
         void                          Synchronize();
         void                          Extract(RenderView& output, const RenderResource& settings) const;
         void                          CollectLights(SceneInfo& output) const;
@@ -60,7 +71,10 @@ namespace Kans
         Record                                   ExtractEntity(Entity entity) const;
         void                                     Dirty(entt::entity entity) { m_Dirty.insert(entity); }
         void                                     AssetChanged(AssetID asset);
-        Scene&                                   m_Scene;
+        Scene*                                                        m_Scene = nullptr;
+        std::vector<DrawProxy>                                        m_ProceduralDraws;
+        std::vector<PointLight>                                       m_ProceduralPointLights;
+        std::optional<DirLight>                                       m_ProceduralDirectional;
         std::unordered_set<entt::entity>         m_Dirty;
         std::unordered_map<entt::entity, Record> m_Records;
         std::map<Order, entt::entity>            m_Order;

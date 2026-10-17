@@ -2,9 +2,16 @@
 #include "RenderWorld.h"
 #include <stdexcept>
 #include "Kans3D/Scene/Entity.h"
+#include "Kans3D/Scene/Scene.h"
 
 namespace Kans
 {
+    AssetManager* RenderWorld::GetAssetManager() const { return m_Scene ? m_Scene->m_PrefabAssets : nullptr; }
+    void          RenderWorld::SetAssetManager(AssetManager* assets)
+    {
+        if (m_Scene)
+            m_Scene->SetPrefabAssetManager(assets);
+    }
     bool RenderWorld::Order::operator<(const Order& b) const
     {
         if (Root != b.Root || !Root)
@@ -15,13 +22,13 @@ namespace Kans
     {
         Record     record;
         const auto id   = entity.GetUUID();
-        const auto root = m_Scene.GetPrefabInstanceRoot(entity);
+        const auto root = m_Scene->GetPrefabInstanceRoot(entity);
         record.Sort = {root ? root.GetComponent<PrefabInstanceComponent>().DrawOrder : uint64_t(uint32_t(entity)),
                        root ? root.GetUUID() : UUID(0),
                        id,
                        entity.HasComponent<PrefabOwnedComponent>() ? entity.GetComponent<PrefabOwnedComponent>().Order :
                                                                      SIZE_MAX};
-        const auto world = m_Scene.GetWorldTransform(entity);
+        const auto world = m_Scene->GetWorldTransform(entity);
         if (entity.HasComponent<MeshComponent>())
         {
             const auto& component   = entity.GetComponent<MeshComponent>();
@@ -30,14 +37,14 @@ namespace Kans
             if (root && entity.HasComponent<PrefabOwnedComponent>())
             {
                 std::function<glm::mat4(Entity)> relative = [&](Entity part) {
-                    auto parent = m_Scene.GetParent(part);
+                    auto parent = m_Scene->GetParent(part);
                     auto local  = part.GetComponent<TransformComponent>().GetTransform();
                     return parent && parent != root ? relative(parent) * local : local;
                 };
                 record.OutlineTransform =
-                    m_Scene.GetWorldTransform(root) * glm::scale(glm::mat4(1), glm::vec3(1.007f)) * relative(entity);
+                    m_Scene->GetWorldTransform(root) * glm::scale(glm::mat4(1), glm::vec3(1.007f)) * relative(entity);
             }
-            record.MeshSource = m_Scene.ResolveMesh(entity);
+            record.MeshSource = m_Scene->ResolveMesh(entity);
             if (record.MeshSource)
             {
                 const auto& data = record.MeshSource->GetData();
@@ -78,7 +85,7 @@ namespace Kans
             const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
             record.Sprite      = {world, sprite.Texture, sprite.Color};
         }
-        for (auto parent = m_Scene.GetParent(entity); parent; parent = m_Scene.GetParent(parent))
+        for (auto parent = m_Scene->GetParent(entity); parent; parent = m_Scene->GetParent(parent))
             record.Ancestors.push_back(parent.GetUUID());
         return record;
     }
@@ -90,6 +97,8 @@ namespace Kans
     }
     std::vector<RenderWorld::DrawProxy> RenderWorld::CollectDraws(UUID subtree) const
     {
+        if (!m_Scene)
+            return m_ProceduralDraws;
         std::vector<DrawProxy> result;
         for (const auto& [order, handle] : m_Order)
         {
@@ -105,20 +114,22 @@ namespace Kans
         const auto found = m_MeshUsers.find(asset);
         if (found != m_MeshUsers.end())
             for (auto handle : found->second)
-                if (m_Scene.m_Registry.valid(handle))
-                    m_Scene.OnRenderComponentChanged(m_Scene.m_Registry, handle);
+                if (m_Scene->m_Registry.valid(handle))
+                    m_Scene->OnRenderComponentChanged(m_Scene->m_Registry, handle);
     }
     void RenderWorld::Synchronize()
     {
-        m_Scene.UpdatePrefabs();
+        if (!m_Scene)
+            return;
+        m_Scene->UpdatePrefabs();
         m_Stats           = m_PendingStats;
         m_PendingStats    = {};
-        using SpriteGroup = decltype(m_Scene.m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>));
+        using SpriteGroup = decltype(m_Scene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>));
         // Create the legacy owning group lazily at the first sprite extraction.
         const auto sprites = [&] {
             if (!m_Dirty.empty() &&
-                (!m_SpriteOrder.empty() || !m_Scene.m_Registry.view<SpriteRendererComponent>().empty()))
-                return m_Scene.m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+                (!m_SpriteOrder.empty() || !m_Scene->m_Registry.view<SpriteRendererComponent>().empty()))
+                return m_Scene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
             return SpriteGroup {};
         }();
         std::unordered_set<size_t> spritePositions;
@@ -127,11 +138,11 @@ namespace Kans
             ++m_Stats.EntitiesVisited;
             auto         old      = m_Records.find(handle);
             const size_t oldCount = old == m_Records.end() ? 0 : old->second.Draws.size();
-            const bool   valid =
-                m_Scene.m_Registry.valid(handle) && m_Scene.m_Registry.all_of<TransformComponent, IDComponent>(handle);
+            const bool   valid    = m_Scene->m_Registry.valid(handle) &&
+                                    m_Scene->m_Registry.all_of<TransformComponent, IDComponent>(handle);
             Record next;
             if (valid)
-                next = ExtractEntity({handle, &m_Scene});
+                next = ExtractEntity({handle, m_Scene});
             const bool   renderable = next.Mesh || next.Point || next.Directional || next.Sprite;
             const size_t nextCount  = next.Draws.size();
             auto         countProxy = [&](bool before, bool after) {
@@ -227,6 +238,14 @@ namespace Kans
     }
     void RenderWorld::CollectLights(SceneInfo& info) const
     {
+        if (!m_Scene)
+        {
+            info.dirLight            = m_ProceduralDirectional.value_or(DirLight {});
+            info.HasDirectionalLight = m_ProceduralDirectional.has_value();
+            info.pointLights         = m_ProceduralPointLights;
+            info.pointLight          = info.pointLights.empty() ? PointLight {} : info.pointLights.front();
+            return;
+        }
         info.dirLight   = {};
         info.pointLight = {};
         info.pointLights.clear();
@@ -274,6 +293,20 @@ namespace Kans
         output.Sprites.clear();
         output.Grids.clear();
         output.ImmediateOrder.clear();
+        for (const auto& proxy : m_ProceduralDraws)
+            output.Draws.push_back({proxy.Mesh,
+                                    proxy.Transform,
+                                    proxy.Material,
+                                    output.DebugMode,
+                                    ModelStencilMode::Disabled,
+                                    proxy.LocalBounds,
+                                    {},
+                                    false,
+                                    proxy.Section,
+                                    proxy.EntityID,
+                                    proxy.InstanceRoot,
+                                    proxy.WorldBounds,
+                                    true});
         const auto& state = settings.Piplinestate;
         for (const auto& [order, handle] : m_Order)
         {
@@ -344,14 +377,16 @@ namespace Kans
     }
     void RenderWorld::Validate() const
     {
+        if (!m_Scene)
+            return;
 #ifndef NDEBUG
         auto stale = [&](UUID id) {
             throw std::logic_error("RenderWorld stale entity " + std::to_string(uint64_t(id)));
         };
         size_t count = 0;
-        for (auto handle : m_Scene.m_Registry.view<TransformComponent, IDComponent>())
+        for (auto handle : m_Scene->m_Registry.view<TransformComponent, IDComponent>())
         {
-            const auto expected = ExtractEntity({handle, &m_Scene});
+            const auto expected = ExtractEntity({handle, m_Scene});
             if (!expected.Mesh && !expected.Point && !expected.Directional && !expected.Sprite)
                 continue;
             ++count;
@@ -399,21 +434,22 @@ namespace Kans
                  actual.Directional->Ambient_Intensity != expected.Directional->Ambient_Intensity))
                 stale(expected.Sort.EntityID);
         }
-        const auto sprites = m_Scene.m_Registry.group_if_exists<TransformComponent>(entt::get<SpriteRendererComponent>);
+        const auto sprites =
+            m_Scene->m_Registry.group_if_exists<TransformComponent>(entt::get<SpriteRendererComponent>);
         auto       actualSprite = m_SpriteOrder.rbegin();
         for (auto handle : sprites)
         {
             if (actualSprite == m_SpriteOrder.rend() || actualSprite->second != handle)
-                stale(m_Scene.m_Registry.get<IDComponent>(handle).ID);
+                stale(m_Scene->m_Registry.get<IDComponent>(handle).ID);
             ++actualSprite;
         }
         if (actualSprite != m_SpriteOrder.rend())
             stale(m_Records.at(actualSprite->second).Sort.EntityID);
         if (count != m_Records.size())
             for (const auto& [handle, record] : m_Records)
-                if (!m_Scene.m_Registry.valid(handle) ||
-                    !m_Scene.m_Registry.all_of<TransformComponent, IDComponent>(handle) ||
-                    !m_Scene.m_Registry
+                if (!m_Scene->m_Registry.valid(handle) ||
+                    !m_Scene->m_Registry.all_of<TransformComponent, IDComponent>(handle) ||
+                    !m_Scene->m_Registry
                          .any_of<MeshComponent, PointLightComponent, DirLightComponent, SpriteRendererComponent>(
                              handle))
                     stale(record.Sort.EntityID);

@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "RenderView.h"
 #include <algorithm>
+#include "Kans3D/Scene/Entity.h"
 
 namespace Kans
 {
@@ -121,5 +122,22 @@ namespace Kans
         frame.DirectionalAmbient = glm::vec4(light.Ambient_Intensity, 0);
         frame.LightingInfo       = {float(count), scene.sceneCamera.camera.GetExposure(), 0, 0};
         return frame;
+    }
+} // namespace Kans
+
+namespace Kans
+{
+    std::optional<RenderView> MakeRuntimeView(Scene& scene, glm::uvec2 viewport)
+    {
+        const auto entity = scene.GetCameraEntity();
+        if (!entity)
+            return std::nullopt;
+        const auto transform = scene.GetWorldTransform(entity);
+        RenderView view;
+        view.Viewport                     = viewport;
+        view.Scene.sceneCamera.camera     = entity.GetComponent<CameraComponent>().SceneCamera;
+        view.Scene.sceneCamera.Position   = glm::vec3(transform[3]);
+        view.Scene.sceneCamera.viewMatrix = glm::inverse(transform);
+        return view;
     }
 } // namespace Kans

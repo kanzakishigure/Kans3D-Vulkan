@@ -81,6 +81,11 @@ namespace Kans
         // Run an imported-resource prefix without touching transient allocations.
         // Its access history survives subsequent pass additions and compilation.
         void                                      ExecuteImportedPrefix(RenderHardware::Device& device);
+        void                                      ReleaseRecorders()
+        {
+            for (auto& pass : m_Passes)
+                pass.Recorder = {};
+        }
         size_t                                    PassCount() const { return m_Passes.size(); }
         const std::vector<GraphPass>&             ExecutionOrder() const { return m_Order; }
         const std::vector<CompiledGraphResource>& Resources() const { return m_CompiledResources; }

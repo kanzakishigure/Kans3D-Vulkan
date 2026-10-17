@@ -1,6 +1,6 @@
 #include "kspch.h"
 #include "MaterialPassFeature.h"
-#include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Renderer/RenderFrame.h"
 namespace Kans
 {
     MaterialPassFeature::MaterialPassFeature(std::string tag, RenderExtensionPoint point) :
@@ -11,12 +11,12 @@ namespace Kans
     }
     void MaterialPassFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
-        auto* renderer = context.Renderer;
+        auto* renderer = context.Frame;
         if (!renderer || !renderer->HasMaterialPass(context.View, m_Tag))
             return;
         auto       uses    = context.Target;
         uses.push_back(
-            {context.Graph.ImportTexture("SceneHDR", renderer->m_Target->GetHDR()), GraphAccess::ColorReadWrite});
+            {context.Graph.ImportTexture("SceneHDR", renderer->Output.GetHDR()), GraphAccess::ColorReadWrite});
         const auto sampled = [&](const RenderHardware::Handle<RenderHardware::Texture>& image) {
             if (!image)
                 return;

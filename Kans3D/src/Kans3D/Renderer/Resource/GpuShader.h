@@ -19,10 +19,15 @@ namespace Kans
         GpuUniformBuffer(const GpuUniformBuffer&)            = delete;
         GpuUniformBuffer& operator=(const GpuUniformBuffer&) = delete;
 
+        GpuUniformBuffer Snapshot() const { return GpuUniformBuffer(m_Device, m_Buffer); }
         void Update(const void* data, size_t bytes);
         const RenderHardware::Handle<RenderHardware::Buffer>& Resource() const { return m_Buffer; }
 
     private:
+        GpuUniformBuffer(std::shared_ptr<RenderHardware::Device>        device,
+                         RenderHardware::Handle<RenderHardware::Buffer> buffer) :
+            m_Device(std::move(device)), m_Buffer(std::move(buffer))
+        {}
         std::shared_ptr<RenderHardware::Device>        m_Device;
         RenderHardware::Handle<RenderHardware::Buffer> m_Buffer;
     };
@@ -45,6 +50,7 @@ namespace Kans
         [[nodiscard]] static std::variant<GpuShader, AssetError>
         Create(const ShaderData& data, std::shared_ptr<RenderHardware::Device> device = {});
 
+        GpuShader Snapshot() const;
         ~GpuShader();
         GpuShader(GpuShader&& other) noexcept;
         GpuShader& operator=(GpuShader&& other) noexcept;

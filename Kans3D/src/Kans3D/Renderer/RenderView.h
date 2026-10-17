@@ -3,23 +3,44 @@
 #include <optional>
 #include <glm/glm.hpp>
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
-#include "Kans3D/Renderer/Resource/RenderScene.h"
 #include "Kans3D/Scene/Components.h"
 #include "ImmediatePassState.h"
+#include "RenderSettings.h"
+#include "Resource/Camera.h"
 
 namespace Kans
 {
-    struct SceneRendererCamera
+    class Scene;
+    class RenderFeatureSet;
+    class RenderWorld;
+    struct ScenePickHit
+    {
+        UUID                     EntityID = 0, InstanceRoot = 0;
+        std::optional<glm::vec3> Position;
+    };
+    struct SceneRenderStats
+    {
+        uint32_t DrawCalls = 0;
+        uint64_t Triangles = 0;
+    };
+    struct SpriteStatistics
+    {
+        uint32_t DrawCalls = 0, QuadCount = 0;
+        uint32_t GetTotalVertexCount() const { return QuadCount * 4; }
+        uint32_t GetTotalIndexCount() const { return QuadCount * 6; }
+    };
+    struct RenderCamera
     {
         Camera    camera;
         glm::mat4 viewMatrix;
         glm::vec3 Position;
     };
+    using SceneRendererCamera = RenderCamera; // Editor facade compatibility.
     struct SceneInfo
     {
         DirLight            dirLight;
         PointLight          pointLight;
-        SceneRendererCamera sceneCamera;
+        RenderCamera            sceneCamera;
         std::vector<PointLight> pointLights;
         bool                    HasDirectionalLight = false;
     };
@@ -117,6 +138,7 @@ namespace Kans
     {
         ViewImmediateKind Kind;
         size_t            Index;
+        size_t            Count = SIZE_MAX;
     };
     struct ViewEnvironment
     {
@@ -124,9 +146,26 @@ namespace Kans
     };
     // One view/frame. Owns intent, CPU sort metadata and resource handles, never borrowed meshes.
     // Matrices remain in the engine's coordinate convention until recording.
+    struct ViewMaterialResources
+    {
+        std::shared_ptr<const GpuShader>           Shader;
+        std::shared_ptr<const GpuMaterialBindings> Bindings;
+    };
     struct RenderView
     {
         SceneInfo                          Scene {};
+        RenderFeatureSet* Features = nullptr; // Borrowed for this call; owned by the viewport/configuration.
+        std::shared_ptr<RenderAssetCache>                 Assets;
+        std::map<AssetID, std::shared_ptr<const GpuMesh>> MeshResources;
+        std::map<AssetID, ViewMaterialResources>          MaterialResources;
+        std::optional<EngineFrameUniforms>                LightingUniforms;
+        std::string                                       Pipeline = "Forward";
+        std::optional<float>                              Exposure;
+        float                                             Time         = 0;
+        bool                                              ExtractWorld = true;
+        std::optional<std::filesystem::path> EnvironmentPath; // nullopt inherits world; empty disables IBL.
+        bool                                 DrawEnvironment     = true;
+        bool                                 UseWorldEnvironment = true;
         glm::uvec2                         Viewport {0};
         SceneViewMode                      DebugMode = SceneViewMode::Lit;
         std::vector<ViewMeshSubmission>    Meshes;
@@ -144,6 +183,8 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::Texture> BrdfLUT;
         std::optional<PrefabPreview>                    Preview;
     };
+    // Scene-camera game view: no editor features, highlights or previews.
+    std::optional<RenderView> MakeRuntimeView(Scene& scene, glm::uvec2 viewport);
     // CPU-only extraction of an available mesh; absent data emits no draws.
     void
     ExtractMeshDraws(RenderView& view, const ViewMeshSubmission& submission, SceneViewMode mode, const GpuMesh* mesh);

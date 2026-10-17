@@ -1,6 +1,6 @@
 #include "kspch.h"
 #include "EditorRenderFeatures.h"
-#include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Renderer/RenderFrame.h"
 
 namespace Kans
 {
@@ -15,7 +15,7 @@ namespace Kans
     {
         if (!context.Immediate || context.Immediate->Kind != ViewImmediateKind::Grid)
             return;
-        auto&       renderer  = *context.Renderer;
+        auto&       renderer  = *context.Frame;
         const auto& view      = context.View;
         const auto  immediate = *context.Immediate;
         context.Graph.AddPass("Grid", context.Target, [&renderer, &view, immediate](auto& pass) {
@@ -26,7 +26,7 @@ namespace Kans
     {
         if (context.View.Geometry.empty())
             return;
-        auto&       renderer = *context.Renderer;
+        auto&       renderer = *context.Frame;
         const auto& view     = context.View;
         context.Graph.AddPass("Legacy geometry", context.Target, [&renderer, &view](auto& pass) {
             for (const auto& draw : view.Geometry)
@@ -41,7 +41,7 @@ namespace Kans
         using namespace RenderHardware;
         auto&       graph    = context.Graph;
         const auto& view     = context.View;
-        auto&       renderer = *context.Renderer;
+        auto&       renderer = *context.Frame;
         const auto& target   = context.Target;
         const auto  depth    = target.back().Texture;
         TextureDesc desc;
@@ -59,14 +59,14 @@ namespace Kans
                 else
                 {
                     for (auto entity : view.HighlightEntities)
-                        renderer.AppendEntityDraws(*renderer.m_RenderScene->GetLogicScene(), entity, 0, draws);
+                        renderer.AppendEntityDraws(entity, 0, draws);
                 }
-                renderer.m_Outline.RecordMask(context.Commands,
-                                              context.Texture(mask),
-                                              draws,
-                                              view.Scene.sceneCamera.camera.GetProjectionMatrix() *
-                                                  view.Scene.sceneCamera.viewMatrix,
-                                              view.Viewport);
+                renderer.Services.GetOutlineService().RecordMask(context.Commands,
+                                                                 context.Texture(mask),
+                                                                 draws,
+                                                                 view.Scene.sceneCamera.camera.GetProjectionMatrix() *
+                                                                     view.Scene.sceneCamera.viewMatrix,
+                                                                 view.Viewport);
             });
         graph.AddPass(
             name + " composite",
@@ -74,7 +74,7 @@ namespace Kans
              {depth, GraphAccess::DepthReadWrite},
              {mask, GraphAccess::SampledRead}},
             [&renderer, &view, mask, color](auto& context) {
-                renderer.m_Outline.RecordComposite(
+                renderer.Services.GetOutlineService().RecordComposite(
                     context.Commands, renderer.SceneTarget(LoadOp::Load), context.Texture(mask), view.Viewport, color);
             });
     }
@@ -84,15 +84,12 @@ namespace Kans
         if (!context.View.HighlightEntities.empty())
             AddOutline(context, "Selection", false, {1, .62f, .15f, 1});
     }
-    void EditorPreviewFeature::Prepare(RenderView& view, SceneRenderer& renderer)
+    void EditorPreviewFeature::Prepare(RenderView& view, RenderFrame& renderer)
     {
         if (!view.Preview)
             return;
         // Keep the ghost in the original shared, sorted material batch, always lit.
-        const SceneViewMode viewMode = renderer.m_ViewMode;
-        renderer.m_ViewMode          = SceneViewMode::Lit;
         renderer.SubmitPrefabPreview(*view.Preview);
-        renderer.m_ViewMode = viewMode;
     }
     void EditorPreviewFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {

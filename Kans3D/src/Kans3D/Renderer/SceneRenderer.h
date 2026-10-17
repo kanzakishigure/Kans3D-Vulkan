@@ -20,18 +20,6 @@ namespace Kans
     };
 
     class Scene;
-    struct ScenePickHit
-    {
-        UUID                     EntityID = 0, InstanceRoot = 0;
-        std::optional<glm::vec3> Position;
-    };
-
-    struct SceneRenderStats
-    {
-        uint32_t DrawCalls = 0;
-        uint64_t Triangles = 0;
-    };
-
     class SceneRenderer : public RefCounter
     {
     public:
@@ -57,7 +45,7 @@ namespace Kans
         void     ClearPreview() { m_Preview.reset(); }
         void     SetViewMode(SceneViewMode mode) { m_ViewMode = mode; }
         // Counts of the last rendered scene.
-        const SceneRenderStats& GetStats() const { return m_Stats; }
+        const SceneRenderStats& GetStats() const { return m_Result.Stats; }
 
         void                  Init();
         void                  PrepareEnvironment(EnvironmentPrecomputeSizes sizes = {});
@@ -70,7 +58,7 @@ namespace Kans
 
         void               SubmitSprites(std::vector<ViewSprite> sprites);
         const RenderView&  GetRenderView() const { return m_View; }
-        const RenderGraph& GetRenderGraph() const { return m_Graph; }
+        const RenderGraph&      GetRenderGraph() const { return m_Result.Graph; }
         void               SetPipeline(const std::string& name);
         const std::string& GetPipeline() const { return m_PipelineName; }
         RenderFeatureSet&       GetFeatures() { return m_Features; }
@@ -108,36 +96,14 @@ namespace Kans
         }
 
     private:
-        using ShaderDraw   = ViewShaderDraw;
-        using GeometryDraw = ViewGeometryDraw;
-        bool HasMaterialPass(const RenderView& view, const std::string& tag);
-        void DrawShaderMaterials(
-            RenderHardware::CommandList&                                                       commands,
-            const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled   = {},
-            const std::string&                                                                 tag       = {},
-            const RenderView*                                                                  view      = nullptr,
-            RenderHardware::Handle<RenderHardware::CommandList>*                               finalPost = nullptr);
-        void                 SubmitPrefabPreview(const PrefabPreview& preview);
-        void                 AppendPrefabPreviewDraws(const PrefabPreview& preview, std::vector<MeshDraw>& draws);
-        void                 DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commands);
-        void                 DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commands);
-        void                 DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
-        void                 PrepareDrawLists();
-        RenderView           m_View;
-        RenderGraph          m_Graph;
-        std::string          m_PipelineName = "Forward";
-        RenderFeatureSet     m_Features;
-        friend class ForwardPipeline;
-        friend class MaterialPassFeature;
-        friend class EditorGridFeature;
-        friend class DebugGeometryFeature;
-        friend class EditorOutlineFeature;
-        friend class EditorPreviewFeature;
+        RenderView       m_View;
+        RenderResult     m_Result;
+        std::string      m_PipelineName = "Forward";
+        RenderFeatureSet m_Features;
         friend class RenderScene;
 
         // SceneRenderer did't handle the life of Scnene;
         RenderScene*               m_RenderScene;
-        SceneInfo                  m_SceneInfo;
         SceneRendererSpecification m_Specification;
 
         uint32_t         m_ViewportWidth = 0, m_ViewportHeight = 0;
@@ -149,13 +115,12 @@ namespace Kans
         void                                         RefreshEnvironment() const;
         RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load, bool hdr = false) const;
 
-        bool                    m_Active = false;
         std::shared_ptr<RenderAssetCache>     m_AssetCache;
-        SelectionOutline        m_Outline;
+
         std::vector<UUID>                     m_EntityHighlight;
         std::optional<PrefabPreview>          m_Preview;
         SceneViewMode          m_ViewMode = SceneViewMode::Lit;
-        SceneRenderStats       m_Stats;
+
         std::chrono::steady_clock::time_point m_StartTime = std::chrono::steady_clock::now();
     };
 } // namespace Kans

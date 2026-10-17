@@ -43,6 +43,18 @@ namespace Kans
         MaterialRenderState Render;
         std::vector<std::pair<uint32_t, GpuUniformBuffer>> Blocks;
         std::vector<std::pair<uint32_t, AssetID>>          Textures;
+        GpuMaterialBindings                                Snapshot() const
+        {
+            GpuMaterialBindings copy;
+            copy.Group    = Group;
+            copy.Images   = Images;
+            copy.Shader   = Shader;
+            copy.Render   = Render;
+            copy.Textures = Textures;
+            for (const auto& block : Blocks)
+                copy.Blocks.emplace_back(block.first, block.second.Snapshot());
+            return copy;
+        }
     };
 
     struct ModelInstance

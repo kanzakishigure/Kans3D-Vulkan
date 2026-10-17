@@ -1,7 +1,7 @@
 #include "kspch.h"
 #include "ParticleSystem.h"
 #include "Kans3D/Core/Math/Math.h"
-#include "Kans3D/Renderer/Renderer2D.h"
+#include "Kans3D/Renderer/SpriteBatch.h"
 
 #include <glm/gtc/constants.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -34,9 +34,9 @@ namespace Kans
         }
     }
 
-    void ParticleSystem::OnRender(OrthographicCamera& camera)
+    void ParticleSystem::OnRender(OrthographicCamera& camera, SpriteBatch& sprites)
     {
-        Renderer2D::BeginScene(camera);
+        sprites.BeginScene(camera);
         for (auto& particle : m_ParticlePool)
         {
             if (!particle.Active)
@@ -48,9 +48,9 @@ namespace Kans
             color.a         = color.a * life;
             float size      = glm::lerp(particle.SizeEnd, particle.SizeBegin, life);
             // Render
-            Renderer2D::DrawQuad(particle.Position, glm::vec2(size), color);
+            sprites.DrawQuad(particle.Position, glm::vec2(size), color);
         }
-        Renderer2D::EndScene();
+        sprites.EndScene();
     }
 
     void ParticleSystem::Emit(const ParticleProps& particleProps)

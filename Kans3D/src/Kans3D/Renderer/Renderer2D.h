@@ -1,6 +1,6 @@
 #pragma once
 #include <functional>
-#include "ImmediatePassState.h"
+#include "SpriteBatch.h"
 
 #include "Kans3D/RHI/RHI.h"
 #include "Resource/Camera.h"
@@ -83,18 +83,11 @@ namespace Kans
                                    const glm::vec4&      tintcolor    = glm::vec4(1.0f),
                                    float                 tilingFactor = 1.0f);
 
-        struct Statistics
-        {
-            uint32_t DrawCalls = 0;
-            uint32_t QuadCount = 0;
-            uint32_t GetTotalVertexCount() { return QuadCount * 4; }
-            uint32_t GetTotalIndexCount() { return QuadCount * 6; }
-        };
+        using Statistics = SpriteStatistics;
 
         static void        ResetStats();
         static Statistics& GetStats();
 
     private:
-        static void FlushAndReset();
     };
 } // namespace Kans

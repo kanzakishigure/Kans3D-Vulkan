@@ -116,3 +116,21 @@ namespace Kans
     GpuShader::GpuShader(GpuShader&&) noexcept            = default;
     GpuShader& GpuShader::operator=(GpuShader&&) noexcept = default;
 } // namespace Kans
+
+namespace Kans
+{
+    GpuShader GpuShader::Snapshot() const
+    {
+        GpuShader copy;
+        copy.m_Device           = m_Device;
+        copy.Program            = Program;
+        copy.EngineLayout       = EngineLayout;
+        copy.MaterialLayout     = MaterialLayout;
+        copy.EngineResources    = EngineResources;
+        copy.Pipelines          = Pipelines;
+        copy.Passes             = Passes;
+        copy.OutputSpace        = OutputSpace;
+        copy.m_SamplerFallbacks = m_SamplerFallbacks;
+        return copy;
+    }
+} // namespace Kans
