@@ -190,7 +190,7 @@ namespace Kans
         if (ImGui::BeginPopup("##SectionMenu"))
         {
             if (reset && ImGui::MenuItem(ICON_FA_ROTATE_RIGHT "  Reset"))
-                reset(entity.GetComponent<T>());
+                entity.PatchComponent<T>(reset);
             if (removable && ImGui::MenuItem(ICON_FA_TRASH "  Remove Component"))
                 remove = true;
             if (!reset && !removable)
@@ -200,7 +200,13 @@ namespace Kans
         if (open)
         {
             ImGui::Spacing();
-            draw(entity.GetComponent<T>());
+            // Edits go through PatchComponent so the render world sees them; it only
+            // notifies on an actual change. Mesh and prefab sections notify from their
+            // pickers instead: any prefab notification reconciles the instance.
+            if constexpr (std::is_same_v<T, MeshComponent> || std::is_same_v<T, PrefabInstanceComponent>)
+                draw(entity.GetComponent<T>());
+            else
+                entity.PatchComponent<T>(draw);
             ImGui::Spacing();
             ImGui::TreePop();
         }
@@ -349,8 +355,12 @@ namespace Kans
         auto&  instance = root.GetComponent<PrefabInstanceComponent>();
         if (PropertyGrid::Begin("##Prefab"))
         {
-            if (AssetPicker("Prefab", AssetType::Model, instance.Prefab))
-                instance.Overrides.clear(); // Overrides refer to the previous prefab's nodes.
+            AssetID chosen = instance.Prefab;
+            if (AssetPicker("Prefab", AssetType::Model, chosen))
+                root.PatchComponent<PrefabInstanceComponent>([&](PrefabInstanceComponent& p) {
+                    p.Prefab = chosen;
+                    p.Overrides.clear(); // Overrides refer to the previous prefab's nodes.
+                });
             PropertyGrid::End();
         }
         if (!instance.Prefab.IsValid())
@@ -442,8 +452,15 @@ namespace Kans
         {
             if (owned)
                 PropertyGrid::Text("Mesh", mesh.Section ? "Section " + std::to_string(*mesh.Section + 1) : "All sections");
-            else if (AssetPicker("Mesh", AssetType::StaticMesh, mesh.Mesh))
-                mesh.Materials.clear();
+            else
+            {
+                AssetID chosen = mesh.Mesh;
+                if (AssetPicker("Mesh", AssetType::StaticMesh, chosen))
+                    entity.PatchComponent<MeshComponent>([&](MeshComponent& m) {
+                        m.Mesh = chosen;
+                        m.Materials.clear();
+                    });
+            }
             PropertyGrid::End();
         }
         if (!mesh.Mesh.IsValid() || !scene)
@@ -491,10 +508,10 @@ namespace Kans
                     scene->SetPrefabMaterialOverride(root, entity.GetComponent<PrefabOwnedComponent>().NodeKey, slot,
                                                      chosen);
                 else
-                {
-                    mesh.Materials.resize(std::max<size_t>(mesh.Materials.size(), slot + 1));
-                    mesh.Materials[slot] = chosen;
-                }
+                    entity.PatchComponent<MeshComponent>([&](MeshComponent& m) {
+                        m.Materials.resize(std::max<size_t>(m.Materials.size(), slot + 1));
+                        m.Materials[slot] = chosen;
+                    });
             }
             ImGui::PopID();
         }

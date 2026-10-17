@@ -54,14 +54,15 @@ namespace Kans
         void OnRenderEditor(Ref<SceneRenderer> renderer, TimeStep ts, const EditorCamera& camera);
         void OnRenderRuntime(Ref<SceneRenderer> renderer, TimeStep ts);
 
-        // CPU-only scene extraction. Caller supplies camera, viewport and debug mode.
+        // CPU-only snapshot of the persistent world. Caller supplies camera, viewport and debug mode.
         void Extract(RenderView& view) const;
         void OnViewportResize(uint32_t width, uint32_t height);
         const Ref<Scene>& GetLogicScene() const { return m_LogicScene; }
         void SetLogicScene(const Ref<Scene>& scene);
 
-        const RenderResource& GetRenderResource() { return m_RenderResource; }
-        void                  SetRenderResource(const RenderResource& resource) { m_RenderResource = resource; }
+        const RenderResource&        GetRenderResource();
+        void                         SetRenderResource(const RenderResource& resource);
+        const std::filesystem::path& GetEnvironmentPath() const;
 
     private:
         void CollectLights(SceneInfo& info) const;
@@ -76,9 +77,6 @@ namespace Kans
 
         uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 
-        // temp for create Environment
-        RenderResource        m_RenderResource;
-        std::filesystem::path m_EnvironmentPath;
 
         friend class Scene;
         friend class SceneRenderer;

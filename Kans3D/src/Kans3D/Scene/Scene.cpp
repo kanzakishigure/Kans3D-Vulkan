@@ -1,7 +1,9 @@
 #include "kspch.h"
 
 #include <glm/glm.hpp>
+#include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Core/Math/Math.h"
+#include "Kans3D/Renderer/RenderWorld.h"
 #include "Components.h"
 #include "Entity.h"
 #include "Scene.h"
@@ -12,9 +14,149 @@
 namespace Kans
 {
 
-    Scene::Scene(const std::string& name) : m_Name(name) {}
+    Scene::Scene(const std::string& name) : m_Name(name)
+    {
+        m_RenderWorld = std::make_unique<RenderWorld>(*this);
+        auto connect  = [&](auto* type) {
+            using T = std::remove_pointer_t<decltype(type)>;
+            m_Registry.on_construct<T>().template connect<&Scene::OnRenderComponentChanged>(this);
+            m_Registry.on_update<T>().template connect<&Scene::OnRenderComponentChanged>(this);
+            m_Registry.on_destroy<T>().template connect<&Scene::OnRenderComponentChanged>(this);
+        };
+        connect(static_cast<MeshComponent*>(nullptr));
+        connect(static_cast<SpriteRendererComponent*>(nullptr));
+        connect(static_cast<DirLightComponent*>(nullptr));
+        connect(static_cast<PointLightComponent*>(nullptr));
+        connect(static_cast<PrefabOwnedComponent*>(nullptr));
+        m_Registry.on_construct<TransformComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_update<TransformComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_destroy<TransformComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_update<RelationshipComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_construct<PrefabInstanceComponent>().connect<&Scene::OnPrefabChanged>(this);
+        m_Registry.on_update<PrefabInstanceComponent>().connect<&Scene::OnPrefabChanged>(this);
+        m_Registry.on_destroy<PrefabInstanceComponent>().connect<&Scene::OnPrefabChanged>(this);
+    }
 
-    Scene::~Scene() {}
+    Scene::~Scene()
+    {
+        m_SuppressNotifications = true;
+        m_Registry.clear();
+    }
+
+    void Scene::DirtyBounds(Entity entity)
+    {
+        for (auto current = entity; current; current = GetParent(current))
+            m_DirtyBounds.insert(current);
+    }
+    void Scene::DirtySubtree(Entity entity)
+    {
+        m_RenderWorld->Dirty(entity);
+        if (!entity.HasComponent<RelationshipComponent>())
+            return;
+        DirtyBounds(entity);
+        for (auto child : GetChildren(entity))
+            DirtySubtree(child);
+    }
+    void Scene::OnTransformChanged(entt::registry&, entt::entity handle)
+    {
+        if (m_SuppressNotifications)
+            return;
+        Entity entity {handle, this};
+        DirtySubtree(entity);
+        if (!m_ReconcilingPrefab && entity.HasComponent<PrefabOwnedComponent>())
+            m_CapturePrefabNodes.insert(handle);
+    }
+    void Scene::OnRenderComponentChanged(entt::registry&, entt::entity handle)
+    {
+        if (m_SuppressNotifications)
+            return;
+        m_RenderWorld->Dirty(handle);
+        Entity entity {handle, this};
+        if (entity.HasComponent<RelationshipComponent>())
+            DirtyBounds(entity);
+        if (!m_ReconcilingPrefab && entity.HasComponent<PrefabOwnedComponent>())
+            m_CapturePrefabNodes.insert(handle);
+    }
+    void Scene::OnPrefabChanged(entt::registry&, entt::entity handle)
+    {
+        if (m_SuppressNotifications)
+            return;
+        m_DirtyPrefabs.insert(handle);
+        if (m_Registry.all_of<IDComponent, RelationshipComponent>(handle))
+            DirtySubtree({handle, this});
+    }
+    void Scene::SetPrefabAssetManager(AssetManager* assets)
+    {
+        if (m_PrefabAssets == assets)
+            return;
+        m_PrefabAssets = assets;
+        m_AssetChanges = assets ? assets->ObserveChanges() : nullptr;
+        for (auto handle : m_Registry.view<PrefabInstanceComponent>())
+            m_DirtyPrefabs.insert(handle);
+        for (auto handle : m_Registry.view<MeshComponent>())
+            OnRenderComponentChanged(m_Registry, handle);
+    }
+    void Scene::TrackPrefabAssets(Entity root)
+    {
+        auto& previous = m_PrefabDependencies[entt::entity(root)];
+        for (auto id : previous)
+        {
+            auto found = m_PrefabAssetUsers.find(id);
+            if (found != m_PrefabAssetUsers.end())
+            {
+                found->second.erase(root);
+                if (found->second.empty())
+                    m_PrefabAssetUsers.erase(found);
+            }
+        }
+        previous.clear();
+        const auto& instance = root.GetComponent<PrefabInstanceComponent>();
+        if (instance.Prefab.IsValid())
+            previous.push_back(instance.Prefab);
+        if (instance.Source)
+            for (const auto& node : instance.Source->GetEntities())
+                if (node.Mesh.IsValid())
+                    previous.push_back(node.Mesh);
+        for (auto id : previous)
+            m_PrefabAssetUsers[id].insert(root);
+    }
+    void Scene::PollAssetChanges()
+    {
+        if (!m_AssetChanges)
+            return;
+        for (auto id : m_AssetChanges->Drain())
+        {
+            m_RenderWorld->AssetChanged(id);
+            const auto found = m_PrefabAssetUsers.find(id);
+            if (found != m_PrefabAssetUsers.end())
+                for (auto handle : found->second)
+                    m_DirtyPrefabs.insert(handle);
+        }
+    }
+    Ref<const MeshAsset> Scene::ResolveMesh(Entity entity) const
+    {
+        if (!entity.HasComponent<MeshComponent>())
+            return {};
+        const auto id = entity.GetComponent<MeshComponent>().Mesh;
+        if (m_PrefabAssets)
+        {
+            auto status = m_PrefabAssets->Request<MeshAsset>(id);
+            if (status.IsReady())
+                return status.Asset;
+        }
+        if (auto root = GetPrefabInstanceRoot(entity))
+        {
+            const auto& sources = root.GetComponent<PrefabInstanceComponent>().MeshSources;
+            auto        found   = sources.find(id);
+            if (found != sources.end())
+                return found->second;
+        }
+        const auto previous = m_RenderWorld->m_Records.find(entt::entity(entity));
+        if (previous != m_RenderWorld->m_Records.end() && previous->second.Mesh &&
+            previous->second.Mesh->Mesh.Mesh == id)
+            return previous->second.MeshSource;
+        return {};
+    }
 
     void Scene::OnUpdate(TimeStep ts)
     {
@@ -76,6 +218,7 @@ namespace Kans
         entity.AddComponent<TransformComponent>();
         entity.AddComponent<IDComponent>(uuid);
         entity.AddComponent<RelationshipComponent>();
+        entity.AddComponent<BoundsComponent>();
         auto& tag = entity.AddComponent<TagComponent>();
         tag.Tag   = name.empty() ? "Entity" : name;
 
@@ -105,9 +248,21 @@ namespace Kans
         for (UUID child : children)
             if (Entity value = GetEntityByUUID(child))
                 DestroyEntity(value);
+        DirtyBounds(entity);
+        m_RenderWorld->Dirty(entity);
+        m_DirtyPrefabs.erase(entity);
+        m_CapturePrefabNodes.erase(entity);
+        if (auto dependencies = m_PrefabDependencies.find(entt::entity(entity));
+            dependencies != m_PrefabDependencies.end())
+        {
+            for (auto asset : dependencies->second)
+                m_PrefabAssetUsers[asset].erase(entity);
+            m_PrefabDependencies.erase(dependencies);
+        }
         Detach(entity);
         auto& id = entity.GetComponent<IDComponent>().ID;
         m_EntityMap.erase(id);
+        m_ChildBounds.erase(entt::entity(entity));
         m_Registry.destroy(entity);
         m_ReconcilingPrefab = reconciling;
     }
@@ -119,6 +274,8 @@ namespace Kans
         Entity       parent     = relationship.Parent ? GetEntityByUUID(relationship.Parent) : Entity {};
         auto&        siblings   = parent ? parent.GetComponent<RelationshipComponent>().Children : m_RootOrder;
         siblings.erase(std::remove(siblings.begin(), siblings.end(), id), siblings.end());
+        if (parent)
+            m_ChildBounds[entt::entity(parent)].Set(entity, {});
         relationship.Parent = 0;
     }
 
@@ -161,6 +318,7 @@ namespace Kans
         if (parent && (parent == entity || IsDescendantOf(parent, entity)))
             return false;
         const glm::mat4 world = GetWorldTransform(entity);
+        DirtyBounds(entity);
         Detach(entity);
         const UUID id       = entity.GetUUID();
         auto&      siblings = parent ? parent.GetComponent<RelationshipComponent>().Children : m_RootOrder;
@@ -181,6 +339,7 @@ namespace Kans
         }
         if (keepWorld)
             SetWorldTransform(entity, world);
+        DirtySubtree(entity);
         return true;
     }
 
@@ -208,8 +367,9 @@ namespace Kans
     {
         const Entity    parent = GetParent(entity);
         const glm::mat4 local  = parent ? glm::inverse(GetWorldTransform(parent)) * world : world;
-        auto&           transform = entity.GetComponent<TransformComponent>();
-        Math::DecomposeTransform(local, transform.Position, transform.Rotation, transform.Scale);
+        entity.PatchComponent<TransformComponent>([&](auto& transform) {
+            Math::DecomposeTransform(local, transform.Position, transform.Rotation, transform.Scale);
+        });
     }
 
     namespace
@@ -220,7 +380,7 @@ namespace Kans
             if (source.HasComponent<T>())
             {
                 if (target.HasComponent<T>())
-                    target.GetComponent<T>() = source.GetComponent<T>();
+                    target.SetComponent<T>(source.GetComponent<T>());
                 else
                     target.AddComponent<T>(source.GetComponent<T>());
             }

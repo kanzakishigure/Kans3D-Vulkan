@@ -2202,7 +2202,7 @@ void main() { o_Color = p.Tint; }
 
         for (const float x : {0.0f, -0.125f})
         {
-            entity.GetComponent<TransformComponent>().Position.x = x;
+            entity.PatchComponent<TransformComponent>([&](auto& transform) { transform.Position.x = x; });
             Render->OnRenderRuntime(Renderer, TimeStep(0));
             const int ringX = x == 0 ? 12 : 11;
             // Original edge .56 falls just inside a pixel centre; the 1.007 expansion reaches that pixel.

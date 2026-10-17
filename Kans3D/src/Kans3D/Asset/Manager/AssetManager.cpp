@@ -6,6 +6,33 @@
 
 namespace Kans
 {
+    std::vector<AssetID> AssetChangeObserver::Drain()
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        std::vector<AssetID>        result;
+        result.swap(m_Changes);
+        return result;
+    }
+    std::shared_ptr<AssetChangeObserver> AssetManager::ObserveChanges()
+    {
+        auto                        observer = std::make_shared<AssetChangeObserver>();
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_Observers.push_back(observer);
+        return observer;
+    }
+    void AssetManager::NotifyChange(AssetID id)
+    {
+        for (auto it = m_Observers.begin(); it != m_Observers.end();)
+            if (auto observer = it->lock())
+            {
+                std::lock_guard<std::mutex> lock(observer->m_Mutex);
+                observer->m_Changes.push_back(id);
+                ++it;
+            }
+            else
+                it = m_Observers.erase(it);
+    }
+
     AssetManager::AssetManager(Ref<IAssetProvider>       provider,
                                Ref<const AssetRegistry>  registry,
                                AssetManagerSpecification spec) :
@@ -105,6 +132,7 @@ namespace Kans
                             auto& entry = m_Entries.at(part->Mesh);
                             entry.State = AssetLoadState::Ready;
                             entry.Value = source;
+                            NotifyChange(part->Mesh);
                         }
                     }
                     m_Changed.notify_all();
@@ -194,6 +222,7 @@ namespace Kans
             {
                 found->second.State = AssetLoadState::Ready;
                 found->second.Value = std::get<Ref<const Asset>>(std::move(result));
+                NotifyChange(id);
             }
         }
         m_Changed.notify_all();
@@ -306,6 +335,7 @@ namespace Kans
                 return std::move(*error);
             changes    = std::get<ProductChangeSet>(std::move(compared));
             auto evict = [&](AssetID id) {
+                NotifyChange(id);
                 const auto found = m_Entries.find(id);
                 if (found == m_Entries.end())
                     return;
@@ -323,6 +353,7 @@ namespace Kans
                 if (it->second.State == AssetLoadState::Failed ||
                     (it->first != StandardShaderID() && !registry->Find(it->first, m_Target)))
                 {
+                    NotifyChange(it->first);
                     retired.push_back(std::move(it->second.Value));
                     it = m_Entries.erase(it);
                 }
@@ -349,6 +380,7 @@ namespace Kans
             const auto                  found = m_Entries.find(id);
             if (found == m_Entries.end())
                 return;
+            NotifyChange(id);
             retired = std::move(found->second.Value);
             m_Entries.erase(found);
         }

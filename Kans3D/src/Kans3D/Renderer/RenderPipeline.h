@@ -13,6 +13,7 @@ namespace Kans
     {
     public:
         virtual ~RenderPipeline() = default;
+        virtual void Prepare(RenderView& view) { ExtractDrawLists(view); }
         virtual void Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) {}
         virtual void Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) = 0;
 
@@ -23,6 +24,7 @@ namespace Kans
     class ForwardPipeline final : public RenderPipeline
     {
     public:
+        void Prepare(RenderView& view) override;
         void Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) override;
         void Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) override;
     };

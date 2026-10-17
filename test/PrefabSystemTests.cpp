@@ -9,6 +9,7 @@
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Renderer/RenderView.h"
+#include "Kans3D/Renderer/RenderWorld.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/ScenePlaySession.h"
 #include "Kans3D/Scene/SceneSerializer.h"
@@ -154,6 +155,101 @@ namespace
         }
     };
 
+    TEST_F(PrefabSystem, AssetManagerMeshReplacementRefreshesPersistentProxies)
+    {
+        // Bug: mesh reimport evicts GPU/CPU caches but never dirties existing section proxies.
+        const auto root = Root();
+        Ready();
+        auto& world = Current->GetRenderWorld();
+        world.SetValidationEnabled(true);
+        world.Synchronize();
+        auto part = Part(root.GetUUID(), "node-A", 0);
+        ASSERT_EQ(world.GetEntityDraws(part).size(), 1u);
+        const auto before = world.GetEntityDraws(part)[0].WorldBounds;
+        for (auto& vertex : Mesh.Vertices)
+            vertex.Position[0] += 30;
+        for (auto& section : Mesh.Sections)
+        {
+            section.LocalBounds.Min.x += 30;
+            section.LocalBounds.Max.x += 30;
+        }
+        Mesh.LocalBounds.Min.x += 30;
+        Mesh.LocalBounds.Max.x += 30;
+        Mesh.MaterialSlots[0].DefaultMaterial = PartChoice;
+        MeshRecord = Store(MeshID, AssetType::StaticMesh, std::get<std::vector<std::byte>>(EncodeMeshProduct(Mesh)));
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry())));
+        Ready();
+        world.Synchronize();
+        ASSERT_EQ(world.GetEntityDraws(part).size(), 1u);
+        EXPECT_EQ(world.GetEntityDraws(part)[0].WorldBounds.Min, before.Min + glm::vec3(30, 0, 0));
+        EXPECT_EQ(world.GetEntityDraws(part)[0].WorldBounds.Max, before.Max + glm::vec3(30, 0, 0));
+        EXPECT_EQ(world.GetEntityDraws(part)[0].Material, PartChoice);
+        EXPECT_EQ(world.GetStats().Updated, 6u);
+    }
+
+    TEST_F(PrefabSystem, SerializedTransformsAndMaterialsPopulatePersistentWorldOnLoad)
+    {
+        // Bug: serializer writes bypass notifications, leaving initial proxies at default transforms/materials.
+        auto root = Root();
+        Ready();
+        root.PatchComponent<TransformComponent>([](auto& t) { t.Position = {3, 4, 5}; });
+        Current->SetPrefabMaterialOverride(root, Key("node-A", 0), 0, PartChoice);
+        Current->GetRenderWorld().Synchronize();
+        const auto originalPart = Part(root.GetUUID(), "node-A", 0);
+        const auto expected     = Current->GetRenderWorld().GetEntityDraws(originalPart);
+        ASSERT_EQ(expected.size(), 1u);
+        auto loaded = SaveLoad("world-load.kans");
+        loaded->SetPrefabAssetManager(Assets.get());
+        auto& world = loaded->GetRenderWorld();
+        world.SetValidationEnabled(true);
+        world.Synchronize();
+        auto part = loaded->GetEntityByUUID(originalPart.GetUUID());
+        ASSERT_TRUE(part);
+        ASSERT_EQ(world.GetEntityDraws(part).size(), 1u);
+        EXPECT_EQ(world.GetEntityDraws(part)[0].Transform, expected[0].Transform);
+        EXPECT_EQ(world.GetEntityDraws(part)[0].Material, PartChoice);
+        EXPECT_EQ(world.GetEntityDraws(part)[0].WorldBounds.Min, expected[0].WorldBounds.Min);
+        EXPECT_EQ(world.GetStats().Created, 6u);
+    }
+
+    TEST_F(PrefabSystem, OrdinaryMeshRetainsLastReadyProxiesWhileReplacementLoads)
+    {
+        // Bug: evicting CPU data briefly drops ordinary mesh proxies, unlike the retained GPU cache.
+        Ready();
+        auto entity = Current->CreateEntity("ordinary mesh");
+        entity.AddComponent<MeshComponent>(MeshComponent {MeshID});
+        auto& world = Current->GetRenderWorld();
+        world.SetValidationEnabled(true);
+        world.Synchronize();
+        ASSERT_EQ(world.GetEntityDraws(entity).size(), 3u);
+        const auto before = world.GetEntityDraws(entity)[0].WorldBounds;
+        for (auto& vertex : Mesh.Vertices)
+            vertex.Position[0] += 30;
+        for (auto& section : Mesh.Sections)
+        {
+            section.LocalBounds.Min.x += 30;
+            section.LocalBounds.Max.x += 30;
+        }
+        Mesh.LocalBounds.Min.x += 30;
+        Mesh.LocalBounds.Max.x += 30;
+        MeshRecord = Store(MeshID, AssetType::StaticMesh, std::get<std::vector<std::byte>>(EncodeMeshProduct(Mesh)));
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry())));
+        {
+            std::lock_guard<std::mutex> lock(Provider->Mutex);
+            Provider->Gated = true;
+        }
+        world.Synchronize();
+        ASSERT_EQ(world.GetEntityDraws(entity).size(), 3u);
+        EXPECT_EQ(world.GetEntityDraws(entity)[0].WorldBounds.Min, before.Min);
+        EXPECT_EQ(Current->GetWorldBounds(entity).Min, before.Min);
+        Provider->Release();
+        ASSERT_TRUE(std::holds_alternative<Ref<const MeshAsset>>(Assets->Load<MeshAsset>(MeshID)));
+        world.Synchronize();
+        ASSERT_EQ(world.GetEntityDraws(entity).size(), 3u);
+        EXPECT_EQ(world.GetEntityDraws(entity)[0].WorldBounds.Min, before.Min + glm::vec3(30, 0, 0));
+        EXPECT_EQ(world.GetStats().Updated, 3u);
+    }
+
     TEST_F(PrefabSystem, NativeInstancesStayFreeOfLegacyComponentsAcrossSaveCopyUndoAndReimport)
     {
         // Bug: placement is clean, but snapshot restore or re-import recreates a transition mirror.
@@ -166,7 +262,9 @@ namespace
         const auto   partID = Part(id, "node-A", 0).GetUUID();
         SceneHistory history;
         history.Reset(*Current);
-        Part(id, "node-A", 0).GetComponent<MeshComponent>().Materials[0] = PartChoice;
+        Part(id, "node-A", 0).PatchComponent<MeshComponent>([&](auto& component) {
+            component.Materials[0] = PartChoice;
+        });
         ASSERT_TRUE(history.Record(*Current));
         ASSERT_TRUE(history.Undo(*Current));
         EXPECT_FALSE(Current->GetEntityByUUID(id).HasComponent<ProductModelComponent>());
@@ -222,8 +320,8 @@ namespace
         Ready();
         auto       part                                  = Part(rootID, "node-A", 0);
         const auto partID                                = part.GetUUID();
-        part.GetComponent<TransformComponent>().Position = {2, 3, 4};
-        part.GetComponent<MeshComponent>().Materials[0]  = PartChoice;
+        part.PatchComponent<TransformComponent>([&](auto& component) { component.Position = {2, 3, 4}; });
+        part.PatchComponent<MeshComponent>([&](auto& component) { component.Materials[0] = PartChoice; });
         auto child                                       = Current->CreateEntityWithID(UUID(900), "User child", false);
         Current->SetParent(child, part, {}, false);
         Current->DestroyEntity(Part(rootID, "node-A", 2));
@@ -274,15 +372,15 @@ namespace
         Ready();
         auto       part                                    = Part(root.GetUUID(), "node-A", 0);
         const auto base                                    = part.GetComponent<TransformComponent>();
-        part.GetComponent<TransformComponent>().Position.x = 7;
-        part.GetComponent<MeshComponent>().Materials[0]    = PartChoice;
+        part.PatchComponent<TransformComponent>([&](auto& component) { component.Position.x = 7; });
+        part.PatchComponent<MeshComponent>([&](auto& component) { component.Materials[0] = PartChoice; });
         Current->Capture();
         const auto& changes = root.GetComponent<PrefabInstanceComponent>().Overrides;
         ASSERT_EQ(changes.size(), 1u);
         EXPECT_EQ(changes.at(Key("node-A", 0)).LocalTransform->Position.x, 7);
         EXPECT_EQ(changes.at(Key("node-A", 0)).Materials.at(0), PartChoice);
-        part.GetComponent<TransformComponent>()         = base;
-        part.GetComponent<MeshComponent>().Materials[0] = Bound;
+        part.PatchComponent<TransformComponent>([&](auto& component) { component = base; });
+        part.PatchComponent<MeshComponent>([&](auto& component) { component.Materials[0] = Bound; });
         Current->UpdatePrefabs();
         EXPECT_TRUE(changes.empty());
         Current->SetPrefabMaterialOverride(root, Key("node-A", 0), 0, PartChoice);
@@ -290,10 +388,10 @@ namespace
         Current->ClearPrefabOverride(root, Key("node-A", 0));
         EXPECT_EQ(part.GetComponent<MeshComponent>().Materials[0], Bound);
         // Clearing must also handle an inspector edit made before the next frame.
-        part.GetComponent<MeshComponent>().Materials[0] = PartChoice;
+        part.PatchComponent<MeshComponent>([&](auto& component) { component.Materials[0] = PartChoice; });
         Current->ClearPrefabOverride(root, Key("node-A", 0));
         EXPECT_EQ(part.GetComponent<MeshComponent>().Materials[0], Bound);
-        part.GetComponent<TransformComponent>().Position.x = 9;
+        part.PatchComponent<TransformComponent>([&](auto& component) { component.Position.x = 9; });
         Current->SetPrefabTransformOverride(root, Key("node-A", 0), base);
         EXPECT_EQ(part.GetComponent<TransformComponent>().GetTransform(), base.GetTransform());
     }
@@ -329,7 +427,7 @@ namespace
         auto parent = Current->CreateEntityWithID(UUID(50), "Parent", false);
         auto root   = Current->CreateEntityWithID(UUID(100), "Original model", false);
         Current->SetParent(root, parent, {}, false);
-        root.GetComponent<TransformComponent>().Position = {1, 2, 3};
+        root.PatchComponent<TransformComponent>([&](auto& component) { component.Position = {1, 2, 3}; });
         ProductModelComponent legacy {
             PrefabID, {{Bound, BoundChoice}, {Authored, SlotChoice}, {{Source, 30}, PartChoice}, {MeshID, MeshChoice}}};
         SetLegacyPending(root, legacy);
@@ -433,7 +531,7 @@ namespace
         history.Reset(*Current);
         auto       part                                 = Part(rootID, "node-A", 0);
         const auto partID                               = part.GetUUID();
-        part.GetComponent<MeshComponent>().Materials[0] = PartChoice;
+        part.PatchComponent<MeshComponent>([&](auto& component) { component.Materials[0] = PartChoice; });
         ASSERT_TRUE(history.Record(*Current));
         ASSERT_TRUE(history.Undo(*Current));
         EXPECT_EQ(Current->GetEntityByUUID(partID).GetComponent<MeshComponent>().Materials[0], Bound);
@@ -449,7 +547,8 @@ namespace
         EXPECT_EQ(copy.Capture(), snapshot);
         ScenePlaySession play;
         play.Play(*Current);
-        Current->GetEntityByUUID(partID).GetComponent<TransformComponent>().Position.x = 9;
+        Current->GetEntityByUUID(partID).PatchComponent<TransformComponent>(
+            [&](auto& component) { component.Position.x = 9; });
         play.Stop(*Current);
         EXPECT_EQ(Current->Capture(), snapshot);
         EXPECT_EQ(Current->GetMeshEntities().size(), 6u);
@@ -462,8 +561,10 @@ namespace
         first.AddComponent<PrefabInstanceComponent>().Prefab  = PrefabID;
         auto second                                           = Current->CreateEntityWithID(UUID(200), "Second", false);
         second.AddComponent<PrefabInstanceComponent>().Prefab = PrefabID;
-        first.GetComponent<TransformComponent>()  = {{.13f, .27f, .39f}, {.17f, .23f, .37f}, {1.31f, .83f, 1.17f}};
-        second.GetComponent<TransformComponent>() = {{-.17f, .29f, .41f}, {.13f, .31f, .47f}, {.71f, 1.23f, 1.43f}};
+        first.PatchComponent<TransformComponent>(
+            [&](auto& component) { component = {{.13f, .27f, .39f}, {.17f, .23f, .37f}, {1.31f, .83f, 1.17f}}; });
+        second.PatchComponent<TransformComponent>(
+            [&](auto& component) { component = {{-.17f, .29f, .41f}, {.13f, .31f, .47f}, {.71f, 1.23f, 1.43f}}; });
         Ready();
         const auto     phaseTwo = std::get<ModelInstances>(FlattenModel(Data));
         RenderScene    render(Current);
@@ -505,10 +606,12 @@ namespace
     {
         // Bug: transforms the merged mesh box, ignores parent transforms, or never merges descendants.
         auto parent                               = Current->CreateEntityWithID(UUID(50), "Rotated parent", false);
-        parent.GetComponent<TransformComponent>() = {{4, 5, 6}, {0, 0, glm::radians(37.0f)}, {2, 3, 1}};
+        parent.PatchComponent<TransformComponent>(
+            [&](auto& component) { component = {{4, 5, 6}, {0, 0, glm::radians(37.0f)}, {2, 3, 1}}; });
         auto root                                 = Root();
         Current->SetParent(root, parent, {}, false);
-        root.GetComponent<TransformComponent>() = {{1, 2, 3}, {0, glm::radians(23.0f), 0}, {1, 2, 3}};
+        root.PatchComponent<TransformComponent>(
+            [&](auto& component) { component = {{1, 2, 3}, {0, glm::radians(23.0f), 0}, {1, 2, 3}}; });
         Ready();
         const auto rootWorld = parent.GetComponent<TransformComponent>().GetTransform() *
                                root.GetComponent<TransformComponent>().GetTransform();
@@ -537,7 +640,7 @@ namespace
         ASSERT_EQ(slots.size(), 2u);
         EXPECT_EQ(slots[0].DefaultMaterial, Bound);
         EXPECT_EQ(slots[0].AuthoredMaterial, Authored);
-        parent.GetComponent<TransformComponent>().Position.x += 7;
+        parent.PatchComponent<TransformComponent>([&](auto& component) { component.Position.x += 7; });
         Current->UpdatePrefabs();
         Bounds     moved;
         const auto movedRoot = parent.GetComponent<TransformComponent>().GetTransform() *

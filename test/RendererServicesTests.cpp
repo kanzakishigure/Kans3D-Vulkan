@@ -266,7 +266,7 @@ namespace
         EXPECT_EQ(hit.Position->y, 0.125f);
         EXPECT_EQ(hit.Position->z, 0.0f);
         EXPECT_EQ(second->PickSceneSurface(*Logic, glm::mat4(1), {8, 8}).EntityID, UUID(0xf1234567u));
-        entity.GetComponent<TransformComponent>().Position.x = 4.0f;
+        entity.PatchComponent<TransformComponent>([](auto& transform) { transform.Position.x = 4.0f; });
         EXPECT_EQ(first->PickSceneSurface(*Logic, glm::mat4(1), {16, 4}).EntityID, UUID(0));
         EXPECT_FALSE(first->PickSceneSurface(*Logic, glm::mat4(1), {16, 4}).Position);
         EXPECT_EQ(second->PickSceneSurface(*Logic, glm::mat4(1), {8, 8}).EntityID, UUID(0));

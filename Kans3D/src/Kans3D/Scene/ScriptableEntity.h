@@ -12,6 +12,17 @@ namespace Kans
             return m_Entity.GetComponent<T>();
         }
 
+        template<typename T, typename F>
+        void PatchComponent(F&& edit)
+        {
+            m_Entity.PatchComponent<T>(std::forward<F>(edit));
+        }
+        template<typename T>
+        void SetComponent(const T& value)
+        {
+            m_Entity.SetComponent<T>(value);
+        }
+
     protected:
         virtual void OnUpdate(TimeStep ts) {}
         virtual void OnCreate() {}

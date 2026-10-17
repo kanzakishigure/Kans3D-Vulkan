@@ -3,6 +3,7 @@
 #include <map>
 #include <stdexcept>
 #include "Renderer2D.h"
+#include "Resource/InternalShader.h"
 #include "SceneRenderer.h"
 
 namespace Kans
@@ -36,6 +37,15 @@ namespace Kans
     void RenderPipeline::Inject(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
         context.Renderer->GetFeatures().Inject(point, context);
+    }
+    void ForwardPipeline::Prepare(RenderView& view)
+    {
+        using namespace RenderHardware;
+        const auto projection =
+            DeviceProjection(view.Scene.sceneCamera.camera.GetProjectionMatrix(),
+                             {ClipYDirection::Down, DepthRange::ZeroToOne, FramebufferOrigin::UpperLeft});
+        const Frustum frustum(projection * view.Scene.sceneCamera.viewMatrix);
+        ExtractDrawLists(view, &frustum);
     }
     void ForwardPipeline::Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer)
     {

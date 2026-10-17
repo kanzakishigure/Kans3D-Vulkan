@@ -18,16 +18,18 @@ namespace Kans::Test
         }
         prefab.Prefab        = legacy.Model;
         prefab.LegacyPending = std::move(legacy);
+        entity.PatchComponent<PrefabInstanceComponent>([](auto&) {});
         return *prefab.LegacyPending;
     }
     inline void ExactTransform(Entity entity, const glm::mat4& matrix)
     {
-        auto& transform = entity.GetComponent<TransformComponent>();
-        Math::DecomposeTransform(matrix, transform.Position, transform.Rotation, transform.Scale);
-        transform.ImportedMatrix   = matrix;
-        transform.ImportedPosition = transform.Position;
-        transform.ImportedRotation = transform.Rotation;
-        transform.ImportedScale    = transform.Scale;
+        entity.PatchComponent<TransformComponent>([&](auto& transform) {
+            Math::DecomposeTransform(matrix, transform.Position, transform.Rotation, transform.Scale);
+            transform.ImportedMatrix   = matrix;
+            transform.ImportedPosition = transform.Position;
+            transform.ImportedRotation = transform.Rotation;
+            transform.ImportedScale    = transform.Scale;
+        });
     }
     // Independent phase-2 oracle: flatten the product and resolve the legacy
     // precedence here, then exercise the engine's mesh submission API. Deliberately

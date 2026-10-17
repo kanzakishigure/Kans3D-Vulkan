@@ -522,12 +522,8 @@ namespace Kans
                 // Entity creation supplies a default display name; persisted tags
                 // retain their exact authored value, including an empty string.
                 entity.GetComponent<TagComponent>().Tag = std::move(tag);
-                auto& transform                         = entity.GetComponent<TransformComponent>();
-                auto  value                             = node["TransformComponent"];
-                transform.Position                      = Vec3(value["Position"]);
-                transform.Rotation                      = Vec3(value["Rotation"]);
-                transform.Scale                         = Vec3(value["Scale"]);
-                transform                               = DecodeTransform(value);
+                auto value                              = node["TransformComponent"];
+                entity.SetComponent<TransformComponent>(DecodeTransform(value));
                 if (node["PrefabInstanceComponent"])
                 {
                     Require(!model, "Scene entity has both prefab and legacy model");

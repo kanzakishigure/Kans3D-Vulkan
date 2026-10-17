@@ -45,8 +45,7 @@ namespace Kans
                 plightCMP.Diffuse_Intensity  = glm::vec3(1.0);
                 plightCMP.Specular_Intensity = glm::vec3(1.0);
                 plightCMP.Ambient_Intensity  = glm::vec3(1.0);
-                auto& CMP                    = pointlight.GetComponent<TransformComponent>();
-                CMP.Position                 = {20.0, 20.0, 1.0};
+                pointlight.PatchComponent<TransformComponent>([](auto& t) { t.Position = {20.0f, 20.0f, 1.0f}; });
 
                 auto  DirLight            = m_ActiveScene->CreateEntity("DirLight");
                 auto& dirCMP              = DirLight.AddComponent<DirLightComponent>();
@@ -58,8 +57,7 @@ namespace Kans
             // Create Scene camera
             {
                 m_CameraEntity        = m_ActiveScene->CreateEntity("mainCamera");
-                auto& transfromCMP    = m_CameraEntity.GetComponent<TransformComponent>();
-                transfromCMP.Position = {0.0f, 0.7f, 1.5f};
+                m_CameraEntity.PatchComponent<TransformComponent>([](auto& t) { t.Position = {0.0f, 0.7f, 1.5f}; });
                 auto& cmp             = m_CameraEntity.AddComponent<CameraComponent>();
                 cmp.SceneCamera.SetViewportSize(1920, 1080);
             }

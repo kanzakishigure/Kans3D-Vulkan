@@ -18,6 +18,7 @@ add_executable(Kans3DTests
     BackendSelectionTests.cpp
     RenderGraphTests.cpp
     RenderViewTests.cpp
+    RenderWorldTests.cpp
     ReferenceImageTests.cpp
     ReferenceImage.cpp
     CoreIdentityConcurrencyTests.cpp

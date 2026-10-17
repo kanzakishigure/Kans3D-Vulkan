@@ -1,13 +1,20 @@
 #pragma once
+#include <memory>
+#include <set>
+#include <unordered_set>
 #include <entt.hpp>
 #include <glm/glm.hpp>
 #include "Kans3D/Asset/Asset.h"
+#include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
 
 namespace Kans
 {
     class AssetManager;
+    class AssetChangeObserver;
+    class RenderWorld;
+    class MeshAsset;
     struct TransformComponent;
     struct PrefabNodeOverride;
     struct Bounds;
@@ -57,7 +64,10 @@ namespace Kans
         Entity DuplicateEntity(Entity entity);
 
         // Nonblocking; also called by RenderScene and runtime updates.
-        void SetPrefabAssetManager(AssetManager* assets) { m_PrefabAssets = assets; }
+        void         SetPrefabAssetManager(AssetManager* assets);
+        RenderWorld& GetRenderWorld() const { return *m_RenderWorld; }
+        // Resolve CPU metadata, retaining prefab data while replacement assets load.
+        Ref<const MeshAsset> ResolveMesh(Entity entity) const;
         void UpdatePrefabs();
         void UpdatePrefabs(AssetManager& assets)
         {
@@ -102,6 +112,27 @@ namespace Kans
         void DestroyNativeScriptInstances();
 
     private:
+        void                                 OnRenderComponentChanged(entt::registry&, entt::entity entity);
+        void                                 OnTransformChanged(entt::registry&, entt::entity entity);
+        void                                 OnPrefabChanged(entt::registry&, entt::entity entity);
+        void                                 DirtySubtree(Entity entity);
+        void                                 DirtyBounds(Entity entity);
+        void                                 TrackPrefabAssets(Entity root);
+        void                                 PollAssetChanges();
+        bool                                 m_SuppressNotifications = false;
+        std::unique_ptr<RenderWorld>         m_RenderWorld;
+        std::shared_ptr<AssetChangeObserver> m_AssetChanges;
+        std::unordered_set<entt::entity>     m_DirtyPrefabs, m_CapturePrefabNodes, m_DirtyBounds;
+        std::unordered_map<AssetID, std::unordered_set<entt::entity>> m_PrefabAssetUsers;
+        std::unordered_map<entt::entity, std::vector<AssetID>>        m_PrefabDependencies;
+        struct ChildBounds
+        {
+            std::unordered_map<entt::entity, Bounds> Values;
+            std::array<std::multiset<float>, 3>      Min, Max;
+            void                                     Set(entt::entity child, const Bounds& bounds);
+            Bounds                                   Aggregate() const;
+        };
+        std::unordered_map<entt::entity, ChildBounds> m_ChildBounds;
         AssetManager*     m_PrefabAssets      = nullptr;
         uint64_t          m_NextDrawOrder     = 1;
         bool              m_ReconcilingPrefab = false;
@@ -115,6 +146,7 @@ namespace Kans
     private:
         friend class Entity;
         friend class RenderScene;
+        friend class RenderWorld;
         friend class SceneSerializer;
     };
 

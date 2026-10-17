@@ -1,9 +1,10 @@
 #include "kspch.h"
 #include "SceneSnapshot.h"
 #include <algorithm>
+#include "Kans3D/Renderer/RenderWorld.h"
+#include "Kans3D/Script/ScriptEngine.h"
 #include "Entity.h"
 #include "Scene.h"
-#include "Kans3D/Script/ScriptEngine.h"
 
 namespace Kans
 {
@@ -177,16 +178,26 @@ namespace Kans
         DestroyNativeScriptInstances();
         if (ScriptEngine::IsInitialized() && ScriptEngine::GetSceneContext() == this)
             ScriptEngine::OnRuntimeEnd();
+        for (const auto& [handle, record] : m_RenderWorld->m_Records)
+            m_RenderWorld->Dirty(handle);
+        m_SuppressNotifications = true;
         m_Registry.clear();
+        m_SuppressNotifications = false;
+        m_DirtyPrefabs.clear();
+        m_CapturePrefabNodes.clear();
+        m_DirtyBounds.clear();
         m_EntityMap.clear();
+        m_PrefabDependencies.clear();
+        m_PrefabAssetUsers.clear();
+        m_ChildBounds.clear();
         m_RootOrder.clear();
         m_Name = snapshot.Name;
         for (const auto& item : snapshot.Entities)
         {
             Entity entity                                    = CreateEntityWithID(item.ID, item.Tag, false);
             entity.GetComponent<TagComponent>().Tag          = item.Tag;
-            entity.GetComponent<TransformComponent>()        = item.Transform;
-            entity.GetComponent<RelationshipComponent>()     = item.Relationship;
+            entity.SetComponent<TransformComponent>(item.Transform);
+            entity.SetComponent<RelationshipComponent>(item.Relationship);
             Kans::Restore(entity, item.Camera);
             Kans::Restore(entity, item.Sprite);
             Kans::Restore(entity, item.Model);

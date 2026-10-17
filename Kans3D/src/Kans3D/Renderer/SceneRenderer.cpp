@@ -6,6 +6,7 @@
 #include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/Features/MaterialPassFeature.h"
 #include "Kans3D/Renderer/RenderPipeline.h"
+#include "Kans3D/Renderer/RenderWorld.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
@@ -98,7 +99,7 @@ namespace Kans
                 draw.Render      = bindings->Render;
             }
         }
-        ExtractDrawLists(m_View);
+        RenderPipelineRegistry::Create(m_PipelineName)->Prepare(m_View);
     }
 
     bool SceneRenderer::HasMaterialPass(const RenderView& view, const std::string& tag)
@@ -294,43 +295,34 @@ namespace Kans
     {
         if (!m_AssetCache)
             return;
-        const auto selected = scene.GetEntityByUUID(entity);
-        if (!selected)
-            return;
-        for (auto part : scene.GetMeshEntities(selected))
-        {
-            const auto& component = part.GetComponent<MeshComponent>();
-            if (const auto* mesh = m_AssetCache->GetMesh(component.Mesh))
-                for (size_t i = 0; i < mesh->Sections.size(); ++i)
-                    if (!component.Section || *component.Section == i)
-                        draws.push_back({mesh, scene.GetWorldTransform(part), id, uint32_t(i)});
-        }
+        scene.SetPrefabAssetManager(&m_AssetCache->GetAssetManager());
+        auto& world = scene.GetRenderWorld();
+        world.Synchronize();
+        // Selection uses persistent, unculled proxies and cached ancestry.
+        for (const auto& proxy : world.CollectDraws(entity))
+            if (const auto* mesh = m_AssetCache->GetMesh(proxy.Mesh); mesh && proxy.Section < mesh->Sections.size())
+                draws.push_back({mesh, proxy.Transform, id, proxy.Section});
     }
 
     ScenePickHit SceneRenderer::PickSceneSurface(Scene& scene, const glm::mat4& viewProjection, glm::uvec2 pixel)
     {
-        if (m_AssetCache)
-            scene.UpdatePrefabs(m_AssetCache->GetAssetManager());
-        const auto            entities = scene.GetMeshEntities();
+        if (!m_AssetCache)
+            return {};
+        scene.SetPrefabAssetManager(&m_AssetCache->GetAssetManager());
+        auto& world = scene.GetRenderWorld();
+        world.Synchronize();
+        const auto            proxies = world.CollectDraws();
         std::vector<MeshDraw> draws;
-        for (size_t i = 0; i < entities.size(); ++i)
-        {
-            auto        entity    = entities[i];
-            const auto& component = entity.GetComponent<MeshComponent>();
-            if (!m_AssetCache)
-                break;
-            if (const auto* mesh = m_AssetCache->GetMesh(component.Mesh))
-                for (size_t section = 0; section < mesh->Sections.size(); ++section)
-                    if (!component.Section || *component.Section == section)
-                        draws.push_back({mesh, scene.GetWorldTransform(entity), uint32_t(i + 1), uint32_t(section)});
-        }
+        for (size_t i = 0; i < proxies.size(); ++i)
+            if (const auto* mesh = m_AssetCache->GetMesh(proxies[i].Mesh);
+                mesh && proxies[i].Section < mesh->Sections.size())
+                draws.push_back({mesh, proxies[i].Transform, uint32_t(i + 1), proxies[i].Section});
         const auto hit = m_Renderer->GetPickingService().PickSurface(
             draws, viewProjection, {m_ViewportWidth, m_ViewportHeight}, pixel);
-        if (!hit.ID || hit.ID > entities.size())
+        if (!hit.ID || hit.ID > proxies.size())
             return {};
-        const auto entity = entities[hit.ID - 1];
-        const auto root   = scene.GetPrefabInstanceRoot(entity);
-        return {entity.GetUUID(), root ? root.GetUUID() : UUID(0), hit.Position};
+        const auto& proxy = proxies[hit.ID - 1];
+        return {proxy.EntityID, proxy.InstanceRoot, hit.Position};
     }
 
     void SceneRenderer::SubmitMeshGeometry(const ViewGeometryDraw& draw) { m_View.Geometry.push_back(draw); }
@@ -426,7 +418,7 @@ namespace Kans
     uintptr_t SceneRenderer::GetOutput(uint32_t index) const { return m_Target->GetOutput(index); }
     void      SceneRenderer::PrepareEnvironment(EnvironmentPrecomputeSizes sizes)
     {
-        auto source         = m_RenderScene->m_EnvironmentPath;
+        auto source         = m_RenderScene->GetEnvironmentPath();
         auto lighting       = m_Renderer->PrepareEnvironment(source, sizes);
         m_EnvironmentSizes  = sizes;
         m_EnvironmentSource = std::move(source);
@@ -435,9 +427,9 @@ namespace Kans
     }
     void SceneRenderer::RefreshEnvironment() const
     {
-        if (!m_EnvironmentSource.empty() && m_EnvironmentSource != m_RenderScene->m_EnvironmentPath)
+        if (!m_EnvironmentSource.empty() && m_EnvironmentSource != m_RenderScene->GetEnvironmentPath())
         {
-            m_EnvironmentSource = m_RenderScene->m_EnvironmentPath;
+            m_EnvironmentSource = m_RenderScene->GetEnvironmentPath();
             auto lighting       = m_Renderer->PrepareEnvironment(m_EnvironmentSource, m_EnvironmentSizes);
             if (lighting)
                 m_EnvironmentLighting = std::move(lighting);
@@ -445,8 +437,8 @@ namespace Kans
     }
     void SceneRenderer::UpdateEnvironment(std::string path)
     {
-        m_RenderScene->m_EnvironmentPath = std::move(path);
-        m_EnvironmentSource              = m_RenderScene->m_EnvironmentPath;
+        m_RenderScene->PrepareEnvironment(path);
+        m_EnvironmentSource              = m_RenderScene->GetEnvironmentPath();
         auto lighting                    = m_Renderer->UpdateEnvironment(m_EnvironmentSource, m_EnvironmentSizes);
         if (lighting)
             m_EnvironmentLighting = std::move(lighting);

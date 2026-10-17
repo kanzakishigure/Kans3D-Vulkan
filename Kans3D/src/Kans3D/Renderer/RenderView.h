@@ -66,6 +66,8 @@ namespace Kans
         bool                Ready = false;
         uint32_t            Section = 0;
         UUID                EntityID = 0, InstanceRoot = 0;
+        Bounds              WorldBounds;
+        bool                HasWorldBounds = false;
     };
     struct ViewGeometryDraw
     {
@@ -145,7 +147,17 @@ namespace Kans
     // CPU-only extraction of an available mesh; absent data emits no draws.
     void
     ExtractMeshDraws(RenderView& view, const ViewMeshSubmission& submission, SceneViewMode mode, const GpuMesh* mesh);
-    void ExtractDrawLists(RenderView& view);
+    // Planes extracted from a device view-projection matrix (Vulkan depth 0..1).
+    class Frustum
+    {
+    public:
+        explicit Frustum(const glm::mat4& deviceViewProjection);
+        bool Intersects(const Bounds& worldBounds) const;
+
+    private:
+        std::array<glm::vec4, 6> m_Planes;
+    };
+    void ExtractDrawLists(RenderView& view, const Frustum* frustum = nullptr);
     // CPU-only packing shared by rendering and analytic contract tests.
     EngineFrameUniforms MakeLightingUniforms(const SceneInfo& scene);
 } // namespace Kans

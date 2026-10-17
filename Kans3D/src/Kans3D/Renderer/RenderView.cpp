@@ -32,7 +32,30 @@ namespace Kans
                                   submission.InstanceRoot});
         }
     }
-    void ExtractDrawLists(RenderView& view)
+    Frustum::Frustum(const glm::mat4& matrix)
+    {
+        const auto rows = glm::transpose(matrix);
+        m_Planes        = {
+            rows[3] + rows[0], rows[3] - rows[0], rows[3] + rows[1], rows[3] - rows[1], rows[2], rows[3] - rows[2]};
+    }
+    bool Frustum::Intersects(const Bounds& bounds) const
+    {
+        if (!bounds.IsValid())
+            return true; // Unavailable bounds must never hide geometry.
+        for (const auto& plane : m_Planes)
+        {
+            const glm::vec3 support(plane.x >= 0 ? bounds.Max.x : bounds.Min.x,
+                                    plane.y >= 0 ? bounds.Max.y : bounds.Min.y,
+                                    plane.z >= 0 ? bounds.Max.z : bounds.Min.z);
+            const float     distance = glm::dot(glm::vec3(plane), support) + plane.w;
+            const float     tolerance =
+                1e-5f * (glm::dot(glm::abs(glm::vec3(plane)), glm::abs(support)) + std::abs(plane.w) + 1);
+            if (std::isfinite(distance) && distance < -tolerance)
+                return false;
+        }
+        return true;
+    }
+    void ExtractDrawLists(RenderView& view, const Frustum* frustum)
     {
         view.MaterialOrder.clear();
         view.Opaque.clear();
@@ -42,6 +65,9 @@ namespace Kans
         {
             const auto& draw = view.Draws[i];
             if (!draw.Ready)
+                continue;
+            if (frustum && !frustum->Intersects(draw.HasWorldBounds ? draw.WorldBounds :
+                                                                      draw.LocalBounds.Transformed(draw.Transform)))
                 continue;
             const auto center = glm::vec3(draw.Transform * glm::vec4(draw.LocalBounds.Center(), 1));
             const auto offset = center - view.Scene.sceneCamera.Position;

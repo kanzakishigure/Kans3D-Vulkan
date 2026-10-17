@@ -48,7 +48,7 @@ namespace Kans
             CORE_WARN("Entity.SetTranslation - Invalid entity!");
             return;
         }
-        entity.GetComponent<TransformComponent>().Position = *parameter;
+        ScriptAgent::SetTranslation(entity, *parameter);
     }
 
     static void Entity_GetRotation(uint64_t id, glm::vec3* parameter)
@@ -64,7 +64,7 @@ namespace Kans
             CORE_WARN("Entity.SetRotation - Invalid entity!");
             return;
         }
-        entity.GetComponent<TransformComponent>().Rotation = *parameter;
+        ScriptAgent::SetRotation(entity, *parameter);
     }
 
     static bool Entity_HasComponent(uint64_t id, MonoReflectionType* type)
@@ -117,6 +117,14 @@ namespace Kans
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Script Agent
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    void ScriptAgent::SetTranslation(Entity entity, const glm::vec3& value)
+    {
+        entity.PatchComponent<TransformComponent>([&](auto& transform) { transform.Position = value; });
+    }
+    void ScriptAgent::SetRotation(Entity entity, const glm::vec3& value)
+    {
+        entity.PatchComponent<TransformComponent>([&](auto& transform) { transform.Rotation = value; });
+    }
     void ScriptAgent::RegisterFunctions()
     {
         ADD_INTERNAL_CALL(NativeLog);

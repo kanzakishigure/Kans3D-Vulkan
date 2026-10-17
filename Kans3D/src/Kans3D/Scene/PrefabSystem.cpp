@@ -4,6 +4,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Core/Math/Math.h"
+#include "Kans3D/Renderer/RenderWorld.h"
 #include "Entity.h"
 
 namespace Kans
@@ -62,7 +63,7 @@ namespace Kans
     Entity Scene::InstantiatePrefab(AssetID prefab, const glm::vec3& position, UUID parent)
     {
         Entity root                                      = CreateEntity("Prefab");
-        root.GetComponent<TransformComponent>().Position = position;
+        root.PatchComponent<TransformComponent>([&](auto& transform) { transform.Position = position; });
         SetParent(root, GetEntityByUUID(parent), {}, false);
         root.AddComponent<PrefabInstanceComponent>().Prefab = prefab;
         return root;
@@ -82,51 +83,56 @@ namespace Kans
 
     void Scene::CapturePrefabOverrides()
     {
-        // Public component fields are intentionally editable by inspectors and scripts.
-        // Compare to the last applied value, so API edits to Overrides aren't overwritten.
-        auto instances = m_Registry.view<PrefabInstanceComponent>();
-        for (auto handle : instances)
+        auto dirty = std::move(m_CapturePrefabNodes);
+        m_CapturePrefabNodes.clear();
+        for (auto handle : dirty)
         {
-            Entity root {handle, this};
-            auto&  instance = root.GetComponent<PrefabInstanceComponent>();
-            if (!instance.Expanded)
+            if (!m_Registry.valid(handle) || !m_Registry.all_of<PrefabOwnedComponent, TransformComponent>(handle))
                 continue;
-            for (auto& [key, state] : instance.Nodes)
+            ++m_RenderWorld->m_PendingStats.PrefabNodesVisited;
+            Entity      part {handle, this};
+            const auto& owned = part.GetComponent<PrefabOwnedComponent>();
+            auto        root  = GetEntityByUUID(owned.Instance);
+            if (!root || !root.HasComponent<PrefabInstanceComponent>())
+                continue;
+            auto& instance = root.GetComponent<PrefabInstanceComponent>();
+            auto  found    = instance.Nodes.find(owned.NodeKey);
+            if (found == instance.Nodes.end())
+                continue;
+            auto&       state     = found->second;
+            const auto& transform = part.GetComponent<TransformComponent>();
+            auto&       change    = instance.Overrides[owned.NodeKey];
+            if (!Same(transform, state.AppliedTransform))
             {
-                Entity part = GetEntityByUUID(PrefabEntityUUID(root.GetUUID(), key));
-                if (!part)
-                    continue;
-                auto& transform = part.GetComponent<TransformComponent>();
-                auto& change    = instance.Overrides[key];
-                if (!Same(transform, state.AppliedTransform))
-                {
-                    instance.ExpandedSource.reset();
-                    if (Same(transform, state.BaseTransform))
-                        change.LocalTransform.reset();
-                    else
-                        change.LocalTransform = transform;
-                    state.AppliedTransform = transform;
-                }
-                if (part.HasComponent<MeshComponent>())
-                {
-                    const auto& mesh  = part.GetComponent<MeshComponent>();
-                    const auto  count = std::max(mesh.Materials.size(), state.AppliedMesh.Materials.size());
-                    for (size_t slot = 0; slot < count; ++slot)
-                    {
-                        const auto value = Material(mesh.Materials, slot);
-                        if (value == Material(state.AppliedMesh.Materials, slot))
-                            continue;
-                        instance.ExpandedSource.reset();
-                        if (!value.IsValid() || value == Material(state.BaseMesh.Materials, slot))
-                            change.Materials.erase(uint32_t(slot));
-                        else
-                            change.Materials[uint32_t(slot)] = value;
-                    }
-                    state.AppliedMesh = mesh;
-                }
-                if (!change.LocalTransform && change.Materials.empty() && !change.Removed)
-                    instance.Overrides.erase(key);
+                if (Same(transform, state.BaseTransform))
+                    change.LocalTransform.reset();
+                else
+                    change.LocalTransform = transform;
+                state.AppliedTransform = transform;
             }
+            if (part.HasComponent<MeshComponent>())
+            {
+                const auto& mesh  = part.GetComponent<MeshComponent>();
+                const auto  count = std::max(mesh.Materials.size(), state.AppliedMesh.Materials.size());
+                for (size_t slot = 0; slot < count; ++slot)
+                {
+                    const auto value = Material(mesh.Materials, slot);
+                    if (value == Material(state.AppliedMesh.Materials, slot))
+                        continue;
+                    if (!value.IsValid() || value == Material(state.BaseMesh.Materials, slot))
+                        change.Materials.erase(uint32_t(slot));
+                    else
+                        change.Materials[uint32_t(slot)] = value;
+                }
+                state.AppliedMesh = mesh;
+            }
+            if (!change.LocalTransform && change.Materials.empty() && !change.Removed)
+            {
+                instance.Overrides.erase(owned.NodeKey);
+                instance.AppliedOverrides.erase(owned.NodeKey);
+            }
+            else
+                instance.AppliedOverrides[owned.NodeKey] = change;
         }
     }
 
@@ -213,6 +219,7 @@ namespace Kans
         std::map<std::string, PrefabNodeState> states;
         for (size_t i = 0; i < nodes.size(); ++i)
         {
+            ++m_RenderWorld->m_PendingStats.PrefabNodesVisited;
             const auto& node = nodes[i];
             if (removed[i])
                 continue;
@@ -223,7 +230,7 @@ namespace Kans
                 entity = CreateEntityWithID(id, node.Name, false);
                 entity.AddComponent<PrefabOwnedComponent>(root.GetUUID(), node.Key, i);
             }
-            entity.GetComponent<PrefabOwnedComponent>().Order = i;
+            entity.PatchComponent<PrefabOwnedComponent>([&](auto& owned) { owned.Order = i; });
             Entity parent =
                 node.Parent < 0 ? root : GetEntityByUUID(PrefabEntityUUID(root.GetUUID(), nodes.at(node.Parent).Key));
             SetParent(entity, parent, {}, false);
@@ -271,12 +278,12 @@ namespace Kans
                     mesh.Materials[slot] = material;
                 }
             }
-            entity.GetComponent<TransformComponent>() = transform;
+            entity.SetComponent<TransformComponent>(transform);
             if (node.Mesh.IsValid())
             {
                 if (!entity.HasComponent<MeshComponent>())
                     entity.AddComponent<MeshComponent>();
-                entity.GetComponent<MeshComponent>() = mesh;
+                entity.SetComponent<MeshComponent>(mesh);
             }
             else if (entity.HasComponent<MeshComponent>())
                 entity.RemoveComponent<MeshComponent>();
@@ -294,31 +301,38 @@ namespace Kans
         instance.ExpandedSource   = instance.Source;
         instance.Expanded         = true;
         m_ReconcilingPrefab       = false;
+        // Reattach ordinary children only when their owning instance reconciles.
+        for (auto child : GetChildren(root))
+            if (child.HasComponent<PrefabAttachmentComponent>())
+            {
+                const auto attachment = child.GetComponent<PrefabAttachmentComponent>();
+                if (Entity parent = GetEntityByUUID(PrefabEntityUUID(attachment.Instance, attachment.NodeKey)))
+                    if (GetParent(child) != parent)
+                        SetParent(child, parent, {}, false);
+            }
     }
 
     void Scene::UpdatePrefabs()
     {
+        PollAssetChanges();
         CapturePrefabOverrides();
-        for (auto handle : m_Registry.view<PrefabInstanceComponent>())
+        auto dirty = std::move(m_DirtyPrefabs);
+        m_DirtyPrefabs.clear();
+        for (auto handle : dirty)
         {
+            if (!m_Registry.valid(handle) || !m_Registry.all_of<PrefabInstanceComponent>(handle))
+                continue;
+            ++m_RenderWorld->m_PendingStats.PrefabsVisited;
             Entity root {handle, this};
             auto&  instance = root.GetComponent<PrefabInstanceComponent>();
             if (m_PrefabAssets && instance.Prefab.IsValid())
             {
                 auto status = m_PrefabAssets->Request<PrefabAsset>(instance.Prefab);
-                // Retain the last expanded state while replacement data loads.
                 if (status.IsReady())
                     instance.Source = status.Asset;
             }
+            TrackPrefabAssets(root);
             ExpandPrefab(root);
-        }
-        // Resolve ordinary children after every instance has expanded.
-        for (auto handle : m_Registry.view<PrefabAttachmentComponent>())
-        {
-            Entity      entity {handle, this};
-            const auto& attachment = entity.GetComponent<PrefabAttachmentComponent>();
-            if (Entity parent = GetEntityByUUID(PrefabEntityUUID(attachment.Instance, attachment.NodeKey)))
-                SetParent(entity, parent, {}, false);
         }
         UpdateBounds();
     }
@@ -357,19 +371,38 @@ namespace Kans
             instance.Overrides[key].LocalTransform.reset();
         else
             instance.Overrides[key].LocalTransform = transform;
-        ExpandPrefab(root);
+        if (auto part = GetEntityByUUID(PrefabEntityUUID(root.GetUUID(), key)); part && state != instance.Nodes.end())
+        {
+            part.SetComponent<TransformComponent>(transform);
+            CapturePrefabOverrides();
+        }
+        else
+            ExpandPrefab(root);
     }
     void Scene::SetPrefabMaterialOverride(Entity root, const std::string& key, uint32_t slot, AssetID material)
     {
         CapturePrefabOverrides();
         auto&      instance = root.GetComponent<PrefabInstanceComponent>();
         const auto state    = instance.Nodes.find(key);
-        if (!material.IsValid() ||
-            (state != instance.Nodes.end() && material == Material(state->second.BaseMesh.Materials, slot)))
+        const bool reset    = !material.IsValid() || (state != instance.Nodes.end() &&
+                                                      material == Material(state->second.BaseMesh.Materials, slot));
+        if (reset)
             instance.Overrides[key].Materials.erase(slot);
         else
             instance.Overrides[key].Materials[slot] = material;
-        ExpandPrefab(root);
+        if (auto part = GetEntityByUUID(PrefabEntityUUID(root.GetUUID(), key));
+            part && part.HasComponent<MeshComponent>() && state != instance.Nodes.end())
+        {
+            const auto value = reset ? Material(state->second.BaseMesh.Materials, slot) : material;
+            part.PatchComponent<MeshComponent>([&](auto& mesh) {
+                if (mesh.Materials.size() <= slot)
+                    mesh.Materials.resize(slot + 1);
+                mesh.Materials[slot] = value;
+            });
+            CapturePrefabOverrides();
+        }
+        else
+            ExpandPrefab(root);
     }
     void Scene::SetPrefabNodeRemoved(Entity root, const std::string& key, bool removed)
     {
@@ -380,43 +413,87 @@ namespace Kans
     void Scene::ClearPrefabOverride(Entity root, const std::string& key)
     {
         CapturePrefabOverrides();
-        root.GetComponent<PrefabInstanceComponent>().Overrides.erase(key);
-        ExpandPrefab(root);
+        auto&      instance   = root.GetComponent<PrefabInstanceComponent>();
+        const auto previous   = instance.Overrides.find(key);
+        const bool structural = previous != instance.Overrides.end() && previous->second.Removed;
+        instance.Overrides.erase(key);
+        const auto state = instance.Nodes.find(key);
+        if (auto part = GetEntityByUUID(PrefabEntityUUID(root.GetUUID(), key));
+            part && state != instance.Nodes.end() && !structural)
+        {
+            part.SetComponent<TransformComponent>(state->second.BaseTransform);
+            if (part.HasComponent<MeshComponent>())
+                part.SetComponent<MeshComponent>(state->second.BaseMesh);
+            CapturePrefabOverrides();
+        }
+        else
+            ExpandPrefab(root);
     }
 
+    void Scene::ChildBounds::Set(entt::entity child, const Bounds& bounds)
+    {
+        if (auto found = Values.find(child); found != Values.end())
+        {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                Min[axis].erase(Min[axis].find(found->second.Min[axis]));
+                Max[axis].erase(Max[axis].find(found->second.Max[axis]));
+            }
+            Values.erase(found);
+        }
+        if (bounds.IsValid())
+        {
+            Values.emplace(child, bounds);
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                Min[axis].insert(bounds.Min[axis]);
+                Max[axis].insert(bounds.Max[axis]);
+            }
+        }
+    }
+    Bounds Scene::ChildBounds::Aggregate() const
+    {
+        Bounds result;
+        if (!Values.empty())
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                result.Min[axis] = *Min[axis].begin();
+                result.Max[axis] = *Max[axis].rbegin();
+            }
+        return result;
+    }
     void Scene::UpdateBounds()
     {
-        for (const auto& [id, entity] : m_EntityMap)
+        std::vector<Entity> dirty;
+        for (auto handle : m_DirtyBounds)
+            if (m_Registry.valid(handle) && m_Registry.all_of<RelationshipComponent, BoundsComponent>(handle))
+                dirty.push_back({handle, this});
+        m_DirtyBounds.clear();
+        auto depth = [&](Entity e) {
+            size_t n = 0;
+            for (auto p = GetParent(e); p; p = GetParent(p))
+                ++n;
+            return n;
+        };
+        std::sort(dirty.begin(), dirty.end(), [&](Entity a, Entity b) { return depth(a) > depth(b); });
+        for (auto entity : dirty)
         {
-            Entity value = entity;
-            if (!value.HasComponent<BoundsComponent>())
-                value.AddComponent<BoundsComponent>();
-            value.GetComponent<BoundsComponent>().World = {};
-        }
-        for (Entity entity : GetMeshEntities())
-        {
-            const auto&          component = entity.GetComponent<MeshComponent>();
-            Ref<const MeshAsset> mesh;
-            if (m_PrefabAssets)
-                mesh = m_PrefabAssets->Request<MeshAsset>(component.Mesh).Asset;
-            if (!mesh)
-                if (Entity root = GetPrefabInstanceRoot(entity))
-                {
-                    const auto& sources = root.GetComponent<PrefabInstanceComponent>().MeshSources;
-                    auto        found   = sources.find(component.Mesh);
-                    if (found != sources.end())
-                        mesh = found->second;
-                }
-            if (!mesh)
-                continue;
-            Bounds      bounds;
-            const auto  world    = GetWorldTransform(entity);
-            const auto& sections = mesh->GetData().Sections;
-            for (size_t i = 0; i < sections.size(); ++i)
-                if (!component.Section || *component.Section == i)
-                    bounds.Expand(sections[i].LocalBounds.Transformed(world));
-            for (Entity owner = entity; owner; owner = GetParent(owner))
-                owner.GetComponent<BoundsComponent>().World.Expand(bounds);
+            ++m_RenderWorld->m_PendingStats.BoundsUpdated;
+            Bounds bounds;
+            if (auto mesh = ResolveMesh(entity))
+            {
+                const auto& component = entity.GetComponent<MeshComponent>();
+                const auto  world     = GetWorldTransform(entity);
+                const auto& sections  = mesh->GetData().Sections;
+                for (size_t i = 0; i < sections.size(); ++i)
+                    if (!component.Section || *component.Section == i)
+                        bounds.Expand(sections[i].LocalBounds.Transformed(world));
+            }
+            if (auto children = m_ChildBounds.find(entt::entity(entity)); children != m_ChildBounds.end())
+                bounds.Expand(children->second.Aggregate());
+            entity.GetComponent<BoundsComponent>().World = bounds;
+            if (auto parent = GetParent(entity))
+                m_ChildBounds[entt::entity(parent)].Set(entity, bounds);
         }
     }
     Bounds Scene::GetPrefabBounds(AssetID prefab, const glm::mat4& transform)

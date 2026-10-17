@@ -444,7 +444,8 @@ namespace Kans
         const glm::mat4 local  = parent ? glm::inverse(m_Scene->GetWorldTransform(parent)) * transform : transform;
         glm::vec3       translation, rotation, scale;
         Math::DecomposeTransform(local, translation, rotation, scale);
-        auto& tc = selected.GetComponent<TransformComponent>();
+        // Edit through PatchComponent so the scene's render world sees the change.
+        selected.PatchComponent<TransformComponent>([&](TransformComponent& tc) {
         switch (m_GizmoType)
         {
             case ImGuizmo::TRANSLATE:
@@ -468,6 +469,7 @@ namespace Kans
                 tc.Scale = scale;
                 break;
         }
+        });
     }
 
     void ViewportPanel::DrawToolbar()

@@ -20,6 +20,7 @@
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
+#include "Kans3D/Renderer/RenderWorld.h"
 #include "Kans3D/Renderer/Renderer2D.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/Resource/MaterialPass.h"
@@ -1142,6 +1143,77 @@ void main(){gl_Position=u_Frame.ViewProjection*u_Object.Transform*vec4(a_Positio
             EXPECT_EQ(hit.InstanceRoot, root.GetUUID());
             EXPECT_TRUE(hit.Position);
         }
+    }
+
+    TEST_P(RendererReferenceGpu, CameraCullingSkipsDrawsButKeepsAlternateViewPickingAndOutline)
+    {
+        // Bug: culled draws still record/count, or picking/selection reuse the main camera's visible list.
+        auto camera = Logic->CreateEntity("culling camera");
+        ExactTransform(camera, glm::inverse(Info.sceneCamera.viewMatrix));
+        camera.AddComponent<CameraComponent>().SceneCamera.SetProjectionMatirx(
+            Info.sceneCamera.camera.GetProjectionMatrix());
+        const auto visible = Logic->InstantiatePrefab(Sphere.Model);
+        const auto outside = Logic->InstantiatePrefab(Sphere.Model, {100, 0, 0});
+        auto       runtime = CreateRef<SceneRenderer>(Render.get());
+        RegisterDefaultEditorFeatures(runtime->GetFeatures());
+        runtime->SetAssetManager(Assets.get());
+        runtime->PrepareEnvironment({32, 8, 32, 32});
+        for (auto id : Models)
+            ASSERT_TRUE(runtime->GetAssetCache()->GetModel(id));
+        for (auto id : Meshes)
+            ASSERT_TRUE(runtime->GetAssetCache()->GetMesh(id));
+        for (auto id : Materials)
+            ASSERT_TRUE(runtime->GetAssetCache()->GetMaterialBindings(id));
+        RenderResource settings;
+        settings.Piplinestate.EnableGridShader = false;
+        Render->SetRenderResource(settings);
+        runtime->SetEntityHighlight({outside.GetUUID()});
+        Render->OnRenderRuntime(runtime, TimeStep(0));
+        ASSERT_EQ(runtime->GetRenderView().Draws.size(), 2u);
+        ASSERT_EQ(runtime->GetRenderView().MaterialOrder.size(), 1u);
+        EXPECT_EQ(runtime->GetRenderView().Draws[runtime->GetRenderView().MaterialOrder[0].DrawIndex].InstanceRoot,
+                  visible.GetUUID());
+        EXPECT_EQ(runtime->GetStats().DrawCalls, 1u);
+        EXPECT_EQ(runtime->GetStats().Triangles, 1024u);
+        const auto            expected = Read(runtime->GetRenderTarget().Colors[0].Target).Pixels;
+        std::vector<MeshDraw> selected;
+        runtime->AppendEntityDraws(*Logic, outside.GetUUID(), 1, selected);
+        ASSERT_EQ(selected.size(), 1u);
+        EXPECT_EQ(selected[0].Transform[3].x, 100);
+        const auto alternate = Info.sceneCamera.camera.GetProjectionMatrix() * Info.sceneCamera.viewMatrix *
+                               glm::translate(glm::mat4(1), glm::vec3(-100, 0, 0));
+        const auto picked    = runtime->PickSceneSurface(*Logic, alternate, {Size / 2, Size / 2});
+        EXPECT_EQ(picked.InstanceRoot, outside.GetUUID());
+        EXPECT_TRUE(picked.Position);
+        ASSERT_TRUE(picked.Position);
+        EXPECT_GT(picked.Position->x, 99);
+        // Exercise the actual silhouette recorder with the unculled selection geometry.
+        SelectionOutline outline(runtime->GetDevice());
+        auto             mask = runtime->GetDevice()->CreateTexture(
+            {Size,
+             Size,
+             1,
+             RenderHardware::TextureDimension::Texture2D,
+             RenderHardware::Format::R8Unorm,
+             RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource});
+        auto commands = runtime->GetDevice()->CreateCommandList();
+        outline.RecordMask(*commands, mask, selected, alternate, {Size, Size});
+        auto readback = runtime->GetDevice()->CreateBuffer(
+            {Size * Size, RenderHardware::BufferUsage::CopyDestination, RenderHardware::MemoryUsage::Readback});
+        commands->CopyTextureToBuffer(mask, {}, readback);
+        runtime->GetDevice()->Submit(commands);
+        runtime->GetDevice()->WaitIdle();
+        const auto pixels = readback->Read(0, Size * Size);
+        EXPECT_EQ(pixels[(Size / 2) * Size + Size / 2], 255u);
+        Logic->DestroyEntity(outside);
+        Render->OnRenderRuntime(runtime, TimeStep(0));
+        EXPECT_EQ(runtime->GetStats().DrawCalls, 1u);
+        EXPECT_EQ(runtime->GetStats().Triangles, 1024u);
+        EXPECT_EQ(Read(runtime->GetRenderTarget().Colors[0].Target).Pixels, expected);
+        Logic->DestroyEntity(visible);
+        Render->OnRenderRuntime(runtime, TimeStep(0));
+        EXPECT_EQ(runtime->GetStats().DrawCalls, 0u);
+        EXPECT_EQ(runtime->GetStats().Triangles, 0u);
     }
 
     TEST_P(RendererReferenceGpu, FullRuntimeFrameIsByteIdenticalToPhaseTwoD)
