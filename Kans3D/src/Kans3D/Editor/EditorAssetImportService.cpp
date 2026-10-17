@@ -50,12 +50,31 @@ namespace Kans
         const auto metadata = m_Project->GetSourceAssetDatabase().FindByID(source);
         if (!metadata.IsValid() || !metadata.Exists)
             return AssetError {AssetErrorCode::NotFound, "Import source is absent or Missing"};
+        return StartJob(source, std::move(options));
+    }
+
+    std::variant<std::monostate, AssetError> EditorAssetImportService::StartOutdated(AssetBuildOptions options)
+    {
+        if (auto error = CheckIdle())
+            return *error;
+        if (!IsProductTarget(options.Target))
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid build target"};
+        return StartJob({}, std::move(options));
+    }
+
+    std::variant<std::monostate, AssetError> EditorAssetImportService::StartJob(SourceAssetID     source,
+                                                                                AssetBuildOptions options)
+    {
         auto job         = CreateRef<Job>();
         auto observer    = std::move(options.Progress);
         options.Progress = [job, observer = std::move(observer)](PublicationPhase phase) {
             job->Phase.store(static_cast<int>(phase));
             const bool observed = !observer || observer(phase);
             return observed && !job->Cancel.load();
+        };
+        auto cancelObserver     = std::move(options.CancelRequested);
+        options.CancelRequested = [job, cancelObserver = std::move(cancelObserver)] {
+            return job->Cancel.load() || (cancelObserver && cancelObserver());
         };
         m_Snapshot        = {};
         m_Snapshot.State  = EditorAssetImportState::Building;
@@ -65,7 +84,7 @@ namespace Kans
         m_Future          = std::async(std::launch::async, [project = m_Project.get(), source, options]() {
             try
             {
-                return project->BuildAsset(source, options);
+                return source.IsValid() ? project->BuildAsset(source, options) : project->BuildPublishedAssets(options);
             }
             catch (const std::exception& error)
             {

@@ -44,6 +44,7 @@ namespace
             mesh.Vertices.resize(3);
             mesh.Vertices[0].Position = {x, 0, 0};
             mesh.Indices              = {0, 1, 2};
+            BuildSingleSection(mesh);
             return std::get<std::vector<std::byte>>(EncodeMeshProduct(mesh));
         }
         // Stages one mesh Product per entry of `meshes` and returns a request for them.

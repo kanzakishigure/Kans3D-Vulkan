@@ -25,6 +25,8 @@ namespace Kans
         AssetID          Material;
         AssetID          AuthoredMaterial;
         Bounds           LocalBounds; // In mesh space.
+        std::vector<MeshSection>                       Sections;
+        std::vector<MeshMaterialSlot>                  MaterialSlots;
     };
 
     struct GpuMaterial
@@ -47,6 +49,9 @@ namespace Kans
     {
         AssetID   Mesh;
         glm::mat4 Transform {1.0f}; // Model-space transform of the node.
+        uint32_t  Section = 0;
+        AssetID   Part;                // Stable pre-section part identity for scene/editor overrides.
+        bool      AllSections = false; // Unmapped/procedural models draw all mesh sections.
     };
 
     // Flattened node hierarchy of a Model asset.

@@ -1,6 +1,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <yaml-cpp/yaml.h>
+#include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
@@ -140,7 +141,38 @@ namespace
             // Inspect published bytes as well as dependency metadata: retaining
             // a stale slot while dropping only its dependency must also fail.
             ASSERT_EQ(Products("model.obj", AssetType::Model).size(), 1u);
-            ASSERT_EQ(Products("model.obj", AssetType::StaticMesh).size(), 2u);
+            const auto meshes = Products("model.obj", AssetType::StaticMesh);
+            ASSERT_EQ(meshes.size(), 1u);
+            const auto bytes =
+                std::get<std::vector<std::byte>>(ReadRegisteredProduct(Owner->GetProductDirectory(), meshes[0]));
+            const auto mesh = std::get<MeshData>(DecodeMeshProduct(bytes.data(), bytes.size()));
+            ASSERT_EQ(mesh.Sections.size(), 2u);
+            ASSERT_EQ(mesh.MaterialSlots.size(), 2u);
+            EXPECT_EQ(mesh.Indices, (std::vector<uint32_t> {0, 1, 2, 3, 4, 5}));
+            const std::array<std::string, 2> names {"Surface", "Healthy"};
+            for (size_t i = 0; i < 2; ++i)
+            {
+                EXPECT_EQ(mesh.Sections[i].FirstIndex, i * 3);
+                EXPECT_EQ(mesh.Sections[i].IndexCount, 3u);
+                EXPECT_EQ(mesh.Sections[i].MaterialSlot, i);
+                const auto& slot = mesh.MaterialSlots[i];
+                EXPECT_EQ(slot.Name, names[i]);
+                EXPECT_EQ(slot.ObjectKey, "material:7:" + names[i]);
+                EXPECT_EQ(slot.DefaultMaterial, slot.AuthoredMaterial);
+                bool found = false;
+                for (const auto& record : Products("model.obj", AssetType::Material))
+                    if (record.Metadata.assetID == slot.DefaultMaterial)
+                    {
+                        const auto materialBytes = std::get<std::vector<std::byte>>(
+                            ReadRegisteredProduct(Owner->GetProductDirectory(), record));
+                        EXPECT_EQ(
+                            std::get<MaterialData>(DecodeMaterialProduct(materialBytes.data(), materialBytes.size()))
+                                .Name,
+                            names[i]);
+                        found = true;
+                    }
+                EXPECT_TRUE(found);
+            }
             const auto materials = PublishedMaterials();
             ASSERT_TRUE(materials.count("Surface"));
             ASSERT_TRUE(materials.count("Healthy"));

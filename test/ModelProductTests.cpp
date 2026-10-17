@@ -66,14 +66,15 @@ namespace
 
     TEST(ModelProduct, RejectsMalformedProductFieldsAndVersions)
     {
-        for (const auto& text :
-             {"[",
-              "magic: KMOD\nversion: 1\nnodes: {}",
-              "magic: KMOD\nversion: 1\nnodes: []\n---\nmagic: KMOD\nversion: 1\nnodes: []",
-              "magic: KMAT\nversion: 1\nnodes: []",
-              "magic: KMOD\nversion: 1\nnodes: [{name: root, parent: -1, transform: [1], meshes: []}]"})
+        for (const auto& text : {"[",
+                                 "magic: KMOD\nversion: 2\nsection_identities: []\nnodes: {}",
+                                 "magic: KMOD\nversion: 2\nsection_identities: []\nnodes: []\n---\nmagic: "
+                                 "KMOD\nversion: 2\nsection_identities: []\nnodes: []",
+                                 "magic: KMAT\nversion: 1\nnodes: []",
+                                 "magic: KMOD\nversion: 2\nsection_identities: []\nnodes: [{name: root, parent: -1, "
+                                 "transform: [1], meshes: []}]"})
             ExpectInvalid(text, DecodeModelProduct);
-        const std::string unsupported = "magic: KMOD\nversion: 2\nnodes: []";
+        const std::string unsupported = "magic: KMOD\nversion: 3\nnodes: []";
         EXPECT_EQ(std::get<AssetError>(
                       DecodeModelProduct(reinterpret_cast<const std::byte*>(unsupported.data()), unsupported.size()))
                       .Code,

@@ -39,8 +39,9 @@ namespace Kans
         }
         GpuMesh mesh;
         mesh.Device = device;
-        for (const auto& vertex : data.Vertices)
-            mesh.LocalBounds.Expand(glm::make_vec3(vertex.Position.data()));
+        mesh.LocalBounds   = data.LocalBounds;
+        mesh.Sections      = data.Sections;
+        mesh.MaterialSlots = data.MaterialSlots;
         mesh.Vertices = device->CreateBuffer(
             {packed.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
         mesh.Vertices->Write(0, packed.data(), packed.size() * sizeof(float));
@@ -100,7 +101,17 @@ namespace Kans
         ModelInstances result;
         for (size_t i = 0; i < count; ++i)
             for (AssetID mesh : data.Nodes[i].Meshes)
-                result.Instances.push_back({mesh, world[i]});
+            {
+                bool mapped = false;
+                for (const auto& identity : data.SectionIdentities)
+                    if (identity.Mesh == mesh)
+                    {
+                        result.Instances.push_back({mesh, world[i], identity.Section, identity.OldMesh});
+                        mapped = true;
+                    }
+                if (!mapped)
+                    result.Instances.push_back({mesh, world[i], 0, {}, true});
+            }
         return result;
     }
 
@@ -163,7 +174,7 @@ namespace Kans
 
     const ModelInstances* RenderAssetCache::GetModel(AssetID id)
     {
-        return Resolve(m_Models, id, [](const ModelAsset& asset) { return FlattenModel(asset.GetData()); });
+        return Resolve(m_Models, id, [](const ModelAsset& asset) { return FlattenModel(asset.GetMeshData()); });
     }
 
     const GpuMesh* RenderAssetCache::GetMesh(AssetID id)
@@ -252,7 +263,15 @@ namespace Kans
         if (const auto* instances = GetModel(model))
             for (const auto& instance : instances->Instances)
                 if (const auto* mesh = GetMesh(instance.Mesh))
-                    bounds.Expand(mesh->LocalBounds.Transformed(instance.Transform));
+                {
+                    // Preserve the former per-part bounds used for drop placement
+                    // and camera focus. Transforming the union AABB first adds
+                    // corners that belong to no section, even for tiny rotations.
+                    const size_t first = instance.AllSections ? 0 : instance.Section;
+                    const size_t end   = instance.AllSections ? mesh->Sections.size() : first + 1;
+                    for (size_t i = first; i < end && i < mesh->Sections.size(); ++i)
+                        bounds.Expand(mesh->Sections[i].LocalBounds.Transformed(instance.Transform));
+                }
         return bounds;
     }
 

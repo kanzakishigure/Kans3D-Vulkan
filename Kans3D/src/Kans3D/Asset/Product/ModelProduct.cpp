@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
+#include <set>
 #include <yaml-cpp/yaml.h>
 
 namespace Kans
@@ -136,6 +138,21 @@ namespace Kans
                     if (!id.IsValid())
                         return false;
             }
+            if (data.SectionIdentities.size() > kMaximumItems)
+                return false;
+            std::set<std::pair<AssetID, uint32_t>> sections;
+
+            for (const auto& identity : data.SectionIdentities)
+            {
+                if (identity.ObjectKey.empty() || !ValidName(identity.ObjectKey) || !identity.OldMesh.IsValid() ||
+                    !identity.Mesh.IsValid() || identity.Section >= kMaximumItems ||
+                    !sections.emplace(identity.Mesh, identity.Section).second)
+                    return false;
+            }
+            std::map<AssetID, uint32_t> nextSection;
+            for (const auto& identity : data.SectionIdentities)
+                if (identity.Section != nextSection[identity.Mesh]++)
+                    return false;
             return true;
         }
     } // namespace
@@ -241,7 +258,7 @@ namespace Kans
         YAML::Emitter out;
         out.SetFloatPrecision(9);
         out << YAML::BeginMap << YAML::Key << "magic" << YAML::Value << "KMOD" << YAML::Key << "version" << YAML::Value
-            << 1 << YAML::Key << "nodes" << YAML::Value << YAML::BeginSeq;
+            << 2 << YAML::Key << "nodes" << YAML::Value << YAML::BeginSeq;
         for (const auto& node : data.Nodes)
         {
             out << YAML::BeginMap << YAML::Key << "name" << YAML::Value << node.Name << YAML::Key << "parent"
@@ -252,6 +269,12 @@ namespace Kans
                 out << mesh.ToString();
             out << YAML::EndSeq << YAML::EndMap;
         }
+        out << YAML::EndSeq << YAML::Key << "section_identities" << YAML::Value << YAML::BeginSeq;
+        for (const auto& identity : data.SectionIdentities)
+            out << YAML::BeginMap << YAML::Key << "object_key" << YAML::Value << identity.ObjectKey << YAML::Key
+                << "old_mesh" << YAML::Value << identity.OldMesh.ToString() << YAML::Key << "mesh" << YAML::Value
+                << identity.Mesh.ToString() << YAML::Key << "section" << YAML::Value << identity.Section
+                << YAML::EndMap;
         out << YAML::EndSeq << YAML::EndMap;
         return Finish(out);
     }
@@ -260,11 +283,15 @@ namespace Kans
     {
         try
         {
-            auto loaded = ReadRoot(bytes, size, "KMOD");
+            auto loaded = ReadRoot(bytes, size, "KMOD", 2);
             if (const auto* error = std::get_if<AssetError>(&loaded))
                 return *error;
             const auto& root = std::get<YAML::Node>(loaded);
-            if (root.size() != 3 || !root["nodes"].IsSequence() || root["nodes"].size() > kMaximumItems)
+            if (root["version"].as<uint32_t>() != 2)
+                return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Model Product version"};
+            if (root.size() != 4 || !root["section_identities"].IsSequence() ||
+                root["section_identities"].size() > kMaximumItems || !root["nodes"].IsSequence() ||
+                root["nodes"].size() > kMaximumItems)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid model Product fields"};
             ModelData data;
             size_t    bindings = 0;
@@ -282,6 +309,15 @@ namespace Kans
                     node.Meshes.push_back(AssetID::FromString(mesh.as<std::string>()));
                 bindings += node.Meshes.size();
                 data.Nodes.push_back(std::move(node));
+            }
+            for (const auto& input : root["section_identities"])
+            {
+                if (!input.IsMap() || input.size() != 4)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid model section identity fields"};
+                data.SectionIdentities.push_back({input["object_key"].as<std::string>(),
+                                                  AssetID::FromString(input["old_mesh"].as<std::string>()),
+                                                  AssetID::FromString(input["mesh"].as<std::string>()),
+                                                  input["section"].as<uint32_t>()});
             }
             if (!ValidModel(data))
                 return AssetError {AssetErrorCode::InvalidData, "Invalid model node hierarchy or references"};

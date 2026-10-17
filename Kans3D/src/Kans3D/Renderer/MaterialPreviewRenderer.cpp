@@ -86,6 +86,7 @@ void main() {
                     face({0, -1, 0}, {1, 0, 0}, {0, 0, 1});
                 }
             }
+            BuildSingleSection(mesh);
             return mesh;
         }
         bool SameShader(const ShaderData& a, const ShaderData& b)

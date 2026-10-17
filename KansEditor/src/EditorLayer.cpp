@@ -214,7 +214,10 @@ namespace Kans
             {
                 // Dependencies can be published even when the root build fails.
                 Record(RefreshProductAssets());
-                PlacePendingModel();
+                if (m_PendingPlacement && m_PendingPlacementWaiting)
+                    StartPendingPlacementBuild();
+                else
+                    PlacePendingModel();
                 if (!m_Play.IsActive())
                     m_History.Record(*m_ActiveScene);
             }

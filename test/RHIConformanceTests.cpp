@@ -222,6 +222,7 @@ void main() { color = p.Color; })";
             quad.Vertices.push_back(v);
         }
         quad.Indices  = {0, 1, 2, 2, 3, 0};
+        BuildSingleSection(quad);
         auto uploaded = UploadMesh(quad, device);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
         const auto&                 mesh = std::get<GpuMesh>(uploaded);
@@ -261,6 +262,7 @@ void main() { color = p.Color; })";
             quad.Vertices.push_back(v);
         }
         quad.Indices  = {0, 1, 2, 2, 3, 0};
+        BuildSingleSection(quad);
         auto uploaded = UploadMesh(quad, device);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
         const auto&      mesh = std::get<GpuMesh>(uploaded);

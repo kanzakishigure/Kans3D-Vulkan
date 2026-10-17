@@ -101,7 +101,8 @@ namespace Kans
         commands.BindGroup(material);
         commands.BindVertexBuffers({{0, mesh.Vertices, 0}});
         commands.BindIndexBuffer(mesh.Indices, IndexType::Uint32);
-        commands.DrawIndexed(mesh.IndexCount);
+        const auto& section = mesh.Sections.at(data.Section);
+        commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);
         return complete;
     }
 } // namespace Kans

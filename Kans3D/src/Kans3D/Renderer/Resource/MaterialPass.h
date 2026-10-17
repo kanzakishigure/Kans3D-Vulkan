@@ -12,6 +12,7 @@ namespace Kans
         std::vector<RenderHardware::Format> ColorFormats {RenderHardware::Format::RGBA8Unorm};
         bool                                Wireframe = false, WriteStencil = false;
         MaterialRenderState                 Render;
+        uint32_t                                                       Section = 0;
     };
     // Shared immutable pipeline/engine group/material group binding for scene and previews.
     // Returns false when assigned textures are unavailable; fallback textures still draw.

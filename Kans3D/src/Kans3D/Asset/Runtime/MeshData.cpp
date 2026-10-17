@@ -6,6 +6,15 @@
 
 namespace Kans
 {
+    void BuildSingleSection(MeshData& mesh)
+    {
+        mesh.LocalBounds = {};
+        for (const auto& vertex : mesh.Vertices)
+            mesh.LocalBounds.Expand(glm::vec3(vertex.Position[0], vertex.Position[1], vertex.Position[2]));
+        mesh.Sections      = {{0, static_cast<uint32_t>(mesh.Indices.size()), 0, mesh.LocalBounds}};
+        mesh.MaterialSlots = {{"", "", mesh.Material, mesh.AuthoredMaterial}};
+    }
+
     std::variant<std::monostate, AssetError> ValidateMeshData(const MeshData& mesh)
     {
         const auto vertices = mesh.Vertices.size(), indices = mesh.Indices.size();
@@ -28,6 +37,40 @@ namespace Kans
         for (const auto index : mesh.Indices)
             if (index >= vertices)
                 return AssetError {AssetErrorCode::InvalidData, "Mesh Product index out of range"};
+        const auto validBounds = [](const Bounds& bounds) {
+            return bounds.IsValid() && std::isfinite(bounds.Min.x) && std::isfinite(bounds.Min.y) &&
+                   std::isfinite(bounds.Min.z) && std::isfinite(bounds.Max.x) && std::isfinite(bounds.Max.y) &&
+                   std::isfinite(bounds.Max.z);
+        };
+        if (mesh.VertexFormat != MeshVertexFormat::PositionNormalUVColorTangent || mesh.Sections.empty() ||
+            mesh.MaterialSlots.empty() || !validBounds(mesh.LocalBounds) || mesh.Sections.size() > 1000000 ||
+            mesh.MaterialSlots.size() > 1000000)
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product format, sections or bounds"};
+        uint64_t size = 56ull + vertices * 64ull + indices * 4ull + mesh.Sections.size() * 36ull;
+        for (const auto& slot : mesh.MaterialSlots)
+        {
+            if (slot.Name.size() > 4096 || slot.ObjectKey.size() > 4096 || slot.Name.find('\0') != std::string::npos ||
+                slot.ObjectKey.find('\0') != std::string::npos ||
+                slot.DefaultMaterial.GetSourceID().IsValid() != (slot.DefaultMaterial.GetLocalID() != 0) ||
+                slot.AuthoredMaterial.GetSourceID().IsValid() != (slot.AuthoredMaterial.GetLocalID() != 0))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product material slot"};
+            size += 40 + slot.Name.size() + slot.ObjectKey.size();
+        }
+        if (size > 512ull * 1024 * 1024)
+            return AssetError {AssetErrorCode::InvalidData, "Mesh Product exceeds size limit"};
+        uint64_t end = 0;
+        for (const auto& section : mesh.Sections)
+        {
+            if (!section.IndexCount || section.IndexCount % 3 || section.FirstIndex != end ||
+                uint64_t(section.FirstIndex) + section.IndexCount > indices ||
+                section.MaterialSlot >= mesh.MaterialSlots.size() || !validBounds(section.LocalBounds) ||
+                glm::any(glm::lessThan(section.LocalBounds.Min, mesh.LocalBounds.Min)) ||
+                glm::any(glm::greaterThan(section.LocalBounds.Max, mesh.LocalBounds.Max)))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product section range, slot or bounds"};
+            end += section.IndexCount;
+        }
+        if (end != indices)
+            return AssetError {AssetErrorCode::InvalidData, "Mesh Product sections do not cover indices"};
         return std::monostate {};
     }
 } // namespace Kans

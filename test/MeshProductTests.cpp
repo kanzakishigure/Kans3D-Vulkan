@@ -19,6 +19,7 @@ namespace
         data.Vertices[2].Position = {0, 0, 1};
         data.Indices              = {0, 1, 2};
         data.Material             = AssetID(SourceAssetID::FromString("0123456789abcdef"), 19);
+        BuildSingleSection(data);
         return data;
     }
 
@@ -41,7 +42,7 @@ namespace
     {
         const auto original = Triangle();
         const auto bytes    = Encode(original);
-        ASSERT_EQ(bytes.size(), 56 + 3 * 64 + 3 * 4);
+        ASSERT_EQ(bytes.size(), 56 + 3 * 64 + 3 * 4 + 36 + 40);
         EXPECT_EQ(bytes[0], std::byte {'K'});
         EXPECT_EQ(bytes[1], std::byte {'M'});
         EXPECT_EQ(bytes[2], std::byte {'S'});
@@ -81,7 +82,7 @@ namespace
         const auto original = Encode(Triangle());
         for (auto mutation : {std::pair<size_t, uint32_t> {0, 0},
                               {8, 2},
-                              {12, 1},
+                              {12, 0},
                               {16, 0},
                               {16, 0xffffffff},
                               {20, 0xffffffff},
@@ -94,7 +95,7 @@ namespace
             EXPECT_EQ(std::get<AssetError>(decoded).Code, AssetErrorCode::InvalidData);
         }
         auto bytes = original;
-        Set32(bytes, 4, 3);
+        Set32(bytes, 4, 4);
         EXPECT_EQ(std::get<AssetError>(DecodeMeshProduct(bytes.data(), bytes.size())).Code,
                   AssetErrorCode::UnsupportedVersion);
     }
@@ -126,13 +127,62 @@ namespace
         EXPECT_TRUE(std::holds_alternative<AssetError>(EncodeMeshProduct(mesh)));
         mesh.AuthoredMaterial = {};
         mesh.Material      = {};
+        BuildSingleSection(mesh);
         const auto bytes   = Encode(mesh);
         auto       decoded = DecodeMeshProduct(bytes.data(), bytes.size());
         ASSERT_TRUE(std::holds_alternative<MeshData>(decoded));
         EXPECT_FALSE(std::get<MeshData>(decoded).Material.IsValid());
         auto broken = bytes;
-        Set32(broken, 32, 1);
+        Set32(broken, 312, 1);
         EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeMeshProduct(broken.data(), broken.size())));
+    }
+
+    TEST(MeshProduct, RejectsEmptyOverflowingSectionsInvalidSlotsAndNonFiniteStoredBounds)
+    {
+        // Bugs: uint32 range addition wraps; an empty section slips through;
+        // uploading a malformed slot or non-finite persisted AABB reaches the GPU.
+        const auto rejects = [](const MeshData& mesh) {
+            EXPECT_TRUE(std::holds_alternative<AssetError>(ValidateMeshData(mesh)));
+            EXPECT_TRUE(std::holds_alternative<AssetError>(EncodeMeshProduct(mesh)));
+        };
+        auto mesh = Triangle();
+        mesh.Sections.clear();
+        rejects(mesh);
+        mesh                        = Triangle();
+        mesh.Sections[0].IndexCount = 0;
+        rejects(mesh);
+        mesh                        = Triangle();
+        mesh.Sections[0].FirstIndex = UINT32_MAX - 2;
+        mesh.Sections[0].IndexCount = 6;
+        rejects(mesh);
+        mesh                          = Triangle();
+        mesh.Sections[0].MaterialSlot = 1;
+        rejects(mesh);
+        mesh                   = Triangle();
+        mesh.LocalBounds.Min.x = std::numeric_limits<float>::infinity();
+        rejects(mesh);
+        mesh                               = Triangle();
+        mesh.Sections[0].LocalBounds.Max.y = std::numeric_limits<float>::quiet_NaN();
+        rejects(mesh);
+        const auto original = Encode(Triangle());
+        for (auto mutation : {std::pair<size_t, uint32_t> {32, 0x7f800000},
+                              {260, UINT32_MAX - 2},
+                              {264, 0},
+                              {268, 1},
+                              {272, 0x7fc00000}})
+        {
+            auto bytes = original;
+            Set32(bytes, mutation.first, mutation.second);
+            EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeMeshProduct(bytes.data(), bytes.size())));
+        }
+        for (uint32_t version : {1u, 2u})
+        {
+            auto bytes = original;
+            Set32(bytes, 4, version);
+            auto decoded = DecodeMeshProduct(bytes.data(), bytes.size());
+            ASSERT_TRUE(std::holds_alternative<AssetError>(decoded));
+            EXPECT_EQ(std::get<AssetError>(decoded).Code, AssetErrorCode::UnsupportedVersion);
+        }
     }
 
     TEST(MeshProduct, SupportsUnalignedInputAndOwnsDecodedData)
@@ -175,6 +225,7 @@ namespace
         for (const auto& geometry : source.Meshes)
         {
             MeshData         data {geometry.Vertices, geometry.Indices, {}};
+            BuildSingleSection(data);
             const auto       bytes = Encode(data);
             AssetLoadContext context;
             context.ID   = AssetID(SourceAssetID::Generate(), 1);

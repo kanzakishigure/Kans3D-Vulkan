@@ -108,7 +108,7 @@ namespace Kans
         // Starts a load under m_Mutex; returns the ticket identifying this attempt.
         uint64_t                                   BeginLoad(AssetID id, AssetType type);
         void                                       RunLoad(AssetID id, uint64_t ticket);
-        std::variant<Ref<const Asset>, AssetError> ReadAndDecode(AssetID id, AssetType type) const;
+        std::variant<Ref<const Asset>, AssetError> ReadAndDecode(AssetID id, AssetType type);
         void                                       WorkerLoop();
 
         Ref<IAssetProvider>       m_Provider;

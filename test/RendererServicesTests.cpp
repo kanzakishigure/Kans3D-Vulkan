@@ -231,6 +231,7 @@ namespace
         data.Vertices[1].Position        = {1, -1, 0};
         data.Vertices[2].Position        = {0, 1, 0};
         data.Indices                     = {0, 1, 2};
+        BuildSingleSection(data);
         auto                        mesh = std::get<GpuMesh>(UploadMesh(data, Device));
         const std::vector<MeshDraw> draws {{&mesh, glm::mat4(1), 0xf1234567u}};
         EXPECT_EQ(first->Pick(draws, glm::mat4(1), {8, 8}), 0xf1234567u);

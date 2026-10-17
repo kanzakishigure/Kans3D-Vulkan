@@ -4,6 +4,27 @@
 #include <cmath>
 namespace Kans
 {
+    ModelAsset::ModelAsset(ModelData data) : m_Data(std::move(data)), m_EditorData(m_Data)
+    {
+        for (auto& node : m_EditorData.Nodes)
+        {
+            std::vector<AssetID> parts;
+            for (AssetID mesh : node.Meshes)
+            {
+                bool mapped = false;
+                for (const auto& identity : m_Data.SectionIdentities)
+                    if (identity.Mesh == mesh)
+                    {
+                        parts.push_back(identity.OldMesh);
+                        mapped = true;
+                    }
+                if (!mapped)
+                    parts.push_back(mesh);
+            }
+            node.Meshes = std::move(parts);
+        }
+    }
+
     bool IsValidMaterialRenderState(const MaterialRenderState& state)
     {
         return uint32_t(state.AlphaMode) <= uint32_t(MaterialAlphaMode::Blend) && std::isfinite(state.AlphaCutoff) &&

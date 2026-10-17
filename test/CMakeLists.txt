@@ -34,6 +34,7 @@ add_executable(Kans3DTests
     DropPlacementTests.cpp
     EditorAssetImportServiceTests.cpp
     ModelImporterTests.cpp
+    ModelSectionsTests.cpp
     ModelMaterialRemappingTests.cpp
     AssetRegistryTests.cpp
     ProductStoreTests.cpp

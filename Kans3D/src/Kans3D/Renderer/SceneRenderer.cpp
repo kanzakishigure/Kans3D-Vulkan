@@ -38,6 +38,19 @@ namespace Kans
                 group.Entries.push_back({1, {}, 0, 0, std::move(texture), std::move(sampler)});
             return device.CreateBindGroup(group);
         }
+        template<class F>
+        void ForEachSection(const ModelInstance& instance, const GpuMesh& mesh, F&& action)
+        {
+            const size_t first = instance.AllSections ? 0 : instance.Section;
+            const size_t end   = instance.AllSections ? mesh.Sections.size() : first + 1;
+            for (size_t i = first; i < end && i < mesh.Sections.size(); ++i)
+            {
+                auto part        = instance;
+                part.Section     = static_cast<uint32_t>(i);
+                part.AllSections = false;
+                action(part, mesh.Sections[i]);
+            }
+        }
     } // namespace
 
     SceneRenderer::SceneRenderer(RenderScene* scene, SceneRendererSpecification spec) :
@@ -81,13 +94,16 @@ namespace Kans
         // the former SubmitModel, even if duplicate mesh requests finish mid-loop.
         for (const auto& instance : instances->Instances)
             if (const auto* mesh = m_AssetCache->GetMesh(instance.Mesh))
-                ExtractModelPart(m_View,
-                                 model,
-                                 transform,
-                                 stencil,
-                                 m_ViewMode,
-                                 instance,
-                                 {mesh->LocalBounds, mesh->Material, mesh->AuthoredMaterial});
+                ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
+                    const auto& slot = mesh->MaterialSlots[section.MaterialSlot];
+                    ExtractModelPart(m_View,
+                                     model,
+                                     transform,
+                                     stencil,
+                                     m_ViewMode,
+                                     part,
+                                     {section.LocalBounds, slot.DefaultMaterial, slot.AuthoredMaterial});
+                });
     }
 
     void SceneRenderer::PrepareDrawLists()
@@ -97,10 +113,10 @@ namespace Kans
             const auto* mesh = m_AssetCache->GetMesh(draw.Mesh);
             const auto* bindings =
                 m_AssetCache->GetMaterialBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
-            draw.Ready = mesh && bindings;
+            draw.Ready = mesh && draw.Section < mesh->Sections.size() && bindings;
             if (draw.Ready)
             {
-                draw.LocalBounds = mesh->LocalBounds;
+                draw.LocalBounds = mesh->Sections[draw.Section].LocalBounds;
                 draw.Render      = bindings->Render;
             }
         }
@@ -195,7 +211,7 @@ namespace Kans
             const auto* bindings =
                 m_AssetCache->GetMaterialBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
             const auto* shader = bindings ? m_AssetCache->GetShader(bindings->Shader) : nullptr;
-            if (!mesh || !bindings || !shader)
+            if (!mesh || draw.Section >= mesh->Sections.size() || !bindings || !shader)
                 continue;
             if (!tag.empty() &&
                 (!draw.Ready || std::none_of(shader->Passes.begin(), shader->Passes.end(), [&](const auto& pass) {
@@ -247,6 +263,7 @@ namespace Kans
             pass.Wireframe          = draw.ViewMode == SceneViewMode::Wireframe;
             pass.WriteStencil       = draw.Stencil == ModelStencilMode::WriteReference;
             pass.Render             = render;
+            pass.Section            = draw.Section;
             if (tag.empty())
                 RecordMaterialDraw(*m_AssetCache, *commands, *shader, *bindings, *mesh, pass);
             else
@@ -255,7 +272,7 @@ namespace Kans
                     {
                         RecordMaterialDraw(*m_AssetCache, *commands, *shader, *bindings, *mesh, pass, &extra);
                         ++m_Stats.DrawCalls;
-                        m_Stats.Triangles += mesh->IndexCount / 3;
+                        m_Stats.Triangles += mesh->Sections[draw.Section].IndexCount / 3;
                     }
             if (sampled)
                 for (const auto& image : bindings->Images)
@@ -263,7 +280,7 @@ namespace Kans
             if (tag.empty())
             {
                 ++m_Stats.DrawCalls;
-                m_Stats.Triangles += mesh->IndexCount / 3;
+                m_Stats.Triangles += mesh->Sections[draw.Section].IndexCount / 3;
             }
             ++range;
         }
@@ -350,20 +367,20 @@ namespace Kans
         data.ViewPos        = glm::vec4(m_SceneInfo.sceneCamera.Position, 1);
         for (const auto& instance : instances->Instances)
             if (const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh))
-            {
-                data.Transform = draw.Transform * instance.Transform;
-                commands->BindGroup(DrawGroup(*m_Renderer->GetDevice(), desc.GroupLayouts[0], data));
-                commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0}});
-                if (normals)
-                    commands->Draw(mesh->IndexCount * 2);
-                else
-                {
-                    commands->BindIndexBuffer(mesh->Indices, IndexType::Uint32);
-                    commands->DrawIndexed(mesh->IndexCount);
-                }
-                ++m_Stats.DrawCalls;
-                m_Stats.Triangles += mesh->IndexCount / 3;
-            }
+                ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
+                    data.Transform = draw.Transform * part.Transform;
+                    commands->BindGroup(DrawGroup(*m_Renderer->GetDevice(), desc.GroupLayouts[0], data));
+                    commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0}});
+                    if (normals)
+                        commands->Draw(section.IndexCount * 2, 1, section.FirstIndex * 2);
+                    else
+                    {
+                        commands->BindIndexBuffer(mesh->Indices, IndexType::Uint32);
+                        commands->DrawIndexed(section.IndexCount, 1, section.FirstIndex);
+                    }
+                    ++m_Stats.DrawCalls;
+                    m_Stats.Triangles += section.IndexCount / 3;
+                });
         commands->EndRendering();
     }
 
@@ -457,7 +474,9 @@ namespace Kans
         if (const ModelInstances* instances = m_AssetCache->GetModel(model.Model))
             for (const auto& instance : instances->Instances)
                 if (const GpuMesh* mesh = m_AssetCache->GetMesh(instance.Mesh))
-                    draws.push_back({mesh, transform * instance.Transform, id});
+                    ForEachSection(instance, *mesh, [&](const auto& part, const auto&) {
+                        draws.push_back({mesh, transform * part.Transform, id, part.Section});
+                    });
     }
 
     uint32_t SceneRenderer::Pick(const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection, glm::uvec2 pixel)

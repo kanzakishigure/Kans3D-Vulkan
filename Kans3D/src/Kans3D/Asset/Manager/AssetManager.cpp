@@ -1,5 +1,7 @@
 #include "kspch.h"
 #include "AssetManager.h"
+#include "Kans3D/Asset/Runtime/MeshData.h"
+#include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
 
 namespace Kans
@@ -39,7 +41,7 @@ namespace Kans
         return entry.Ticket;
     }
 
-    std::variant<Ref<const Asset>, AssetError> AssetManager::ReadAndDecode(AssetID id, AssetType type) const
+    std::variant<Ref<const Asset>, AssetError> AssetManager::ReadAndDecode(AssetID id, AssetType type)
     {
         if (id == StandardShaderID())
         {
@@ -56,6 +58,83 @@ namespace Kans
         }
         Ref<const AssetRegistry> registry = GetRegistry();
         const auto               record   = registry->Find(id, m_Target);
+        if (!record && type == AssetType::StaticMesh)
+        {
+            // The editor requests old part IDs after loading their ModelAsset.
+            // These are views, never additional published geometry Products.
+            std::optional<ModelSectionIdentity> part;
+            Ref<const MeshAsset>                source;
+            {
+                std::lock_guard<std::mutex> lock(m_Mutex);
+                for (const auto& [modelID, entry] : m_Entries)
+                    if (entry.Type == AssetType::Model && entry.Value)
+                    {
+                        const auto model = std::static_pointer_cast<const ModelAsset>(entry.Value);
+                        for (const auto& identity : model->GetMeshData().SectionIdentities)
+                            if (identity.OldMesh == id)
+                            {
+                                part = identity;
+                                break;
+                            }
+                        if (part)
+                            break;
+                    }
+                if (part)
+                {
+                    const auto loaded = m_Entries.find(part->Mesh);
+                    if (loaded != m_Entries.end() && loaded->second.Type == AssetType::StaticMesh &&
+                        loaded->second.Value)
+                        source = std::static_pointer_cast<const MeshAsset>(loaded->second.Value);
+                }
+            }
+            if (part && part->Mesh != id)
+            {
+                if (!source)
+                {
+                    auto loaded = ReadAndDecode(part->Mesh, type);
+                    if (auto* error = std::get_if<AssetError>(&loaded))
+                        return *error;
+                    source = std::static_pointer_cast<const MeshAsset>(std::get<Ref<const Asset>>(loaded));
+                    // Share the decoded group with subsequent compatibility requests.
+                    // Do not replace an independently loading canonical asset.
+                    {
+                        std::lock_guard<std::mutex> lock(m_Mutex);
+                        if (m_Registry == registry && !m_Entries.count(part->Mesh))
+                        {
+                            BeginLoad(part->Mesh, type);
+                            auto& entry = m_Entries.at(part->Mesh);
+                            entry.State = AssetLoadState::Ready;
+                            entry.Value = source;
+                        }
+                    }
+                    m_Changed.notify_all();
+                }
+                const auto& shared = source->GetData();
+                if (part->Section >= shared.Sections.size())
+                    return AssetError {AssetErrorCode::InvalidData, "Model part refers to a missing mesh section"};
+                const auto& section = shared.Sections[part->Section];
+                const auto& slot    = shared.MaterialSlots[section.MaterialSlot];
+                MeshData    view;
+                view.VertexFormat     = shared.VertexFormat;
+                view.Material         = slot.DefaultMaterial;
+                view.AuthoredMaterial = slot.AuthoredMaterial;
+                view.MaterialSlots    = {slot};
+                view.LocalBounds      = section.LocalBounds;
+                view.Sections         = {{0, section.IndexCount, 0, section.LocalBounds}};
+                std::unordered_map<uint32_t, uint32_t> vertices;
+                for (uint32_t i = section.FirstIndex; i < section.FirstIndex + section.IndexCount; ++i)
+                {
+                    const auto index  = shared.Indices[i];
+                    const auto mapped = vertices.emplace(index, static_cast<uint32_t>(view.Vertices.size()));
+                    if (mapped.second)
+                        view.Vertices.push_back(shared.Vertices[index]);
+                    view.Indices.push_back(mapped.first->second);
+                }
+                auto asset     = CreateRef<MeshAsset>(std::move(view));
+                asset->assetID = id;
+                return Ref<const Asset>(std::move(asset));
+            }
+        }
         if (!record)
             return AssetError {AssetErrorCode::NotFound, "Asset " + id.ToString() + " is not in the Registry"};
         if (record->Metadata.Type != type)
@@ -239,7 +318,17 @@ namespace Kans
                 evict(id);
             // Failures may have been caused by the previous Registry; allow a retry.
             for (auto it = m_Entries.begin(); it != m_Entries.end();)
-                it = it->second.State == AssetLoadState::Failed ? m_Entries.erase(it) : std::next(it);
+            {
+                // Part views have no Registry entry. Their bindings may change on reimport.
+                if (it->second.State == AssetLoadState::Failed ||
+                    (it->first != StandardShaderID() && !registry->Find(it->first, m_Target)))
+                {
+                    retired.push_back(std::move(it->second.Value));
+                    it = m_Entries.erase(it);
+                }
+                else
+                    ++it;
+            }
             m_Registry = std::move(registry);
         }
         m_Changed.notify_all();

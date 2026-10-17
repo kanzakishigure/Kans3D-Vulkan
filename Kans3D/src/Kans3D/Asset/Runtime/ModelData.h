@@ -88,21 +88,32 @@ namespace Kans
         std::vector<AssetID>  Meshes;
     };
 
+    struct ModelSectionIdentity
+    {
+        std::string ObjectKey;
+        AssetID     OldMesh, Mesh;
+        uint32_t    Section = 0;
+    };
+
     struct ModelData
     {
         std::vector<ModelNodeData> Nodes;
+        std::vector<ModelSectionIdentity> SectionIdentities;
     };
 
     class ModelAsset final : public Asset
     {
     public:
-        explicit ModelAsset(ModelData data) : m_Data(std::move(data)) {}
+        explicit ModelAsset(ModelData data);
         static AssetType GetStaticType() { return AssetType::Model; }
         AssetType        GetAssetType() const override { return GetStaticType(); }
-        const ModelData& GetData() const { return m_Data; }
+        // Compatibility view for the unchanged editor Parts list: old part IDs.
+        const ModelData& GetData() const { return m_EditorData; }
+        // Canonical product: nodes reference shared meshes, identities name sections.
+        const ModelData& GetMeshData() const { return m_Data; }
 
     private:
-        ModelData m_Data;
+        ModelData m_Data, m_EditorData;
     };
 
     // CPU runtime material. The existing renderer MaterialAsset remains a legacy

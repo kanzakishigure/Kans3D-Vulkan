@@ -83,6 +83,7 @@ namespace
         auto meshData = MeshData {};
         meshData.Vertices.resize(3);
         meshData.Indices = {0, 1, 2};
+        BuildSingleSection(meshData);
         auto uploaded    = UploadMesh(meshData);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
         EXPECT_EQ(std::get<GpuMesh>(uploaded).Device, device);

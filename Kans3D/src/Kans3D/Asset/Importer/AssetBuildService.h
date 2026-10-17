@@ -18,6 +18,8 @@ namespace Kans
         // Project coordinator: also build published dependents of the root,
         // transitively, for Target. Unrelated sources are never selected.
         bool RebuildDependents = false;
+        // Checked between sources/dependencies, including fingerprint cache hits.
+        std::function<bool()> CancelRequested;
     };
 
     enum class AssetBuildDisposition

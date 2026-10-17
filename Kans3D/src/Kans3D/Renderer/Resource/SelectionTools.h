@@ -15,6 +15,7 @@ namespace Kans
         const GpuMesh* Mesh = nullptr;
         glm::mat4      Transform {1.0f};
         uint32_t       ID = 0; // Non-zero.
+        uint32_t       Section = 0;
     };
 
     struct PickHit

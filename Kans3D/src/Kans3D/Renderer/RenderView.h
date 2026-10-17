@@ -64,6 +64,7 @@ namespace Kans
         Bounds              LocalBounds;
         MaterialRenderState Render;
         bool                Ready = false;
+        uint32_t            Section = 0;
     };
     struct ViewGeometryDraw
     {

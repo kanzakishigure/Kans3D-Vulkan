@@ -12,14 +12,16 @@ namespace Kans
                           const ModelInstance&         instance,
                           const ViewMeshMetadata&      metadata)
     {
-        view.Draws.push_back({instance.Mesh,
-                              transform * instance.Transform,
-                              model.ResolveMaterial(instance.Mesh, metadata.Material, metadata.AuthoredMaterial),
-                              mode,
-                              stencil,
-                              metadata.LocalBounds,
-                              {},
-                              false});
+        view.Draws.push_back(
+            {instance.Mesh,
+             transform * instance.Transform,
+             model.ResolveMaterial(instance.Mesh, metadata.Material, metadata.AuthoredMaterial, instance.Part),
+             mode,
+             stencil,
+             metadata.LocalBounds,
+             {},
+             false,
+             instance.Section});
     }
     void ExtractModelDraws(RenderView&                                                    view,
                            const ProductModelComponent&                                   model,

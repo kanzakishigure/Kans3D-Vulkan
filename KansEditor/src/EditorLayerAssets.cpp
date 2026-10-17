@@ -67,6 +67,11 @@ namespace Kans
         m_HierarchyPanel.SetFileDropCallback(
             [this](const std::filesystem::path& file, Entity parent) { PlaceAsset(file, parent); });
         CORE_INFO("Opened project '{}'", m_AssetImports->GetConfig().Name);
+        // Re-import products built by older importers (up-to-date sources are only
+        // checked). Models appear once the sweep's registry is applied in Poll.
+        AssetBuildOptions options;
+        options.Target = EditorAssetTarget;
+        Record(m_AssetImports->StartOutdated(options));
     }
 
     std::variant<std::monostate, AssetError> EditorLayer::RefreshProductAssets(Ref<const AssetRegistry> snapshot)
@@ -184,9 +189,23 @@ namespace Kans
         m_PendingPlacement         = *source;
         m_PendingPlacementParent   = parent ? parent.GetUUID() : UUID(0);
         m_PendingPlacementPosition = position;
+        m_PendingPlacementWaiting  = false;
+        auto snapshot              = m_AssetImports->GetSnapshot();
+        if (const auto* state = std::get_if<EditorAssetImportSnapshot>(&snapshot);
+            state && state->State == EditorAssetImportState::Building)
+        {
+            m_PendingPlacementWaiting = true; // e.g. the project-open re-import sweep
+            return;
+        }
+        StartPendingPlacementBuild();
+    }
+
+    void EditorLayer::StartPendingPlacementBuild()
+    {
+        m_PendingPlacementWaiting = false;
         AssetBuildOptions options;
         options.Target = EditorAssetTarget;
-        auto started   = m_AssetImports->Start(*source, options);
+        auto started   = m_AssetImports->Start(*m_PendingPlacement, options);
         if (const auto* failure = std::get_if<AssetError>(&started))
         {
             Record(*failure);

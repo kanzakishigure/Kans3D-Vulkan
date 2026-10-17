@@ -52,7 +52,7 @@ namespace Kans
         std::vector<AssetBuildResult>             Order;
         std::vector<SourceAssetID>                Stack;
         std::map<SourceAssetID, AssetError>       Failed;
-        // Published reverse graph, enabled only after the root succeeds.
+        // Published reverse graph for dependent propagation and batch builds.
         std::map<SourceAssetID, std::vector<SourceAssetID>> Dependents;
         // Descendant -> failed ancestor; never rebuild against its stale Product.
         std::map<SourceAssetID, SourceAssetID> Blocked;
@@ -298,15 +298,82 @@ namespace Kans
         return result;
     }
 
+    std::variant<AssetBuildGraphResult, AssetError> Project::BuildPublishedAssets(const AssetBuildOptions& options)
+    {
+        if (!IsProductTarget(options.Target))
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid build target"};
+        auto importers = CreateDefaultImporterRegistry();
+        if (auto* error = std::get_if<AssetError>(&importers))
+            return *error;
+        BuildSession session {std::get<ImporterRegistry>(importers), options, {}, {}, {}, {}, {}, {}, {}};
+        if (options.CancelRequested && options.CancelRequested())
+            return AssetError {AssetErrorCode::Cancelled, "Published source check cancelled"};
+        // Snapshot the roots before publishing anything. Dependencies discovered
+        // during the session are still built recursively, with shared memoization.
+        std::set<SourceAssetID> sources;
+        for (const auto& record : GetRuntimeAssetRegistry()->GetAllProducts())
+            if (record.Target == options.Target)
+                sources.insert(record.Metadata.assetID.GetSourceID());
+        // Preserve last-good dependent publications when a published dependency
+        // fails, just as RebuildDependents does for a single-root session.
+        for (auto source : sources)
+            session.Dependents[source] = m_ProductStore->FindDependents(source, options.Target);
+        AssetBuildGraphResult result;
+        result.Root.Disposition = AssetBuildDisposition::UpToDate;
+        for (auto source : sources)
+        {
+            if (options.CancelRequested && options.CancelRequested())
+                return AssetError {AssetErrorCode::Cancelled, "Published source check cancelled"};
+            auto built = BuildSource(source, session);
+            if (auto* error = std::get_if<AssetError>(&built); error && error->Code == AssetErrorCode::Cancelled)
+                return *error;
+        }
+        for (const auto& [source, error] : session.Failed)
+        {
+            const auto metadata = m_SourceAssetDatabase.FindByID(source);
+            const auto path     = metadata.IsValid() ? metadata.Path.ToString() : source.ToString();
+            result.Root.Warnings.push_back("Source build failed: " + path + ": " + error.Message);
+        }
+        for (const auto& [source, ancestor] : session.Blocked)
+            if (sources.count(source) && !session.Done.count(source) && !session.Failed.count(source))
+                result.Root.Warnings.push_back(
+                    "Skipped dependent " + m_SourceAssetDatabase.FindByID(source).Path.ToString() + ": dependency " +
+                    m_SourceAssetDatabase.FindByID(ancestor).Path.ToString() +
+                    " failed: " + session.Failed.at(ancestor).Message);
+        result.CheckedSources = std::move(session.Order);
+        for (const auto& checked : result.CheckedSources)
+        {
+            if (checked.Disposition == AssetBuildDisposition::Published)
+                result.Root.Disposition = AssetBuildDisposition::Published;
+            result.Root.Warnings.insert(result.Root.Warnings.end(), checked.Warnings.begin(), checked.Warnings.end());
+        }
+        result.Root.Registry = GetRuntimeAssetRegistry();
+        auto cached          = SaveSourceCache();
+        if (auto* error = std::get_if<AssetError>(&cached))
+            m_AssetWarnings.push_back(*error);
+        return result;
+    }
+
     std::variant<AssetBuildResult, AssetError> Project::BuildSource(SourceAssetID id, BuildSession& session)
     {
+        if (session.Options.CancelRequested && session.Options.CancelRequested())
+            return AssetError {AssetErrorCode::Cancelled, "Source build cancelled"};
         if (const auto done = session.Done.find(id); done != session.Done.end())
             return done->second;
         if (const auto failed = session.Failed.find(id); failed != session.Failed.end())
             return failed->second;
         if (session.Blocked.count(id))
             return AssetError {AssetErrorCode::InvalidData, "Dependency failed during propagation"};
-        auto built = BuildSourceOnce(id, session);
+        auto built = [&]() -> std::variant<AssetBuildResult, AssetError> {
+            try
+            {
+                return BuildSourceOnce(id, session);
+            }
+            catch (const std::exception& error)
+            {
+                return AssetError {AssetErrorCode::IoError, error.what()};
+            }
+        }();
         if (const auto* error = std::get_if<AssetError>(&built); error && error->Code != AssetErrorCode::Cancelled)
         {
             session.Failed.emplace(id, *error);

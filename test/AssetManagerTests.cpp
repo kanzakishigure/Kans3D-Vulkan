@@ -126,6 +126,7 @@ namespace
             mesh.Vertices[1].Position = {0, 1, 0};
             mesh.Vertices[2].Position = {0, 0, 1};
             mesh.Indices              = {0, 1, 2};
+            BuildSingleSection(mesh);
             return Store(id, AssetType::StaticMesh, std::get<std::vector<std::byte>>(EncodeMeshProduct(mesh)));
         }
         ProductRecord Model(AssetID id, AssetID mesh)

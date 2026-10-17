@@ -10,6 +10,8 @@
 #include <gtest/gtest.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include "Kans3D/Asset/Importer/MaterialSource.h"
+#include "Kans3D/Asset/Importer/ModelImporter.h"
+#include "Kans3D/Asset/Importer/TextureSource.h"
 #include "Kans3D/Asset/Product/ContentDigest.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
@@ -17,20 +19,24 @@
 #include "Kans3D/Asset/Product/TextureProduct.h"
 #include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "Kans3D/Core/Log/Log.h"
+#include "Kans3D/Editor/DropPlacement.h"
+#include "Kans3D/Editor/EditorAssetImportService.h"
+#include "Kans3D/Editor/EditorCamera.h"
 #include "Kans3D/Project/Project.h"
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/ImGuiRenderer.h"
 #include "Kans3D/RHI/OpenGL/OpenGLTestProbes.h"
 #include "Kans3D/RHI/Vulkan/VulkanTestProbes.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/Features/MaterialPassFeature.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Renderer/Resource/InternalShader.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
 #include "Kans3D/Renderer/SceneRenderer.h"
-#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Scene/Entity.h"
 #include "GpuTestContext.h"
+#include "LegacyModelCacheFixture.h"
 #include "MaterialShaderTestUtilities.h"
 #include "MultiPassTestUtilities.h"
 
@@ -275,6 +281,7 @@ namespace
                 mesh.Vertices.push_back(vertex);
                 mesh.Indices.push_back(uint32_t(i));
             }
+            BuildSingleSection(mesh);
             return mesh;
         }
         ProductRecord Mesh(AssetID id, size_t triangles)
@@ -325,6 +332,7 @@ namespace
     {
         auto data     = Triangles(2);
         data.Material = {Source, 9};
+        BuildSingleSection(data);
         auto uploaded = UploadMesh(data);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded)) << std::get<AssetError>(uploaded).Message;
         const auto& mesh = std::get<GpuMesh>(uploaded);
@@ -560,6 +568,7 @@ namespace
                 quad.Vertices.push_back(vertex);
             }
             quad.Indices = {0, 1, 2, 2, 3, 0};
+            BuildSingleSection(quad);
             auto mesh    = UploadMesh(quad);
             if (const auto* error = std::get_if<AssetError>(&mesh))
                 throw std::runtime_error(error->Message);
@@ -1034,6 +1043,7 @@ namespace
             quad.Vertices.push_back(vertex);
         }
         quad.Indices  = {0, 1, 2, 2, 3, 0};
+        BuildSingleSection(quad);
         auto uploaded = UploadMesh(quad);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
         const auto& mesh = std::get<GpuMesh>(uploaded);
@@ -1179,6 +1189,8 @@ void main() { color = texture(other, vec2(0)); }
         right.Material = customID;
         for (auto& vertex : right.Vertices)
             vertex.Position[0] += 1;
+        BuildSingleSection(left);
+        BuildSingleSection(right);
         ModelData model;
         model.Nodes.push_back({"Root", -1, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, {leftID, rightID}});
         AssetManager assets(
@@ -1386,6 +1398,104 @@ void main() { color = texture(other, vec2(0)); }
             EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
     }
 
+    TEST_P(RenderAssetCacheGPU, UnsupportedLegacyModelAppearsWithItsOldPartOverridesAfterOpenTimeSweep)
+    {
+        // Bug: the failed runtime/cache entry is never retried after migration,
+        // or the new grouped mesh assigns saved overrides to the wrong part.
+        namespace Legacy = LegacyModelCacheFixture;
+        namespace fs     = std::filesystem;
+        const auto root  = fs::temp_directory_path() / ("kans-reopen-gpu-" + SourceAssetID::Generate().ToString());
+        struct Cleanup
+        {
+            fs::path Root;
+            ~Cleanup()
+            {
+                std::error_code ignored;
+                fs::remove_all(Root, ignored);
+            }
+        } cleanup {root};
+        Legacy::WriteSources(root);
+        Legacy::Seed(root, EditorAssetTarget);
+        ProjectConfig config;
+        config.Name          = "Old project";
+        config.RootDirectory = root;
+        auto service         = Legacy::Value(EditorAssetImportService::Create(Legacy::Value(Project::Open(config))));
+        auto provider        = Legacy::Value(LooseFileAssetProvider::Open(service->GetProductDirectory()));
+        AssetManagerSpecification spec;
+        spec.Target = EditorAssetTarget;
+        AssetManager assets(provider, service->GetRuntimeAssetRegistry(), spec);
+        auto         scene     = CreateRef<Scene>();
+        auto         entity    = scene->CreateEntityWithID(UUID(123), "Body", true);
+        auto&        component = entity.AddComponent<ProductModelComponent>();
+        component.Model        = Legacy::ID(1);
+        component.Overrides    = {{Legacy::ID(4), Legacy::ID(3)}, {Legacy::ID(5), Legacy::ID(2)}};
+        const auto failed      = assets.Load<ModelAsset>(component.Model);
+        ASSERT_TRUE(std::holds_alternative<AssetError>(failed));
+        EXPECT_EQ(std::get<AssetError>(failed).Code, AssetErrorCode::UnsupportedVersion);
+        RenderScene renderScene(scene);
+        renderScene.OnViewportResize(16, 16);
+        SceneRenderer renderer(&renderScene);
+        renderer.SetAssetManager(&assets);
+        renderer.SetViewMode(SceneViewMode::BaseColor);
+        SceneInfo info {};
+        info.sceneCamera.camera     = Camera(glm::mat4(1));
+        info.sceneCamera.viewMatrix = glm::mat4(1);
+        info.sceneCamera.Position   = {0, 0, 2};
+        auto frame                  = [&] {
+            renderer.BeginScene(info);
+            renderer.SubmitModel(component, glm::mat4(1));
+            renderer.EndScene();
+        };
+        frame();
+        EXPECT_EQ(renderer.GetStats().DrawCalls, 0u);
+        AssetBuildOptions options;
+        options.Target = EditorAssetTarget;
+        ASSERT_TRUE(std::holds_alternative<std::monostate>(service->StartOutdated(options)));
+        const auto deadline  = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        bool       completed = false;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            if (Legacy::Value(service->Poll()))
+            {
+                completed = true;
+                break;
+            }
+            frame(); // The cached unsupported product must keep failing cleanly while the job runs.
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        ASSERT_TRUE(completed);
+        const auto done = Legacy::Value(service->GetSnapshot());
+        ASSERT_EQ(done.State, EditorAssetImportState::Succeeded);
+        ASSERT_TRUE(done.Result);
+        EXPECT_TRUE(done.Result->Root.Warnings.empty());
+        ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(assets.SetRegistry(done.Result->Root.Registry)));
+        const auto readyDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        do
+        {
+            frame();
+            if (renderer.GetStats().DrawCalls == 2)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (std::chrono::steady_clock::now() < readyDeadline);
+        ASSERT_EQ(renderer.GetStats().DrawCalls, 2u);
+        EXPECT_EQ(renderer.GetStats().Triangles, 4u);
+        const auto pixels = ReadImage(renderer.GetRenderTarget().Colors[0].Target);
+        const auto y      = DeviceRow(8, 16, renderer.GetDevice()->GetCoordinateConventions());
+        const auto pixel  = [&](unsigned x) {
+            std::array<uint8_t, 4> result {};
+            std::copy_n(pixels.data() + (y * 16 + x) * 4, 4, result.data());
+            return result;
+        };
+        EXPECT_EQ(pixel(4), (std::array<uint8_t, 4> {0, 0, 255, 255}));
+        EXPECT_EQ(pixel(12), (std::array<uint8_t, 4> {255, 0, 0, 255}));
+        ASSERT_EQ(renderer.GetRenderView().Draws.size(), 2u);
+        EXPECT_EQ(renderer.GetRenderView().Draws[0].Material, Legacy::ID(3));
+        EXPECT_EQ(renderer.GetRenderView().Draws[1].Material, Legacy::ID(2));
+        EXPECT_EQ(component.Model, Legacy::ID(1));
+        EXPECT_EQ(component.Overrides[0].Authored, Legacy::ID(4));
+        EXPECT_EQ(component.Overrides[1].Authored, Legacy::ID(5));
+    }
+
     class MaterialSceneGL : public RenderAssetCacheGL, public testing::WithParamInterface<GpuTestBackend>
     {
     protected:
@@ -1471,6 +1581,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
                 mesh.Vertices.push_back(vertex);
             }
             mesh.Indices = back ? std::vector<uint32_t> {2, 1, 0, 0, 3, 2} : std::vector<uint32_t> {0, 1, 2, 2, 3, 0};
+            BuildSingleSection(mesh);
             const auto meshID = Add(AssetType::StaticMesh, EncodeMeshProduct(mesh));
             Meshes.push_back(meshID);
             ModelData model;
@@ -1578,6 +1689,7 @@ void main() { KansAlphaClip(p.Tint.a); o_Color = vec4(p.Tint.rgb, KansOutputAlph
                     auto a = i * (longitudes + 1) + j, b = a + longitudes + 1;
                     mesh.Indices.insert(mesh.Indices.end(), {a, b, b + 1, a, b + 1, a + 1});
                 }
+            BuildSingleSection(mesh);
             const auto meshID = Add(AssetType::StaticMesh, EncodeMeshProduct(mesh));
             Meshes.push_back(meshID);
             ModelData model;
@@ -2074,6 +2186,7 @@ void main() { Color = vec4(u_Object.MaterialRender.y, u_Object.MaterialRender.z,
         auto record         = std::find_if(
             Records.begin(), Records.end(), [&](const auto& item) { return item.Metadata.assetID == meshID; });
         ASSERT_NE(record, Records.end());
+        BuildSingleSection(replacement);
         *record =
             Store(meshID, AssetType::StaticMesh, std::get<std::vector<std::byte>>(EncodeMeshProduct(replacement)));
         ASSERT_TRUE(std::holds_alternative<ProductChangeSet>(Assets->SetRegistry(Registry(Records))));
@@ -2290,6 +2403,7 @@ void main() { o_Color = p.Tint; }
             mesh.Vertices.push_back(v);
         }
         mesh.Indices = {0, 1, 2};
+        BuildSingleSection(mesh);
         auto meshID  = Add(AssetType::StaticMesh, EncodeMeshProduct(mesh));
         Meshes.push_back(meshID);
         ModelData model;
@@ -2470,6 +2584,319 @@ void main() { o_Color = p.Tint; }
         EXPECT_EQ(Renderer->GetStats().DrawCalls, 5u);
         if (TestBackend() == GpuTestBackend::OpenGL)
             EXPECT_EQ(glGetError(), GLenum(GL_NO_ERROR));
+    }
+
+    TEST_P(MaterialSceneGL, ImportedGyLightPlacementAndSelectedFrameMatchLegacyParts)
+    {
+        // Bug: transforming the merged AABB instead of each part's AABB changes
+        // drop placement by sub-micrometres, perturbing Standard shading pixels.
+        namespace fs = std::filesystem;
+        struct Workspace
+        {
+            fs::path Path = fs::temp_directory_path() / ("kans-gy-draw-" + SourceAssetID::Generate().ToString());
+            Workspace() { fs::create_directory(Path); }
+            ~Workspace()
+            {
+                std::error_code ignored;
+                fs::remove_all(Path, ignored);
+            }
+        } workspace;
+        const auto read = [](const fs::path& path) {
+            std::ifstream          input(path, std::ios::binary);
+            std::string            text {std::istreambuf_iterator<char>(input), {}};
+            std::vector<std::byte> bytes(text.size());
+            std::memcpy(bytes.data(), text.data(), text.size());
+            return bytes;
+        };
+        ImportContext context;
+        context.SourceID         = SourceAssetID::Generate();
+        context.SourceFile       = fs::path(KANS_TEST_EDITOR_ASSET_DIR) / "model/GY_Light/GY_Light.fbx";
+        context.StagingDirectory = workspace.Path / "model";
+        ASSERT_TRUE(fs::create_directory(context.StagingDirectory));
+        auto discovered = ModelImporter().DiscoverInputs(context);
+        ASSERT_TRUE(std::holds_alternative<ImportInputs>(discovered));
+        const auto& inputs = std::get<ImportInputs>(discovered);
+        for (const auto& path : inputs.SourceFiles)
+            context.SourceInputs.emplace(path, SourceAssetID::Generate());
+        for (const auto& path : inputs.ProductSources)
+        {
+            auto hint     = inputs.ProductSourceSettings.find(path);
+            auto settings = ParseTextureImportSettings(
+                hint == inputs.ProductSourceSettings.end() ? std::map<std::string, std::string> {} : hint->second);
+            ASSERT_TRUE(std::holds_alternative<TextureImportSettings>(settings));
+            auto texture = ParseTextureSource(path, std::get<TextureImportSettings>(settings));
+            ASSERT_TRUE(std::holds_alternative<TextureData>(texture));
+            context.ProductsBySource.emplace(
+                path, Add(AssetType::Texture, EncodeTextureProduct(std::get<TextureData>(texture))));
+        }
+        auto imported = ModelImporter().Import(context);
+        ASSERT_TRUE(std::holds_alternative<ImportResult>(imported));
+        ModelData grouped;
+        MeshData  shared;
+        for (const auto& product : std::get<ImportResult>(imported).Products)
+        {
+            auto          bytes = read(context.StagingDirectory / product.StagedFile);
+            const AssetID id {context.SourceID, product.LocalID};
+            Records.push_back(Store(id, product.Type, bytes));
+            if (product.Type == AssetType::Model)
+                grouped = std::get<ModelData>(DecodeModelProduct(bytes.data(), bytes.size()));
+            if (product.Type == AssetType::StaticMesh)
+            {
+                shared = std::get<MeshData>(DecodeMeshProduct(bytes.data(), bytes.size()));
+                Meshes.push_back(id);
+            }
+            if (product.Type == AssetType::Material)
+                Materials.push_back(id);
+        }
+        ASSERT_EQ(shared.Sections.size(), 5u);
+        ASSERT_EQ(shared.MaterialSlots.size(), 5u);
+        ASSERT_EQ(shared.Vertices.size(), 18043u);
+        ASSERT_EQ(shared.Indices.size(), 63333u);
+        ASSERT_EQ(grouped.SectionIdentities.size(), 5u);
+        // Recreate the pre-stage-2 buffer layout. The CPU capture test checks
+        // these section inputs against the actual 00d8f82 importer output.
+        const std::array<uint32_t, 5> counts {2378, 3325, 11458, 834, 48};
+        uint32_t                      base = 0;
+        for (uint32_t i = 0; i < 5; ++i)
+        {
+            const auto& section = shared.Sections[i];
+            const auto& slot    = shared.MaterialSlots[section.MaterialSlot];
+            MeshData    part;
+            part.Vertices.assign(shared.Vertices.begin() + base, shared.Vertices.begin() + base + counts[i]);
+            for (uint32_t j = 0; j < section.IndexCount; ++j)
+            {
+                const auto index = shared.Indices[section.FirstIndex + j];
+                ASSERT_GE(index, base);
+                ASSERT_LT(index, base + counts[i]);
+                part.Indices.push_back(index - base);
+            }
+            part.Material         = slot.DefaultMaterial;
+            part.AuthoredMaterial = slot.AuthoredMaterial;
+            BuildSingleSection(part);
+            const auto id = grouped.SectionIdentities[i].OldMesh;
+            Records.push_back(
+                Store(id, AssetType::StaticMesh, std::get<std::vector<std::byte>>(EncodeMeshProduct(part))));
+            Meshes.push_back(id);
+            base += counts[i];
+        }
+        ProductModelComponent sections, baseline;
+        sections.Model     = {context.SourceID, std::get<ImportResult>(imported).LocalIDs.at("model:root")};
+        ModelData separate = ModelAsset(grouped).GetData();
+        separate.SectionIdentities.clear();
+        baseline.Model = Add(AssetType::Model, EncodeModelProduct(separate));
+        Models         = {sections.Model, baseline.Model};
+        Ready();
+        ASSERT_TRUE(Frames(*Renderer->GetAssetCache(), [&] {
+            bool complete = Renderer->GetAssetCache()->GetShader(StandardShaderID()) != nullptr;
+            for (const auto& [path, id] : context.ProductsBySource)
+                complete &= Renderer->GetAssetCache()->GetTexture(id) != nullptr;
+            return complete;
+        }));
+        constexpr uint32_t size = 512;
+        Render->OnViewportResize(size, size);
+        Renderer->SetViewportSize(size, size);
+        Info.sceneCamera.camera     = Camera(glm::perspective(glm::radians(35.f), 1.f, .1f, 100.f));
+        Info.sceneCamera.Position   = {24, 13, 37};
+        Info.sceneCamera.viewMatrix = glm::lookAt(Info.sceneCamera.Position, glm::vec3(0, 10, 0), glm::vec3(0, 1, 0));
+        Info.pointLight.Position    = {10, 20, 20};
+        Info.pointLight.Diffuse_Intensity  = {100, 100, 100};
+        Info.pointLight.Specular_Intensity = {100, 100, 100};
+        Info.dirLight.Dirction             = {-1, -1, -1};
+        Info.dirLight.Diffuse_Intensity    = {1, 1, 1};
+        Info.dirLight.Specular_Intensity   = {1, 1, 1};
+        Info.dirLight.Ambient_Intensity    = {.1, .1, .1};
+        Info.HasDirectionalLight           = true;
+        const Bounds oldBounds             = Renderer->GetAssetCache()->GetModelBounds(baseline.Model);
+        const Bounds sectionBounds         = Renderer->GetAssetCache()->GetModelBounds(sections.Model);
+        EXPECT_EQ(std::memcmp(&oldBounds.Min, &sectionBounds.Min, sizeof(glm::vec3)), 0);
+        EXPECT_EQ(std::memcmp(&oldBounds.Max, &sectionBounds.Max, sizeof(glm::vec3)), 0);
+        const auto placement = [](const Bounds& bounds) {
+            return ComputeDropPosition({0, 3, 10}, glm::normalize(glm::vec3(0, -1, -1)), glm::vec3(0), bounds, 10);
+        };
+        const auto oldPosition = placement(oldBounds), sectionPosition = placement(sectionBounds);
+        EXPECT_EQ(std::memcmp(&oldPosition, &sectionPosition, sizeof(glm::vec3)), 0);
+        EditorCamera oldCamera, sectionCamera;
+        oldCamera.SetViewportSize(size, size);
+        sectionCamera.SetViewportSize(size, size);
+        oldCamera.Focus(oldBounds.Center(), oldBounds.Radius());
+        sectionCamera.Focus(sectionBounds.Center(), sectionBounds.Radius());
+        EXPECT_EQ(std::memcmp(&oldCamera.GetViewMatrix(), &sectionCamera.GetViewMatrix(), sizeof(glm::mat4)), 0);
+        const auto draw = [&](const ProductModelComponent& model) {
+            const auto bounds    = Renderer->GetAssetCache()->GetModelBounds(model.Model);
+            const auto transform = glm::translate(glm::mat4(1), placement(bounds));
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(model, transform, ModelStencilMode::WriteReference);
+            Renderer->SetHighlight({{model, transform}});
+            Renderer->EndScene();
+            return RenderAssetCacheGL::ReadImage(Renderer->GetRenderTarget().Colors[0].Target);
+        };
+        const auto expected = draw(baseline);
+        const auto oldStats = Renderer->GetStats();
+        EXPECT_EQ(oldStats.DrawCalls, 5u);
+        EXPECT_EQ(oldStats.Triangles, 21111u);
+        const auto oldView = Renderer->GetRenderView();
+        const auto actual  = draw(sections);
+        ASSERT_EQ(expected.size(), size * size * 4u);
+        ASSERT_EQ(actual.size(), expected.size());
+        size_t changed = 0, maxDelta = 0;
+        for (size_t p = 0; p < expected.size(); p += 4)
+        {
+            bool different = false;
+            for (size_t c = 0; c < 4; ++c)
+            {
+                auto delta = size_t(std::abs(int(expected[p + c]) - int(actual[p + c])));
+                maxDelta   = std::max(maxDelta, delta);
+                different |= delta != 0;
+            }
+            changed += different;
+        }
+        EXPECT_EQ(changed, 0u) << "max channel difference " << maxDelta;
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, oldStats.DrawCalls);
+        EXPECT_EQ(Renderer->GetStats().Triangles, oldStats.Triangles);
+        const auto& view = Renderer->GetRenderView();
+        ASSERT_EQ(view.Draws.size(), 5u);
+        ASSERT_EQ(oldView.Draws.size(), 5u);
+        ASSERT_EQ(view.MaterialOrder.size(), 5u);
+        ASSERT_EQ(oldView.MaterialOrder.size(), 5u);
+        for (size_t i = 0; i < 5; ++i)
+        {
+            EXPECT_EQ(std::memcmp(&view.Draws[i].Transform, &oldView.Draws[i].Transform, sizeof(glm::mat4)), 0);
+            const auto oldNormal = glm::transpose(glm::inverse(oldView.Draws[i].Transform));
+            const auto normal    = glm::transpose(glm::inverse(view.Draws[i].Transform));
+            EXPECT_EQ(std::memcmp(&normal, &oldNormal, sizeof(glm::mat4)), 0);
+            EXPECT_EQ(view.Draws[i].Material, oldView.Draws[i].Material);
+            EXPECT_EQ(view.Draws[i].Stencil, ModelStencilMode::WriteReference);
+            EXPECT_EQ(view.MaterialOrder[i].DrawIndex, oldView.MaterialOrder[i].DrawIndex);
+        }
+    }
+
+    TEST_P(MaterialSceneGL, SharedSectionsMatchSeparatePartsByteForByteIncludingOverridesOrderAndPicking)
+    {
+        // Bugs: drawing the full shared index buffer for each part, dropping the
+        // third part's old-ID override, sorting with whole-mesh bounds, or
+        // forgetting the first-index range in picking/outline/debug normal draws.
+        const auto red   = Color({1, 0, 0, 0.5}, MaterialAlphaMode::Blend);
+        const auto blue  = Color({0, 0, 1, 0.5}, MaterialAlphaMode::Blend);
+        const auto green = Color({0, 1, 0, 0.5}, MaterialAlphaMode::Blend);
+        MeshData   shared;
+        shared.MaterialSlots = {{"Red", "material:3:Red", red, red}, {"Blue", "material:4:Blue", blue, blue}};
+        std::vector<AssetID> oldParts;
+        for (uint32_t part = 0; part < 3; ++part)
+        {
+            MeshData data;
+            data.Material         = part == 1 ? blue : red;
+            data.AuthoredMaterial = data.Material;
+            const float half      = part == 2 ? 0.5f : 1.0f;
+            for (auto xy : {glm::vec2 {-half, -half}, {half, -half}, {half, half}, {-half, half}})
+            {
+                MeshVertexData vertex;
+                vertex.Position = {xy.x, xy.y, 0};
+                vertex.Normal   = {0, 0, 1};
+                data.Vertices.push_back(vertex);
+            }
+            data.Indices = {0, 1, 2, 2, 3, 0};
+            BuildSingleSection(data);
+            oldParts.push_back(Add(AssetType::StaticMesh, EncodeMeshProduct(data)));
+            shared.Vertices.insert(shared.Vertices.end(), data.Vertices.begin(), data.Vertices.end());
+            for (uint32_t index : data.Indices)
+                shared.Indices.push_back(part * 4 + index);
+            shared.Sections.push_back({part * 6, 6, part == 1 ? 1u : 0u, data.LocalBounds});
+        }
+        // Persisted mesh AABB differs deliberately from per-section bounds. This
+        // catches UploadMesh recomputing it, and sort using it for every section.
+        shared.LocalBounds.Min = {-7, -11, -13};
+        shared.LocalBounds.Max = {17, 19, 23};
+        const auto meshID      = Add(AssetType::StaticMesh, EncodeMeshProduct(shared));
+        Meshes                 = oldParts;
+        Meshes.push_back(meshID);
+        ModelData                   separate, grouped;
+        const std::array<float, 16> identity {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        separate.Nodes.push_back({"Root", -1, identity, oldParts});
+        grouped.Nodes.push_back({"Root", -1, identity, {meshID}});
+        for (uint32_t i = 0; i < 3; ++i)
+            grouped.SectionIdentities.push_back({"part" + std::to_string(i), oldParts[i], meshID, i});
+        ProductModelComponent baseline, sections;
+        baseline.Model = Add(AssetType::Model, EncodeModelProduct(separate));
+        sections.Model = Add(AssetType::Model, EncodeModelProduct(grouped));
+        Models         = {baseline.Model, sections.Model};
+        baseline.SetOverride(oldParts[2], green);
+        sections.Overrides = baseline.Overrides;
+        Ready();
+        const auto* uploaded = Renderer->GetAssetCache()->GetMesh(meshID);
+        ASSERT_NE(uploaded, nullptr);
+        EXPECT_EQ(uploaded->LocalBounds.Min, shared.LocalBounds.Min);
+        EXPECT_EQ(uploaded->LocalBounds.Max, shared.LocalBounds.Max);
+        ASSERT_EQ(uploaded->Sections.size(), 3u);
+        for (size_t i = 0; i < 3; ++i)
+        {
+            EXPECT_EQ(uploaded->Sections[i].FirstIndex, i * 6);
+            EXPECT_EQ(uploaded->Sections[i].LocalBounds.Min, shared.Sections[i].LocalBounds.Min);
+            EXPECT_EQ(uploaded->Sections[i].LocalBounds.Max, shared.Sections[i].LocalBounds.Max);
+        }
+        auto draw = [&](const ProductModelComponent& model, bool highlight, bool normals) {
+            Renderer->BeginScene(Info);
+            Renderer->SubmitModel(model, glm::mat4(1));
+            if (highlight)
+                Renderer->SetHighlight({{model, glm::mat4(1)}});
+            if (normals)
+                Renderer->SubmitModelGeometry(model, glm::mat4(1), "DebugNormalShader");
+            Renderer->EndScene();
+            return ReadImage(Renderer->GetRenderTarget().Colors[0].Target);
+        };
+        for (auto mode : {std::pair {false, false}, {true, false}, {false, true}})
+        {
+            const auto expected = draw(baseline, mode.first, mode.second);
+            const auto stats    = Renderer->GetStats();
+            EXPECT_EQ(draw(sections, mode.first, mode.second), expected);
+            EXPECT_EQ(Renderer->GetStats().DrawCalls, stats.DrawCalls);
+            EXPECT_EQ(Renderer->GetStats().Triangles, stats.Triangles);
+            EXPECT_EQ(stats.DrawCalls, mode.second ? 6u : 3u);
+            EXPECT_EQ(stats.Triangles, mode.second ? 12u : 6u);
+            const auto& view = Renderer->GetRenderView();
+            ASSERT_EQ(view.Draws.size(), 3u);
+            ASSERT_EQ(view.MaterialOrder.size(), 3u);
+            const std::array<AssetID, 3> materials {red, blue, green};
+            for (size_t i = 0; i < 3; ++i)
+            {
+                EXPECT_EQ(view.Draws[i].Mesh, meshID);
+                EXPECT_EQ(view.Draws[i].Section, i);
+                EXPECT_EQ(view.Draws[i].Material, materials[i]);
+                EXPECT_EQ(view.MaterialOrder[i].DrawIndex, i);
+            }
+        }
+        // A canonical mesh override still works for callers that select products
+        // directly; a more specific old part override takes precedence over it.
+        baseline.SetOverride(oldParts[0], blue);
+        baseline.SetOverride(oldParts[1], blue);
+        sections.SetOverride(meshID, blue);
+        const auto groupOverrideImage = draw(baseline, false, false);
+        EXPECT_EQ(draw(sections, false, false), groupOverrideImage);
+        EXPECT_EQ(Renderer->GetRenderView().Draws[0].Material, blue);
+        EXPECT_EQ(Renderer->GetRenderView().Draws[2].Material, green);
+        // Section enumeration also works for newly authored models with no migration table.
+        ModelData unmapped;
+        unmapped.Nodes = grouped.Nodes;
+        ProductModelComponent newModel;
+        newModel.Model = Add(AssetType::Model, EncodeModelProduct(unmapped));
+        Models.push_back(newModel.Model);
+        Ready();
+        const auto oldBounds = Renderer->GetAssetCache()->GetModelBounds(baseline.Model);
+        for (auto id : {sections.Model, newModel.Model})
+        {
+            const auto bounds = Renderer->GetAssetCache()->GetModelBounds(id);
+            EXPECT_EQ(bounds.Min, oldBounds.Min);
+            EXPECT_EQ(bounds.Max, oldBounds.Max);
+        }
+        baseline.Overrides.clear();
+        const auto withoutOverrides = draw(baseline, false, false);
+        EXPECT_EQ(draw(newModel, false, false), withoutOverrides);
+        EXPECT_EQ(Renderer->GetStats().DrawCalls, 3u);
+        EXPECT_EQ(Renderer->GetStats().Triangles, 6u);
+        uploaded = Renderer->GetAssetCache()->GetMesh(meshID);
+        EntityPicker picker;
+        // Section 2 covers the centre only. A full-buffer draw would incorrectly hit the corner.
+        EXPECT_EQ(picker.Pick({{uploaded, glm::mat4(1), 99, 2}}, glm::mat4(1), {16, 16}, {8, 8}), 99u);
+        EXPECT_EQ(picker.Pick({{uploaded, glm::mat4(1), 99, 2}}, glm::mat4(1), {16, 16}, {1, 1}), 0u);
     }
 
     TEST_P(MaterialSceneGL, BlendSortsAcrossModelsAndPreviewByTransformedBoundsAfterOpaque)
@@ -2753,6 +3180,7 @@ void main() { o_Color = vec4(1); }
             quad.Vertices.push_back(vertex);
         }
         quad.Indices  = {0, 1, 2, 2, 3, 0};
+        BuildSingleSection(quad);
         auto uploaded = UploadMesh(quad);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
         const auto&     mesh           = std::get<GpuMesh>(uploaded);
@@ -2832,6 +3260,7 @@ void main() { o_Color = vec4(1); }
             quad.Vertices.push_back(vertex);
         }
         quad.Indices  = {0, 1, 2, 2, 3, 0};
+        BuildSingleSection(quad);
         auto uploaded = UploadMesh(quad);
         ASSERT_TRUE(std::holds_alternative<GpuMesh>(uploaded));
         const auto& mesh  = std::get<GpuMesh>(uploaded);

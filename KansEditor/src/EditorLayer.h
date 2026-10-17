@@ -59,6 +59,7 @@ namespace Kans
         // The source of a model file in the project, if it is one.
         std::optional<SourceAssetID>             FindModelSource(const std::filesystem::path& file);
         void                                     PlacePendingModel();
+        void                                     StartPendingPlacementBuild();
         // Builds the source of `file` (content browser "Import" / "Reimport").
         void                                     ImportSource(const std::filesystem::path& file);
         // Writes a model's embedded materials to editable .material files next to it
@@ -85,6 +86,8 @@ namespace Kans
         std::optional<SourceAssetID>             m_PendingPlacement;
         UUID                                     m_PendingPlacementParent = 0;
         std::optional<glm::vec3>                 m_PendingPlacementPosition;
+        // Dropped while another build ran: build it once that build completes.
+        bool                                     m_PendingPlacementWaiting = false;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);

@@ -180,6 +180,7 @@ namespace
         ProductModelComponent Model(MeshData mesh, AssetID material)
         {
             mesh.Material = material;
+            BuildSingleSection(mesh);
             const auto id = Add(AssetType::StaticMesh, Value(EncodeMeshProduct(mesh)));
             Meshes.push_back(id);
             ModelData model;

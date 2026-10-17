@@ -220,9 +220,44 @@ namespace Kans
             meshKeys.push_back(ObjectKey("mesh", mesh.Name) + ":" + materialKeys.at(mesh.MaterialIndex));
         }
         MakeUnique(meshKeys, meshPaths);
+        // An ordered node mesh tuple is a logical geometry object. Repeated tuples
+        // are instances of the same object; different tuples retain independent
+        // geometry even if they share individual aiMeshes. Never sort the tuple:
+        // its order is the previous per-aiMesh submission order.
+        std::vector<std::vector<uint32_t>> groups;
+        std::vector<size_t>                nodeGroups(source.Nodes.size(), size_t(-1));
+        std::vector<std::string>           groupPaths;
+        std::vector<bool>                  used(source.Meshes.size(), false);
+        for (size_t i = 0; i < source.Nodes.size(); ++i)
+        {
+            const auto& tuple = source.Nodes[i].Meshes;
+            if (tuple.empty())
+                continue;
+            auto found    = std::find(groups.begin(), groups.end(), tuple);
+            nodeGroups[i] = static_cast<size_t>(std::distance(groups.begin(), found));
+            if (found == groups.end())
+            {
+                groups.push_back(tuple);
+                groupPaths.push_back(nodePaths[i]);
+            }
+            for (auto mesh : tuple)
+                used.at(mesh) = true;
+        }
+        // Keep an identity mapping even for source geometry without a node instance.
+        for (uint32_t i = 0; i < source.Meshes.size(); ++i)
+            if (!used[i])
+            {
+                groups.push_back({i});
+                groupPaths.push_back("");
+            }
+        std::vector<std::string> groupKeys;
+        for (const auto& group : groups)
+            groupKeys.push_back(ObjectKey("mesh-object", source.Meshes.at(group.front()).Name));
+        MakeUnique(groupKeys, groupPaths);
         std::vector<std::string> keys {"model:root"};
         keys.insert(keys.end(), materialKeys.begin(), materialKeys.end());
         keys.insert(keys.end(), meshKeys.begin(), meshKeys.end());
+        keys.insert(keys.end(), groupKeys.begin(), groupKeys.end());
         auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, keys);
         if (const auto* error = std::get_if<AssetError>(&allocated))
             return *error;
@@ -264,45 +299,81 @@ namespace Kans
         }
 
         std::set<std::string> warnedRemaps;
-        for (size_t i = 0; i < source.Meshes.size(); ++i)
+        ModelData             model;
+        for (size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex)
         {
-            const auto& input    = source.Meshes[i];
-            const auto  material = idFor(materialKeys.at(input.MaterialIndex));
-            AssetID     bound    = material;
-            const auto  remap    = std::get<ModelSettings>(scale).Materials.find(materialKeys.at(input.MaterialIndex));
-            if (remap != std::get<ModelSettings>(scale).Materials.end())
+            MeshData          data;
+            const auto        meshID = idFor(groupKeys[groupIndex]);
+            ProductDescriptor descriptor {meshID.GetLocalID(), AssetType::StaticMesh, {}, {}};
+            descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmesh";
+            for (uint32_t inputIndex : groups[groupIndex])
             {
-                const auto bytes = context.ProductBytes.find(remap->second);
-                if (bytes != context.ProductBytes.end())
+                const auto& input    = source.Meshes.at(inputIndex);
+                const auto& slotKey  = materialKeys.at(input.MaterialIndex);
+                const auto  material = idFor(slotKey);
+                AssetID     bound    = material;
+                const auto  remap    = std::get<ModelSettings>(scale).Materials.find(slotKey);
+                if (remap != std::get<ModelSettings>(scale).Materials.end())
                 {
-                    if (std::holds_alternative<MaterialData>(
-                            DecodeMaterialProduct(bytes->second.data(), bytes->second.size())))
-                        bound = remap->second;
-                    else if (warnedRemaps.insert(remap->first).second)
-                        result.Warnings.push_back("Material remap for slot " + remap->first + " (" +
-                                                  remap->second.ToString() +
-                                                  ") is not a valid Material; using embedded material");
+                    const auto bytes = context.ProductBytes.find(remap->second);
+                    if (bytes != context.ProductBytes.end())
+                    {
+                        if (std::holds_alternative<MaterialData>(
+                                DecodeMaterialProduct(bytes->second.data(), bytes->second.size())))
+                            bound = remap->second;
+                        else if (warnedRemaps.insert(remap->first).second)
+                            result.Warnings.push_back("Material remap for slot " + remap->first + " (" +
+                                                      remap->second.ToString() +
+                                                      ") is not a valid Material; using embedded material");
+                    }
                 }
+                auto slot = std::find_if(data.MaterialSlots.begin(), data.MaterialSlots.end(), [&](const auto& item) {
+                    return item.ObjectKey == slotKey;
+                });
+                const auto slotIndex = static_cast<uint32_t>(std::distance(data.MaterialSlots.begin(), slot));
+                if (slot == data.MaterialSlots.end())
+                    data.MaterialSlots.push_back(
+                        {source.Materials.at(input.MaterialIndex).Name, slotKey, bound, material});
+                const uint64_t baseVertex = data.Vertices.size(), firstIndex = data.Indices.size();
+                if (baseVertex + input.Vertices.size() > UINT32_MAX || firstIndex + input.Indices.size() > UINT32_MAX)
+                    return AssetError {AssetErrorCode::InvalidData, "Merged model mesh exceeds index limits"};
+                Bounds bounds;
+                for (const auto& vertex : input.Vertices)
+                    bounds.Expand(glm::vec3(vertex.Position[0], vertex.Position[1], vertex.Position[2]));
+                data.Vertices.insert(data.Vertices.end(), input.Vertices.begin(), input.Vertices.end());
+                for (uint32_t index : input.Indices)
+                    data.Indices.push_back(static_cast<uint32_t>(baseVertex + index));
+                model.SectionIdentities.push_back({meshKeys[inputIndex],
+                                                   idFor(meshKeys[inputIndex]),
+                                                   meshID,
+                                                   static_cast<uint32_t>(data.Sections.size())});
+                data.Sections.push_back({static_cast<uint32_t>(firstIndex),
+                                         static_cast<uint32_t>(input.Indices.size()),
+                                         slotIndex,
+                                         bounds});
+                data.LocalBounds.Expand(bounds);
+                AddUnique(descriptor.Dependencies, bound);
+                AddUnique(descriptor.Dependencies, material);
             }
-            MeshData    data {input.Vertices, input.Indices, bound, material};
-            auto        encoded = EncodeMeshProduct(data);
+            data.Material         = data.MaterialSlots.front().DefaultMaterial;
+            data.AuthoredMaterial = data.MaterialSlots.front().AuthoredMaterial;
+            auto encoded          = EncodeMeshProduct(data);
             if (const auto* error = std::get_if<AssetError>(&encoded))
                 return *error;
-            ProductDescriptor descriptor {result.LocalIDs.at(meshKeys[i]), AssetType::StaticMesh, {}, {bound}};
-            AddUnique(descriptor.Dependencies, material);
-            descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmesh";
             staged.push_back({std::move(descriptor), std::get<std::vector<std::byte>>(std::move(encoded))});
         }
 
-        ModelData         model;
         ProductDescriptor descriptor {result.LocalIDs.at("model:root"), AssetType::Model, {}, {}};
         descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmodel";
-        for (const auto& input : source.Nodes)
+        for (const auto& key : groupKeys)
+            AddUnique(descriptor.Dependencies, idFor(key));
+        for (size_t i = 0; i < source.Nodes.size(); ++i)
         {
+            const auto&   input = source.Nodes[i];
             ModelNodeData node {input.Name, input.Parent, input.LocalTransform, {}};
-            for (uint32_t mesh : input.Meshes)
+            if (nodeGroups[i] != size_t(-1))
             {
-                const auto id = idFor(meshKeys.at(mesh));
+                const auto id = idFor(groupKeys.at(nodeGroups[i]));
                 node.Meshes.push_back(id);
                 AddUnique(descriptor.Dependencies, id);
             }

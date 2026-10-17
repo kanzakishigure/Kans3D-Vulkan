@@ -386,13 +386,12 @@ namespace
         {
             if (mesh.Material != external)
                 continue;
-            // A v1 mesh header has no authored field; loading it must retain its old slot identity.
-            auto legacy = Bytes(id);
-            legacy.erase(legacy.begin() + 40, legacy.begin() + 56);
-            legacy[4]          = std::byte {1};
-            const auto oldMesh = Value(DecodeMeshProduct(legacy.data(), legacy.size()));
-            EXPECT_EQ(oldMesh.AuthoredMaterial, mesh.Material);
-            EXPECT_EQ(oldMesh.Indices, mesh.Indices);
+            // Old products are reimported; v3 persists the authored slot separately
+            // from its remapped default. Preserve the geometry round-trip check.
+            const auto bytes     = Bytes(id);
+            const auto persisted = Value(DecodeMeshProduct(bytes.data(), bytes.size()));
+            EXPECT_EQ(persisted.AuthoredMaterial, slot.EmbeddedMaterial);
+            EXPECT_EQ(persisted.Indices, mesh.Indices);
             EXPECT_EQ(component.ResolveMaterial(id, mesh.Material, mesh.AuthoredMaterial), slotChoice);
             component.SetOverride(id, partChoice);
             EXPECT_EQ(component.ResolveMaterial(id, mesh.Material, mesh.AuthoredMaterial), partChoice);
