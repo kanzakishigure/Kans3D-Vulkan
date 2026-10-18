@@ -44,8 +44,10 @@ namespace Kans
         // Outline the selection with its descendants' meshes; the renderer resolves
         // them after this frame's asset updates.
         Entity selected = m_Hierarchy.GetSelected();
-        m_Client->SetHighlight(selected && !UsesSceneCamera() ? std::vector<UUID> {selected.GetUUID()} :
-                                                                std::vector<UUID> {});
+        // Element editing draws its own selection instead of the entity outline.
+        const bool editing = m_MeshTool.IsEditing(selected) && !UsesSceneCamera();
+        m_Client->SetHighlight(selected && !UsesSceneCamera() && !editing ? std::vector<UUID> {selected.GetUUID()} :
+                                                                            std::vector<UUID> {});
         Render();
 
         const auto output = m_Client->GetOutput();
@@ -58,6 +60,17 @@ namespace Kans
         }
         AcceptDrop();
         DrawSceneOverlays();
+        if (editing)
+        {
+            m_MeshTool.DrawOverlay(selected, EditView());
+            if (m_MeshTool.Update(selected, EditView()) == MeshEditTool::Release::Missed)
+            {
+                // A click on no element may pick another entity; empty space keeps this one.
+                Entity hit = EntityAt(ImGui::GetIO().MousePos);
+                if (hit && hit != selected)
+                    m_Hierarchy.SetSelected(hit);
+            }
+        }
         DrawGizmo();
         DrawToolbar();
         DrawViewCube();
@@ -101,7 +114,11 @@ namespace Kans
             m_Client->RenderEditor(m_Camera);
     }
 
-    void ViewportPanel::PickAt(ImVec2 mouse)
+    MeshEditTool::View ViewportPanel::EditView() { return {m_Min, m_Max, &m_Camera, m_Scene.get()}; }
+
+    void ViewportPanel::PickAt(ImVec2 mouse) { m_Hierarchy.SetSelected(EntityAt(mouse)); }
+
+    Entity ViewportPanel::EntityAt(ImVec2 mouse)
     {
         // Overlay icons (lights, cameras) take precedence over meshes.
         float best = 14.0f * 14.0f;
@@ -113,10 +130,7 @@ namespace Kans
                 best = dx * dx + dy * dy, icon = id;
         }
         if (icon)
-        {
-            m_Hierarchy.SetSelected(m_Scene->GetEntityByUUID(icon));
-            return;
-        }
+            return m_Scene->GetEntityByUUID(icon);
         // The framebuffer's origin is its bottom-left corner.
         const glm::uvec2 pixel(uint32_t(mouse.x - m_Min.x), uint32_t(m_Max.y - mouse.y - 1.0f));
         const auto       hit  = m_Client->Pick(ViewProjection(), pixel);
@@ -127,7 +141,7 @@ namespace Kans
         Entity selected = m_Hierarchy.GetSelected();
         if (root && !(selected && m_Scene->GetPrefabInstanceRoot(selected) == root))
             part = root;
-        m_Hierarchy.SetSelected(part);
+        return part;
     }
 
     void ViewportPanel::AcceptDrop()
@@ -203,7 +217,12 @@ namespace Kans
             // A plain left click selects what is under the cursor.
             else if (!io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver() &&
                      !ImGuizmo::IsUsing())
-                PickAt(io.MousePos);
+            {
+                if (m_MeshTool.IsEditing(m_Hierarchy.GetSelected()) && !UsesSceneCamera())
+                    m_MeshTool.Press(io.MousePos);
+                else
+                    PickAt(io.MousePos);
+            }
         }
 
         switch (m_Navigation)
@@ -251,7 +270,10 @@ namespace Kans
     void ViewportPanel::HandleShortcuts()
     {
         const ImGuiIO& io = ImGui::GetIO();
-        if ((!m_Hovered && !m_Focused) || io.WantTextInput || io.KeyCtrl || m_Navigation != Navigation::None)
+        if ((!m_Hovered && !m_Focused) || io.WantTextInput || m_Navigation != Navigation::None)
+            return;
+        m_MeshTool.HandleShortcuts(m_Hierarchy.GetSelected());
+        if (io.KeyCtrl)
             return;
         if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
             m_GizmoType = -1;
@@ -413,17 +435,23 @@ namespace Kans
         Entity selected = m_Hierarchy.GetSelected();
         if (!selected || m_GizmoType < 0 || (m_Playing && !m_UseEditorCameraInPlay && m_Scene->GetCameraEntity()))
             return;
+        const bool  snap      = m_GizmoSnap || ImGui::GetIO().KeyCtrl;
+        const float step      = m_GizmoType == ImGuizmo::ROTATE ? m_SnapRotate :
+                                m_GizmoType == ImGuizmo::SCALE  ? m_SnapScale :
+                                                                  m_SnapMove;
+        const float snapValues[3] = {step, step, step};
+        if (m_MeshTool.IsEditing(selected))
+        {
+            // In element modes the gizmo moves the selected vertices, edges or faces.
+            m_MeshTool.DrawGizmo(selected, EditView(), m_GizmoType, m_GizmoMode, snap ? snapValues : nullptr);
+            return;
+        }
         ImGuizmo::SetOrthographic(m_Camera.IsOrthographic());
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect(m_Min.x, m_Min.y, m_Max.x - m_Min.x, m_Max.y - m_Min.y);
 
         // The gizmo works on the world transform; results go back to the local one.
         glm::mat4   transform = m_Scene->GetWorldTransform(selected);
-        const bool  snap      = m_GizmoSnap || ImGui::GetIO().KeyCtrl;
-        const float step      = m_GizmoType == ImGuizmo::ROTATE ? m_SnapRotate :
-                                m_GizmoType == ImGuizmo::SCALE  ? m_SnapScale :
-                                                                  m_SnapMove;
-        const float snapValues[3] = {step, step, step};
         ImGuizmo::Manipulate(glm::value_ptr(m_Camera.GetViewMatrix()),
                              glm::value_ptr(m_Camera.GetProjectionMatrix()),
                              static_cast<ImGuizmo::OPERATION>(m_GizmoType),
@@ -505,7 +533,12 @@ namespace Kans
             ImGui::DragFloat("##snap", snapStep, 0.05f, 0.01f, 360.0f, format);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Snap step for the current tool");
+            // Element modes for editable meshes.
+            ToolSeparator();
+            m_MeshTool.DrawModeButtons(m_Hierarchy.GetSelected());
         });
+        if (!UsesSceneCamera())
+            m_MeshTool.DrawPanel(m_Hierarchy.GetSelected(), {m_Min.x + 10.0f, m_Min.y + 48.0f});
 
         // Right: camera, view options.
         OverlayGroup({m_Max.x - 268.0f, m_Min.y + 8.0f}, [&] {

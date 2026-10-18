@@ -6,6 +6,7 @@
 #include "Kans3D/Editor/EditorCamera.h"
 #include "ViewportClient.h"
 #include "HierarchyPanel.h"
+#include "MeshEditTool.h"
 
 namespace Kans
 {
@@ -57,6 +58,9 @@ namespace Kans
         glm::mat4 ViewProjection() const;
         // Draws of every model entity, with IDs indexing `entities` (ID - 1).
         void                  PickAt(ImVec2 mouse);
+        // The entity a click at `mouse` would select (icons first, then meshes).
+        Entity EntityAt(ImVec2 mouse);
+        MeshEditTool::View EditView();
         void Render();
         // Icons for lights and cameras, camera frustums and light directions.
         void DrawSceneOverlays();
@@ -73,6 +77,8 @@ namespace Kans
         glm::vec3 DropPosition(ImVec2 mouse, AssetID model);
 
         HierarchyPanel&    m_Hierarchy;
+        // Vertex/edge/face editing of editable meshes.
+        MeshEditTool       m_MeshTool;
         Ref<Scene>         m_Scene;
         ViewportClient*    m_Client = nullptr;
         FileDrop           m_FileDrop;
