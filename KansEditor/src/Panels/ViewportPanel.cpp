@@ -110,6 +110,7 @@ namespace Kans
     {
         // The game camera shows what the game renders: no editor grid or outlines.
         m_Client->SetViewMode(m_ViewMode);
+        m_Client->SetGrid(m_Grid);
         if (!UsesSceneCamera() || !m_Client->RenderGame())
             m_Client->RenderEditor(m_Camera);
     }
@@ -613,6 +614,28 @@ namespace Kans
                 ImGui::Checkbox(label(ICON_FA_LIGHTBULB, "Light and camera icons").c_str(), &m_ShowIcons);
                 ImGui::Checkbox(label(ICON_FA_CHART_LINE, "Statistics").c_str(), &m_ShowStats);
                 ImGui::Checkbox(label(ICON_FA_BORDER_ALL, "Grid").c_str(), &state.EnableGridShader);
+                if (state.EnableGridShader && PropertyGrid::Begin("##Grid", 96.0f))
+                {
+                    PropertyGrid::Float("Cell size", m_Grid.CellSize, 0.01f, 0.01f, 1000.0f, "%.2f m");
+                    int major = int(m_Grid.MajorEvery);
+                    PropertyGrid::Row("Major every", "Every Nth line is a major line");
+                    if (ImGui::DragInt("##major", &major, 0.1f, 2, 100))
+                        m_Grid.MajorEvery = uint32_t(std::clamp(major, 2, 100));
+                    float opacity = m_Grid.MajorColor.a / GridSettings {}.MajorColor.a;
+                    if (PropertyGrid::Float("Opacity", opacity, 0.01f, 0.0f, 2.0f))
+                    {
+                        // One control scales every line's opacity from its default.
+                        const GridSettings defaults;
+                        m_Grid.MinorColor.a = std::min(1.0f, defaults.MinorColor.a * opacity);
+                        m_Grid.MajorColor.a = std::min(1.0f, defaults.MajorColor.a * opacity);
+                        m_Grid.XAxisColor.a = std::min(1.0f, defaults.XAxisColor.a * opacity);
+                        m_Grid.YAxisColor.a = std::min(1.0f, defaults.YAxisColor.a * opacity);
+                        m_Grid.ZAxisColor.a = std::min(1.0f, defaults.ZAxisColor.a * opacity);
+                    }
+                    PropertyGrid::Float("Line width", m_Grid.LineWidth, 0.05f, 0.5f, 4.0f, "%.2f px");
+                    PropertyGrid::Float("Fade distance", m_Grid.FadeDistance, 1.0f, 5.0f, 10000.0f, "%.0f m");
+                    PropertyGrid::End();
+                }
                 ImGui::Checkbox(label(ICON_FA_DRAW_POLYGON, "Outline (all models)").c_str(), &state.EnableOutline);
                 ImGui::Checkbox(label(ICON_FA_VECTOR_SQUARE, "Stencil (all models)").c_str(), &state.EnableStencil);
                 ImGui::Checkbox(label(ICON_FA_CROSSHAIRS, "Debug normals").c_str(), &state.EnableDebugNormal);

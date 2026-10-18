@@ -101,8 +101,6 @@ namespace Kans
         {
             featureContext.Immediate = &immediate;
             Inject(RenderExtensionPoint::Immediate, featureContext);
-            if (immediate.Kind == ViewImmediateKind::Grid)
-                continue; // This intent is consumed by the registered immediate features.
             auto uses = target;
             if (immediate.Kind == ViewImmediateKind::RecordedSprites)
             {
@@ -193,7 +191,7 @@ namespace Kans
                     context.Device, context.Commands, renderer.Output.GetHDR(), renderer.Output.GetColors(), exposure);
             });
         }
-        // Overlays retain the immediate display/HDR transition behavior after all post effects.
+        // Display-space overlays follow every post effect and the final tone mapping.
         renderer.DeferToneMapping = renderer.PostProcessHDR = false;
         Inject(RenderExtensionPoint::Overlay, featureContext);
     }

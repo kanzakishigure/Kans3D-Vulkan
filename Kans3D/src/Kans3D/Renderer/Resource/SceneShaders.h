@@ -267,41 +267,6 @@ void main() {
 }
 )glsl";
 
-    inline constexpr const char* GridVertex = R"glsl(#version 450
-layout(set = 0, binding = 0, std140) uniform SceneDraw { mat4 U_ViewProjection; mat4 U_Transform; mat4 DeviceClip; vec4 U_ViewPos; vec4 Settings; };
-
-layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec2 a_TextureCroods;
-layout(location = 0) out vec2 v_TexCoord;
-
-
-void main()
-{
-    vec4 position = U_ViewProjection* U_Transform * vec4(a_Position, 1.0);
-    gl_Position = DeviceClip * position;
-    v_TexCoord = a_TextureCroods;
-}
-)glsl";
-
-    inline constexpr const char* GridFragment = R"glsl(#version 450
-layout(location = 0) out vec4 color;
-layout(set = 0, binding = 0, std140) uniform SceneDraw { mat4 U_ViewProjection; mat4 U_Transform; mat4 DeviceClip; vec4 U_ViewPos; vec4 Settings; };
-
-layout(location = 0) in vec2 v_TexCoord;
-float grid(vec2 st, float res)
-{
-    vec2 grid = fract(st);
-    return step(res, grid.x) * step(res, grid.y);
-}
-void main()
-{
-	float x = grid(v_TexCoord * Settings.x, Settings.y);
-	color = vec4(vec3(0.9), 0.5) * (1.0 - x);
-	if (color.a == 0.0)
-		discard;
-}
-)glsl";
-
     inline constexpr const char* StencilVertex = R"glsl(#version 450
 layout(set = 0, binding = 0, std140) uniform SceneDraw { mat4 U_ViewProjection; mat4 U_Transform; mat4 DeviceClip; vec4 U_ViewPos; vec4 Settings; };
 

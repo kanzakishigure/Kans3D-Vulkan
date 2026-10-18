@@ -4,7 +4,7 @@
 
 namespace Kans
 {
-    // Built-in geometry for the renderer (environment capture, skybox, grid).
+    // Built-in geometry for the renderer (environment capture and skybox).
     class MeshFactory
     {
     public:

@@ -95,6 +95,7 @@ namespace Kans
         bool       m_Playing = false, m_UseEditorCameraInPlay = false;
 
         SceneViewMode m_ViewMode  = SceneViewMode::Lit;
+        GridSettings  m_Grid;
         bool          m_ShowIcons = true, m_ShowStats = false;
         // Clickable overlay icons of this frame, and the view cube's area.
         std::vector<std::pair<ImVec2, UUID>> m_Icons;

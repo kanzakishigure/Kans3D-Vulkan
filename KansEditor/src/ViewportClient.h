@@ -48,6 +48,8 @@ namespace Kans
 
         RenderFeatureSet& GetFeatures() { return m_Features; }
         void              SetViewMode(SceneViewMode mode) { m_ViewMode = mode; }
+        // The editor view's grid look; its plane follows the camera (see RenderEditor).
+        void              SetGrid(const GridSettings& grid) { m_Grid = grid; }
         // Consumed by the next rendered frame.
         void SetHighlight(std::vector<UUID> entities) { m_Highlight = std::move(entities); }
         void SetPreview(AssetID prefab, const glm::mat4& transform) { m_Preview = PrefabPreview {prefab, transform}; }
@@ -74,6 +76,7 @@ namespace Kans
         std::filesystem::path                m_EnvironmentSource;
         glm::uvec2                           m_Size {0, 0};
         SceneViewMode                        m_ViewMode = SceneViewMode::Lit;
+        GridSettings                         m_Grid;
         std::vector<UUID>                    m_Highlight;
         std::optional<PrefabPreview>         m_Preview;
         RenderResult                         m_Last;

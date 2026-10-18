@@ -483,7 +483,7 @@ namespace Kans
         if (view.ExtractWorld)
         {
             world.Extract(view, world.Settings);
-            const auto spriteOffset = view.Sprites.size(), gridOffset = view.Grids.size();
+            const auto spriteOffset = view.Sprites.size();
             for (auto& immediate : view.ImmediateOrder)
                 if (immediate.Kind == ViewImmediateKind::Sprites)
                     immediate.Count = spriteOffset;
@@ -491,7 +491,8 @@ namespace Kans
             view.Meshes.insert(view.Meshes.end(), input.Meshes.begin(), input.Meshes.end());
             view.Geometry.insert(view.Geometry.end(), input.Geometry.begin(), input.Geometry.end());
             view.Sprites.insert(view.Sprites.end(), input.Sprites.begin(), input.Sprites.end());
-            view.Grids.insert(view.Grids.end(), input.Grids.begin(), input.Grids.end());
+            if (!input.Grids.empty())
+                view.Grids = input.Grids; // Per-viewport plane/origin overrides the world default.
             for (auto immediate : input.ImmediateOrder)
             {
                 if (immediate.Kind == ViewImmediateKind::Sprites)
@@ -500,8 +501,6 @@ namespace Kans
                         immediate.Count = input.Sprites.size() - immediate.Index;
                     immediate.Index += spriteOffset;
                 }
-                if (immediate.Kind == ViewImmediateKind::Grid)
-                    immediate.Index += gridOffset;
                 view.ImmediateOrder.push_back(immediate);
             }
         }

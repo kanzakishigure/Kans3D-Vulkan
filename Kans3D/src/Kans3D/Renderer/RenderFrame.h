@@ -17,7 +17,6 @@ namespace Kans
         SpriteStatistics&             SpriteStats;
         bool&                         Complete;
         bool                          DeferToneMapping = false, PostProcessHDR = false;
-        std::vector<size_t>           DeferredGridAlpha;
         const GpuMesh*                GetMesh(const MeshKey& id) const;
         const GpuMaterialBindings*    GetBindings(AssetID id, bool debug) const;
         const GpuShader*              GetShader(AssetID material, AssetID shader) const;
@@ -40,16 +39,6 @@ namespace Kans
         void AppendPrefabPreviewDraws(const PrefabPreview& preview, std::vector<MeshDraw>& draws);
         void AppendEntityDraws(UUID entity, uint32_t id, std::vector<MeshDraw>& draws);
         void DrawModelGeometry(const ViewGeometryDraw& draw, RenderHardware::CommandList& commands);
-        enum class GridChannels
-        {
-            All,
-            Color,
-            Alpha
-        };
-        void DrawGrid(const ViewGrid&              grid,
-                      RenderHardware::CommandList& commands,
-                      GridChannels                 channels = GridChannels::All,
-                      bool                         hdr      = false);
         void DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
     };
 } // namespace Kans

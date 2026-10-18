@@ -6,7 +6,7 @@ namespace Kans
     class EditorGridFeature final : public RenderFeature
     {
     public:
-        bool RunsAt(RenderExtensionPoint point) const override { return point == RenderExtensionPoint::Immediate; }
+        bool RunsAt(RenderExtensionPoint point) const override { return point == RenderExtensionPoint::Overlay; }
         void AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context) override;
     };
     class DebugGeometryFeature final : public RenderFeature

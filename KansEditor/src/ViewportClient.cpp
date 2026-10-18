@@ -94,6 +94,16 @@ namespace Kans
         view.Scene.sceneCamera.viewMatrix = camera.GetViewMatrix();
         view.Scene.sceneCamera.camera     = camera;
         view.DebugMode                    = m_ViewMode;
+        view.Grid                         = m_Grid;
+        // Orthographic front/back and side views get the grid plane they look at.
+        if (camera.IsOrthographic())
+        {
+            const glm::vec3 forward = glm::abs(camera.Forward());
+            const auto      plane   = forward.y >= forward.x && forward.y >= forward.z ? ViewGrid::Plane::XZ :
+                                      forward.z >= forward.x                         ? ViewGrid::Plane::XY :
+                                                                                       ViewGrid::Plane::YZ;
+            view.Grids = {{plane, glm::vec3(0.0f)}};
+        }
         Render(std::move(view), true);
     }
 

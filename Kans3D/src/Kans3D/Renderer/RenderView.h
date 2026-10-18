@@ -119,11 +119,31 @@ namespace Kans
         Ref<Texture2D> Texture;
         glm::vec4      Color;
     };
+    struct GridSettings
+    {
+        bool     Enabled    = true;
+        float    CellSize   = 1.0f;
+        uint32_t MajorEvery = 10;
+        // Display-space RGB; alpha is line opacity (scene alpha is preserved).
+        glm::vec4 MinorColor {.38f, .38f, .38f, .28f};
+        glm::vec4 MajorColor {.55f, .55f, .55f, .42f};
+        glm::vec4 XAxisColor {.85f, .16f, .16f, .75f};
+        glm::vec4 YAxisColor {.18f, .75f, .25f, .75f};
+        glm::vec4 ZAxisColor {.18f, .38f, .90f, .75f};
+        float     LineWidth = 1.0f; // Pixels; axes are 1.5 times wider.
+        // Plane radius at low camera heights; scales by max(1, height/(10*CellSize)).
+        float FadeDistance = 100.0f;
+    };
     struct ViewGrid
     {
-        float              Size, Scale;
-        glm::mat4          Transform;
-        ImmediatePassState State;
+        enum class Plane
+        {
+            XZ,
+            XY,
+            YZ
+        };
+        Plane     Surface = Plane::XZ;
+        glm::vec3 Origin {0}; // Snap offset, also the intersection of the coloured axes.
     };
     struct ViewSkybox
     {
@@ -139,7 +159,6 @@ namespace Kans
     {
         Sprites,
         RecordedSprites,
-        Grid,
         Skybox
     };
     struct ViewImmediate
@@ -188,6 +207,7 @@ namespace Kans
         std::vector<size_t>                Opaque, Mask, Blend; // Draw indices, in their filtered execution order.
         std::vector<ViewGeometryDraw>      Geometry;
         std::vector<ViewSprite>            Sprites;
+        GridSettings                         Grid;
         std::vector<ViewGrid>              Grids;
         std::vector<ViewSkybox>            Skyboxes;
         std::vector<ViewSpriteBatch>       SpriteBatches; // Pre-recorded immediate sprite batches.

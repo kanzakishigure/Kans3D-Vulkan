@@ -400,8 +400,7 @@ namespace Kans
             output.ImmediateOrder.push_back({ViewImmediateKind::Sprites, 0});
         if (state.EnableGridShader)
         {
-            output.Grids.push_back({.025f, 16.025f, glm::scale(glm::mat4(1), glm::vec3(10, 1, 10)), {}});
-            output.ImmediateOrder.push_back({ViewImmediateKind::Grid, 0});
+            output.Grids.push_back({});
         }
     }
     void RenderWorld::Validate() const

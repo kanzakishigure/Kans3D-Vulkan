@@ -234,9 +234,6 @@ namespace Kans
         }
         if (rendering)
             commands->EndRendering();
-        if (tag.empty())
-            for (auto index : DeferredGridAlpha)
-                DrawGrid(View.Grids.at(index), *commands, GridChannels::Alpha, hdr);
         if (DeferToneMapping)
             PostProcessHDR = hdr;
         if (hdr && !DeferToneMapping)
@@ -347,62 +344,6 @@ namespace Kans
                     ForEachSection(instance, *mesh, [&](const auto& part, const auto&) {
                         draws.push_back({mesh, preview.Transform * part.Transform, 0, part.Section});
                     });
-    }
-
-    void RenderFrame::DrawGrid(const ViewGrid&              grid,
-                               RenderHardware::CommandList& commandList,
-                               GridChannels                 channels,
-                               bool                         hdr)
-    {
-        const auto  size = grid.Size, scale = grid.Scale;
-        const auto& transform = grid.Transform;
-        const auto& state     = grid.State;
-        using namespace RenderHardware;
-        auto desc = Services.ScenePipeline("GridShader", SceneShaders::GridVertex, SceneShaders::GridFragment, false);
-        if (!desc.Program)
-            return;
-        desc.VertexBindings             = {{0, 20, false}};
-        desc.Attributes                 = {{0, 0, 0, VertexFormat::Float3}, {1, 0, 12, VertexFormat::Float2}};
-        desc.DepthStencil.DepthCompare  = state.DepthCompare;
-        desc.DepthStencil.DepthWrite    = state.DepthWrite;
-        desc.Blends[0].Enabled          = state.Blend;
-        desc.Blends[0].WriteMask        = state.WriteMask;
-        desc.Blends[0].SourceAlpha      = BlendFactor::SourceAlpha;
-        desc.Blends[0].DestinationAlpha = BlendFactor::OneMinusSourceAlpha;
-        desc.Blends[0].SourceColor      = BlendFactor::SourceAlpha;
-        desc.Blends[0].DestinationColor = BlendFactor::OneMinusSourceAlpha;
-        desc.Blends[1]                  = desc.Blends[0];
-        if (channels == GridChannels::Color)
-            desc.Blends[0].WriteMask &= 7;
-        else if (channels == GridChannels::Alpha)
-        {
-            desc.Blends[0].WriteMask &= 8;
-            desc.Blends[1].WriteMask     = 0;
-            desc.DepthStencil.DepthWrite = false;
-        }
-        if (hdr)
-            desc.ColorFormats[0] = Output.GetHDR()->GetDesc().PixelFormat;
-        const float    vertices[]       = {-0.5f, 0, -0.5f, 0, 0, 0.5f,  0, -0.5f, 1, 0,
-                                           0.5f,  0, 0.5f,  1, 1, -0.5f, 0, 0.5f,  0, 1};
-        const uint32_t indices[]        = {0, 1, 2, 2, 3, 0};
-        auto vb = Services.GetDevice()->CreateBuffer({sizeof(vertices), BufferUsage::Vertex, MemoryUsage::Upload});
-        auto ib = Services.GetDevice()->CreateBuffer({sizeof(indices), BufferUsage::Index, MemoryUsage::Upload});
-        vb->Write(0, vertices, sizeof(vertices));
-        ib->Write(0, indices, sizeof(indices));
-        SceneDrawData data;
-        data.DeviceClip     = DeviceProjection(glm::mat4(1), Services.GetDevice()->GetCoordinateConventions());
-        data.ViewProjection = View.Scene.sceneCamera.camera.GetProjectionMatrix() * View.Scene.sceneCamera.viewMatrix;
-        data.Transform      = transform;
-        data.Settings       = {scale, size, 0, 0};
-        auto* commands      = &commandList;
-        commands->BeginRendering(SceneTarget(LoadOp::Load, hdr));
-        commands->SetViewport({0, 0, float(View.Viewport.x), float(View.Viewport.y)});
-        commands->BindPipeline(Services.CachedPipeline(desc));
-        commands->BindGroup(DrawGroup(*Services.GetDevice(), desc.GroupLayouts[0], data));
-        commands->BindVertexBuffers({{0, vb, 0}});
-        commands->BindIndexBuffer(ib, IndexType::Uint32);
-        commands->DrawIndexed(6);
-        commands->EndRendering();
     }
 
     void RenderFrame::DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commandList)
