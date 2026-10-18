@@ -264,6 +264,72 @@ namespace Kans
                 prefab.LegacyPending = DecodeModel(value["LegacyPending"]);
             return prefab;
         }
+        YAML::Node EncodeBloom(const BloomSettings& settings)
+        {
+            // Validate before clamping so a corrupt camera cannot silently persist NaNs.
+            Require(std::isfinite(settings.Threshold) && std::isfinite(settings.Knee) &&
+                        std::isfinite(settings.Clamp) && std::isfinite(settings.Intensity) &&
+                        std::isfinite(settings.Scatter) && std::isfinite(settings.DirtIntensity),
+                    "Non-finite Scene bloom");
+            Vector(settings.Tint, 3);
+            const auto b = settings.Validated();
+            YAML::Node node;
+            node["Enabled"]              = b.Enabled;
+            node["Threshold"]            = b.Threshold;
+            node["Knee"]                 = b.Knee;
+            node["Clamp"]                = b.Clamp;
+            node["Intensity"]            = b.Intensity;
+            node["Scatter"]              = b.Scatter;
+            node["Tint"]                 = Vector(b.Tint, 3);
+            node["HighQualityFiltering"] = b.HighQualityFiltering;
+            node["Mode"]                 = b.Mode == BloomSettings::EnergyConserving ? "EnergyConserving" : "Additive";
+            node["DirtTexture"]          = IdentityText(b.DirtTexture);
+            node["DirtIntensity"]        = b.DirtIntensity;
+            return node;
+        }
+        BloomSettings DecodeBloom(const YAML::Node& node)
+        {
+            Keys(node,
+                 {"Enabled",
+                  "Threshold",
+                  "Knee",
+                  "Clamp",
+                  "Intensity",
+                  "Scatter",
+                  "Tint",
+                  "HighQualityFiltering",
+                  "Mode",
+                  "DirtTexture",
+                  "DirtIntensity"});
+            BloomSettings b;
+            if (node["Enabled"])
+                b.Enabled = node["Enabled"].as<bool>();
+            if (node["Threshold"])
+                b.Threshold = Number(node["Threshold"]);
+            if (node["Knee"])
+                b.Knee = Number(node["Knee"]);
+            if (node["Clamp"])
+                b.Clamp = Number(node["Clamp"]);
+            if (node["Intensity"])
+                b.Intensity = Number(node["Intensity"]);
+            if (node["Scatter"])
+                b.Scatter = Number(node["Scatter"]);
+            if (node["Tint"])
+                b.Tint = Vec3(node["Tint"]);
+            if (node["HighQualityFiltering"])
+                b.HighQualityFiltering = node["HighQualityFiltering"].as<bool>();
+            if (node["Mode"])
+            {
+                auto mode = Text(node["Mode"]);
+                Require(mode == "Additive" || mode == "EnergyConserving", "Invalid Scene bloom mode");
+                b.Mode = mode == "Additive" ? BloomSettings::Additive : BloomSettings::EnergyConserving;
+            }
+            if (node["DirtTexture"])
+                b.DirtTexture = Identity(node["DirtTexture"]);
+            if (node["DirtIntensity"])
+                b.DirtIntensity = Number(node["DirtIntensity"]);
+            return b.Validated();
+        }
         void ValidateCamera(SceneCamera& camera)
         {
             Require(std::isfinite(camera.GetExposure()) && std::isfinite(camera.GetAspectRatio()) &&
@@ -323,6 +389,7 @@ namespace Kans
                 value["OrthographicFarClip"]  = camera.GetOrthographicFarClip();
                 value["AspectRatio"]          = camera.GetAspectRatio();
                 value["Exposure"]             = camera.GetExposure();
+                value["Bloom"]                = EncodeBloom(camera.GetBloomSettings());
                 value["Primary"]              = component.Primary;
                 value["FixedAspectRatio"]     = component.FixedAspectRatio;
             }
@@ -559,6 +626,7 @@ namespace Kans
                           "OrthographicFarClip",
                           "AspectRatio",
                           "Exposure",
+                          "Bloom",
                           "Primary",
                           "FixedAspectRatio"});
                     auto type = SceneIndex(value["ProjectionType"]);
@@ -568,6 +636,8 @@ namespace Kans
                     camera.SetAspectRatio(Number(value["AspectRatio"]));
                     if (value["Exposure"])
                         camera.SetExposure(Number(value["Exposure"]));
+                    if (value["Bloom"])
+                        camera.SetBloomSettings(DecodeBloom(value["Bloom"]));
                     camera.SetPerspectiveVerticalFOV(Number(value["PerspectiveFOV"]));
                     camera.SetPerspectiveNearClip(Number(value["PerspectiveNearClip"]));
                     camera.SetPerspectiveFarClip(Number(value["PerspectiveFarClip"]));

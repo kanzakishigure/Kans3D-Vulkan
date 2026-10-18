@@ -1,6 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include "Graph/RenderGraph.h"
+#include "RenderFeature.h"
 namespace Kans
 {
     // Per-viewport allocations. Resources and pool release before the device lease.
@@ -18,6 +19,7 @@ namespace Kans
         const std::vector<RenderHardware::Handle<RenderHardware::Texture>>& GetColors() const { return m_Colors; }
         const RenderHardware::Handle<RenderHardware::Texture>&              GetHDR() const { return m_HDR; }
         const RenderHardware::Handle<RenderHardware::Texture>&              GetDepth() const { return m_Depth; }
+        RenderFeatureSet& GetDefaultFeatures() { return m_DefaultFeatures; }
         TransientTexturePool&                                               GetTransientPool() { return m_Pool; }
         const TransientTexturePool&                                         GetTransientPool() const { return m_Pool; }
         RenderHardware::RenderingDesc Target(RenderHardware::LoadOp load, bool hdr = false) const;
@@ -32,5 +34,6 @@ namespace Kans
         std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Colors;
         RenderHardware::Handle<RenderHardware::Texture>              m_HDR, m_Depth;
         TransientTexturePool                                         m_Pool;
+        RenderFeatureSet                                             m_DefaultFeatures;
     };
 } // namespace Kans

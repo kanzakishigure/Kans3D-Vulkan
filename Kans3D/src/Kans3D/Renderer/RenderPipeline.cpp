@@ -174,6 +174,19 @@ namespace Kans
         }
         Inject(RenderExtensionPoint::AfterTransparent, featureContext);
         Inject(RenderExtensionPoint::BeforePostProcess, featureContext);
+        if (renderer.DeferToneMapping && renderer.PostProcessHDR)
+        {
+            auto uses = target;
+            uses.pop_back(); // The final resolve does not access depth/stencil.
+            uses.push_back({graph.ImportTexture("SceneHDR", renderer.Output.GetHDR()), GraphAccess::SampledRead});
+            append("Tone mapping (ACES fitted + sRGB)", std::move(uses), [&renderer, &view](auto& context) {
+                const float exposure = view.Exposure.value_or(view.Scene.sceneCamera.camera.GetExposure());
+                renderer.Services.GetToneMapping().Record(
+                    context.Device, context.Commands, renderer.Output.GetHDR(), renderer.Output.GetColors(), exposure);
+            });
+        }
+        // Overlays retain the immediate display/HDR transition behavior after all post effects.
+        renderer.DeferToneMapping = renderer.PostProcessHDR = false;
         Inject(RenderExtensionPoint::Overlay, featureContext);
     }
 } // namespace Kans

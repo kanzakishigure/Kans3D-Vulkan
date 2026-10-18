@@ -1,10 +1,12 @@
 #include "kspch.h"
 #include "ViewTarget.h"
+#include "Features/BloomFeature.h"
 namespace Kans
 {
     ViewTarget::ViewTarget(std::shared_ptr<RenderHardware::Device> device, uint32_t outputs, bool sampledDepth) :
         m_Device(std::move(device)), m_OutputCount(outputs), m_SampledDepth(sampledDepth)
     {
+        m_DefaultFeatures.Register("Bloom", std::make_unique<BloomFeature>());
         if (!m_Device || !outputs)
             throw std::invalid_argument("ViewTarget needs a device and at least one output");
     }
@@ -16,16 +18,17 @@ namespace Kans
         TextureDesc desc;
         desc.Width  = size.x;
         desc.Height = size.y;
-        desc.Usage  = TextureUsage::RenderTarget | TextureUsage::Sampled | TextureUsage::CopySource;
+        desc.Usage  = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
+                      RenderHardware::TextureUsage::CopySource;
         std::vector<Handle<RenderHardware::Texture>> colors;
         for (uint32_t i = 0; i < m_OutputCount; ++i)
             colors.push_back(m_Device->CreateTexture(desc));
         desc.PixelFormat = Format::RGBA16Float;
         auto hdr         = m_Device->CreateTexture(desc);
         desc.PixelFormat = Format::Depth24Stencil8;
-        desc.Usage       = TextureUsage::DepthStencil;
+        desc.Usage       = RenderHardware::TextureUsage::DepthStencil;
         if (m_SampledDepth)
-            desc.Usage = desc.Usage | TextureUsage::Sampled | TextureUsage::CopySource;
+            desc.Usage = desc.Usage | RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopySource;
         auto depth = m_Device->CreateTexture(desc);
         m_Colors   = std::move(colors);
         m_HDR      = std::move(hdr);

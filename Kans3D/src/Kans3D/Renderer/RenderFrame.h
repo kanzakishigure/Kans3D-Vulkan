@@ -16,6 +16,7 @@ namespace Kans
         SceneRenderStats&             Stats;
         SpriteStatistics&             SpriteStats;
         bool&                         Complete;
+        bool                          DeferToneMapping = false, PostProcessHDR = false;
         const GpuMesh*                GetMesh(AssetID id) const;
         const GpuMaterialBindings*    GetBindings(AssetID id, bool debug) const;
         const GpuShader*              GetShader(AssetID material, AssetID shader) const;

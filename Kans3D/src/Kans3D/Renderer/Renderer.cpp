@@ -463,6 +463,8 @@ namespace Kans
         RenderResult result;
         result.View = input;
         auto& view  = result.View;
+        if (!view.Features)
+            view.Features = &target.GetDefaultFeatures();
         if (view.Viewport == glm::uvec2(0))
             view.Viewport = target.GetSize();
         if (target.GetSize() != view.Viewport)

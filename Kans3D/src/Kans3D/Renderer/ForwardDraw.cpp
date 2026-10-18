@@ -110,7 +110,7 @@ namespace Kans
             Services.GetDevice()->CreateBuffer({frameStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
         auto objects = Services.GetDevice()->CreateBuffer(
             {objectStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
-        bool rendering = false, hdr = false;
+        bool rendering = false, hdr = DeferToneMapping && PostProcessHDR;
         auto resolve = [&](RenderHardware::CommandList& output) {
             Services.GetToneMapping().Record(
                 *Services.GetDevice(), output, Output.GetHDR(), Output.GetColors(), frame.LightingInfo.y);
@@ -120,9 +120,9 @@ namespace Kans
                 return;
             if (rendering)
                 commands->EndRendering();
-            if (hdr)
+            if (hdr && !nextHDR)
                 resolve(*commands);
-            if (nextHDR)
+            if (nextHDR && !hdr)
                 Services.GetToneMapping().Record(*Services.GetDevice(),
                                                  *commands,
                                                  Output.GetColors()[0],
@@ -224,7 +224,9 @@ namespace Kans
         }
         if (rendering)
             commands->EndRendering();
-        if (hdr)
+        if (DeferToneMapping)
+            PostProcessHDR = hdr;
+        if (hdr && !DeferToneMapping)
         {
             if (finalPost)
             {
