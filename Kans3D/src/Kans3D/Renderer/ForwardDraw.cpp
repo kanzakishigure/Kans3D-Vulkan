@@ -212,8 +212,10 @@ namespace Kans
             pass.WriteStencil = draw.Stencil == ModelStencilMode::WriteReference;
             pass.Render       = render;
             pass.Section      = draw.Section;
+            bool recorded     = false;
             if (tag.empty())
-                Complete &= RecordMaterialDraw(*Assets(), *commands, *shader, *bindings, *mesh, pass);
+                Complete &=
+                    RecordMaterialDraw(*Assets(), *commands, *shader, *bindings, *mesh, pass, nullptr, &recorded);
             else
                 for (const auto& extra : shader->Passes)
                     if (extra.Tag == tag)
@@ -222,6 +224,8 @@ namespace Kans
                         ++Stats.DrawCalls;
                         Stats.Triangles += mesh->Sections[draw.Section].IndexCount / 3;
                     }
+            if (tag.empty() && recorded)
+                ++View.Culling.Drawn;
             if (sampled)
                 for (const auto& image : bindings->Images)
                     sampled(image);
@@ -240,8 +244,10 @@ namespace Kans
         {
             if (finalPost)
             {
+                const auto start = RenderClockMilliseconds();
                 *finalPost = Services.GetDevice()->CreateCommandList();
                 resolve(**finalPost);
+                FinalPostRecordMilliseconds = RenderClockMilliseconds() - start;
             }
             else
                 resolve(*commands);

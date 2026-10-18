@@ -21,11 +21,13 @@ namespace Kans
     };
     // Shared immutable pipeline/engine group/material group binding for scene and previews.
     // Returns false when assigned textures are unavailable; fallback textures still draw.
+    // recorded distinguishes a submitted draw from a missing material group.
     bool RecordMaterialDraw(RenderAssetCache&            cache,
                             RenderHardware::CommandList& commands,
                             const GpuShader&             shader,
                             const GpuMaterialBindings&   bindings,
                             const GpuMesh&               mesh,
                             const MaterialPassData&      data,
-                            const GpuShaderPass*         extraPass = nullptr);
+                            const GpuShaderPass*         extraPass = nullptr,
+                            bool*                        recorded  = nullptr);
 } // namespace Kans

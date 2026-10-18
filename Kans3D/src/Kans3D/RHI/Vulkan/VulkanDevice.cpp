@@ -223,11 +223,19 @@ namespace Kans::RenderHardware
                 auto              allocator = Memory.Owner->Native.Allocator;
                 Check(vmaCreateBuffer(allocator, &buffer, &allocation, &Native, &Alloc, &info));
                 Mapped        = info.pMappedData;
-                Memory.Delete = [allocator, buffer = Native, alloc = Alloc] {
-                    vmaDestroyBuffer(allocator, buffer, alloc);
-                };
+                Memory.Owner->Native.BufferAllocationBytes += info.size;
+                Memory.Delete =
+                    [allocator, buffer = Native, alloc = Alloc, owner = Memory.Owner.get(), bytes = info.size] {
+                        vmaDestroyBuffer(allocator, buffer, alloc);
+                        owner->Native.BufferAllocationBytes -= bytes;
+                    };
             }
             const BufferDesc& GetDesc() const override { return Desc; }
+            bool              IsReadbackReady() const override
+            {
+                Memory.Owner->CheckThread();
+                return Desc.Memory == MemoryUsage::Readback && PendingWrites == 0;
+            }
             void              Write(size_t offset, const void* data, size_t bytes) override
             {
                 Memory.Owner->CheckThread();
@@ -253,11 +261,61 @@ namespace Kans::RenderHardware
                 return {start, start + bytes};
             }
         };
+        struct VKQueries final : TimestampQueryPool
+        {
+            Allocation  Memory;
+            VkQueryPool Native = VK_NULL_HANDLE;
+            uint32_t    Count;
+            uint32_t    PendingWrites = 0;
+            bool        HasWrites     = false;
+            VKQueries(std::shared_ptr<State> owner, uint32_t count) : Memory(std::move(owner)), Count(count)
+            {
+                Require(count > 0, "Empty timestamp pool");
+                VkQueryPoolCreateInfo desc {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+                desc.queryType  = VK_QUERY_TYPE_TIMESTAMP;
+                desc.queryCount = count;
+                Check(vkCreateQueryPool(Memory.Owner->Native.Logical, &desc, nullptr, &Native));
+                Memory.Delete = [device = Memory.Owner->Native.Logical, pool = Native] {
+                    vkDestroyQueryPool(device, pool, nullptr);
+                };
+            }
+            double GetTimestampPeriod() const override
+            {
+                return Memory.Owner->Native.Properties.limits.timestampPeriod;
+            }
+            uint32_t GetValidBits() const override { return Memory.Owner->Native.TimestampValidBits; }
+            std::optional<std::vector<uint64_t>> TryGetResults() const override
+            {
+                Memory.Owner->CheckThread();
+                if (PendingWrites || !HasWrites)
+                    return {};
+                std::vector<std::array<uint64_t, 2>> data(Count);
+                auto result = vkGetQueryPoolResults(Memory.Owner->Native.Logical,
+                                                    Native,
+                                                    0,
+                                                    Count,
+                                                    data.size() * sizeof(data[0]),
+                                                    data.data(),
+                                                    sizeof(data[0]),
+                                                    VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+                if (result == VK_NOT_READY)
+                    return {};
+                Check(result);
+                std::vector<uint64_t> ticks;
+                for (auto entry : data)
+                {
+                    if (!entry[1])
+                        return {};
+                    ticks.push_back(entry[0]);
+                }
+                return ticks;
+            }
+        };
         uint32_t Width(const TextureDesc& d, uint32_t mip) { return std::max(1u, d.Width >> mip); }
         uint32_t Height(const TextureDesc& d, uint32_t mip) { return std::max(1u, d.Height >> mip); }
         size_t   TextureBytes(const TextureDesc& d, TextureSubresource sub)
         {
-            Require(sub.Mip < d.MipLevels && sub.Face < (d.Dimension == TextureDimension::Cube ? 6u : 1u),
+            Require(sub.Mip < d.MipLevels && sub.Face < (d.Dimension == TextureDimension::Cube ? 6u : d.ArrayLayers),
                     "Invalid texture subresource");
             return size_t(Width(d, sub.Mip)) * Height(d, sub.Mip) * Info(d.PixelFormat).Bytes;
         }
@@ -276,12 +334,52 @@ namespace Kans::RenderHardware
             VkImageView              SampledView = VK_NULL_HANDLE;
             VmaAllocation            Alloc  = VK_NULL_HANDLE;
             std::vector<VkImageView> Views;
+            struct SampleView
+            {
+                TextureSubresource Sub;
+                TextureAspect      Aspect;
+                VkImageView        Native;
+            };
+            std::shared_ptr<std::vector<SampleView>> SampleViews;
+            VkImageView                              SampleViewFor(TextureSubresource sub, TextureAspect aspect)
+            {
+                TextureBytes(Desc, sub);
+                Require(aspect != TextureAspect::Stencil || Info(Desc.PixelFormat).Stencil(), "No stencil aspect");
+                if (!SampleViews)
+                {
+                    SampleViews   = std::make_shared<std::vector<SampleView>>();
+                    auto previous = std::move(Memory.Delete);
+                    Memory.Delete =
+                        [previous = std::move(previous), device = Memory.Owner->Native.Logical, views = SampleViews] {
+                            for (auto& view : *views)
+                                vkDestroyImageView(device, view.Native, nullptr);
+                            previous();
+                        };
+                }
+                for (auto& view : *SampleViews)
+                    if (view.Sub.Mip == sub.Mip && view.Sub.Face == sub.Face && view.Aspect == aspect)
+                        return view.Native;
+                VkImageViewCreateInfo view {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+                view.image    = Native;
+                view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                view.format   = Info(Desc.PixelFormat).Native;
+                auto mask =
+                    aspect == TextureAspect::Stencil ?
+                        VK_IMAGE_ASPECT_STENCIL_BIT :
+                        (Info(Desc.PixelFormat).Depth() ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
+                view.subresourceRange = {VkImageAspectFlags(mask), sub.Mip, 1, sub.Face, 1};
+                VkImageView result;
+                Check(vkCreateImageView(Memory.Owner->Native.Logical, &view, nullptr, &result));
+                SampleViews->push_back({sub, aspect, result});
+                return result;
+            }
             std::vector<Access>      Last;
             size_t                   Index(TextureSubresource sub) const { return sub.Face * Desc.MipLevels + sub.Mip; }
             VKTexture(std::shared_ptr<State> owner, TextureDesc desc) : Memory(std::move(owner)), Desc(desc)
             {
-                Require(desc.Width && desc.Height && desc.MipLevels && uint32_t(desc.Usage) &&
-                            !(uint32_t(desc.Usage) & ~31u),
+                Require(desc.Width && desc.Height && desc.MipLevels && desc.ArrayLayers &&
+                            (desc.Dimension != TextureDimension::Cube || desc.ArrayLayers == 1) &&
+                            uint32_t(desc.Usage) && !(uint32_t(desc.Usage) & ~31u),
                         "Invalid texture description");
                 uint32_t maxMips = 1;
                 for (uint32_t size = std::max(desc.Width, desc.Height); size > 1; size >>= 1)
@@ -299,7 +397,7 @@ namespace Kans::RenderHardware
                 image.format      = f.Native;
                 image.extent      = {desc.Width, desc.Height, 1};
                 image.mipLevels   = desc.MipLevels;
-                image.arrayLayers = desc.Dimension == TextureDimension::Cube ? 6 : 1;
+                image.arrayLayers = desc.Dimension == TextureDimension::Cube ? 6 : desc.ArrayLayers;
                 image.samples     = VK_SAMPLE_COUNT_1_BIT;
                 image.tiling      = VK_IMAGE_TILING_OPTIMAL;
                 if (Has(desc.Usage, TextureUsage::Sampled))
@@ -324,7 +422,8 @@ namespace Kans::RenderHardware
                 allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
                 auto allocator   = Memory.Owner->Native.Allocator;
                 auto device      = Memory.Owner->Native.Logical;
-                Check(vmaCreateImage(allocator, &image, &allocation, &Native, &Alloc, nullptr));
+                VmaAllocationInfo allocationInfo {};
+                Check(vmaCreateImage(allocator, &image, &allocation, &Native, &Alloc, &allocationInfo));
                 try
                 {
                     Last.resize(size_t(image.arrayLayers) * image.mipLevels);
@@ -348,7 +447,9 @@ namespace Kans::RenderHardware
                         VkImageViewCreateInfo view {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
                         view.image = Native;
                         view.viewType =
-                            desc.Dimension == TextureDimension::Cube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+                            desc.Dimension == TextureDimension::Cube ?
+                                VK_IMAGE_VIEW_TYPE_CUBE :
+                                (desc.ArrayLayers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D);
                         view.format           = f.Native;
                         view.subresourceRange = {f.Depth() ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : f.Aspects,
                                                  0,
@@ -357,14 +458,22 @@ namespace Kans::RenderHardware
                                                  image.arrayLayers};
                         Check(vkCreateImageView(device, &view, nullptr, &SampledView));
                     }
-                    Memory.Delete =
-                        [allocator, device, image = Native, alloc = Alloc, views = Views, sampled = SampledView] {
-                            if (sampled)
-                                vkDestroyImageView(device, sampled, nullptr);
-                            for (auto view : views)
-                                vkDestroyImageView(device, view, nullptr);
-                            vmaDestroyImage(allocator, image, alloc);
-                        };
+                    Memory.Delete = [allocator,
+                                     device,
+                                     image   = Native,
+                                     alloc   = Alloc,
+                                     views   = Views,
+                                     sampled = SampledView,
+                                     owner   = Memory.Owner.get(),
+                                     bytes   = allocationInfo.size] {
+                        owner->Native.TextureAllocationBytes -= bytes;
+                        if (sampled)
+                            vkDestroyImageView(device, sampled, nullptr);
+                        for (auto view : views)
+                            vkDestroyImageView(device, view, nullptr);
+                        vmaDestroyImage(allocator, image, alloc);
+                    };
+                    Memory.Owner->Native.TextureAllocationBytes += allocationInfo.size;
                 }
                 catch (...)
                 {
@@ -684,7 +793,8 @@ namespace Kans::RenderHardware
                 for (auto& [key, value] : Buffers)
                     execution.Use(*value.first, value.second);
                 for (auto& [key, texture] : Textures)
-                    for (uint32_t face = 0; face < (texture->Desc.Dimension == TextureDimension::Cube ? 6u : 1u);
+                    for (uint32_t face = 0;
+                         face < (texture->Desc.Dimension == TextureDimension::Cube ? 6u : texture->Desc.ArrayLayers);
                          ++face)
                         for (uint32_t mip = 0; mip < texture->Desc.MipLevels; ++mip)
                         {
@@ -707,9 +817,21 @@ namespace Kans::RenderHardware
         {
             std::shared_ptr<State>                       Owner;
             bool                                         Sealed = false, Rendering = false;
+            CommandStatistics                            Statistics;
+            std::optional<CommandStatistics>             GetStatistics() const override { return Statistics; }
+            void                                         CountDraw(uint32_t count, uint32_t instances)
+            {
+                ++Statistics.DrawCalls;
+                auto primitive = BoundPipeline->Desc.Primitive;
+                if (primitive == Topology::TriangleList)
+                    Statistics.Triangles += uint64_t(count / 3) * instances;
+                if (primitive == Topology::TriangleStrip && count > 2)
+                    Statistics.Triangles += uint64_t(count - 2) * instances;
+            }
             uint32_t                                     RenderingWidth = 0, RenderingHeight = 0;
             std::vector<std::function<void(Execution&)>> Recorded;
             std::vector<std::shared_ptr<VKBuffer>>       Readbacks;
+            std::vector<std::shared_ptr<VKQueries>>      QueryWrites;
             std::vector<Handle<Resource>>                Temporary;
             std::vector<Handle<Resource>>                RetainedBindings;
             std::shared_ptr<VKPipeline>                  BoundPipeline;
@@ -731,6 +853,9 @@ namespace Kans::RenderHardware
                 for (const auto& b : Readbacks)
                     --b->PendingWrites;
                 Readbacks.clear();
+                for (auto& query : QueryWrites)
+                    --query->PendingWrites;
+                QueryWrites.clear();
                 Recorded.clear();
                 Temporary.clear();
                 BoundPipeline.reset();
@@ -1053,8 +1178,14 @@ namespace Kans::RenderHardware
                     if (entry->TextureResource)
                     {
                         auto texture = Cast<VKTexture>(entry->TextureResource, Owner);
-                        Require(texture->Desc.Dimension == binding.Dimension,
+                        Require(entry->Subresource || texture->Desc.ArrayLayers == 1,
+                                "Array textures require a single-layer sampled view");
+                        Require((entry->Subresource ? TextureDimension::Texture2D : texture->Desc.Dimension) ==
+                                    binding.Dimension,
                                 "Texture dimension disagrees with shader binding");
+                        Require(binding.Unsigned == (entry->Aspect == TextureAspect::Stencil ||
+                                                     texture->Desc.PixelFormat == Format::R32Uint),
+                                "Sampled image scalar type disagrees with texture aspect/format");
                         if (binding.Type == BindingType::CombinedTextureSampler)
                         {
                             auto sampler = Cast<VKSampler>(entry->SamplerResource, Owner);
@@ -1125,6 +1256,7 @@ namespace Kans::RenderHardware
             void Draw(uint32_t vertices, uint32_t instances, uint32_t firstVertex, uint32_t firstInstance) override
             {
                 PrepareDraw(false);
+                CountDraw(vertices, instances);
                 Recorded.push_back(
                     [=](Execution& e) { vkCmdDraw(e.Native, vertices, instances, firstVertex, firstInstance); });
             }
@@ -1139,6 +1271,7 @@ namespace Kans::RenderHardware
                       IndexOffset + size_t(firstIndex) * (IndexFormat == IndexType::Uint16 ? 2 : 4),
                       size_t(indices) * (IndexFormat == IndexType::Uint16 ? 2 : 4));
                 PrepareDraw(true);
+                CountDraw(indices, instances);
                 Recorded.push_back([=](Execution& e) {
                     vkCmdDrawIndexed(e.Native, indices, instances, firstIndex, baseVertex, firstInstance);
                 });
@@ -1205,6 +1338,113 @@ namespace Kans::RenderHardware
                 });
                 Mark(d);
             }
+            void WriteTimestamp(const Handle<TimestampQueryPool>& pool, uint32_t index, bool beginning) override
+            {
+                Outside();
+                auto q = Cast<VKQueries>(pool, Owner);
+                Require(index < q->Count, "Timestamp index out of range");
+                ++q->PendingWrites;
+                q->HasWrites = true;
+                QueryWrites.push_back(q);
+                auto record = [q, index](Execution& e) {
+                    e.FlushBarriers();
+                    vkCmdResetQueryPool(e.Native, q->Native, index, 1);
+                    vkCmdWriteTimestamp2(e.Native, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, q->Native, index);
+                };
+                if (beginning)
+                    Recorded.insert(Recorded.begin(), record);
+                else
+                    Recorded.push_back(record);
+            }
+            void CopyTexture(const Handle<Texture>& source,
+                             TextureSubresource     from,
+                             const Handle<Texture>& destination,
+                             TextureSubresource     to) override
+            {
+                Outside();
+                auto s = Cast<VKTexture>(source, Owner), d = Cast<VKTexture>(destination, Owner);
+                Require(s != d && Has(s->Desc.Usage, TextureUsage::CopySource) &&
+                            Has(d->Desc.Usage, TextureUsage::CopyDestination),
+                        "Texture copy usage mismatch");
+                Require(s->Desc.PixelFormat == d->Desc.PixelFormat &&
+                            TextureBytes(s->Desc, from) == TextureBytes(d->Desc, to) &&
+                            Width(s->Desc, from.Mip) == Width(d->Desc, to.Mip) &&
+                            Height(s->Desc, from.Mip) == Height(d->Desc, to.Mip),
+                        "Texture copy description mismatch");
+                Recorded.push_back([s, d, from, to](Execution& e) {
+                    e.Use(*s,
+                          from,
+                          {VK_PIPELINE_STAGE_2_COPY_BIT,
+                           VK_ACCESS_2_TRANSFER_READ_BIT,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL});
+                    e.Use(*d,
+                          to,
+                          {VK_PIPELINE_STAGE_2_COPY_BIT,
+                           VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL});
+                    e.FlushBarriers();
+                    auto aspects = Info(s->Desc.PixelFormat).Aspects;
+                    for (auto aspect :
+                         {VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_ASPECT_STENCIL_BIT})
+                        if (aspects & aspect)
+                        {
+                            VkImageCopy region {};
+                            region.srcSubresource = {VkImageAspectFlags(aspect), from.Mip, from.Face, 1};
+                            region.dstSubresource = {VkImageAspectFlags(aspect), to.Mip, to.Face, 1};
+                            region.extent         = {Width(s->Desc, from.Mip), Height(s->Desc, from.Mip), 1};
+                            vkCmdCopyImage(e.Native,
+                                           s->Native,
+                                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                           d->Native,
+                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                           1,
+                                           &region);
+                        }
+                });
+            }
+            void CopyTextureTexelToBuffer(const Handle<Texture>& source,
+                                          TextureSubresource     sub,
+                                          uint32_t               x,
+                                          uint32_t               y,
+                                          const Handle<Buffer>&  destination,
+                                          size_t                 offset) override
+            {
+                Outside();
+                auto s      = Cast<VKTexture>(source, Owner);
+                auto d      = Cast<VKBuffer>(destination, Owner);
+                auto format = Info(s->Desc.PixelFormat);
+                TextureBytes(s->Desc, sub);
+                Require(Has(s->Desc.Usage, TextureUsage::CopySource) &&
+                            Has(d->Desc.Usage, BufferUsage::CopyDestination),
+                        "Texel copy usage mismatch");
+                Require(x < Width(s->Desc, sub.Mip) && y < Height(s->Desc, sub.Mip) && offset % 4 == 0 &&
+                            offset % format.Bytes == 0,
+                        "Invalid texel copy region");
+                Range(d->Desc.Bytes, offset, format.Stencil() ? 8 : format.Bytes);
+                Recorded.push_back([s, d, sub, x, y, offset, format](Execution& e) {
+                    e.Use(*s,
+                          sub,
+                          {VK_PIPELINE_STAGE_2_COPY_BIT,
+                           VK_ACCESS_2_TRANSFER_READ_BIT,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL});
+                    e.Use(*d, {VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT});
+                    e.FlushBarriers();
+                    for (auto aspect :
+                         {VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_ASPECT_STENCIL_BIT})
+                        if (format.Aspects & aspect)
+                        {
+                            VkBufferImageCopy region {};
+                            region.bufferOffset     = offset + (aspect == VK_IMAGE_ASPECT_STENCIL_BIT ? 4 : 0);
+                            region.imageSubresource = {VkImageAspectFlags(aspect), sub.Mip, sub.Face, 1};
+                            region.imageOffset      = {int32_t(x), int32_t(y), 0};
+                            region.imageExtent      = {1, 1, 1};
+                            vkCmdCopyImageToBuffer(
+                                e.Native, s->Native, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, d->Native, 1, &region);
+                        }
+                    e.Use(*d, HostRead);
+                });
+                Mark(d);
+            }
             void GenerateMips(const Handle<Texture>& texture) override
             {
                 Outside();
@@ -1220,7 +1460,9 @@ namespace Kans::RenderHardware
                                       VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
                 Require((properties.optimalTilingFeatures & required) == required, "Texture format cannot filter mips");
                 Recorded.push_back([t](Execution& e) {
-                    for (uint32_t face = 0; face < (t->Desc.Dimension == TextureDimension::Cube ? 6u : 1u); ++face)
+                    for (uint32_t face = 0;
+                         face < (t->Desc.Dimension == TextureDimension::Cube ? 6u : t->Desc.ArrayLayers);
+                         ++face)
                         for (uint32_t mip = 1; mip < t->Desc.MipLevels; ++mip)
                         {
                             e.Use(*t,
@@ -1338,7 +1580,10 @@ namespace Kans::RenderHardware
             DeviceStats GetStats() const override
             {
                 Owner->CheckThread();
-                return Owner->Stats;
+                auto stats         = Owner->Stats;
+                stats.TextureBytes = Owner->Native.TextureAllocationBytes;
+                stats.BufferBytes  = Owner->Native.BufferAllocationBytes;
+                return stats;
             }
             size_t GetBufferBindingAlignment(BindingType type) const override
             {
@@ -1356,6 +1601,13 @@ namespace Kans::RenderHardware
             {
                 Owner->CheckThread();
                 return std::make_shared<VKBuffer>(Owner, d);
+            }
+            Handle<TimestampQueryPool> CreateTimestampQueryPool(uint32_t count) override
+            {
+                Owner->CheckThread();
+                if (!Owner->Native.TimestampValidBits)
+                    return {};
+                return std::make_shared<VKQueries>(Owner, count);
             }
             Handle<Texture> CreateTexture(const TextureDesc& d) override
             {
@@ -1487,7 +1739,7 @@ namespace Kans::RenderHardware
                 Owner->CheckThread();
                 auto image = Cast<VKTexture>(texture, Owner);
                 Require(image->SampledView && image->Desc.Dimension == TextureDimension::Texture2D &&
-                            !Info(image->Desc.PixelFormat).Depth(),
+                            image->Desc.ArrayLayers == 1 && !Info(image->Desc.PixelFormat).Depth(),
                         "ImGui requires a sampled 2D colour texture");
                 SamplerDesc desc = sampling ? *sampling : SamplerDesc {};
                 auto        same = [&](const auto& view) {

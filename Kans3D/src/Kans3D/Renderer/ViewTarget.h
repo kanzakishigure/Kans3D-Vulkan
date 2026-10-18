@@ -15,6 +15,9 @@ namespace Kans
         ViewTarget(const ViewTarget&)                                                                    = delete;
         ViewTarget&                                                         operator=(const ViewTarget&) = delete;
         void                                                                Resize(glm::uvec2 size);
+        uint64_t                      NextFrameNumber() { return ++m_FrameNumber; }
+        FrameProfiler&                GetFrameProfiler() { return m_Profiler; }
+        std::shared_ptr<GraphCapture> GetGraphCapture(); // Lazy; only allocated on request.
         const std::shared_ptr<RenderHardware::Device>&                      GetDevice() const { return m_Device; }
         glm::uvec2                                                          GetSize() const { return m_Size; }
         const std::vector<RenderHardware::Handle<RenderHardware::Texture>>& GetColors() const { return m_Colors; }
@@ -37,6 +40,9 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::Texture>              m_HDR, m_Depth;
         std::shared_ptr<ShadowResources>                             m_Shadows;
         TransientTexturePool                                         m_Pool;
+        uint64_t                                                     m_FrameNumber = 0;
+        FrameProfiler                                                m_Profiler;
+        std::shared_ptr<GraphCapture>                                m_Capture;
         RenderFeatureSet                                             m_DefaultFeatures;
     };
 } // namespace Kans

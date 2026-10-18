@@ -26,9 +26,11 @@ namespace Kans
         };
         for (const auto& image : renderer->GetMaterialEnvironment())
             sampled(image);
+        const auto recordStart = RenderClockMilliseconds();
         auto commands = renderer->GetDevice()->CreateCommandList();
         renderer->DrawShaderMaterials(*commands, sampled, m_Tag, &context.View);
-        auto pass = context.Graph.AddRecordedPass("Material passes: " + m_Tag, std::move(uses), std::move(commands));
+        auto pass = context.Graph.AddRecordedPass(
+            "Material passes: " + m_Tag, std::move(uses), std::move(commands), RenderClockMilliseconds() - recordStart);
         if (pass)
             context.Graph.OrderAfter(pass, pass - 1);
     }

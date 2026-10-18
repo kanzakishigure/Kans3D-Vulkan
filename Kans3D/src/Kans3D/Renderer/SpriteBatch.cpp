@@ -3,6 +3,7 @@
 #include <iostream>
 #include "Kans3D/RHI/Backend.h"
 #include "Kans3D/RHI/PipelineKey.h"
+#include "RenderStatistics.h"
 #include "Resource/InternalShader.h"
 
 namespace Kans
@@ -58,6 +59,7 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         Ref<Texture2D>                                    Texture;
         glm::mat4                                         ViewProjection {1};
         SpriteBatch::Statistics                           Stats;
+        double                                            LastRecordMilliseconds = 0;
         ImmediatePassState                                State;
         std::shared_ptr<Device>                           TargetDevice;
         RenderingDesc                                     Target;
@@ -164,6 +166,7 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
             m_Data->GPU->WaitIdle();
         *m_Data = {};
     }
+    double SpriteBatch::GetLastRecordMilliseconds() const { return m_Data->LastRecordMilliseconds; }
     void SpriteBatch::Flush()
     {
         if (m_Data->Vertices.empty())
@@ -172,6 +175,7 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
             throw std::logic_error("Renderer2D requires an RHI target and initialized shader");
         if (m_Data->TargetDevice != m_Data->GPU)
             throw std::logic_error("Renderer2D target belongs to another device");
+        const auto  recordStart = RenderClockMilliseconds();
         auto&       device = *m_Data->GPU;
         auto        image  = m_Data->White;
         SamplerDesc sampling;
@@ -228,6 +232,7 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         commands->BindIndexBuffer(m_Data->Indices, IndexType::Uint32);
         commands->DrawIndexed(uint32_t(m_Data->Vertices.size() / 4) * 6);
         commands->EndRendering();
+        m_Data->LastRecordMilliseconds = RenderClockMilliseconds() - recordStart;
         if (owned)
         {
             if (m_Data->Submission)

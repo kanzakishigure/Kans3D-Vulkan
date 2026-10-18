@@ -65,6 +65,10 @@ namespace Kans
                           [this] { m_Console.Draw(); });
         m_Panels.Register(spec(PanelID::Stats, "Stats", ICON_FA_CHART_LINE, PanelCategory::Debug, PanelDock::Left, true),
                           [this] { DrawStats(); });
+        auto frameGraph  = spec(PanelID::FrameGraph, "Frame Graph", ICON_FA_DRAW_POLYGON, PanelCategory::Debug,
+                               PanelDock::Floating, false);
+        frameGraph.Flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+        m_Panels.Register(frameGraph, [this] { m_FrameGraphPanel.Draw(); });
     }
 
     void EditorLayer::OpenImporter(const std::filesystem::path& file)
@@ -117,6 +121,15 @@ namespace Kans
         ImGui::End();
 
         m_ViewportPanel.SetPlaying(m_Play.IsActive());
+        m_FrameTimes[m_FrameTimeCursor] = ImGui::GetIO().DeltaTime * 1000.0f;
+        m_FrameTimeCursor               = (m_FrameTimeCursor + 1) % m_FrameTimes.size();
+        // The editor view captures every pass only while the Frame Graph window is open.
+        if (m_Viewport)
+        {
+            m_FrameGraphPanel.SetClient(m_Viewport.get());
+            m_Viewport->SetDebugCapture(m_Panels.IsOpen(PanelID::FrameGraph) ? m_FrameGraphPanel.CaptureSettings() :
+                                                                               GraphCaptureSettings {});
+        }
         m_Panels.Draw();
         Application::Get().GetImGuiLayer()->BlockEvents(m_ViewportPanel.IsFocused() || m_ViewportPanel.IsHovered());
         TrackSceneEdits();
@@ -514,13 +527,107 @@ namespace Kans
 
     void EditorLayer::DrawStats()
     {
-        const ImGuiIO& io = ImGui::GetIO();
+        const ImGuiIO& io     = ImGui::GetIO();
+        const auto&    result = m_Viewport->GetLastResult();
+        const auto&    stats  = result.FrameStats;
+        const auto     ms     = [](const std::optional<double>& value) {
+            return value ? std::to_string(*value).substr(0, std::to_string(*value).find('.') + 4) + " ms" :
+                           std::string("-");
+        };
         if (ImGui::CollapsingHeader("Frame", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Text("%.1f FPS  (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+            // Frame time history; the line is the newest sample.
+            std::array<float, 240> ordered;
+            float                  peak = 1.0f;
+            for (size_t i = 0; i < ordered.size(); ++i)
+            {
+                ordered[i] = m_FrameTimes[(m_FrameTimeCursor + i) % m_FrameTimes.size()];
+                peak       = std::max(peak, ordered[i]);
+            }
+            const std::string overlay = "max " + std::to_string(int(peak)) + " ms";
+            ImGui::PlotLines("##frametimes", ordered.data(), int(ordered.size()), 0, overlay.c_str(), 0.0f, peak * 1.1f,
+                             {-FLT_MIN, 60.0f});
             const auto viewport = m_Viewport->GetSize();
             ImGui::Text("Viewport: %u x %u", viewport.x, viewport.y);
             ImGui::Text("UI: %d vertices, %d indices", io.MetricsRenderVertices, io.MetricsRenderIndices);
+        }
+        if (ImGui::CollapsingHeader("Render CPU", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("World sync / extract  %.3f ms", stats.WorldSyncExtractMilliseconds);
+            ImGui::Text("Graph build           %.3f ms", stats.GraphBuildMilliseconds);
+            ImGui::Text("Compile               %.3f ms", stats.CompileMilliseconds);
+            ImGui::Text("Execute / submit      %.3f ms", stats.ExecuteSubmitMilliseconds);
+            ImGui::Text("Total                 %.3f ms", stats.TotalMilliseconds);
+            if (stats.Draws)
+                ImGui::Text("%llu draw calls, %llu triangles", (unsigned long long)stats.Draws->DrawCalls,
+                            (unsigned long long)stats.Draws->Triangles);
+        }
+        if (ImGui::CollapsingHeader("Passes", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (stats.Gpu)
+                ImGui::Text("GPU passes %.3f ms (frame %llu)", stats.Gpu->PassMilliseconds,
+                            (unsigned long long)stats.Gpu->SourceFrame);
+            else
+                ImGui::TextDisabled("GPU timings arrive a few frames later.");
+            if (ImGui::BeginTable("##passes", 5,
+                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable |
+                                      ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+                ImGui::TableSetupColumn("CPU");
+                ImGui::TableSetupColumn("GPU");
+                ImGui::TableSetupColumn("Draws");
+                ImGui::TableSetupColumn("Tris");
+                ImGui::TableHeadersRow();
+                for (const auto& pass : stats.Passes)
+                {
+                    if (pass.Culled)
+                        continue;
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(pass.Name.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(ms(pass.CpuRecordMilliseconds).c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(ms(pass.GpuMilliseconds).c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%llu", pass.Draws ? (unsigned long long)pass.Draws->DrawCalls : 0ull);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%llu", pass.Draws ? (unsigned long long)pass.Draws->Triangles : 0ull);
+                }
+                ImGui::EndTable();
+            }
+            if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Open Frame Graph", {-FLT_MIN, 0.0f}))
+                m_Panels.Open(PanelID::FrameGraph);
+        }
+        if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Text("Mesh sections: %llu (%llu in view, %llu drawn)",
+                        (unsigned long long)stats.Culling.SectionProxies, (unsigned long long)stats.Culling.InFrustum,
+                        (unsigned long long)stats.Culling.Drawn);
+            ImGui::Text("Lights: %u directional, %u point (%u shadowed)", stats.DirectionalLights, stats.PointLights,
+                        stats.ShadowedLights);
+            ImGui::Text("Render world: +%llu  ~%llu  -%llu proxies", (unsigned long long)stats.ProxiesCreated,
+                        (unsigned long long)stats.ProxiesUpdated, (unsigned long long)stats.ProxiesRemoved);
+            if (stats.BloomMipCount)
+                ImGui::Text("Bloom: %u mips", stats.BloomMipCount);
+            if (!stats.Shadows.empty() && ImGui::TreeNode("Shadow passes"))
+            {
+                for (const auto& shadow : stats.Shadows)
+                    ImGui::Text("%s: %llu casters drawn, %llu culled", shadow.Name.c_str(),
+                                (unsigned long long)shadow.CastersDrawn, (unsigned long long)shadow.CastersCulled);
+                ImGui::TreePop();
+            }
+        }
+        if (ImGui::CollapsingHeader("GPU memory", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const auto mib = [](const std::optional<uint64_t>& bytes) {
+                return bytes ? std::to_string(*bytes / (1024 * 1024)) + " MiB" : std::string("unavailable");
+            };
+            ImGui::Text("Textures: %s", mib(stats.DeviceTextureBytes).c_str());
+            ImGui::Text("Buffers: %s", mib(stats.DeviceBufferBytes).c_str());
+            ImGui::Text("Transient texture slots: %zu", stats.TransientTextureSlots);
         }
         if (ImGui::CollapsingHeader("Renderer 2D", ImGuiTreeNodeFlags_DefaultOpen))
         {

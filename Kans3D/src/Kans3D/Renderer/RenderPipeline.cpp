@@ -120,7 +120,10 @@ namespace Kans
                 sprites.SetSubmissionSink([&](auto commands, auto image) {
                     auto batchUses = target;
                     sampled(batchUses, image, "SpriteTexture");
-                    auto pass = graph.AddRecordedPass("Renderer2D sprites", std::move(batchUses), std::move(commands));
+                    auto pass = graph.AddRecordedPass("Renderer2D sprites",
+                                                      std::move(batchUses),
+                                                      std::move(commands),
+                                                      sprites.GetLastRecordMilliseconds());
                     if (pass)
                         graph.OrderAfter(pass, pass - 1);
                 });
@@ -162,11 +165,16 @@ namespace Kans
             // This keeps the existing per-draw allocation count and avoids resolving groups twice.
             const auto hdr = graph.ImportTexture("SceneHDR", renderer.Output.GetHDR());
             uses.push_back({hdr, GraphAccess::ColorReadWrite});
+            const auto          recordStart = RenderClockMilliseconds();
             auto                commands = renderer.GetDevice()->CreateCommandList();
             Handle<CommandList> post;
             renderer.DrawShaderMaterials(
                 *commands, [&](const auto& image) { sampled(uses, image, "MaterialTexture"); }, {}, nullptr, &post);
-            auto pass = graph.AddRecordedPass("Materials (opaque/mask, blend)", std::move(uses), commands);
+            auto pass = graph.AddRecordedPass("Materials (opaque/mask, blend)",
+                                              std::move(uses),
+                                              commands,
+                                              RenderClockMilliseconds() - recordStart -
+                                                  renderer.FinalPostRecordMilliseconds.value_or(0));
             if (pass)
                 graph.OrderAfter(pass, pass - 1);
             if (post)
@@ -174,7 +182,10 @@ namespace Kans
                 auto postUses = target;
                 postUses.pop_back(); // Fullscreen conversion does not access depth/stencil.
                 postUses.push_back({hdr, GraphAccess::SampledRead});
-                auto resolve = graph.AddRecordedPass("Tone mapping (ACES fitted + sRGB)", std::move(postUses), post);
+                auto resolve = graph.AddRecordedPass("Tone mapping (ACES fitted + sRGB)",
+                                                     std::move(postUses),
+                                                     post,
+                                                     renderer.FinalPostRecordMilliseconds);
                 graph.OrderAfter(resolve, resolve - 1);
             }
         }

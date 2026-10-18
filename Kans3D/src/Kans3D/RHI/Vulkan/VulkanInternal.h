@@ -37,7 +37,9 @@ namespace Kans::RenderHardware::VulkanDetail
         VkDevice                   Logical     = VK_NULL_HANDLE;
         VkQueue                    Queue       = VK_NULL_HANDLE;
         uint32_t                   QueueFamily = 0;
+        uint32_t                   TimestampValidBits     = 0;
         VmaAllocator               Allocator   = VK_NULL_HANDLE;
+        mutable uint64_t           TextureAllocationBytes = 0, BufferAllocationBytes = 0;
         VulkanDeviceOptions        Options;
         bool                       BresenhamLines = false;
         explicit Context(const VulkanDeviceOptions& options);

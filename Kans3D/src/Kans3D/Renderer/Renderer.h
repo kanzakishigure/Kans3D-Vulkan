@@ -20,6 +20,8 @@ namespace Kans
         RenderGraph      Graph;
         SceneRenderStats Stats;
         SpriteStatistics SpriteStats;
+        FrameStatistics                           FrameStats;
+        std::shared_ptr<const CapturedGraphFrame> Captures;
         bool             Complete = true;
     };
     struct EnvironmentPrecomputeSizes

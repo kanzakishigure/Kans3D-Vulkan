@@ -15,6 +15,7 @@ namespace Kans
         Right,
         Bottom,
         Center,
+        Floating, // Not docked: opens as its own window (and can leave the main window).
     };
 
     // Groups panels in the Window menu.

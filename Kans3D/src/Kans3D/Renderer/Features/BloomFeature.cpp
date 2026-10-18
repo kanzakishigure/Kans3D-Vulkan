@@ -23,6 +23,7 @@ namespace Kans
     }
     void BloomFeature::Prepare(RenderView& view, RenderFrame& frame)
     {
+        view.BloomMipCount     = 0;
         const auto b           = view.Scene.sceneCamera.camera.GetBloomSettings().Validated();
         frame.DeferToneMapping = b.Enabled && b.Intensity > 0;
     }
@@ -49,6 +50,7 @@ namespace Kans
         auto dirt = b.DirtTexture.IsValid() && b.DirtIntensity > 0 && frame->Assets() ?
                         frame->Assets()->GetTextureResource(b.DirtTexture) :
                         RenderHardware::Handle<RenderHardware::Texture> {};
+        frame->View.BloomMipCount = uint32_t(Levels(context.View.Viewport).size());
         AddBloomPasses(graph, hdr, context.View.Viewport, b, exposure, dirt);
         frame->PostProcessHDR = true;
     }

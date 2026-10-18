@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "ViewTarget.h"
 #include "Features/BloomFeature.h"
+#include "Graph/GraphCapture.h"
 namespace Kans
 {
     ViewTarget::ViewTarget(std::shared_ptr<RenderHardware::Device> device, uint32_t outputs, bool sampledDepth) :
@@ -9,6 +10,12 @@ namespace Kans
         m_DefaultFeatures.Register("Bloom", std::make_unique<BloomFeature>());
         if (!m_Device || !outputs)
             throw std::invalid_argument("ViewTarget needs a device and at least one output");
+    }
+    std::shared_ptr<GraphCapture> ViewTarget::GetGraphCapture()
+    {
+        if (!m_Capture)
+            m_Capture = std::make_shared<GraphCapture>(m_Device);
+        return m_Capture;
     }
     void ViewTarget::Resize(glm::uvec2 size)
     {

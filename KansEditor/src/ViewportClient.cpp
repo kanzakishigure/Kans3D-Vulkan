@@ -95,6 +95,7 @@ namespace Kans
         view.Scene.sceneCamera.camera     = camera;
         view.DebugMode                    = m_ViewMode;
         view.Grid                         = m_Grid;
+        view.Debug                        = m_Debug;
         // Orthographic front/back and side views get the grid plane they look at.
         if (camera.IsOrthographic())
         {

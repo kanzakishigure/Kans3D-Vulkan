@@ -229,6 +229,8 @@ namespace Kans
                                      ShadowSettings                         settings,
                                      glm::vec4                              position,
                                      bool                                   point) {
+            const auto           recordStart = RenderClockMilliseconds();
+            ShadowPassStatistics stats {name, point, cascade, face};
             const Frustum frustum(matrix);
             auto          commands = device->CreateCommandList();
             RenderingDesc rendering;
@@ -258,6 +260,7 @@ namespace Kans
                 if (!frustum.Intersects(proxy.WorldBounds))
                 {
                     ++view.ShadowStats.CastersCulled;
+                    ++stats.CastersCulled;
                     continue;
                 }
                 const auto* mesh     = frame.GetMesh(proxy.Mesh);
@@ -304,9 +307,11 @@ namespace Kans
                 pass.Render       = bindings->Render;
                 pass.ConstantBias = settings.ConstantBias;
                 pass.SlopeBias    = settings.SlopeBias;
+                bool recorded     = false;
                 frame.Complete &=
-                    RecordMaterialDraw(*frame.Assets(), *commands, *shader, *bindings, *mesh, pass, caster);
+                    RecordMaterialDraw(*frame.Assets(), *commands, *shader, *bindings, *mesh, pass, caster, &recorded);
                 ++view.ShadowStats.DrawCalls;
+                stats.CastersDrawn += recorded;
                 ++frame.Stats.DrawCalls;
                 frame.Stats.Triangles += mesh->Sections[proxy.Section].IndexCount / 3;
                 for (const auto& image : bindings->Images)
@@ -317,7 +322,9 @@ namespace Kans
                 }
             }
             commands->EndRendering();
-            auto pass = graph.AddRecordedPass(std::move(name), std::move(uses), commands);
+            auto pass = graph.AddRecordedPass(
+                std::move(name), std::move(uses), commands, RenderClockMilliseconds() - recordStart);
+            view.ShadowStats.PerPass.push_back(std::move(stats));
             if (pass)
                 graph.OrderAfter(pass, pass - 1);
             ++view.ShadowStats.Passes;
@@ -334,6 +341,7 @@ namespace Kans
                                        float(directional.Filter),
                                        directional.NormalOffset,
                                        std::tan(glm::radians(directional.AngularRadius))};
+                ++view.ShadowStats.ShadowedLights;
                 for (uint32_t i = 0; i < directional.Cascades; ++i)
                 {
                     const auto& c                     = cascades[i];
@@ -356,6 +364,7 @@ namespace Kans
         const glm::vec3 ups[]        = {{0, -1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}, {0, -1, 0}};
         for (uint32_t slot = 0; slot < selected.size(); ++slot)
         {
+            ++view.ShadowStats.ShadowedLights;
             auto        index    = selected[slot];
             const auto& light    = view.Scene.pointLights[index];
             auto        settings = light.Shadows.Validated();

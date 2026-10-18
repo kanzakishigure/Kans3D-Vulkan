@@ -89,6 +89,7 @@ namespace Kans
 
         void        ResetStats();
         Statistics& GetStats();
+        double      GetLastRecordMilliseconds() const;
 
     private:
         void FlushAndReset();

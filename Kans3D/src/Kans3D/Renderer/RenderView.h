@@ -5,6 +5,7 @@
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/EnvironmentSettings.h"
+#include "Graph/GraphCapture.h"
 #include "ImmediatePassState.h"
 #include "RenderSettings.h"
 #include "Resource/Camera.h"
@@ -28,6 +29,8 @@ namespace Kans
     struct ShadowStatistics
     {
         uint32_t Passes = 0, DrawCalls = 0, CastersCulled = 0;
+        uint32_t                          ShadowedLights = 0;
+        std::vector<ShadowPassStatistics> PerPass;
     };
     struct SpriteStatistics
     {
@@ -182,6 +185,9 @@ namespace Kans
     struct RenderView
     {
         SceneInfo                          Scene {};
+        GraphCaptureSettings               Debug;
+        CullingStatistics                  Culling;
+        uint32_t                           BloomMipCount = 0;
         RenderFeatureSet* Features = nullptr; // Borrowed for this call; owned by the viewport/configuration.
         std::shared_ptr<RenderAssetCache>                 Assets;
         std::map<MeshKey, std::shared_ptr<const GpuMesh>> MeshResources;

@@ -139,7 +139,12 @@ namespace Kans::RenderHardware
             void DestroyCapture()
             {
                 if (CaptureBuffer)
+                {
+                    VmaAllocationInfo info {};
+                    vmaGetAllocationInfo(C.Allocator, CaptureAllocation, &info);
+                    C.BufferAllocationBytes -= info.size;
                     vmaDestroyBuffer(C.Allocator, CaptureBuffer, CaptureAllocation);
+                }
                 CaptureBuffer     = VK_NULL_HANDLE;
                 CaptureAllocation = VK_NULL_HANDLE;
                 CaptureMapped     = nullptr;
@@ -389,6 +394,7 @@ namespace Kans::RenderHardware
                 VmaAllocationInfo info {};
                 Check(vmaCreateBuffer(C.Allocator, &buffer, &allocation, &CaptureBuffer, &CaptureAllocation, &info));
                 CaptureMapped = info.pMappedData;
+                C.BufferAllocationBytes += info.size;
                 Barrier(slot.Command,
                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,

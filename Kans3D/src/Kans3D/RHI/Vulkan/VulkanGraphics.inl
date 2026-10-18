@@ -31,6 +31,7 @@ struct ShaderBinding
     size_t           Bytes;
     TextureDimension Dimension;
     bool             Comparison = false;
+    bool             Unsigned   = false;
 };
 // IDs and member names are deliberately excluded; compare the actual native byte layout.
 std::string PushLayout(spirv_cross::Compiler& compiler, uint32_t id)
@@ -114,6 +115,7 @@ struct VKShader final : Shader
                                         !image.ms,
                                     "Unsupported shader image dimension");
                             binding.Comparison = image.depth;
+                            binding.Unsigned = reflection.get_type(image.type).basetype == spirv_cross::SPIRType::UInt;
                             binding.Dimension =
                                 image.dim == spv::DimCube ? TextureDimension::Cube : TextureDimension::Texture2D;
                         }
@@ -124,7 +126,8 @@ struct VKShader final : Shader
                             Bindings.push_back(binding);
                         else
                             Require(old->Type == binding.Type && old->Bytes == binding.Bytes &&
-                                        old->Dimension == binding.Dimension && old->Comparison == binding.Comparison,
+                                        old->Dimension == binding.Dimension && old->Comparison == binding.Comparison &&
+                                        old->Unsigned == binding.Unsigned,
                                     "Shader stages disagree about a binding");
                     }
                 };
@@ -294,8 +297,11 @@ struct VKGroup final : BindGroup
             {
                 auto t = Cast<VKTexture>(entry.TextureResource, Memory.Owner);
                 Require(Has(t->Desc.Usage, TextureUsage::Sampled), "Binding texture usage mismatch");
-                images[i].imageView = t->SampledView;
-                add(t->SampledView);
+                Require(entry.Aspect == TextureAspect::Default || entry.Subresource.has_value(),
+                        "Stencil requires a subresource view");
+                images[i].imageView =
+                    entry.Subresource ? t->SampleViewFor(*entry.Subresource, entry.Aspect) : t->SampledView;
+                add(images[i].imageView);
                 images[i].imageLayout =
                     Info(t->Desc.PixelFormat).Depth() && Has(t->Desc.Usage, TextureUsage::DepthStencil) ?
                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :

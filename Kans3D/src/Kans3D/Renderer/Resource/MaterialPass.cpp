@@ -11,8 +11,11 @@ namespace Kans
                             const GpuMaterialBindings&   bindings,
                             const GpuMesh&               mesh,
                             const MaterialPassData&      data,
-                            const GpuShaderPass*         extraPass)
+                            const GpuShaderPass*         extraPass,
+                            bool*                        recorded)
     {
+        if (recorded)
+            *recorded = false;
         using namespace RenderHardware;
         auto       device      = cache.GetDevice();
         const bool transparent = data.Render.AlphaMode == MaterialAlphaMode::Blend;
@@ -137,6 +140,8 @@ namespace Kans
         commands.BindIndexBuffer(mesh.Indices, IndexType::Uint32);
         const auto& section = mesh.Sections.at(data.Section);
         commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);
+        if (recorded)
+            *recorded = true;
         return complete;
     }
 } // namespace Kans

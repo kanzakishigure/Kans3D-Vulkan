@@ -10,6 +10,7 @@
 #include "Kans3D/Editor/EditorResources.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/HierarchyPanel.h"
+#include "Panels/FrameGraphPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
 #include "Panels/PropertiesPanel.h"
@@ -34,6 +35,7 @@ namespace Kans
         inline constexpr const char* Stats          = "Stats";
         inline constexpr const char* AssetImporter  = "AssetImporter";
         inline constexpr const char* MaterialEditor = "MaterialEditor";
+        inline constexpr const char* FrameGraph     = "FrameGraph";
     } // namespace PanelID
 
     class EditorLayer : public Kans::Layer
@@ -165,6 +167,10 @@ namespace Kans
         ContentBrowserPanel m_ContentBrowserPanel;
         ProductImportPanel  m_ProductImportPanel;
         MaterialEditorPanel m_MaterialEditorPanel;
+        FrameGraphPanel     m_FrameGraphPanel;
+        // Editor view frame times (ms) for the Stats panel's graph, oldest first.
+        std::array<float, 240> m_FrameTimes {};
+        size_t                 m_FrameTimeCursor = 0;
         ConsolePanel        m_Console;
     };
 

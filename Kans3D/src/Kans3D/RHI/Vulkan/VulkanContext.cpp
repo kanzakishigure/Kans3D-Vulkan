@@ -147,6 +147,7 @@ namespace Kans::RenderHardware::VulkanDetail
                         Physical    = physical;
                         Properties  = properties;
                         QueueFamily = i;
+                        TimestampValidBits = queues[i].timestampValidBits;
                         break;
                     }
                 if (Physical)

@@ -213,7 +213,8 @@ namespace Kans
                     }
                     else if ((type.image.dim != spv::Dim2D && type.image.dim != spv::DimCube) || type.image.arrayed ||
                              type.image.ms ||
-                             compiler.get_type(type.image.type).basetype != spirv_cross::SPIRType::Float)
+                             (compiler.get_type(type.image.type).basetype != spirv_cross::SPIRType::Float &&
+                              compiler.get_type(type.image.type).basetype != spirv_cross::SPIRType::UInt))
                         return AssetError {AssetErrorCode::NotImplemented, "Shader sampled image shape is unsupported"};
                     else
                         binding.Dimension = type.image.dim == spv::DimCube ? ShaderImageDimension::Cube :

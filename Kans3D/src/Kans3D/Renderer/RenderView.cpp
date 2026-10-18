@@ -62,6 +62,8 @@ namespace Kans
     }
     void ExtractDrawLists(RenderView& view, const Frustum* frustum)
     {
+        view.Culling                = {};
+        view.Culling.SectionProxies = view.Draws.size();
         view.MaterialOrder.clear();
         view.Opaque.clear();
         view.Mask.clear();
@@ -69,10 +71,11 @@ namespace Kans
         for (size_t i = 0; i < view.Draws.size(); ++i)
         {
             const auto& draw = view.Draws[i];
-            if (!draw.Ready)
-                continue;
             if (frustum && !frustum->Intersects(draw.HasWorldBounds ? draw.WorldBounds :
                                                                       draw.LocalBounds.Transformed(draw.Transform)))
+                continue;
+            ++view.Culling.InFrustum;
+            if (!draw.Ready)
                 continue;
             const auto center = glm::vec3(draw.Transform * glm::vec4(draw.LocalBounds.Center(), 1));
             const auto offset = center - view.Scene.sceneCamera.Position;

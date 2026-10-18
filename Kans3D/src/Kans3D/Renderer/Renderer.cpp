@@ -460,7 +460,10 @@ namespace Kans
     {
         if (target.GetDevice() != m_Device)
             throw std::invalid_argument("Renderer target belongs to another device");
+        const auto   totalStart = RenderClockMilliseconds();
         RenderResult result;
+        auto&        statistics = result.FrameStats;
+        statistics.Frame        = target.NextFrameNumber();
         result.View = input;
         auto& view  = result.View;
         if (!view.Features)
@@ -477,6 +480,7 @@ namespace Kans
                 throw std::invalid_argument("Renderer asset cache belongs to another device");
             world.SetAssetManager(&view.Assets->GetAssetManager());
         }
+        const auto extractStart = RenderClockMilliseconds();
         world.Synchronize();
         if (view.Assets)
             view.Assets->BeginFrame();
@@ -504,6 +508,11 @@ namespace Kans
                 view.ImmediateOrder.push_back(immediate);
             }
         }
+        statistics.WorldSyncExtractMilliseconds = RenderClockMilliseconds() - extractStart;
+        statistics.ProxiesCreated               = world.GetStats().Created;
+        statistics.ProxiesUpdated               = world.GetStats().Updated;
+        statistics.ProxiesRemoved               = world.GetStats().Removed;
+        const auto buildStart                   = RenderClockMilliseconds();
         const bool sceneEnvironment = view.UseWorldEnvironment && world.Environment.has_value();
         if (view.UseWorldEnvironment)
             view.Environment = world.Environment.value_or(EnvironmentSettings {});
@@ -543,15 +552,32 @@ namespace Kans
         RenderFrame frame {world, view, target, *this, result.Stats, result.SpriteStats, result.Complete};
         auto        pipeline = RenderPipelineRegistry::Create(view.Pipeline);
         m_Device->BeginFrame();
+        double                        executeStart = 0;
+        std::shared_ptr<GraphCapture> capture;
         try
         {
             if (view.Features)
                 view.Features->Prepare(view, frame);
             frame.PrepareDrawLists();
             pipeline->Prepare(view);
+            if (view.Debug.CaptureGraph)
+            {
+                capture = target.GetGraphCapture();
+                capture->BeginFrame(view.Debug,
+                                    statistics.Frame,
+                                    DeviceProjection(view.Scene.sceneCamera.camera.GetProjectionMatrix(),
+                                                     m_Device->GetCoordinateConventions()));
+            }
+            result.Graph.SetExecutionDebug(&target.GetFrameProfiler(), statistics.Frame, capture.get());
             pipeline->Build(result.Graph, frame);
+            statistics.GraphBuildMilliseconds = RenderClockMilliseconds() - buildStart;
+            const auto compileStart           = RenderClockMilliseconds();
             result.Graph.Compile();
+            statistics.CompileMilliseconds = RenderClockMilliseconds() - compileStart;
+            executeStart                   = RenderClockMilliseconds();
             result.Graph.Execute(*m_Device, target.GetTransientPool());
+            if (capture)
+                result.Captures = capture->Latest();
             result.Graph.ReleaseRecorders();
         }
         catch (...)
@@ -562,6 +588,43 @@ namespace Kans
             throw;
         }
         m_Device->EndFrame();
+        statistics.ExecuteSubmitMilliseconds = RenderClockMilliseconds() - executeStart;
+        statistics.Passes                    = result.Graph.Statistics();
+        statistics.Gpu                       = target.GetFrameProfiler().Latest();
+        statistics.Draws                     = RenderHardware::CommandStatistics {};
+        for (auto& pass : statistics.Passes)
+        {
+            if (pass.Culled)
+                continue;
+            if (!pass.Draws)
+                statistics.Draws.reset();
+            else if (statistics.Draws)
+            {
+                statistics.Draws->DrawCalls += pass.Draws->DrawCalls;
+                statistics.Draws->Triangles += pass.Draws->Triangles;
+            }
+            if (statistics.Gpu)
+                for (auto& gpu : statistics.Gpu->Passes)
+                    if (gpu.ID == pass.ID)
+                        pass.GpuMilliseconds = gpu.EndMilliseconds - gpu.BeginMilliseconds;
+        }
+        statistics.Culling               = view.Culling;
+        statistics.Shadows               = view.ShadowStats.PerPass;
+        statistics.ShadowedLights        = view.ShadowStats.ShadowedLights;
+        statistics.DirectionalLights     = view.Scene.HasDirectionalLight ||
+                                                   view.Scene.dirLight.Diffuse_Intensity != glm::vec3(0) ||
+                                                   view.Scene.dirLight.Ambient_Intensity != glm::vec3(0) ?
+                                               1 :
+                                               0;
+        statistics.PointLights           = view.Scene.pointLights.empty() ?
+                                               (view.Scene.pointLight.Diffuse_Intensity != glm::vec3(0) ? 1 : 0) :
+                                               uint32_t(view.Scene.pointLights.size());
+        statistics.BloomMipCount         = view.BloomMipCount;
+        statistics.TransientTextureSlots = target.GetTransientPool().Size();
+        const auto memory                = m_Device->GetStats();
+        statistics.DeviceTextureBytes    = memory.TextureBytes;
+        statistics.DeviceBufferBytes     = memory.BufferBytes;
+        statistics.TotalMilliseconds     = RenderClockMilliseconds() - totalStart;
         return result;
     }
     void Renderer::AppendEntityDraws(RenderWorld&           world,

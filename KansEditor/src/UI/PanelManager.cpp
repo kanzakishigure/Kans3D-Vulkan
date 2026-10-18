@@ -80,6 +80,8 @@ namespace Kans
         ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, &bottom, &center);
         for (const auto& panel : m_Panels)
         {
+            if (panel.Spec.Dock == PanelDock::Floating)
+                continue;
             const ImGuiID node = panel.Spec.Dock == PanelDock::Left   ? left :
                                  panel.Spec.Dock == PanelDock::Right  ? right :
                                  panel.Spec.Dock == PanelDock::Bottom ? bottom :
@@ -102,6 +104,14 @@ namespace Kans
             {
                 ImGui::SetNextWindowFocus();
                 panel.FocusRequest = false;
+            }
+            if (panel.Spec.Dock == PanelDock::Floating)
+            {
+                // First open: a large window centred on the main viewport.
+                const ImGuiViewport* main = ImGui::GetMainViewport();
+                ImGui::SetNextWindowSize({main->WorkSize.x * 0.8f, main->WorkSize.y * 0.75f}, ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowPos({main->WorkPos.x + main->WorkSize.x * 0.5f, main->WorkPos.y + main->WorkSize.y * 0.5f},
+                                        ImGuiCond_FirstUseEver, {0.5f, 0.5f});
             }
             if (panel.Spec.NoPadding)
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
