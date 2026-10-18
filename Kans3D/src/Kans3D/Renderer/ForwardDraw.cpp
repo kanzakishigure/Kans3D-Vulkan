@@ -97,6 +97,11 @@ namespace Kans
         frame.ViewProjection   = DeviceProjection(frame.ViewProjection, coordinates);
         frame.CameraPosition   = glm::vec4(View.Scene.sceneCamera.Position, 1.0f);
         frame.Time             = View.Time;
+        const float rotation   = glm::radians(View.Environment.Rotation);
+        frame.EnvironmentInfo  = {View.Environment.DiffuseIntensity,
+                                  View.Environment.SpecularIntensity,
+                                  std::cos(rotation),
+                                  std::sin(rotation)};
         if (View.Exposure)
             frame.LightingInfo.y = *View.Exposure;
         using namespace RenderHardware;
@@ -405,7 +410,7 @@ namespace Kans
         const auto& skybox = sky.Texture;
         const auto& state  = sky.State;
         using namespace RenderHardware;
-        if (!skybox)
+        if (!skybox || !View.Environment.ShowSkybox)
             return;
         auto desc = Services.ScenePipeline("skybox", SceneShaders::SkyboxVertex, SceneShaders::SkyboxFragment, true);
         if (!desc.Program)
@@ -424,6 +429,8 @@ namespace Kans
         data.DeviceClip     = DeviceProjection(glm::mat4(1), Services.GetDevice()->GetCoordinateConventions());
         data.ViewProjection = View.Scene.sceneCamera.camera.GetProjectionMatrix();
         data.Transform      = View.Scene.sceneCamera.viewMatrix;
+        const float rotation = glm::radians(View.Environment.Rotation);
+        data.Settings        = {View.Environment.SkyboxIntensity, std::cos(rotation), std::sin(rotation), 0};
         GetMaterialEnvironment();
         auto* commands = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load));

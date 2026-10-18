@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <optional>
 #include <set>
 #include <unordered_set>
 #include <entt.hpp>
@@ -8,6 +9,7 @@
 #include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
+#include "EnvironmentSettings.h"
 
 namespace Kans
 {
@@ -93,6 +95,21 @@ namespace Kans
         std::vector<MeshMaterialSlot> GetMeshSlots(Entity entity) const;
         void                          UpdateBounds();
 
+        const EnvironmentSettings& GetEnvironmentSettings() const { return m_EnvironmentSettings; }
+        bool                       HasEnvironmentSettings() const { return m_HasEnvironmentSettings; }
+        // Validates and immediately notifies the render world, including map removal.
+        void SetEnvironmentSettings(EnvironmentSettings settings);
+        template<typename Fn>
+        void PatchEnvironmentSettings(Fn&& patch)
+        {
+            auto settings = m_EnvironmentSettings;
+            patch(settings);
+            if (settings != m_EnvironmentSettings)
+                SetEnvironmentSettings(std::move(settings));
+        }
+        // Restore legacy inheritance from the view/editor, including default scales.
+        void ClearEnvironmentSettings();
+
         // ---- undo/redo (SceneSnapshot.h) ----
         SceneSnapshot Capture() const;
         // Replaces every entity with the snapshot's; UUIDs are preserved.
@@ -148,6 +165,8 @@ namespace Kans
         entt::registry m_Registry;
         uint32_t       m_ViewportWidth = 0, m_ViewportHeight = 0;
         std::string    m_Name;
+        EnvironmentSettings                           m_EnvironmentSettings;
+        bool                                          m_HasEnvironmentSettings = false;
         EntityMap      m_EntityMap;
         std::vector<UUID> m_RootOrder;
 

@@ -46,6 +46,21 @@ namespace Kans
         m_Registry.clear();
     }
 
+    void Scene::SetEnvironmentSettings(EnvironmentSettings settings)
+    {
+        settings.Validate();
+        m_EnvironmentSettings      = std::move(settings);
+        m_HasEnvironmentSettings   = true;
+        m_RenderWorld->Environment = m_EnvironmentSettings;
+    }
+
+    void Scene::ClearEnvironmentSettings()
+    {
+        m_EnvironmentSettings    = {};
+        m_HasEnvironmentSettings = false;
+        m_RenderWorld->Environment.reset();
+    }
+
     void Scene::DirtyBounds(Entity entity)
     {
         for (auto current = entity; current; current = GetParent(current))

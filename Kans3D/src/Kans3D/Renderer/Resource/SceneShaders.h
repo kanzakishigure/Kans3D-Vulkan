@@ -413,12 +413,18 @@ void main()
 )glsl";
 
     inline constexpr const char* SkyboxFragment = R"glsl(#version 450
+layout(set = 0, binding = 0, std140) uniform SceneDraw { mat4 U_ViewProjection; mat4 U_Transform; mat4 DeviceClip; vec4 U_ViewPos; vec4 Settings; };
 layout(location = 0) out vec4 FragColor;
 layout(location = 0) in vec3 localPos;
 layout(set = 0, binding = 1) uniform samplerCube environmentMap;
 void main()
 {
-    vec3 envColor = texture(environmentMap, localPos).rgb;
+    vec3 direction = localPos;
+    if (Settings.yz != vec2(1.0, 0.0))
+        direction = vec3(Settings.y * localPos.x - Settings.z * localPos.z, localPos.y,
+                         Settings.z * localPos.x + Settings.y * localPos.z);
+    vec3 envColor = texture(environmentMap, direction).rgb;
+    if (Settings.x != 1.0) envColor *= Settings.x;
     envColor = envColor / (envColor + vec3(1.0));
     envColor = pow(envColor, vec3(1.0/2.2));
     FragColor = vec4(envColor, 1.0);

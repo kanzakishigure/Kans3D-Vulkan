@@ -45,6 +45,7 @@ layout(set = 0, binding = 0, std140) uniform KansFrame
     vec4 ShadowPass;
     vec4 ShadowPassPosition;
     vec4 PointShadowSourceRadius;
+    vec4 EnvironmentInfo; // diffuse, specular, cos(rotation), sin(rotation).
 
 } u_Frame;
 int KansPointLightCount() { return clamp(int(u_Frame.LightingInfo.x), 0, KANS_POINT_LIGHT_LIMIT); }
@@ -117,6 +118,26 @@ layout(set = 0, binding = 7) uniform samplerCubeShadow u_PointShadow0;
 layout(set = 0, binding = 8) uniform samplerCubeShadow u_PointShadow1;
 layout(set = 0, binding = 9) uniform samplerCubeShadow u_PointShadow2;
 layout(set = 0, binding = 10) uniform samplerCubeShadow u_PointShadow3;
+
+// Inverse world rotation: the same lookup transform is used by the skybox.
+vec3 KansEnvironmentDirection(vec3 direction)
+{
+    vec2 cs = u_Frame.EnvironmentInfo.zw;
+    if (cs == vec2(1.0, 0.0)) return direction;
+    return vec3(cs.x * direction.x - cs.y * direction.z, direction.y,
+                cs.y * direction.x + cs.x * direction.z);
+}
+vec3 KansEnvironmentDiffuse(vec3 normal)
+{
+    vec3 value = textureLod(u_IrradianceMap, KansEnvironmentDirection(normal), 0.0).rgb;
+    return u_Frame.EnvironmentInfo.x == 1.0 ? value : value * u_Frame.EnvironmentInfo.x;
+}
+vec3 KansEnvironmentSpecular(vec3 reflection, float roughness)
+{
+    vec3 value = textureLod(u_PrefilterMap, KansEnvironmentDirection(reflection), roughness * 4.0).rgb;
+    return u_Frame.EnvironmentInfo.y == 1.0 ? value : value * u_Frame.EnvironmentInfo.y;
+}
+
 
 // Engine PBR lighting (point lights + image-based lighting), in linear HDR.
 const float KANS_PI = 3.14159265359;
@@ -341,8 +362,8 @@ vec3 KansShadePbr(vec3 albedo, float metallic, float roughness, float ao, vec3 N
                             KansDirectionalRadiance(), u_Frame.DirectionalSpecular.rgb) * KansShadow(worldPos, N);
     vec3 F = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
     vec3 kD = (1.0 - F) * (1.0 - metallic);
-    vec3 diffuse = textureLod(u_IrradianceMap, N, 0.0).rgb * albedo;
-    vec3 prefiltered = textureLod(u_PrefilterMap, R, roughness * 4.0).rgb;
+    vec3 diffuse = KansEnvironmentDiffuse(N) * albedo;
+    vec3 prefiltered = KansEnvironmentSpecular(R, roughness);
     vec2 brdf = texture(u_BrdfLUT, vec2(NdotV, roughness)).rg;
     return (kD * diffuse + prefiltered * (F * brdf.x + brdf.y)
             + KansDirectionalAmbient() * albedo) * ao + Lo;
@@ -407,7 +428,8 @@ vec4 KansToneMap(vec3 color)
                   {"PointShadowParams", 1648, 4, 1, 4},
                   {"ShadowPass", 1712, 4, 1, 1},
                   {"ShadowPassPosition", 1728, 4, 1, 1},
-                  {"PointShadowSourceRadius", 1744, 4, 1, 1}}},
+                  {"PointShadowSourceRadius", 1744, 4, 1, 1},
+                  {"EnvironmentInfo", 1760, 4, 1, 1}}},
                 {ShaderBindingKind::UniformBuffer,
                  ShaderImageDimension::Texture2D,
                  sizeof(EngineObjectUniforms),
@@ -447,7 +469,7 @@ vec4 KansToneMap(vec3 color)
                 (binding.Members.size() == expected.Members.size() ||
                  (binding.Binding == uint32_t(EngineBinding::Frame) &&
                   (binding.Members.size() == LegacyFrameMemberCount || binding.Members.size() == 7 ||
-                   binding.Members.size() == 17)) ||
+                   binding.Members.size() == 17 || binding.Members.size() == 28)) ||
                  (binding.Binding == uint32_t(EngineBinding::Object) &&
                   binding.Members.size() == LegacyObjectMemberCount));
             for (size_t i = 0; matches && i < binding.Members.size(); ++i)

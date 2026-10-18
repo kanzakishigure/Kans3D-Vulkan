@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "Components.h"
+#include "EnvironmentSettings.h"
 
 namespace Kans
 {
@@ -29,6 +30,7 @@ namespace Kans
     struct SceneSnapshot
     {
         std::string                 Name;
+        std::optional<EnvironmentSettings> Environment;
         std::vector<UUID>           RootOrder;
         std::vector<EntitySnapshot> Entities; // Ordered by UUID.
 

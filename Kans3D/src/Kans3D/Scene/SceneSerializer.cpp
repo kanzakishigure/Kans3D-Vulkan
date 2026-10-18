@@ -843,6 +843,22 @@ namespace Kans
             YAML::Node root;
             root["Version"]  = 1;
             root["Scene"]    = name;
+            if (m_Scene->HasEnvironmentSettings())
+            {
+                const auto& settings    = m_Scene->GetEnvironmentSettings();
+                auto        environment = root["Environment"];
+                environment["Map"]      = settings.Map.generic_string(); // Empty explicitly disables IBL.
+                if (settings.DiffuseIntensity != 1)
+                    environment["DiffuseIntensity"] = settings.DiffuseIntensity;
+                if (settings.SpecularIntensity != 1)
+                    environment["SpecularIntensity"] = settings.SpecularIntensity;
+                if (settings.Rotation != 0)
+                    environment["Rotation"] = settings.Rotation;
+                if (settings.SkyboxIntensity != 1)
+                    environment["SkyboxIntensity"] = settings.SkyboxIntensity;
+                if (!settings.ShowSkybox)
+                    environment["ShowSkybox"] = false;
+            }
             root["Entities"] = YAML::Node(YAML::NodeType::Sequence);
             std::map<uint64_t, Entity> entities;
             SceneAllocationBudget      budget;
@@ -930,11 +946,30 @@ namespace Kans
             auto documents = YAML::LoadAll(text);
             Require(documents.size() == 1, "Scene requires one YAML document");
             auto root = documents.front();
-            Keys(root, {"Version", "Scene", "Entities"});
+            Keys(root, {"Version", "Scene", "Entities", "Environment"});
             Require(UInt(root["Version"]) == 1, "Unsupported Scene version");
             auto entities = root["Entities"];
             Require(entities.IsSequence() && entities.size() <= 65536, "Invalid Scene entities");
             auto                  candidate = CreateRef<Scene>(Text(root["Scene"]));
+            if (auto environment = root["Environment"])
+            {
+                Keys(environment,
+                     {"Map", "DiffuseIntensity", "SpecularIntensity", "Rotation", "SkyboxIntensity", "ShowSkybox"});
+                EnvironmentSettings settings;
+                if (environment["Map"])
+                    settings.Map = Text(environment["Map"]);
+                if (environment["DiffuseIntensity"])
+                    settings.DiffuseIntensity = environment["DiffuseIntensity"].as<float>();
+                if (environment["SpecularIntensity"])
+                    settings.SpecularIntensity = environment["SpecularIntensity"].as<float>();
+                if (environment["Rotation"])
+                    settings.Rotation = environment["Rotation"].as<float>();
+                if (environment["SkyboxIntensity"])
+                    settings.SkyboxIntensity = environment["SkyboxIntensity"].as<float>();
+                if (environment["ShowSkybox"])
+                    settings.ShowSkybox = environment["ShowSkybox"].as<bool>();
+                candidate->SetEnvironmentSettings(std::move(settings));
+            }
             std::set<uint64_t>    seen;
             SceneAllocationBudget budget;
             budget.TextBytes = candidate->GetName().size();

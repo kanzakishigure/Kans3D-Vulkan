@@ -122,7 +122,8 @@ namespace Kans
 
     bool operator==(const SceneSnapshot& a, const SceneSnapshot& b)
     {
-        return a.Name == b.Name && a.RootOrder == b.RootOrder && a.Entities == b.Entities;
+        return a.Name == b.Name && a.Environment == b.Environment && a.RootOrder == b.RootOrder &&
+               a.Entities == b.Entities;
     }
 
     SceneSnapshot Scene::Capture() const
@@ -130,6 +131,8 @@ namespace Kans
         const_cast<Scene*>(this)->UpdatePrefabs();
         SceneSnapshot snapshot;
         snapshot.Name      = m_Name;
+        if (m_HasEnvironmentSettings)
+            snapshot.Environment = m_EnvironmentSettings;
         snapshot.RootOrder = m_RootOrder;
         for (const auto& [id, value] : m_EntityMap)
         {
@@ -198,6 +201,10 @@ namespace Kans
         m_ChildBounds.clear();
         m_RootOrder.clear();
         m_Name = snapshot.Name;
+        if (snapshot.Environment)
+            SetEnvironmentSettings(*snapshot.Environment);
+        else
+            ClearEnvironmentSettings();
         for (const auto& item : snapshot.Entities)
         {
             Entity entity                                    = CreateEntityWithID(item.ID, item.Tag, false);

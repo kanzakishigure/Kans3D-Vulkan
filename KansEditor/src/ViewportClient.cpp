@@ -38,6 +38,7 @@ namespace Kans
             auto&       world            = scene->GetRenderWorld();
             world.Settings               = previous.Settings;
             world.EnvironmentPath        = previous.EnvironmentPath;
+            world.EnvironmentRoot        = previous.EnvironmentRoot;
         }
         m_Scene = std::move(scene);
         if (m_Scene && m_Assets)
@@ -125,8 +126,10 @@ namespace Kans
         view.Time                = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
         view.ExtractWorld        = true;
         view.DrawEnvironment     = true;
-        view.UseWorldEnvironment = false;
-        view.EnvironmentMaps     = {m_Lighting->Maps.IrradianceMap, m_Lighting->Maps.RadianceMap};
+        // The scene's environment settings apply; the editor's maps are reused when the scene
+        // has none (or names the same map).
+        view.UseWorldEnvironment = true;
+        view.EnvironmentMaps     = {m_Lighting->Maps.IrradianceMap, m_Lighting->Maps.RadianceMap, m_EnvironmentSource};
         view.BrdfLUT             = m_Lighting->BrdfLUT;
         view.HighlightEntities   = std::move(m_Highlight);
         view.Preview             = std::move(m_Preview);

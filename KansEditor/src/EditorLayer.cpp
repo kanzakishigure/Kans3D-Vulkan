@@ -19,6 +19,7 @@ namespace Kans
     {
         // Relative to the project's asset folder.
         constexpr const char* StartupScene = "scenes/Showcase.kans";
+        constexpr const char* DefaultEnvironment = "assets/textures/HDR/studio_country_hall_2k.hdr";
     } // namespace
 
 
@@ -117,7 +118,11 @@ namespace Kans
         {
             m_Viewport = CreateScope<ViewportClient>();
             m_Viewport->SetScene(m_ActiveScene);
-            m_ActiveScene->GetRenderWorld().EnvironmentPath = "assets/textures/HDR/studio_country_hall_2k.hdr";
+            // Scenes without environment settings show the editor's default map; a scene's own
+            // map is relative to the project directory.
+            m_ActiveScene->GetRenderWorld().EnvironmentPath = DefaultEnvironment;
+            m_ActiveScene->GetRenderWorld().EnvironmentRoot = std::filesystem::current_path();
+            m_PropertiesPanel.SetDefaultEnvironment(DefaultEnvironment);
             m_Viewport->PrepareEnvironment();
             // Material previews share the viewport's renderer and environment; their
             // asset cache is bound when the project's assets are (RefreshProductAssets).

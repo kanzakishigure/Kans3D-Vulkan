@@ -96,6 +96,8 @@ namespace Kans
             return "Delete " + (removed.size() == 1 ? removed[0]->Tag : count(removed.size()));
         if (!added.empty())
             return "Replace entities";
+        if (changed.empty() && before.Environment != after.Environment)
+            return "Edit environment";
         // A reparent also changes the old and new parents' child lists.
         for (const auto* entity : changed)
             if (entity->Relationship.Parent != before.Find(entity->ID)->Relationship.Parent)

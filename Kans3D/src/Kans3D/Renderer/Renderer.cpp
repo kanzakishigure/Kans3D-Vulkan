@@ -505,22 +505,38 @@ namespace Kans
                 view.ImmediateOrder.push_back(immediate);
             }
         }
-        const auto path =
-            view.EnvironmentPath.value_or(view.UseWorldEnvironment ? world.EnvironmentPath : std::filesystem::path {});
-        if (!path.empty() && (view.EnvironmentPath.has_value() || !view.EnvironmentMaps.IrradianceMap))
+        const bool sceneEnvironment = view.UseWorldEnvironment && world.Environment.has_value();
+        if (view.UseWorldEnvironment)
+            view.Environment = world.Environment.value_or(EnvironmentSettings {});
+        const auto path = view.EnvironmentPath.value_or(
+            sceneEnvironment ? (world.Environment->Map.empty() ? std::filesystem::path {} :
+                                                                 world.EnvironmentRoot / world.Environment->Map) :
+            view.UseWorldEnvironment ? world.EnvironmentPath :
+                                       std::filesystem::path {});
+        // A scene that explicitly disables the map also suppresses caller-submitted skyboxes.
+        if (sceneEnvironment && path.empty())
+            view.Environment.ShowSkybox = false;
+        const bool reuseEnvironment = !path.empty() && view.EnvironmentMaps.IrradianceMap &&
+                                      !view.EnvironmentMaps.Source.empty() &&
+                                      std::filesystem::absolute(path).lexically_normal() ==
+                                          std::filesystem::absolute(view.EnvironmentMaps.Source).lexically_normal();
+        const bool knownWorldMap    = view.UseWorldEnvironment && !path.empty() && !view.EnvironmentMaps.Source.empty();
+        if ((sceneEnvironment || view.EnvironmentPath.has_value() || knownWorldMap) && !reuseEnvironment)
         {
-            if (auto environment = PrepareEnvironment(path))
-            {
-                view.EnvironmentMaps = {environment->Maps.IrradianceMap, environment->Maps.RadianceMap};
-                view.BrdfLUT         = environment->BrdfLUT;
-            }
-        }
-        if (view.EnvironmentPath && view.EnvironmentPath->empty())
-        {
+            // An explicit empty map or failed replacement must not reuse the previous scene's maps.
             view.EnvironmentMaps = {};
             view.BrdfLUT.reset();
         }
-        if (view.DrawEnvironment && view.EnvironmentMaps.IrradianceMap)
+        if (!path.empty() && !reuseEnvironment &&
+            (sceneEnvironment || view.EnvironmentPath.has_value() || !view.EnvironmentMaps.IrradianceMap))
+        {
+            if (auto environment = PrepareEnvironment(path))
+            {
+                view.EnvironmentMaps = {environment->Maps.IrradianceMap, environment->Maps.RadianceMap, path};
+                view.BrdfLUT         = environment->BrdfLUT;
+            }
+        }
+        if (view.DrawEnvironment && view.Environment.ShowSkybox && view.EnvironmentMaps.IrradianceMap)
         {
             view.ImmediateOrder.push_back({ViewImmediateKind::Skybox, view.Skyboxes.size()});
             view.Skyboxes.push_back({view.EnvironmentMaps.IrradianceMap, {}});

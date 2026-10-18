@@ -1,4 +1,5 @@
 #include "PropertiesPanel.h"
+#include <filesystem>
 #include "Components/ComponentEditors.h"
 #include <algorithm>
 #include <cctype>
@@ -42,6 +43,8 @@ namespace Kans
         Entity entity = m_Hierarchy.GetSelected();
         if (!entity)
         {
+            if (Scene* scene = GetScene())
+                DrawSceneSettings(*scene);
             ImGui::Spacing();
             ImGui::TextDisabled("Select an entity in the hierarchy to edit its components.");
             return;
@@ -54,6 +57,66 @@ namespace Kans
                 DrawSection(entity, component);
         ImGui::Spacing();
         DrawAddComponent(entity);
+    }
+
+    void PropertiesPanel::DrawSceneSettings(Scene& scene)
+    {
+        if (!ImGui::CollapsingHeader(ICON_FA_GLOBE "  Environment", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+        // The project's HDR images, listed once per panel open is enough; rescan on demand.
+        if (m_EnvironmentMaps.empty() || ImGui::IsWindowAppearing())
+        {
+            m_EnvironmentMaps.clear();
+            std::error_code error;
+            const auto      root = std::filesystem::current_path(error);
+            for (auto it = std::filesystem::recursive_directory_iterator(root / "assets", error);
+                 !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error))
+                if (it->is_regular_file(error) && it->path().extension() == ".hdr")
+                    m_EnvironmentMaps.push_back(it->path().lexically_relative(root));
+            std::sort(m_EnvironmentMaps.begin(), m_EnvironmentMaps.end());
+        }
+        const bool authored = scene.HasEnvironmentSettings();
+        auto       settings = scene.GetEnvironmentSettings();
+        if (!PropertyGrid::Begin("##Environment"))
+            return;
+        // "Editor default" leaves the scene without settings: it shows the editor's environment.
+        const std::string current = !authored            ? "Editor default" :
+                                    settings.Map.empty() ? "None" :
+                                                           settings.Map.generic_u8string();
+        PropertyGrid::Row("Map", "The HDR image lighting the scene and shown as the sky");
+        ImGui::PushID("Map");
+        if (ImGui::BeginCombo("##map", current.c_str()))
+        {
+            if (ImGui::Selectable("Editor default", !authored))
+                scene.ClearEnvironmentSettings();
+            if (ImGui::Selectable("None", authored && settings.Map.empty()))
+            {
+                settings.Map.clear();
+                scene.SetEnvironmentSettings(settings);
+            }
+            for (const auto& map : m_EnvironmentMaps)
+                if (ImGui::Selectable(map.generic_u8string().c_str(), authored && settings.Map == map))
+                {
+                    settings.Map = map;
+                    scene.SetEnvironmentSettings(settings);
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::PopID();
+        bool changed = PropertyGrid::Float("Diffuse", settings.DiffuseIntensity, 0.01f, 0.0f, 16.0f);
+        changed |= PropertyGrid::Float("Specular", settings.SpecularIntensity, 0.01f, 0.0f, 16.0f);
+        changed |= PropertyGrid::Float("Rotation", settings.Rotation, 0.5f, -360.0f, 720.0f, "%.1f deg");
+        changed |= PropertyGrid::Checkbox("Show sky", settings.ShowSkybox);
+        if (settings.ShowSkybox)
+            changed |= PropertyGrid::Float("Sky brightness", settings.SkyboxIntensity, 0.01f, 0.0f, 16.0f);
+        if (changed)
+        {
+            // The first edit of a scene without settings keeps the map it was showing.
+            if (!authored)
+                settings.Map = m_DefaultEnvironment;
+            scene.SetEnvironmentSettings(settings);
+        }
+        PropertyGrid::End();
     }
 
     void PropertiesPanel::DrawHeader(Entity entity)

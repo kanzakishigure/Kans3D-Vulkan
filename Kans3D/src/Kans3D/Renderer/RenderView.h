@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Scene/Components.h"
+#include "Kans3D/Scene/EnvironmentSettings.h"
 #include "ImmediatePassState.h"
 #include "RenderSettings.h"
 #include "Resource/Camera.h"
@@ -150,6 +151,7 @@ namespace Kans
     struct ViewEnvironment
     {
         RenderHardware::Handle<RenderHardware::Texture> IrradianceMap, RadianceMap;
+        std::filesystem::path Source; // Resolved HDR path, when maps were precomputed by the caller.
     };
     // One view/frame. Owns intent, CPU sort metadata and resource handles, never borrowed meshes.
     // Matrices remain in the engine's coordinate convention until recording.
@@ -173,6 +175,7 @@ namespace Kans
         std::shared_ptr<ShadowResources>                  Shadows;
         ShadowStatistics                                  ShadowStats;
         bool                                              ExtractWorld = true;
+        EnvironmentSettings Environment; // Effective settings; independent when UseWorldEnvironment is false.
         std::optional<std::filesystem::path> EnvironmentPath; // nullopt inherits world; empty disables IBL.
         bool                                 DrawEnvironment     = true;
         bool                                 UseWorldEnvironment = true;

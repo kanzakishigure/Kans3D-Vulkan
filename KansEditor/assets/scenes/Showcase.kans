@@ -1,5 +1,9 @@
 Version: 1
-Scene: TestDemo
+Scene: Showcase
+Environment:
+  Map: assets/textures/HDR/studio_country_hall_2k.hdr
+  DiffuseIntensity: 0.3
+  SpecularIntensity: 0.4
 Entities:
   - Entity: 10807494476079984102
     TagComponent:
@@ -26,7 +30,7 @@ Entities:
       OrthographicNearClip: -1
       OrthographicFarClip: 1
       AspectRatio: 1.73432839
-      Exposure: 0.400000006
+      Exposure: 1
       Bloom:
         Enabled: true
         Threshold: 1
@@ -4137,13 +4141,13 @@ Entities:
         - -0.537539124
         - -0.605953217
       Diffuse_Intensity:
-        - 3.20000005
-        - 3
-        - 2.79999995
+        - 1.28
+        - 1.2
+        - 1.12
       Specular_Intensity:
-        - 1
-        - 1
-        - 1
+        - 0.4
+        - 0.4
+        - 0.4
       Ambient_Intensity:
         - 0.0599999987
         - 0.0649999976
@@ -4179,13 +4183,13 @@ Entities:
         - 1
     PointLightComponent:
       Diffuse_Intensity:
-        - 6
-        - 3
-        - 0.800000012
+        - 2.4
+        - 1.2
+        - 0.32
       Specular_Intensity:
-        - 6
-        - 3
-        - 0.800000012
+        - 2.4
+        - 1.2
+        - 0.32
       Ambient_Intensity:
         - 0
         - 0
@@ -4221,13 +4225,13 @@ Entities:
         - 1
     PointLightComponent:
       Diffuse_Intensity:
-        - 0.800000012
-        - 3.5
-        - 6
+        - 0.32
+        - 1.4
+        - 2.4
       Specular_Intensity:
-        - 0.800000012
-        - 3.5
-        - 6
+        - 0.32
+        - 1.4
+        - 2.4
       Ambient_Intensity:
         - 0
         - 0

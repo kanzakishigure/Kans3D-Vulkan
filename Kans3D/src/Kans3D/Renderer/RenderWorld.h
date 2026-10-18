@@ -47,7 +47,9 @@ namespace Kans
         // Debug-only full reference extraction. Throws with the stale UUID.
         void                  Validate() const;
         RenderResource        Settings;
-        std::filesystem::path EnvironmentPath;
+        std::filesystem::path              EnvironmentPath; // View/editor default for legacy scenes.
+        std::filesystem::path              EnvironmentRoot; // Project directory; empty means current working directory.
+        std::optional<EnvironmentSettings> Environment;     // Mirrored by Scene's setter; absent inherits defaults.
 
     private:
         struct Order
