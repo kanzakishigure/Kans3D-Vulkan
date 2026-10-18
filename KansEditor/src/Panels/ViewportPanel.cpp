@@ -568,7 +568,8 @@ namespace Kans
                 const std::pair<SceneViewMode, const char*> modes[] = {{SceneViewMode::Lit, "Lit"},
                                                                        {SceneViewMode::BaseColor, "Base color"},
                                                                        {SceneViewMode::Normals, "Normals"},
-                                                                       {SceneViewMode::Wireframe, "Wireframe"}};
+                                                                       {SceneViewMode::Wireframe, "Wireframe"},
+                                                                       {SceneViewMode::ShadowCascades, "Shadow cascades"}};
                 for (const auto& [mode, name] : modes)
                     if (ImGui::RadioButton(name, m_ViewMode == mode))
                         m_ViewMode = mode;

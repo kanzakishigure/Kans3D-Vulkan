@@ -1,4 +1,5 @@
 #include "HierarchyPanel.h"
+#include "Components/ComponentRegistry.h"
 #include <algorithm>
 #include <cctype>
 #include <imgui.h>
@@ -21,24 +22,7 @@ namespace Kans
         }
 
         // The most telling component decides the icon.
-        const char* IconFor(Entity entity)
-        {
-            if (entity.HasComponent<CameraComponent>())
-                return ICON_FA_VIDEO;
-            if (entity.HasComponent<DirLightComponent>())
-                return ICON_FA_SUN;
-            if (entity.HasComponent<PointLightComponent>())
-                return ICON_FA_LIGHTBULB;
-            if (entity.HasComponent<PrefabInstanceComponent>())
-                return ICON_FA_CUBES;
-            if (entity.HasComponent<MeshComponent>())
-                return ICON_FA_CUBE;
-            if (entity.HasComponent<SpriteRendererComponent>())
-                return ICON_FA_IMAGE;
-            if (entity.HasComponent<ScriptComponent>())
-                return ICON_FA_CODE;
-            return ICON_FA_VECTOR_SQUARE;
-        }
+        const char* IconFor(Entity entity) { return ComponentRegistry::Get().IconFor(entity); }
 
         std::string Label(const char* icon, const char* text) { return std::string(icon) + "  " + text; }
     } // namespace
@@ -322,23 +306,16 @@ namespace Kans
         if (ImGui::MenuItem(Label(ICON_FA_VECTOR_SQUARE, "Empty Entity").c_str()))
             Create("Entity", parent);
         ImGui::Separator();
-        if (ImGui::MenuItem(Label(ICON_FA_CUBE, "Model").c_str()))
-            Create("Model", parent).AddComponent<PrefabInstanceComponent>();
-        if (ImGui::MenuItem(Label(ICON_FA_VIDEO, "Camera").c_str()))
-            Create("Camera", parent).AddComponent<CameraComponent>().Primary = false;
-        if (ImGui::MenuItem(Label(ICON_FA_SUN, "Directional Light").c_str()))
-        {
-            auto& light             = Create("Directional Light", parent).AddComponent<DirLightComponent>();
-            light.Direction         = {0.0f, -1.0f, 0.0f};
-            light.Diffuse_Intensity = light.Specular_Intensity = light.Ambient_Intensity = glm::vec3(1.0f);
-        }
-        if (ImGui::MenuItem(Label(ICON_FA_LIGHTBULB, "Point Light").c_str()))
-        {
-            auto& light             = Create("Point Light", parent).AddComponent<PointLightComponent>();
-            light.Diffuse_Intensity = light.Specular_Intensity = light.Ambient_Intensity = glm::vec3(1.0f);
-        }
-        if (ImGui::MenuItem(Label(ICON_FA_IMAGE, "Sprite").c_str()))
-            Create("Sprite", parent).AddComponent<SpriteRendererComponent>().Texture = Renderer::GetWhiteTexture();
+        // Components offered by the registry, each creating a named entity with it.
+        std::vector<const ComponentEntry*> creatable;
+        for (const auto& component : ComponentRegistry::Get().Entries())
+            if (!component.CreateName.empty() && component.Create)
+                creatable.push_back(&component);
+        std::stable_sort(creatable.begin(), creatable.end(),
+                         [](const auto* a, const auto* b) { return a->CreateOrder < b->CreateOrder; });
+        for (const auto* component : creatable)
+            if (ImGui::MenuItem(Label(component->Icon, component->CreateName.c_str()).c_str()))
+                component->Create(Create(component->CreateName.c_str(), parent));
     }
 
     void HierarchyPanel::DrawEntityMenu(Entity entity)
