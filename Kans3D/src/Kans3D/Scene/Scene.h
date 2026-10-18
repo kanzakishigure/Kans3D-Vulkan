@@ -15,6 +15,8 @@ namespace Kans
     class AssetChangeObserver;
     class RenderWorld;
     class MeshAsset;
+    struct RuntimeMesh;
+    struct EditableMesh;
     struct TransformComponent;
     struct PrefabNodeOverride;
     struct Bounds;
@@ -67,6 +69,8 @@ namespace Kans
         RenderWorld& GetRenderWorld() const { return *m_RenderWorld; }
         // Resolve CPU metadata, retaining prefab data while replacement assets load.
         Ref<const MeshAsset> ResolveMesh(Entity entity) const;
+        Ref<const RuntimeMesh> ResolveEditableMesh(Entity entity) const;
+        uint64_t               GetEditableMeshBuildCount() const { return m_EditableMeshBuildCount; }
         void UpdatePrefabs();
         void UpdatePrefabs(AssetManager& assets)
         {
@@ -112,6 +116,11 @@ namespace Kans
 
     private:
         void                                 OnRenderComponentChanged(entt::registry&, entt::entity entity);
+        void                                 OnEditableMeshChanged(entt::registry&, entt::entity entity);
+        mutable std::unordered_map<entt::entity, Ref<const RuntimeMesh>>              m_EditableMeshes;
+        mutable std::unordered_map<entt::entity, std::shared_ptr<const EditableMesh>> m_EditableSources;
+        mutable uint64_t                                                              m_EditableMeshBuildCount = 0;
+        void                                 OnEditableMeshRemoved(entt::registry&, entt::entity entity);
         void                                 OnTransformChanged(entt::registry&, entt::entity entity);
         void                                 OnPrefabChanged(entt::registry&, entt::entity entity);
         void                                 DirtySubtree(Entity entity);

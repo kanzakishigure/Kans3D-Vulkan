@@ -82,7 +82,7 @@ namespace Kans
     };
     struct ViewShaderDraw
     {
-        AssetID          Mesh;
+        MeshKey          Mesh;
         glm::mat4        Transform;
         AssetID          Material;
         SceneViewMode    ViewMode;
@@ -102,7 +102,7 @@ namespace Kans
         glm::mat4             Transform;
         std::string           ShaderName;
         ModelGeometryMode     Mode;
-        AssetID                 Mesh;
+        MeshKey                 Mesh;
         std::optional<uint32_t> Section;
         UUID                    EntityID = 0;
     };
@@ -163,7 +163,7 @@ namespace Kans
         SceneInfo                          Scene {};
         RenderFeatureSet* Features = nullptr; // Borrowed for this call; owned by the viewport/configuration.
         std::shared_ptr<RenderAssetCache>                 Assets;
-        std::map<AssetID, std::shared_ptr<const GpuMesh>> MeshResources;
+        std::map<MeshKey, std::shared_ptr<const GpuMesh>> MeshResources;
         std::map<AssetID, ViewMaterialResources>          MaterialResources;
         std::optional<EngineFrameUniforms>                LightingUniforms;
         std::string                                       Pipeline = "Forward";

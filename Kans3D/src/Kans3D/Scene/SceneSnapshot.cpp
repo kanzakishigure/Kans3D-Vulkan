@@ -50,6 +50,7 @@ namespace Kans
         {
             return a.Mesh == b.Mesh && a.Materials == b.Materials && a.Section == b.Section;
         }
+        bool Same(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
         bool Same(const PrefabAttachmentComponent& a, const PrefabAttachmentComponent& b)
         {
             return a.Instance == b.Instance && a.NodeKey == b.NodeKey;
@@ -114,8 +115,9 @@ namespace Kans
     {
         return a.ID == b.ID && a.Tag == b.Tag && Same(a.Transform, b.Transform) &&
                Same(a.Relationship, b.Relationship) && Same(a.Camera, b.Camera) && Same(a.Sprite, b.Sprite) &&
-               Same(a.Model, b.Model) && Same(a.Prefab, b.Prefab) && Same(a.PrefabParent, b.PrefabParent) &&
-               Same(a.DirLight, b.DirLight) && Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script);
+               Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
+               Same(a.PrefabParent, b.PrefabParent) && Same(a.DirLight, b.DirLight) &&
+               Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script);
     }
 
     bool operator==(const SceneSnapshot& a, const SceneSnapshot& b)
@@ -142,6 +144,7 @@ namespace Kans
             Kans::Capture(entity, item.Camera);
             Kans::Capture(entity, item.Sprite);
             Kans::Capture(entity, item.Model);
+            Kans::Capture(entity, item.Editable);
             Kans::Capture(entity, item.Prefab);
             Kans::Capture(entity, item.PrefabParent);
             if (item.Prefab)
@@ -183,6 +186,8 @@ namespace Kans
             m_RenderWorld->Dirty(handle);
         m_SuppressNotifications = true;
         m_Registry.clear();
+        m_EditableMeshes.clear();
+        m_EditableSources.clear();
         m_SuppressNotifications = false;
         m_DirtyPrefabs.clear();
         m_CapturePrefabNodes.clear();
@@ -202,6 +207,7 @@ namespace Kans
             Kans::Restore(entity, item.Camera);
             Kans::Restore(entity, item.Sprite);
             Kans::Restore(entity, item.Model);
+            Kans::Restore(entity, item.Editable);
             Kans::Restore(entity, item.Prefab);
             Kans::Restore(entity, item.PrefabParent);
             Kans::Restore(entity, item.DirLight);

@@ -85,6 +85,8 @@ namespace Kans
         mesh.Copy      = {};
         mesh.Paste     = {};
         mesh.Draw      = DrawMesh;
+        // Exclusive with an editable mesh, which renders the entity itself.
+        mesh.CanAdd = [](Entity e) { return !e.HasComponent<EditableMeshComponent>(); };
         mesh.Overridden = [](Entity e, Scene& scene) {
             const auto* change = PartOverride(e, scene);
             return change && !change->Materials.empty();
@@ -99,6 +101,23 @@ namespace Kans
             for (const auto& [slot, material] : slots)
                 scene.SetPrefabMaterialOverride(root, owned.NodeKey, slot, {});
         };
+
+        auto& editable     = registry.Register<EditableMeshComponent>("Editable Mesh", ICON_FA_SHAPES, "Rendering");
+        editable.IconRank  = 5;
+        editable.CanAdd    = [](Entity e) { return !e.HasComponent<MeshComponent>() && !IsPrefabPart(e); };
+        editable.Add       = [](Entity e) {
+            EditableMeshComponent cube;
+            cube.Shape = ShapeDesc {};
+            RegenerateShape(cube);
+            e.AddComponent<EditableMeshComponent>(std::move(cube));
+        };
+        editable.Reset     = {};
+        editable.Draw      = DrawEditableMesh;
+        editable.CreateMenu  = "3D Object";
+        editable.CreateOrder = 0;
+        for (int type = 0; type <= int(ShapeType::Prism); ++type)
+            editable.CreateItems.push_back(
+                {ShapeName(ShapeType(type)), nullptr, [type](Entity e) { CreateShape(e, ShapeType(type)); }});
 
         auto& sprite    = registry.Register<SpriteRendererComponent>("Sprite Renderer", ICON_FA_IMAGE, "Rendering");
         sprite.IconRank = 6;

@@ -153,7 +153,9 @@ namespace Kans
     void PropertiesPanel::DrawAddComponent(Entity entity)
     {
         const auto& components = ComponentRegistry::Get().Entries();
-        const auto  addable    = [&](const ComponentEntry& c) { return c.Add && !c.Has(entity); };
+        const auto  addable    = [&](const ComponentEntry& c) {
+            return c.Add && !c.Has(entity) && (!c.CanAdd || c.CanAdd(entity));
+        };
         const bool  available  = std::any_of(components.begin(), components.end(), addable);
         ImGui::BeginDisabled(!available);
         if (ImGui::Button(ICON_FA_PLUS "  Add Component", {-FLT_MIN, 0.0f}))

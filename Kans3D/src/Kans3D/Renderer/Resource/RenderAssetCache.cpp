@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "RenderAssetCache.h"
+#include <chrono>
 #include <type_traits>
 #include <unordered_set>
 #include <glm/gtc/type_ptr.hpp>
@@ -27,38 +28,32 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, e.what()};
             }
         }
-        std::vector<float> packed;
-        packed.reserve(data.Vertices.size() * 16);
-        for (const auto& vertex : data.Vertices)
-        {
-            packed.insert(packed.end(), vertex.Position.begin(), vertex.Position.end());
-            packed.insert(packed.end(), vertex.Normal.begin(), vertex.Normal.end());
-            packed.insert(packed.end(), vertex.UV.begin(), vertex.UV.end());
-            packed.insert(packed.end(), vertex.Color.begin(), vertex.Color.end());
-            packed.insert(packed.end(), vertex.Tangent.begin(), vertex.Tangent.end());
-        }
+        static_assert(sizeof(MeshVertexData) == 64 && std::is_standard_layout_v<MeshVertexData>);
         GpuMesh mesh;
         mesh.Device = device;
         mesh.LocalBounds   = data.LocalBounds;
         mesh.Sections      = data.Sections;
         mesh.MaterialSlots = data.MaterialSlots;
-        mesh.Vertices = device->CreateBuffer(
-            {packed.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
-        mesh.Vertices->Write(0, packed.data(), packed.size() * sizeof(float));
+        mesh.Vertices      = device->CreateBuffer({data.Vertices.size() * sizeof(MeshVertexData),
+                                                   RenderHardware::BufferUsage::Vertex,
+                                                   RenderHardware::MemoryUsage::Upload});
+        mesh.Vertices->Write(0, data.Vertices.data(), data.Vertices.size() * sizeof(MeshVertexData));
         mesh.Indices = device->CreateBuffer({data.Indices.size() * sizeof(uint32_t),
                                              RenderHardware::BufferUsage::Index,
                                              RenderHardware::MemoryUsage::Upload});
         mesh.Indices->Write(0, data.Indices.data(), data.Indices.size() * sizeof(uint32_t));
         // Two endpoints per indexed vertex preserve the legacy per-triangle normal lines.
-        std::vector<float> lines;
-        lines.reserve(data.Indices.size() * 14);
+        std::vector<float> lines(data.Indices.size() * 14);
+        size_t             cursor = 0;
         for (uint32_t index : data.Indices)
             for (float end : {0.0f, 1.0f})
             {
                 const auto& v = data.Vertices[index];
-                lines.insert(lines.end(), v.Position.begin(), v.Position.end());
-                lines.insert(lines.end(), v.Normal.begin(), v.Normal.end());
-                lines.push_back(end);
+                for (auto value : v.Position)
+                    lines[cursor++] = value;
+                for (auto value : v.Normal)
+                    lines[cursor++] = value;
+                lines[cursor++] = end;
             }
         mesh.NormalLines = device->CreateBuffer(
             {lines.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
@@ -177,9 +172,39 @@ namespace Kans
         return Resolve(m_Models, id, [](const ModelAsset& asset) { return FlattenModel(asset.GetMeshData()); });
     }
 
-    const GpuMesh* RenderAssetCache::GetMesh(AssetID id)
+    const GpuMesh* RenderAssetCache::GetMesh(const MeshKey& id)
     {
-        return Resolve(m_Meshes, id, [&](const MeshAsset& asset) { return UploadMesh(asset.GetData(), GetDevice()); });
+        if (!id.Runtime)
+            return Resolve(
+                m_Meshes, id.Asset, [&](const MeshAsset& asset) { return UploadMesh(asset.GetData(), GetDevice()); });
+        if (id.Runtime->Source->GetData().Indices.empty())
+            return nullptr;
+        auto& entry = m_EditableMeshes[id.Runtime->Identity];
+        if (!entry.Value && !entry.ReportedError)
+        {
+            entry.Source     = id.Runtime;
+            const auto start = std::chrono::steady_clock::now();
+            try
+            {
+                auto built = UploadMesh(id.Runtime->Source->GetData(), GetDevice());
+                if (auto* error = std::get_if<AssetError>(&built))
+                    entry.ReportedError = *error;
+                else
+                {
+                    entry.Value = CreateScope<GpuMesh>(std::get<GpuMesh>(std::move(built)));
+                    ++m_EditableStats.Uploads;
+                    m_EditableStats.LastUploadMilliseconds =
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+                }
+            }
+            catch (const std::exception& error)
+            {
+                entry.ReportedError = AssetError {AssetErrorCode::InvalidData, error.what()};
+            }
+            if (entry.ReportedError)
+                CORE_ERROR("Runtime mesh {}: {}", id.Runtime->Identity, entry.ReportedError->Message);
+        }
+        return entry.Value.get();
     }
 
     const GpuMaterial* RenderAssetCache::GetMaterial(AssetID id)
@@ -418,6 +443,14 @@ namespace Kans
         if (m_Device)
             m_Device->WaitIdle();
         ++m_Frame;
+        for (auto it = m_EditableMeshes.begin(); it != m_EditableMeshes.end();)
+            if (it->second.Source.expired())
+            {
+                it = m_EditableMeshes.erase(it);
+                ++m_EditableStats.Releases;
+            }
+            else
+                ++it;
         auto evict = [&](auto& entries) {
             for (auto it = entries.begin(); it != entries.end();)
                 it = m_Frame - it->second.LastUsedFrame > unusedFrames ? entries.erase(it) : std::next(it);
@@ -436,6 +469,8 @@ namespace Kans
 
         m_Models.clear();
         m_Meshes.clear();
+        m_EditableStats.Releases += m_EditableMeshes.size();
+        m_EditableMeshes.clear();
         m_Materials.clear();
         m_Textures.clear();
         m_Shaders.clear();

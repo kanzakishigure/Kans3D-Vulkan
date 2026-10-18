@@ -39,3 +39,5 @@
 
 // #include"Kans3D/Core/EntryPoint.h"
 //------------------------------
+
+#include "Kans3D/Geometry/MeshOperations.h"

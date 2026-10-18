@@ -341,8 +341,10 @@ namespace Kans
     std::vector<Entity> Scene::GetMeshEntities(Entity subtree) const
     {
         std::vector<Entity> result;
-        for (auto handle : m_Registry.view<MeshComponent>())
+        for (auto handle : m_Registry.view<TransformComponent>())
         {
+            if (!m_Registry.any_of<MeshComponent, EditableMeshComponent>(handle))
+                continue;
             Entity entity {handle, const_cast<Scene*>(this)};
             if (!subtree || entity == subtree || IsDescendantOf(entity, subtree))
                 result.push_back(entity);
@@ -482,11 +484,13 @@ namespace Kans
             Bounds bounds;
             if (auto mesh = ResolveMesh(entity))
             {
-                const auto& component = entity.GetComponent<MeshComponent>();
+                const auto  selected  = entity.HasComponent<MeshComponent>() ?
+                                            entity.GetComponent<MeshComponent>().Section :
+                                            std::optional<uint32_t>();
                 const auto  world     = GetWorldTransform(entity);
                 const auto& sections  = mesh->GetData().Sections;
                 for (size_t i = 0; i < sections.size(); ++i)
-                    if (!component.Section || *component.Section == i)
+                    if (!selected || *selected == i)
                         bounds.Expand(sections[i].LocalBounds.Transformed(world));
             }
             if (auto children = m_ChildBounds.find(entt::entity(entity)); children != m_ChildBounds.end())
@@ -525,6 +529,8 @@ namespace Kans
     }
     std::vector<MeshMaterialSlot> Scene::GetMeshSlots(Entity entity) const
     {
+        if (entity && entity.HasComponent<EditableMeshComponent>())
+            return ResolveMesh(entity)->GetData().MaterialSlots;
         if (!entity || !entity.HasComponent<MeshComponent>())
             return {};
         const auto id = entity.GetComponent<MeshComponent>().Mesh;

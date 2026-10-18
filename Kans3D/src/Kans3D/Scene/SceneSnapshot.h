@@ -18,6 +18,7 @@ namespace Kans
         std::optional<CameraComponent>         Camera;
         std::optional<SpriteRendererComponent> Sprite;
         std::optional<MeshComponent>             Model; // Mesh state; name retained for SceneHistory component labels.
+        std::optional<EditableMeshComponent>     Editable;
         std::optional<PrefabInstanceComponent>   Prefab;
         std::optional<PrefabAttachmentComponent> PrefabParent;
         std::optional<DirLightComponent>       DirLight;

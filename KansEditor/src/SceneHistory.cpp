@@ -117,6 +117,7 @@ namespace Kans
         const bool components = old.Camera.has_value() != now.Camera.has_value() ||
                                 old.Sprite.has_value() != now.Sprite.has_value() ||
                                 old.Model.has_value() != now.Model.has_value() ||
+                                old.Editable.has_value() != now.Editable.has_value() ||
                                 old.DirLight.has_value() != now.DirLight.has_value() ||
                                 old.PointLight.has_value() != now.PointLight.has_value() ||
                                 old.Script.has_value() != now.Script.has_value();
@@ -137,6 +138,10 @@ namespace Kans
                 return "Scale " + now.Tag;
             return "Transform " + now.Tag;
         }
+        EntitySnapshot onlyMesh = old;
+        onlyMesh.Editable       = now.Editable;
+        if (onlyMesh == now && old.Editable && now.Editable && !(old.Editable->Mesh == now.Editable->Mesh))
+            return "Edit mesh of " + now.Tag;
         return "Edit " + now.Tag;
     }
 } // namespace Kans

@@ -309,13 +309,25 @@ namespace Kans
         // Components offered by the registry, each creating a named entity with it.
         std::vector<const ComponentEntry*> creatable;
         for (const auto& component : ComponentRegistry::Get().Entries())
-            if (!component.CreateName.empty() && component.Create)
+            if ((!component.CreateName.empty() && component.Create) || !component.CreateItems.empty())
                 creatable.push_back(&component);
         std::stable_sort(creatable.begin(), creatable.end(),
                          [](const auto* a, const auto* b) { return a->CreateOrder < b->CreateOrder; });
         for (const auto* component : creatable)
-            if (ImGui::MenuItem(Label(component->Icon, component->CreateName.c_str()).c_str()))
-                component->Create(Create(component->CreateName.c_str(), parent));
+        {
+            if (component->CreateItems.empty())
+            {
+                if (ImGui::MenuItem(Label(component->Icon, component->CreateName.c_str()).c_str()))
+                    component->Create(Create(component->CreateName.c_str(), parent));
+                continue;
+            }
+            if (!ImGui::BeginMenu(Label(component->Icon, component->CreateMenu.c_str()).c_str()))
+                continue;
+            for (const auto& item : component->CreateItems)
+                if (ImGui::MenuItem(Label(item.Icon ? item.Icon : component->Icon, item.Name.c_str()).c_str()))
+                    item.Create(Create(item.Name.c_str(), parent));
+            ImGui::EndMenu();
+        }
     }
 
     void HierarchyPanel::DrawEntityMenu(Entity entity)

@@ -45,6 +45,8 @@ namespace Kans
         std::function<bool(Entity)> Has;
         // Add Component: adds the component with its editor defaults.
         std::function<void(Entity)> Add;
+        // Empty when the component can always be added; otherwise whether it can be to this entity.
+        std::function<bool(Entity)> CanAdd;
         // Empty when the component cannot be removed; otherwise whether it can be for this entity.
         std::function<bool(Entity)> CanRemove;
         std::function<void(Entity)> Remove;
@@ -61,6 +63,16 @@ namespace Kans
         std::string                 CreateName;
         std::function<void(Entity)> Create;
         int                         CreateOrder = 0;
+        // A Create submenu of several variants (e.g. "3D Object" with one item per shape),
+        // used instead of CreateName/Create when not empty.
+        struct CreateItem
+        {
+            std::string                 Name;
+            const char*                 Icon = nullptr;
+            std::function<void(Entity)> Create;
+        };
+        std::string             CreateMenu;
+        std::vector<CreateItem> CreateItems;
     };
 
     class ComponentRegistry

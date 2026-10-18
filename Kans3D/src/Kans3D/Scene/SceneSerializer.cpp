@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "SceneSerializer.h"
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <set>
 #include <yaml-cpp/yaml.h>
@@ -10,7 +11,8 @@ namespace Kans
 {
     namespace
     {
-        constexpr uint64_t SceneBytes = 16ull * 1024 * 1024;
+        constexpr uint64_t SceneBytes    = 64ull * 1024 * 1024;
+        constexpr uint64_t EditableBytes = 32ull * 1024 * 1024;
         void               Require(bool valid, const char* message)
         {
             if (!valid)
@@ -18,7 +20,26 @@ namespace Kans
         }
         struct SceneAllocationBudget
         {
-            uint64_t Nodes = 0, TextBytes = 0;
+            uint64_t Nodes = 0, TextBytes = 0, MeshBytes = 0;
+            void     AddEditable(uint64_t bytes, uint64_t attributes, uint64_t materials)
+            {
+                Require(bytes <= EditableBytes - MeshBytes, "Scene editable payload byte limit");
+                MeshBytes += bytes;
+                Nodes += 16 + attributes * 16 + materials;
+                Require(Nodes <= 1024 * 1024, "Scene aggregate allocation limit");
+            }
+            void AddEditable(const EditableMeshComponent& component)
+            {
+                uint64_t bytes      = component.Mesh.Positions.size() * 12ull + component.Mesh.Faces.size() * 4ull;
+                uint64_t attributes = 0;
+                for (const auto& face : component.Mesh.Faces)
+                {
+                    bytes += face.Indices.size() * 4ull;
+                    if (face.Material || face.SmoothingGroup || !(face.UV == FaceUV {}))
+                        ++attributes;
+                }
+                AddEditable(bytes, attributes, component.Materials.size());
+            }
             void     Add(size_t textBytes, const ProductModelComponent* model)
             {
                 Nodes += 64;
@@ -267,6 +288,295 @@ namespace Kans
                 mesh.Section = SceneIndex(value["Section"]);
             return mesh;
         }
+        const char* ShapeNames[] =
+            {"Cube", "Plane", "Sphere", "Cylinder", "Cone", "Torus", "Stairs", "Arch", "Pipe", "Prism"};
+        const std::pair<const char*, float ShapeDesc::*> ShapeFloats[] = {{"Width", &ShapeDesc::Width},
+                                                                          {"Depth", &ShapeDesc::Depth},
+                                                                          {"Height", &ShapeDesc::Height},
+                                                                          {"Radius", &ShapeDesc::Radius},
+                                                                          {"MajorRadius", &ShapeDesc::MajorRadius},
+                                                                          {"MinorRadius", &ShapeDesc::MinorRadius},
+                                                                          {"OuterRadius", &ShapeDesc::OuterRadius},
+                                                                          {"Thickness", &ShapeDesc::Thickness},
+                                                                          {"Angle", &ShapeDesc::Angle}};
+        const std::pair<const char*, int ShapeDesc::*>   ShapeInts[] = {{"Segments", &ShapeDesc::Segments},
+                                                                        {"Rings", &ShapeDesc::Rings},
+                                                                        {"Sides", &ShapeDesc::Sides},
+                                                                        {"HeightSegments", &ShapeDesc::HeightSegments},
+                                                                        {"Rows", &ShapeDesc::Rows},
+                                                                        {"Columns", &ShapeDesc::Columns},
+                                                                        {"Steps", &ShapeDesc::Steps}};
+        YAML::Node                                       FlowVector(glm::vec2 v)
+        {
+            auto node = Vector(v, 2);
+            node.SetStyle(YAML::EmitterStyle::Flow);
+            return node;
+        }
+        YAML::Node EncodeShape(ShapeDesc d)
+        {
+            Sanitize(d);
+            const ShapeDesc defaults;
+            YAML::Node      node;
+            node["Type"] = ShapeNames[int(d.Type)];
+            if (d.Size != defaults.Size)
+                node["Size"] = Vector(d.Size, 3);
+            if (d.Subdivisions != defaults.Subdivisions)
+                for (int i = 0; i < 3; ++i)
+                    node["Subdivisions"].push_back(d.Subdivisions[i]);
+            for (auto [name, member] : ShapeFloats)
+                if (d.*member != defaults.*member)
+                    node[name] = d.*member;
+            for (auto [name, member] : ShapeInts)
+                if (d.*member != defaults.*member)
+                    node[name] = d.*member;
+            if (!d.SideWalls)
+                node["SideWalls"] = false;
+            node.SetStyle(YAML::EmitterStyle::Flow);
+            return node;
+        }
+        ShapeDesc DecodeShape(const YAML::Node& node)
+        {
+            Keys(node, {"Type",        "Size",           "Subdivisions", "Width",     "Depth", "Height",   "Radius",
+                        "MajorRadius", "MinorRadius",    "OuterRadius",  "Thickness", "Angle", "Segments", "Rings",
+                        "Sides",       "HeightSegments", "Rows",         "Columns",   "Steps", "SideWalls"});
+            ShapeDesc d;
+            auto      type = Text(node["Type"]);
+            auto      it   = std::find(std::begin(ShapeNames), std::end(ShapeNames), type);
+            Require(it != std::end(ShapeNames), "Unknown shape type");
+            d.Type = ShapeType(it - std::begin(ShapeNames));
+            if (node["Size"])
+                d.Size = Vec3(node["Size"]);
+            if (node["Subdivisions"])
+            {
+                auto values = node["Subdivisions"];
+                Require(values.IsSequence() && values.size() == 3, "Invalid shape subdivisions");
+                for (int i = 0; i < 3; ++i)
+                    d.Subdivisions[i] = values[i].as<int>();
+            }
+            for (auto [name, member] : ShapeFloats)
+                if (node[name])
+                    d.*member = Number(node[name]);
+            for (auto [name, member] : ShapeInts)
+                if (node[name])
+                    d.*member = node[name].as<int>();
+            if (node["SideWalls"])
+                d.SideWalls = node["SideWalls"].as<bool>();
+            Sanitize(d);
+            return d;
+        }
+        constexpr char Base64Alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string    EncodeWords(const std::vector<uint32_t>& words)
+        {
+            std::string  text;
+            const size_t bytes = words.size() * 4;
+            text.reserve((bytes + 2) / 3 * 4);
+            const auto byte = [&](size_t index) { return (words[index / 4] >> (8 * (index % 4))) & 255u; };
+            for (size_t i = 0; i < bytes; i += 3)
+            {
+                uint32_t value = byte(i) << 16;
+                if (i + 1 < bytes)
+                    value |= byte(i + 1) << 8;
+                if (i + 2 < bytes)
+                    value |= byte(i + 2);
+                text += Base64Alphabet[value >> 18];
+                text += Base64Alphabet[(value >> 12) & 63];
+                text += i + 1 < bytes ? Base64Alphabet[(value >> 6) & 63] : '=';
+                text += i + 2 < bytes ? Base64Alphabet[value & 63] : '=';
+            }
+            return text;
+        }
+        uint64_t PackedBytes(const YAML::Node& node)
+        {
+            Require(node.IsScalar(), "Missing packed editable array");
+            const auto& text = node.Scalar();
+            Require(text.size() % 4 == 0 && text.size() <= (EditableBytes + 2) / 3 * 4,
+                    "Invalid packed editable array size");
+            uint64_t bytes = text.size() / 4 * 3;
+            if (!text.empty() && text.back() == '=')
+                --bytes;
+            if (text.size() > 1 && text[text.size() - 2] == '=')
+                --bytes;
+            Require(bytes % 4 == 0, "Packed editable array is not a uint32 stream");
+            return bytes;
+        }
+        std::vector<uint32_t> DecodeWords(const YAML::Node& node, uint64_t bytes)
+        {
+            static const auto table = [] {
+                std::array<int, 256> values;
+                values.fill(-1);
+                for (int i = 0; i < 64; ++i)
+                    values[uint8_t(Base64Alphabet[i])] = i;
+                return values;
+            }();
+            const auto&           text = node.Scalar();
+            std::vector<uint32_t> words(size_t(bytes / 4), 0);
+            size_t                cursor = 0;
+            for (size_t i = 0; i < text.size(); i += 4)
+            {
+                uint32_t value   = 0;
+                int      padding = 0;
+                for (int j = 0; j < 4; ++j)
+                {
+                    const auto c = uint8_t(text[i + j]);
+                    if (c == '=')
+                    {
+                        Require(i + 4 == text.size() && j >= 2, "Invalid base64 padding");
+                        ++padding;
+                        value <<= 6;
+                    }
+                    else
+                    {
+                        Require(padding == 0 && table[c] >= 0, "Invalid base64 character");
+                        value = (value << 6) | uint32_t(table[c]);
+                    }
+                }
+                Require((padding != 1 || (value & 255) == 0) && (padding != 2 || (value & 65535) == 0),
+                        "Noncanonical base64 padding bits");
+                for (int j = 0; j < 3 - padding; ++j)
+                {
+                    Require(cursor < bytes, "Invalid packed editable length");
+                    words[cursor / 4] |= ((value >> (16 - 8 * j)) & 255u) << (8 * (cursor % 4));
+                    ++cursor;
+                }
+            }
+            Require(cursor == bytes, "Invalid packed editable length");
+            return words;
+        }
+        YAML::Node EncodeEditable(const EditableMeshComponent& c)
+        {
+            auto error = c.Mesh.Validate();
+            if (!error.empty())
+                throw std::runtime_error(error);
+            Require(c.Materials.size() <= 65536, "Too many editable mesh materials");
+            YAML::Node            node;
+            std::vector<uint32_t> positions, sizes, indices;
+            positions.reserve(c.Mesh.Positions.size() * 3);
+            sizes.reserve(c.Mesh.Faces.size());
+            for (auto p : c.Mesh.Positions)
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    uint32_t bits;
+                    static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
+                    std::memcpy(&bits, &p[axis], 4);
+                    positions.push_back(bits);
+                }
+            for (uint32_t f = 0; f < c.Mesh.Faces.size(); ++f)
+            {
+                const auto& face = c.Mesh.Faces[f];
+                sizes.push_back(uint32_t(face.Indices.size()));
+                indices.insert(indices.end(), face.Indices.begin(), face.Indices.end());
+                if (!face.Material && !face.SmoothingGroup && face.UV == FaceUV {})
+                    continue;
+                YAML::Node value;
+                value["Face"] = f;
+                if (face.Material)
+                    value["Material"] = face.Material;
+                if (face.SmoothingGroup)
+                    value["SmoothingGroup"] = face.SmoothingGroup;
+                if (face.UV.Scale != glm::vec2(1))
+                    value["Scale"] = FlowVector(face.UV.Scale);
+                if (face.UV.Offset != glm::vec2(0))
+                    value["Offset"] = FlowVector(face.UV.Offset);
+                if (face.UV.Rotation != 0)
+                    value["Rotation"] = face.UV.Rotation;
+                value.SetStyle(YAML::EmitterStyle::Flow);
+                node["FaceAttributes"].push_back(value);
+            }
+            node["Positions"] = EncodeWords(positions);
+            node["FaceSizes"] = EncodeWords(sizes);
+            node["Indices"]   = EncodeWords(indices);
+            if (c.Shape)
+                node["Shape"] = EncodeShape(*c.Shape);
+            node["Materials"] = YAML::Node(YAML::NodeType::Sequence);
+            for (auto material : c.Materials)
+                node["Materials"].push_back(IdentityText(material));
+            node["Materials"].SetStyle(YAML::EmitterStyle::Flow);
+            if (!c.CastShadows)
+                node["CastShadows"] = false;
+            if (!c.ReceiveShadows)
+                node["ReceiveShadows"] = false;
+            return node;
+        }
+        EditableMeshComponent DecodeEditable(const YAML::Node& node, SceneAllocationBudget& budget)
+        {
+            Keys(node,
+                 {"Positions",
+                  "FaceSizes",
+                  "Indices",
+                  "FaceAttributes",
+                  "Shape",
+                  "Materials",
+                  "CastShadows",
+                  "ReceiveShadows"});
+            const auto positions = node["Positions"], sizes = node["FaceSizes"], indices = node["Indices"],
+                       attributes = node["FaceAttributes"], materials = node["Materials"];
+            const auto positionBytes = PackedBytes(positions), sizeBytes = PackedBytes(sizes),
+                       indexBytes = PackedBytes(indices);
+            Require(positionBytes % 12 == 0 && sizeBytes / 4 <= indexBytes / 12 && materials.IsSequence() &&
+                        materials.size() <= 65536 &&
+                        (!attributes || (attributes.IsSequence() && attributes.size() <= sizeBytes / 4)),
+                    "Invalid packed editable array counts");
+            // Charge all decoded bytes before allocating any decoded arrays or polygon storage.
+            budget.AddEditable(
+                positionBytes + sizeBytes + indexBytes, attributes ? attributes.size() : 0, materials.size());
+            const auto faceSizes = DecodeWords(sizes, sizeBytes);
+            uint64_t   corners   = 0;
+            for (auto count : faceSizes)
+            {
+                Require(count >= 3 && count <= indexBytes / 4 - corners, "Invalid packed face size");
+                corners += count;
+            }
+            Require(corners == indexBytes / 4, "Packed face sizes do not match indices");
+            const auto            positionWords = DecodeWords(positions, positionBytes),
+                                  indexWords    = DecodeWords(indices, indexBytes);
+            EditableMeshComponent c;
+            c.Mesh.Positions.resize(size_t(positionBytes / 12));
+            for (size_t i = 0; i < positionWords.size(); ++i)
+                std::memcpy(&c.Mesh.Positions[i / 3][i % 3], &positionWords[i], 4);
+            for (auto index : indexWords)
+                Require(index < c.Mesh.Positions.size(), "Packed face index out of range");
+            c.Mesh.Faces.resize(faceSizes.size());
+            size_t cursor = 0;
+            for (size_t f = 0; f < faceSizes.size(); ++f)
+            {
+                c.Mesh.Faces[f].Indices.assign(indexWords.begin() + cursor, indexWords.begin() + cursor + faceSizes[f]);
+                cursor += faceSizes[f];
+            }
+            std::set<uint32_t> seen;
+            if (attributes)
+                for (const auto& value : attributes)
+                {
+                    Keys(value, {"Face", "Material", "SmoothingGroup", "Scale", "Offset", "Rotation"});
+                    auto f = SceneIndex(value["Face"]);
+                    Require(f < c.Mesh.Faces.size() && seen.insert(f).second, "Invalid/duplicate face attribute index");
+                    auto& face = c.Mesh.Faces[f];
+                    if (value["Material"])
+                        face.Material = SceneIndex(value["Material"]);
+                    if (value["SmoothingGroup"])
+                        face.SmoothingGroup = SceneIndex(value["SmoothingGroup"]);
+                    const auto vec2 = [&](const YAML::Node& v) {
+                        Require(v.IsSequence() && v.size() == 2, "Invalid editable UV vector");
+                        return glm::vec2(Number(v[0]), Number(v[1]));
+                    };
+                    if (value["Scale"])
+                        face.UV.Scale = vec2(value["Scale"]);
+                    if (value["Offset"])
+                        face.UV.Offset = vec2(value["Offset"]);
+                    if (value["Rotation"])
+                        face.UV.Rotation = Number(value["Rotation"]);
+                }
+            if (node["Shape"])
+                c.Shape = DecodeShape(node["Shape"]);
+            for (const auto& material : materials)
+                c.Materials.push_back(Identity(material));
+            if (node["CastShadows"])
+                c.CastShadows = node["CastShadows"].as<bool>();
+            if (node["ReceiveShadows"])
+                c.ReceiveShadows = node["ReceiveShadows"].as<bool>();
+            if (auto error = c.Mesh.Validate(); !error.empty())
+                throw std::runtime_error(error);
+            return c;
+        }
         YAML::Node EncodePrefab(const PrefabInstanceComponent& prefab)
         {
             YAML::Node value;
@@ -433,6 +743,10 @@ namespace Kans
             node["TransformComponent"]  = EncodeTransform(transform);
             if (entity.HasComponent<PrefabInstanceComponent>())
                 node["PrefabInstanceComponent"] = EncodePrefab(entity.GetComponent<PrefabInstanceComponent>());
+            Require(!(entity.HasComponent<MeshComponent>() && entity.HasComponent<EditableMeshComponent>()),
+                    "Mesh components are mutually exclusive");
+            if (entity.HasComponent<EditableMeshComponent>())
+                node["EditableMeshComponent"] = EncodeEditable(entity.GetComponent<EditableMeshComponent>());
             if (entity.HasComponent<MeshComponent>())
                 node["MeshComponent"] = EncodeMesh(entity.GetComponent<MeshComponent>());
             if (entity.HasComponent<PrefabAttachmentComponent>())
@@ -547,6 +861,8 @@ namespace Kans
                     textBytes += entity.GetComponent<ScriptComponent>().ClassName.size();
                 const auto* prefab = registry.try_get<PrefabInstanceComponent>(handle);
                 budget.Add(textBytes, prefab && prefab->LegacyPending ? &*prefab->LegacyPending : nullptr);
+                if (const auto* editable = registry.try_get<EditableMeshComponent>(handle))
+                    budget.AddEditable(*editable);
             });
             // Parents before children, siblings in order.
             size_t                      encoded = 0;
@@ -634,6 +950,7 @@ namespace Kans
                       "ProductModelComponent",
                       "PrefabInstanceComponent",
                       "MeshComponent",
+                      "EditableMeshComponent",
                       "PrefabParent",
                       "CameraComponent",
                       "DirLightComponent",
@@ -665,6 +982,10 @@ namespace Kans
                     Require(!model, "Scene entity has both prefab and legacy model");
                     entity.AddComponent<PrefabInstanceComponent>(DecodePrefab(node["PrefabInstanceComponent"]));
                 }
+                Require(!(node["MeshComponent"] && node["EditableMeshComponent"]),
+                        "Mesh components are mutually exclusive");
+                if (node["EditableMeshComponent"])
+                    entity.AddComponent<EditableMeshComponent>(DecodeEditable(node["EditableMeshComponent"], budget));
                 if (node["MeshComponent"])
                     entity.AddComponent<MeshComponent>(DecodeMesh(node["MeshComponent"]));
                 if (node["PrefabParent"])

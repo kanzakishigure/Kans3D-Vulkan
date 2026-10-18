@@ -76,3 +76,12 @@
 #define ICON_FA_FORWARD_STEP           "\xef\x81\x91" // U+F051
 #define ICON_FA_CIRCLE                 "\xef\x84\x91" // U+F111
 #define ICON_FA_CIRCLE_DOT             "\xef\x86\x92" // U+F192
+// Modeling tools.
+#define ICON_FA_SHAPES                 "\xef\x98\x9f" // U+F61F
+#define ICON_FA_SQUARE                 "\xef\x83\x88" // U+F0C8
+#define ICON_FA_MINUS                  "\xef\x81\xa8" // U+F068
+#define ICON_FA_EXPAND                 "\xef\x81\xa5" // U+F065
+#define ICON_FA_COMPRESS               "\xef\x81\xa6" // U+F066
+#define ICON_FA_LINK                   "\xef\x83\x81" // U+F0C1
+#define ICON_FA_OBJECT_GROUP           "\xef\x89\x87" // U+F247
+#define ICON_FA_RIGHT_LEFT             "\xef\x8d\xa2" // U+F362

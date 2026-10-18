@@ -1,4 +1,5 @@
 #pragma once
+#include <stdexcept>
 #include <type_traits>
 #include <entt.hpp>
 
@@ -20,6 +21,14 @@ namespace Kans
         {
             CORE_ASSERT(!HasComponent<T>(), "Entity Already Have component ");
 
+            if constexpr (std::is_same_v<T, MeshComponent> || std::is_same_v<T, EditableMeshComponent>)
+            {
+                using Other =
+                    std::conditional_t<std::is_same_v<T, MeshComponent>, EditableMeshComponent, MeshComponent>;
+                CORE_ASSERT(!HasComponent<Other>(), "Mesh components are mutually exclusive");
+                if (HasComponent<Other>())
+                    throw std::logic_error("Mesh components are mutually exclusive");
+            }
             T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
             m_Scene->OnComponentAdd<T>(*this, component);
             return component;
@@ -32,8 +41,8 @@ namespace Kans
         void PatchComponent(F&& edit)
         {
             if constexpr (std::is_same_v<T, TransformComponent> || std::is_same_v<T, MeshComponent> ||
-                          std::is_same_v<T, SpriteRendererComponent> || std::is_same_v<T, DirLightComponent> ||
-                          std::is_same_v<T, PointLightComponent>)
+                          std::is_same_v<T, EditableMeshComponent> || std::is_same_v<T, SpriteRendererComponent> ||
+                          std::is_same_v<T, DirLightComponent> || std::is_same_v<T, PointLightComponent>)
             {
                 auto&   component = GetComponent<T>();
                 const T before    = component;
@@ -99,6 +108,7 @@ namespace Kans
             return a.Mesh == b.Mesh && a.Section == b.Section && a.Materials == b.Materials &&
                    a.CastShadows == b.CastShadows && a.ReceiveShadows == b.ReceiveShadows;
         }
+        static bool SameRenderValue(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
         static bool SameRenderValue(const SpriteRendererComponent& a, const SpriteRendererComponent& b)
         {
             return a.Color == b.Color && a.Texture == b.Texture && a.TilingFactor == b.TilingFactor;

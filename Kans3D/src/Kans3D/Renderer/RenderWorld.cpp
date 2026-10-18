@@ -29,9 +29,24 @@ namespace Kans
                        entity.HasComponent<PrefabOwnedComponent>() ? entity.GetComponent<PrefabOwnedComponent>().Order :
                                                                      SIZE_MAX};
         const auto world = m_Scene->GetWorldTransform(entity);
-        if (entity.HasComponent<MeshComponent>())
+        if (entity.HasComponent<MeshComponent>() || entity.HasComponent<EditableMeshComponent>())
         {
-            const auto& component   = entity.GetComponent<MeshComponent>();
+            CORE_ASSERT(!(entity.HasComponent<MeshComponent>() && entity.HasComponent<EditableMeshComponent>()),
+                        "Mesh components are mutually exclusive");
+            MeshComponent component;
+            if (entity.HasComponent<EditableMeshComponent>())
+            {
+                const auto& editable     = entity.GetComponent<EditableMeshComponent>();
+                component.Materials      = editable.Materials;
+                component.CastShadows    = editable.CastShadows;
+                component.ReceiveShadows = editable.ReceiveShadows;
+                record.Key               = MeshKey(m_Scene->ResolveEditableMesh(entity));
+            }
+            else
+            {
+                component  = entity.GetComponent<MeshComponent>();
+                record.Key = MeshKey(component.Mesh);
+            }
             record.Mesh             = ViewMeshSubmission {component, world, id, record.Sort.Root};
             record.OutlineTransform = world * glm::scale(glm::mat4(1), glm::vec3(1.007f));
             if (root && entity.HasComponent<PrefabOwnedComponent>())
@@ -57,7 +72,7 @@ namespace Kans
                     const auto  material = slot < component.Materials.size() && component.Materials[slot].IsValid() ?
                                                component.Materials[slot] :
                                                data.MaterialSlots.at(slot).DefaultMaterial;
-                    record.Draws.push_back({component.Mesh,
+                    record.Draws.push_back({record.Key,
                                             material,
                                             uint32_t(i),
                                             world,
@@ -347,21 +362,21 @@ namespace Kans
                 output.Geometry.push_back({record.OutlineTransform,
                                            "StencilShader",
                                            ModelGeometryMode::StencilOutline,
-                                           mesh.Mesh,
+                                           record.Key,
                                            mesh.Section,
                                            submission.EntityID});
             if (state.EnableOutline)
                 output.Geometry.push_back({submission.Transform,
                                            "OutLineShader",
                                            ModelGeometryMode::BackFaces,
-                                           mesh.Mesh,
+                                           record.Key,
                                            mesh.Section,
                                            submission.EntityID});
             if (state.EnableDebugNormal)
                 output.Geometry.push_back({submission.Transform,
                                            "DebugNormalShader",
                                            ModelGeometryMode::Default,
-                                           mesh.Mesh,
+                                           record.Key,
                                            mesh.Section,
                                            submission.EntityID});
         }
@@ -415,6 +430,15 @@ namespace Kans
                 actual.Sort < expected.Sort || expected.Ancestors != actual.Ancestors ||
                 expected.Draws.size() != actual.Draws.size())
                 stale(expected.Sort.EntityID);
+            if (expected.Key != actual.Key)
+                stale(expected.Sort.EntityID);
+            if (m_Scene->m_Registry.all_of<EditableMeshComponent>(handle))
+            {
+                const auto snapshot = m_Scene->m_EditableSources.find(handle);
+                if (snapshot == m_Scene->m_EditableSources.end() ||
+                    !(*snapshot->second == m_Scene->m_Registry.get<EditableMeshComponent>(handle).Mesh))
+                    stale(expected.Sort.EntityID);
+            }
             if (expected.Mesh)
             {
                 const auto& a = *actual.Mesh;
@@ -426,10 +450,10 @@ namespace Kans
                 {
                     const auto& x = expected.Draws[i];
                     const auto& y = actual.Draws[i];
-                    if (x.Material != y.Material || x.Section != y.Section || x.LocalBounds.Min != y.LocalBounds.Min ||
-                        x.LocalBounds.Max != y.LocalBounds.Max || x.WorldBounds.Min != y.WorldBounds.Min ||
-                        x.WorldBounds.Max != y.WorldBounds.Max || x.CastShadows != y.CastShadows ||
-                        x.ReceiveShadows != y.ReceiveShadows)
+                    if (x.Mesh != y.Mesh || x.Material != y.Material || x.Section != y.Section ||
+                        x.LocalBounds.Min != y.LocalBounds.Min || x.LocalBounds.Max != y.LocalBounds.Max ||
+                        x.WorldBounds.Min != y.WorldBounds.Min || x.WorldBounds.Max != y.WorldBounds.Max ||
+                        x.CastShadows != y.CastShadows || x.ReceiveShadows != y.ReceiveShadows)
                         stale(e.EntityID);
                 }
             }
@@ -466,9 +490,11 @@ namespace Kans
             for (const auto& [handle, record] : m_Records)
                 if (!m_Scene->m_Registry.valid(handle) ||
                     !m_Scene->m_Registry.all_of<TransformComponent, IDComponent>(handle) ||
-                    !m_Scene->m_Registry
-                         .any_of<MeshComponent, PointLightComponent, DirLightComponent, SpriteRendererComponent>(
-                             handle))
+                    !m_Scene->m_Registry.any_of<MeshComponent,
+                                                EditableMeshComponent,
+                                                PointLightComponent,
+                                                DirLightComponent,
+                                                SpriteRendererComponent>(handle))
                     stale(record.Sort.EntityID);
 #endif
     }

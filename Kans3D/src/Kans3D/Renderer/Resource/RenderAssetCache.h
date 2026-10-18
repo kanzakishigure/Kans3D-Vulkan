@@ -1,13 +1,14 @@
 #pragma once
 #include <unordered_map>
 #include <glm/glm.hpp>
-#include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Runtime/TextureData.h"
+#include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Renderer/Resource/GpuShader.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
+#include "MeshKey.h"
 
 namespace Kans
 {
@@ -97,7 +98,7 @@ namespace Kans
         std::shared_ptr<ShadowResources> GetShadowFallback();
 
         const ModelInstances* GetModel(AssetID id);
-        const GpuMesh*        GetMesh(AssetID id);
+        const GpuMesh*        GetMesh(const MeshKey& id);
         const GpuMaterial*    GetMaterial(AssetID id);
         Ref<Texture2D>        GetTexture(AssetID id);
         const GpuShader*      GetShader(AssetID id);
@@ -108,6 +109,13 @@ namespace Kans
         // custom Shaders. `standard` forces Standard for viewport debug views.
         const GpuMaterialBindings* GetMaterialBindings(AssetID material, bool standard = false);
 
+        struct EditableMeshStatistics
+        {
+            uint64_t Uploads = 0, Releases = 0;
+            double   LastUploadMilliseconds = 0;
+        };
+        const EditableMeshStatistics& GetEditableMeshStatistics() const { return m_EditableStats; }
+        size_t                        GetEditableMeshCount() const { return m_EditableMeshes.size(); }
         AssetManager& GetAssetManager() { return m_Assets; }
 
     private:
@@ -141,6 +149,14 @@ namespace Kans
         std::array<Ref<Texture2D>, 3>                                      m_FallbackTextures;
         AssetManager&                                                      m_Assets;
         std::shared_ptr<ShadowResources>                                             m_ShadowFallback;
+        struct EditableEntry
+        {
+            std::weak_ptr<const RuntimeMesh> Source;
+            Scope<GpuMesh>                   Value;
+            std::optional<AssetError>        ReportedError;
+        };
+        std::unordered_map<uint64_t, EditableEntry>                        m_EditableMeshes;
+        EditableMeshStatistics                                             m_EditableStats;
         uint64_t                                                           m_Frame = 0;
         std::unordered_map<AssetID, Entry<ModelAsset, ModelInstances>>     m_Models;
         std::unordered_map<AssetID, Entry<MeshAsset, GpuMesh>>             m_Meshes;

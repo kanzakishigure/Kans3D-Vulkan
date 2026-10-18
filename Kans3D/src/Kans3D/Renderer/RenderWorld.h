@@ -13,7 +13,8 @@ namespace Kans
     public:
         struct DrawProxy
         {
-            AssetID   Mesh, Material;
+            MeshKey   Mesh;
+            AssetID   Material;
             uint32_t  Section = 0;
             glm::mat4 Transform {1};
             Bounds    LocalBounds, WorldBounds;
@@ -60,6 +61,7 @@ namespace Kans
         {
             Order                             Sort;
             std::optional<ViewMeshSubmission> Mesh;
+            MeshKey                           Key;
             Ref<const MeshAsset>              MeshSource; // Retain the last ready version while reimport loads.
             glm::mat4                         OutlineTransform {1};
             std::vector<DrawProxy>            Draws;

@@ -248,12 +248,9 @@ namespace Kans
         using namespace RenderHardware;
         if (!Assets())
             return;
-        ModelInstances direct;
-        if (draw.Mesh.IsValid())
-            direct.Instances.push_back({draw.Mesh, glm::mat4(1), draw.Section.value_or(0), {}, !draw.Section});
-        const ModelInstances* instances = &direct;
-        if (!instances)
-            return;
+        ModelInstance instance;
+        instance.Section     = draw.Section.value_or(0);
+        instance.AllSections = !draw.Section;
         const bool  normals  = draw.ShaderName == "DebugNormalShader";
         const char* vertex   = normals                            ? SceneShaders::NormalVertex :
                                draw.ShaderName == "OutLineShader" ? SceneShaders::OutlineVertex :
@@ -299,22 +296,21 @@ namespace Kans
         data.DeviceClip     = DeviceProjection(glm::mat4(1), Services.GetDevice()->GetCoordinateConventions());
         data.ViewProjection = View.Scene.sceneCamera.camera.GetProjectionMatrix() * View.Scene.sceneCamera.viewMatrix;
         data.ViewPos        = glm::vec4(View.Scene.sceneCamera.Position, 1);
-        for (const auto& instance : instances->Instances)
-            if (const GpuMesh* mesh = GetMesh(instance.Mesh))
-                ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
-                    data.Transform = draw.Transform * part.Transform;
-                    commands->BindGroup(DrawGroup(*Services.GetDevice(), desc.GroupLayouts[0], data));
-                    commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0}});
-                    if (normals)
-                        commands->Draw(section.IndexCount * 2, 1, section.FirstIndex * 2);
-                    else
-                    {
-                        commands->BindIndexBuffer(mesh->Indices, IndexType::Uint32);
-                        commands->DrawIndexed(section.IndexCount, 1, section.FirstIndex);
-                    }
-                    ++Stats.DrawCalls;
-                    Stats.Triangles += section.IndexCount / 3;
-                });
+        if (const GpuMesh* mesh = GetMesh(draw.Mesh))
+            ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
+                data.Transform = draw.Transform;
+                commands->BindGroup(DrawGroup(*Services.GetDevice(), desc.GroupLayouts[0], data));
+                commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0}});
+                if (normals)
+                    commands->Draw(section.IndexCount * 2, 1, section.FirstIndex * 2);
+                else
+                {
+                    commands->BindIndexBuffer(mesh->Indices, IndexType::Uint32);
+                    commands->DrawIndexed(section.IndexCount, 1, section.FirstIndex);
+                }
+                ++Stats.DrawCalls;
+                Stats.Triangles += section.IndexCount / 3;
+            });
         commands->EndRendering();
     }
 
@@ -437,7 +433,7 @@ namespace Kans
     {
         Services.AppendEntityDraws(World, View, entity, id, draws);
     }
-    const GpuMesh* RenderFrame::GetMesh(AssetID id) const
+    const GpuMesh* RenderFrame::GetMesh(const MeshKey& id) const
     {
         auto it = View.MeshResources.find(id);
         return it != View.MeshResources.end() ? it->second.get() : Assets() ? Assets()->GetMesh(id) : nullptr;

@@ -8,6 +8,7 @@
 #include "Kans3D/Asset/Runtime/ModelData.h"
 
 #include "Kans3D/Core/UUID.h"
+#include "Kans3D/Geometry/Shapes.h"
 #include "Kans3D/Renderer/Resource/ShadowSettings.h"
 #include "ProductModelComponent.h"
 
@@ -83,6 +84,19 @@ namespace Kans
         std::optional<uint32_t> Section; // Empty renders all sections, in mesh order.
         bool                    CastShadows = true, ReceiveShadows = true;
     };
+
+    // Mutually exclusive with MeshComponent. Callers must remove the previous
+    // component explicitly; Entity::AddComponent asserts/rejects a conflict.
+    struct EditableMeshComponent
+    {
+        EditableMesh             Mesh;
+        std::optional<ShapeDesc> Shape;
+        std::vector<AssetID>     Materials;
+        bool                     CastShadows = true, ReceiveShadows = true;
+    };
+    bool operator==(const EditableMeshComponent& a, const EditableMeshComponent& b);
+    // Explicit regeneration only. PatchComponent never interprets Shape changes.
+    void RegenerateShape(EditableMeshComponent& component);
 
     struct BoundsComponent
     {
@@ -219,6 +233,7 @@ namespace Kans
                                          SpriteRendererComponent,
                                          NativeScriptComponent,
                                          MeshComponent,
+                                         EditableMeshComponent,
                                          PrefabInstanceComponent,
                                          PrefabOwnedComponent,
                                          PrefabAttachmentComponent,

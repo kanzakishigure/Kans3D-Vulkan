@@ -476,9 +476,10 @@ namespace Kans
             if (view.Assets->GetDevice() != m_Device)
                 throw std::invalid_argument("Renderer asset cache belongs to another device");
             world.SetAssetManager(&view.Assets->GetAssetManager());
-            view.Assets->BeginFrame();
         }
         world.Synchronize();
+        if (view.Assets)
+            view.Assets->BeginFrame();
         if (view.ExtractWorld)
         {
             world.Extract(view, world.Settings);

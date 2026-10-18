@@ -24,6 +24,9 @@ namespace Kans
             m_Registry.on_destroy<T>().template connect<&Scene::OnRenderComponentChanged>(this);
         };
         connect(static_cast<MeshComponent*>(nullptr));
+        m_Registry.on_construct<EditableMeshComponent>().connect<&Scene::OnEditableMeshChanged>(this);
+        m_Registry.on_update<EditableMeshComponent>().connect<&Scene::OnEditableMeshChanged>(this);
+        m_Registry.on_destroy<EditableMeshComponent>().connect<&Scene::OnEditableMeshRemoved>(this);
         connect(static_cast<SpriteRendererComponent*>(nullptr));
         connect(static_cast<DirLightComponent*>(nullptr));
         connect(static_cast<PointLightComponent*>(nullptr));
@@ -76,6 +79,37 @@ namespace Kans
             DirtyBounds(entity);
         if (!m_ReconcilingPrefab && entity.HasComponent<PrefabOwnedComponent>())
             m_CapturePrefabNodes.insert(handle);
+    }
+    void Scene::OnEditableMeshChanged(entt::registry& registry, entt::entity handle)
+    {
+        const auto  source    = m_EditableSources.find(handle);
+        const auto* component = registry.try_get<EditableMeshComponent>(handle);
+        if (!component || source == m_EditableSources.end() || !(component->Mesh == *source->second))
+        {
+            m_EditableMeshes.erase(handle);
+            m_EditableSources.erase(handle);
+        }
+        OnRenderComponentChanged(registry, handle);
+    }
+    void Scene::OnEditableMeshRemoved(entt::registry& registry, entt::entity handle)
+    {
+        m_EditableMeshes.erase(handle);
+        m_EditableSources.erase(handle);
+        OnRenderComponentChanged(registry, handle);
+    }
+    Ref<const RuntimeMesh> Scene::ResolveEditableMesh(Entity entity) const
+    {
+        if (!entity.HasComponent<EditableMeshComponent>())
+            return {};
+        auto&       built = m_EditableMeshes[entt::entity(entity)];
+        const auto& mesh  = entity.GetComponent<EditableMeshComponent>().Mesh;
+        if (!built)
+        {
+            built                                   = CreateRef<RuntimeMesh>(Build(mesh));
+            m_EditableSources[entt::entity(entity)] = std::make_shared<EditableMesh>(mesh);
+            ++m_EditableMeshBuildCount;
+        }
+        return built;
     }
     void Scene::OnPrefabChanged(entt::registry&, entt::entity handle)
     {
@@ -135,6 +169,8 @@ namespace Kans
     }
     Ref<const MeshAsset> Scene::ResolveMesh(Entity entity) const
     {
+        if (entity.HasComponent<EditableMeshComponent>())
+            return ResolveEditableMesh(entity)->Source;
         if (!entity.HasComponent<MeshComponent>())
             return {};
         const auto id = entity.GetComponent<MeshComponent>().Mesh;
@@ -394,6 +430,7 @@ namespace Kans
         CopyComponent<CameraComponent>(source, copy);
         CopyComponent<SpriteRendererComponent>(source, copy);
         CopyComponent<MeshComponent>(source, copy);
+        CopyComponent<EditableMeshComponent>(source, copy);
         if (source.HasComponent<PrefabInstanceComponent>())
         {
             auto instance     = source.GetComponent<PrefabInstanceComponent>();
@@ -512,6 +549,9 @@ namespace Kans
     {}
     template<>
     void Scene::OnComponentAdd<MeshComponent>(Entity entity, MeshComponent& component)
+    {}
+    template<>
+    void Scene::OnComponentAdd<EditableMeshComponent>(Entity entity, EditableMeshComponent& component)
     {}
     template<>
     void Scene::OnComponentAdd<BoundsComponent>(Entity entity, BoundsComponent& component)
