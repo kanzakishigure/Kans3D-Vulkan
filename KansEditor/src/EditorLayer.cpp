@@ -147,6 +147,7 @@ namespace Kans
             std::error_code missing;
             if (std::holds_alternative<std::monostate>(configured) && std::filesystem::exists(startup, missing))
                 Record(OpenScene(startup));
+            QueueUnimportedShaders();
         }
     }
 
@@ -210,7 +211,10 @@ namespace Kans
             if (const auto* error = std::get_if<AssetError>(&changed))
                 Record(*error);
             else if (const auto& snapshot = std::get<std::optional<Ref<const AssetRegistry>>>(changed); snapshot)
+            {
                 Record(RefreshProductAssets(*snapshot));
+                QueueUnimportedShaders(); // Sources were refreshed: new shader files are imported.
+            }
             auto completed = m_AssetImports->Poll();
             if (const auto* error = std::get_if<AssetError>(&completed))
                 Record(*error);
@@ -222,7 +226,8 @@ namespace Kans
                     StartPendingPlacementBuild();
                 else
                     PlacePendingModel();
-                StartNextSceneImport();
+                // The first build (the open-time sweep) may have scanned new shader sources.
+                QueueUnimportedShaders();
                 if (!m_Play.IsActive())
                     m_History.Record(*m_ActiveScene);
             }

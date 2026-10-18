@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <deque>
+#include <set>
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Project/Project.h"
 #include <Kans3D.h>
@@ -90,11 +91,16 @@ namespace Kans
         std::optional<glm::vec3>                 m_PendingPlacementPosition;
         // Dropped while another build ran: build it once that build completes.
         bool                                     m_PendingPlacementWaiting = false;
-        // Assets the open scene references that have never been imported (e.g. the
-        // materials of a scene copied into the project), built one after another.
+        // Sources imported without being asked, one build after another: assets the open
+        // scene references that were never imported (e.g. the materials of a scene copied
+        // into the project) and every shader program, so it can be picked in materials.
+        // Each source is queued once per session, so a failing import is not retried in a loop.
         void                                     QueueMissingSceneAssets();
-        void                                     StartNextSceneImport();
-        std::deque<SourceAssetID>                m_SceneImports;
+        void                                     QueueUnimportedShaders();
+        void                                     QueueAutoImport(SourceAssetID source);
+        void                                     StartNextAutoImport();
+        std::deque<SourceAssetID>                m_AutoImports;
+        std::set<SourceAssetID>                  m_AutoImported;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);

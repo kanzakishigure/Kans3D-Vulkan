@@ -531,16 +531,39 @@ namespace Kans
         auto sources = m_AssetImports->GetSources();
         if (const auto* list = std::get_if<std::vector<SourceAssetMetadata>>(&sources))
             for (const auto& source : *list)
-                if (source.Exists && referenced.count(source.sourceAssetID) &&
-                    std::find(m_SceneImports.begin(), m_SceneImports.end(), source.sourceAssetID) ==
-                        m_SceneImports.end())
-                    m_SceneImports.push_back(source.sourceAssetID);
-        StartNextSceneImport();
+                if (source.Exists && referenced.count(source.sourceAssetID))
+                    QueueAutoImport(source.sourceAssetID);
+        StartNextAutoImport();
     }
 
-    void EditorLayer::StartNextSceneImport()
+    void EditorLayer::QueueUnimportedShaders()
     {
-        if (m_SceneImports.empty() || m_PendingPlacement)
+        if (!m_AssetImports)
+            return;
+        std::set<SourceAssetID> published;
+        for (const auto& record : m_AssetImports->GetRuntimeAssetRegistry()->GetAllProducts())
+            published.insert(record.Metadata.assetID.GetSourceID());
+        auto sources = m_AssetImports->GetSources();
+        if (const auto* list = std::get_if<std::vector<SourceAssetMetadata>>(&sources))
+            for (const auto& source : *list)
+                if (source.Exists && source.Path.GetPath().extension() == ".shaderprog" &&
+                    !published.count(source.sourceAssetID) && !m_AutoImported.count(source.sourceAssetID))
+                {
+                    CORE_INFO("Importing shader {}", source.Path.GetPath().generic_u8string());
+                    QueueAutoImport(source.sourceAssetID);
+                }
+        StartNextAutoImport();
+    }
+
+    void EditorLayer::QueueAutoImport(SourceAssetID source)
+    {
+        if (m_AutoImported.insert(source).second)
+            m_AutoImports.push_back(source);
+    }
+
+    void EditorLayer::StartNextAutoImport()
+    {
+        if (m_AutoImports.empty() || m_PendingPlacement)
             return;
         auto snapshot = m_AssetImports->GetSnapshot();
         if (const auto* state = std::get_if<EditorAssetImportSnapshot>(&snapshot);
@@ -548,8 +571,8 @@ namespace Kans
             return; // Retried when the running build completes.
         AssetBuildOptions options;
         options.Target = EditorAssetTarget;
-        const auto source = m_SceneImports.front();
-        m_SceneImports.pop_front();
+        const auto source = m_AutoImports.front();
+        m_AutoImports.pop_front();
         Record(m_AssetImports->Start(source, options));
     }
 
