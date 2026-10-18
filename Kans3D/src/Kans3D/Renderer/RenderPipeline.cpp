@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include "RenderFrame.h"
 #include "Resource/InternalShader.h"
+#include "Resource/ShadowMaps.h"
 #include "SpriteBatch.h"
 
 namespace Kans
@@ -73,6 +74,7 @@ namespace Kans
         using namespace RenderHardware;
         if (!graph.PassCount())
             Begin(graph, renderer);
+        BuildShadowPasses(graph, renderer);
         std::vector<GraphUse> target;
         for (size_t i = 0; i < renderer.Output.GetColors().size(); ++i)
             target.push_back({graph.ImportTexture("SceneColor" + std::to_string(i), renderer.Output.GetColors()[i]),
@@ -151,6 +153,12 @@ namespace Kans
             auto uses = target;
             for (const auto& image : renderer.GetMaterialEnvironment())
                 sampled(uses, image, "MaterialEnvironment");
+            if (view.Shadows)
+            {
+                sampled(uses, view.Shadows->Directional, "DirectionalShadowAtlas");
+                for (const auto& point : view.Shadows->Points)
+                    sampled(uses, point, "PointShadowCube");
+            }
             // Material groups resolve asynchronous textures while recording. Record once now,
             // declare the exact retained images, then let graph execution submit the immutable list.
             // This keeps the existing per-draw allocation count and avoids resolving groups twice.

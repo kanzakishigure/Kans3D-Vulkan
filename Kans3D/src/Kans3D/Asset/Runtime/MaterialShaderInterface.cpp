@@ -33,6 +33,19 @@ layout(set = 0, binding = 0, std140) uniform KansFrame
     vec4 DirectionalSpecular;
     vec4 DirectionalAmbient;
     vec4 LightingInfo;
+    mat4 CascadeViewProjection[4];
+    vec4 CascadeSplits;
+    vec4 CascadeBlendStarts;
+    vec4 CascadeTexel[4];
+    vec4 ShadowInfo;
+    vec4 ShadowCameraDepth;
+    vec4 PointShadowIndices[4];
+    vec4 PointShadowPositionRange[4];
+    vec4 PointShadowParams[4];
+    vec4 ShadowPass;
+    vec4 ShadowPassPosition;
+    vec4 PointShadowSourceRadius;
+
 } u_Frame;
 int KansPointLightCount() { return clamp(int(u_Frame.LightingInfo.x), 0, KANS_POINT_LIGHT_LIMIT); }
 float KansExposure() { return u_Frame.LightingInfo.y; }
@@ -51,6 +64,7 @@ layout(set = 0, binding = 1, std140) uniform KansObject
 layout(set = 0, binding = 2) uniform samplerCube u_IrradianceMap;
 layout(set = 0, binding = 3) uniform samplerCube u_PrefilterMap;
 layout(set = 0, binding = 4) uniform sampler2D   u_BrdfLUT;
+
 #endif
 )"},
                 {"Kans3D/Alpha.glsl", R"(#ifndef KANS3D_ALPHA_GLSL
@@ -68,6 +82,22 @@ float KansOutputAlpha(float alpha)
 }
 #endif
 )"},
+                {"Kans3D/ShadowCaster.glsl", R"(#ifndef KANS3D_SHADOW_CASTER_GLSL
+#define KANS3D_SHADOW_CASTER_GLSL
+#include <Kans3D/Alpha.glsl>
+// ShadowCaster fragments call this after KansAlphaClip, including for point cubes.
+void KansWriteShadowDepth(vec3 worldPos)
+{
+    if (u_Frame.ShadowPass.x == 2.0)
+    {
+        float depth = length(worldPos - u_Frame.ShadowPassPosition.xyz) / u_Frame.ShadowPassPosition.w;
+        float slope = max(abs(dFdx(depth)), abs(dFdy(depth)));
+        gl_FragDepth = clamp(depth + u_Frame.ShadowPass.y * 1e-6 + u_Frame.ShadowPass.z * slope, 0.0, 1.0);
+    }
+    else gl_FragDepth = gl_FragCoord.z;
+}
+#endif
+)"},
                 {"Kans3D/VertexInput.glsl", R"(#ifndef KANS3D_VERTEX_INPUT_GLSL
 #define KANS3D_VERTEX_INPUT_GLSL
 // Engine mesh vertex layout.
@@ -81,8 +111,182 @@ layout(location = 4) in vec4 a_Tangent;
                 {"Kans3D/Lighting.glsl", R"(#ifndef KANS3D_LIGHTING_GLSL
 #define KANS3D_LIGHTING_GLSL
 #include <Kans3D/Engine.glsl>
+layout(set = 0, binding = 5) uniform sampler2DShadow u_DirectionalShadow;
+layout(set = 0, binding = 6) uniform sampler2D u_DirectionalShadowRaw;
+layout(set = 0, binding = 7) uniform samplerCubeShadow u_PointShadow0;
+layout(set = 0, binding = 8) uniform samplerCubeShadow u_PointShadow1;
+layout(set = 0, binding = 9) uniform samplerCubeShadow u_PointShadow2;
+layout(set = 0, binding = 10) uniform samplerCubeShadow u_PointShadow3;
+
 // Engine PBR lighting (point lights + image-based lighting), in linear HDR.
 const float KANS_PI = 3.14159265359;
+
+// The atlas has four independent tiles, including the half-texel bilinear footprint.
+vec2 KansShadowUV(int cascade, vec2 localUV)
+{
+    vec2 tile = vec2(cascade & 1, cascade >> 1) * 0.5;
+    float h = 0.25 / u_Frame.CascadeTexel[cascade].z;
+    return clamp(tile + localUV * 0.5, tile + vec2(h), tile + vec2(0.5 - h));
+}
+// Use the geometric receiver plane, including on meshes with interpolated shading normals.
+vec3 KansReceiverNormal(vec3 worldPos, vec3 normal)
+{
+    vec3 n = cross(dFdx(worldPos), dFdy(worldPos));
+    return dot(n,n) > 1e-16 ? normalize(n) : normalize(normal);
+}
+vec2 KansReceiverGradient(int cascade, vec3 normal)
+{
+    // Orthographic cascade rows are perpendicular. Transform the plane covector
+    // into local shadow UV/depth coordinates; dz/duv = -plane.xy / plane.z.
+    mat3 rows = transpose(mat3(u_Frame.CascadeViewProjection[cascade]));
+    vec3 u = rows[0] * 0.5, v = rows[1] * 0.5, z = rows[2];
+    vec3 plane = vec3(dot(normal,u)/max(dot(u,u),1e-20),
+                      dot(normal,v)/max(dot(v,v),1e-20),
+                      dot(normal,z)/max(dot(z,z),1e-20));
+    return abs(plane.z) > 1e-8 ? -plane.xy / plane.z : vec2(0);
+}
+vec2 KansShadowLocalUV(int cascade, vec2 uv)
+{
+    return (uv - vec2(cascade & 1, cascade >> 1) * 0.5) * 2.0;
+}
+float KansCascadeCompare(int cascade, vec3 p, vec2 offset, vec2 gradient)
+{
+    float resolution = u_Frame.CascadeTexel[cascade].z;
+    vec2 uv = KansShadowUV(cascade, p.xy + offset / resolution);
+    // Correct each tap at its clamped location. The extra half-texel term bounds
+    // all four bilinear comparison texels, rather than displacing the whole kernel.
+    float receiver = p.z + dot(gradient, KansShadowLocalUV(cascade, uv) - p.xy);
+    float footprint = 0.5 * dot(abs(gradient), vec2(1.0 / resolution));
+    // Wide grazing kernels can extrapolate beyond the cascade depth interval.
+    // Clear depth (1) remains lit there, rather than becoming a false occluder.
+    return texture(u_DirectionalShadow, vec3(uv, clamp(receiver - footprint - 2e-7, 0.0, 1.0)));
+}
+const vec2 KANS_POISSON[32] = vec2[](
+    vec2(-.613,.617),vec2(.170,-.040),vec2(-.299,-.791),vec2(.645,.493),
+    vec2(-.652,-.302),vec2(.421,-.712),vec2(-.817,.090),vec2(.329,.875),
+    vec2(.849,-.222),vec2(-.112,.329),vec2(.015,-.956),vec2(-.456,.004),
+    vec2(.259,.303),vec2(-.274,-.374),vec2(.741,.072),vec2(-.084,.740),
+    vec2(-.900,-.400),vec2(.528,.714),vec2(.540,-.390),vec2(-.460,.846),
+    vec2(.903,.405),vec2(-.091,-.182),vec2(-.501,-.587),vec2(.282,-.453),
+    vec2(-.737,.411),vec2(.002,.012),vec2(.655,-.718),vec2(-.350,.499),
+    vec2(.131,.606),vec2(-.236,-.967),vec2(.974,-.030),vec2(-.018,-.570));
+float KansCascadeShadow(int cascade, vec3 worldPos, vec3 normal)
+{
+    vec2 gradient = KansReceiverGradient(cascade, KansReceiverNormal(worldPos, normal));
+    vec3 q = worldPos + normal * u_Frame.ShadowInfo.z *
+        (1.0 - clamp(dot(normal, KansDirectionalToLight()), 0.0, 1.0));
+    vec4 clip = u_Frame.CascadeViewProjection[cascade] * vec4(q, 1);
+    vec3 p = clip.xyz / clip.w;
+    p.xy = p.xy * 0.5 + 0.5;
+    if (any(lessThan(p, vec3(0))) || any(greaterThan(p, vec3(1)))) return 1.0;
+    int shadowFilter = int(u_Frame.ShadowInfo.y);
+    float result = 0.0;
+    if (shadowFilter < 2)
+    {
+        int r = shadowFilter == 0 ? 1 : 2;
+        float total = 0.0;
+        for (int y = -r; y <= r; ++y)
+            for (int x = -r; x <= r; ++x)
+            {
+                float weight = shadowFilter == 0 ? 1.0 : float((3 - abs(x)) * (3 - abs(y)));
+                result += weight * KansCascadeCompare(cascade, p, vec2(x,y), gradient);
+                total += weight;
+            }
+        return result / total;
+    }
+    float angle = 6.28318530718 * fract(52.9829189 * fract(dot(floor(gl_FragCoord.xy), vec2(.06711056,.00583715))));
+    mat2 rotation = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
+    vec4 texel = u_Frame.CascadeTexel[cascade];
+    float searchRadius = clamp(texel.y * u_Frame.ShadowInfo.w / texel.x, 1.0, 64.0);
+    float blockers = 0.0, depthSum = 0.0;
+    // A dense inner disk prevents thin casters from disappearing between wide search samples.
+    // Both radii are independent of the camera-relative light depth, preserving the stabilized grid.
+    for (int disk = 0; disk < 2; ++disk)
+        for (int i = 0; i < 32; ++i)
+        {
+            float radius = disk == 0 ? searchRadius : max(1.0, searchRadius * 0.125);
+            vec2 uv = KansShadowUV(cascade, p.xy + rotation * KANS_POISSON[i] * radius / texel.z);
+            // Nearest raw depth belongs to the texel centre, not to the search UV.
+            vec2 size = vec2(textureSize(u_DirectionalShadowRaw, 0));
+            uv = (floor(uv * size) + 0.5) / size;
+            float depth = textureLod(u_DirectionalShadowRaw, uv, 0.0).r;
+            float receiver = p.z + dot(gradient, KansShadowLocalUV(cascade, uv) - p.xy);
+            float separation = receiver - depth;
+            if (depth < 1.0 && separation > 0.00001) { depthSum += p.z - separation; blockers += 1.0; }
+        }
+    if (blockers == 0.0) return 1.0;
+    float penumbra = clamp((p.z - depthSum / blockers) * texel.y * u_Frame.ShadowInfo.w / texel.x, 0.0, 64.0);
+    for (int i = 0; i < 32; ++i)
+        result += KansCascadeCompare(cascade, p, rotation * KANS_POISSON[i] * penumbra, gradient);
+    return result / 32.0;
+}
+int KansShadowCascade(vec3 worldPos)
+{
+    float depth = dot(u_Frame.ShadowCameraDepth, vec4(worldPos, 1));
+    for (int i = 0; i < int(u_Frame.ShadowInfo.x); ++i)
+        if (depth <= u_Frame.CascadeSplits[i]) return i;
+    return -1;
+}
+float KansShadow(vec3 worldPos, vec3 normal)
+{
+    if (u_Frame.ShadowInfo.x == 0.0 || u_Object.MaterialRender.w != 0.0) return 1.0;
+    int cascade = KansShadowCascade(worldPos);
+    if (cascade < 0) return 1.0;
+    float result = KansCascadeShadow(cascade, worldPos, normal);
+    float depth = dot(u_Frame.ShadowCameraDepth, vec4(worldPos, 1));
+    float start = u_Frame.CascadeBlendStarts[cascade], end = u_Frame.CascadeSplits[cascade];
+    if (end > start && depth > start)
+    {
+        float next = cascade + 1 < int(u_Frame.ShadowInfo.x) ? KansCascadeShadow(cascade + 1, worldPos, normal) : 1.0;
+        result = mix(result, next, smoothstep(start, end, depth));
+    }
+    return result;
+}
+float KansCubeCompare(int shadow, vec3 direction, float depth)
+{
+    if (shadow == 0) return texture(u_PointShadow0, vec4(direction, depth));
+    if (shadow == 1) return texture(u_PointShadow1, vec4(direction, depth));
+    if (shadow == 2) return texture(u_PointShadow2, vec4(direction, depth));
+    return texture(u_PointShadow3, vec4(direction, depth));
+}
+float KansPointShadow(int light, vec3 worldPos, vec3 normal)
+{
+    if (light < 0 || light >= KANS_POINT_LIGHT_LIMIT || u_Object.MaterialRender.w != 0.0) return 1.0;
+    int shadow = int(u_Frame.PointShadowIndices[light / 4][light % 4]);
+    if (shadow < 0) return 1.0;
+    vec4 positionRange = u_Frame.PointShadowPositionRange[shadow];
+    vec4 params = u_Frame.PointShadowParams[shadow];
+    vec3 delta = worldPos - positionRange.xyz;
+    float distanceToLight = length(delta);
+    if (distanceToLight >= positionRange.w || distanceToLight < 0.001) return 1.0;
+    vec3 L = -delta / distanceToLight;
+    delta += normal * params.y * (1.0 - clamp(dot(normal,L),0.0,1.0));
+    vec3 receiverNormal = KansReceiverNormal(worldPos, normal);
+    float planeDistance = abs(dot(receiverNormal, delta));
+    vec3 direction = normalize(delta);
+    vec3 T = normalize(cross(abs(direction.y) < .99 ? vec3(0,1,0) : vec3(1,0,0), direction));
+    vec3 B = cross(direction,T);
+    float sum = 0.0, total = 0.0;
+    int r = params.w == 1.0 ? 2 : 1;
+    float angularStep = max(params.x * 2.0, u_Frame.PointShadowSourceRadius[shadow] / (distanceToLight * float(r)));
+    for (int y = -r; y <= r; ++y)
+        for (int x = -r; x <= r; ++x)
+        {
+            float weight = r == 1 ? 1.0 : float((3-abs(x))*(3-abs(y)));
+            vec3 tap = normalize(direction + (T * x + B * y) * angularStep);
+            // Intersect each PCF ray with the receiver plane. This radial correction
+            // scales with distance * angularStep * kernel radius (world footprint).
+            float cosine = abs(dot(receiverNormal, tap));
+            // A cube texel spans <=2/res radians. Bound the half-texel bilinear
+            // footprint on both axes, including the radial slope at grazing angles.
+            float halfFootprint = 1.414214 * params.x;
+            float closest = planeDistance / max(cosine + halfFootprint * sqrt(max(0.0,1.0-cosine*cosine)), 1e-6);
+            float depth = clamp(closest / positionRange.w - params.z - 2e-7, 0.0, 1.0);
+            sum += weight * KansCubeCompare(shadow, tap, depth);
+            total += weight;
+        }
+    return sum / total;
+}
 
 float KansDistributionGGX(vec3 N, vec3 H, float roughness)
 {
@@ -130,11 +334,11 @@ vec3 KansShadePbr(vec3 albedo, float metallic, float roughness, float ao, vec3 N
         float distanceSquared = max(dot(toLight, toLight), 1e-4);
         vec3 L = normalize(toLight);
         Lo += KansDirectPbr(albedo, metallic, roughness, N, V, L,
-                            KansPointLightRadiance(i) / distanceSquared, KansPointLightSpecular(i));
+                            KansPointLightRadiance(i) / distanceSquared, KansPointLightSpecular(i)) * KansPointShadow(i, worldPos, N);
     }
     if (u_Frame.DirectionalDirection.w != 0.0)
         Lo += KansDirectPbr(albedo, metallic, roughness, N, V, KansDirectionalToLight(),
-                            KansDirectionalRadiance(), u_Frame.DirectionalSpecular.rgb);
+                            KansDirectionalRadiance(), u_Frame.DirectionalSpecular.rgb) * KansShadow(worldPos, N);
     vec3 F = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
     vec3 kD = (1.0 - F) * (1.0 - metallic);
     vec3 diffuse = textureLod(u_IrradianceMap, N, 0.0).rgb * albedo;
@@ -191,7 +395,19 @@ vec4 KansToneMap(vec3 color)
                   {"DirectionalRadiance", 1072, 4, 1, 1},
                   {"DirectionalSpecular", 1088, 4, 1, 1},
                   {"DirectionalAmbient", 1104, 4, 1, 1},
-                  {"LightingInfo", 1120, 4, 1, 1}}},
+                  {"LightingInfo", 1120, 4, 1, 1},
+                  {"CascadeViewProjection", 1136, 4, 4, 4},
+                  {"CascadeSplits", 1392, 4, 1, 1},
+                  {"CascadeBlendStarts", 1408, 4, 1, 1},
+                  {"CascadeTexel", 1424, 4, 1, 4},
+                  {"ShadowInfo", 1488, 4, 1, 1},
+                  {"ShadowCameraDepth", 1504, 4, 1, 1},
+                  {"PointShadowIndices", 1520, 4, 1, 4},
+                  {"PointShadowPositionRange", 1584, 4, 1, 4},
+                  {"PointShadowParams", 1648, 4, 1, 4},
+                  {"ShadowPass", 1712, 4, 1, 1},
+                  {"ShadowPassPosition", 1728, 4, 1, 1},
+                  {"PointShadowSourceRadius", 1744, 4, 1, 1}}},
                 {ShaderBindingKind::UniformBuffer,
                  ShaderImageDimension::Texture2D,
                  sizeof(EngineObjectUniforms),
@@ -199,6 +415,12 @@ vec4 KansToneMap(vec3 color)
                 {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
                 {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
                 {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Texture2D, 0, {}},
+                {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Texture2D, 0, {}},
+                {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Texture2D, 0, {}},
+                {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
+                {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
+                {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
+                {ShaderBindingKind::CombinedImageSampler, ShaderImageDimension::Cube, 0, {}},
             };
             return table[static_cast<uint32_t>(binding)];
         }
@@ -224,7 +446,8 @@ vec4 KansToneMap(vec3 color)
                 (binding.Kind != ShaderBindingKind::CombinedImageSampler || binding.Dimension == expected.Dimension) &&
                 (binding.Members.size() == expected.Members.size() ||
                  (binding.Binding == uint32_t(EngineBinding::Frame) &&
-                  (binding.Members.size() == LegacyFrameMemberCount || binding.Members.size() == 7)) ||
+                  (binding.Members.size() == LegacyFrameMemberCount || binding.Members.size() == 7 ||
+                   binding.Members.size() == 17)) ||
                  (binding.Binding == uint32_t(EngineBinding::Object) &&
                   binding.Members.size() == LegacyObjectMemberCount));
             for (size_t i = 0; matches && i < binding.Members.size(); ++i)
@@ -248,8 +471,8 @@ vec4 KansToneMap(vec3 color)
         return found == EngineIncludes().end() ? nullptr : &found->second;
     }
 
-    std::variant<std::monostate, AssetError>
-    ValidateMaterialShaderInterface(const std::vector<ShaderStageReflection>& reflection)
+    static std::variant<std::monostate, AssetError>
+    ValidateMaterialInterface(const std::vector<ShaderStageReflection>& reflection, bool depthOnly)
     {
         const ShaderStageReflection* vertex   = nullptr;
         const ShaderStageReflection* fragment = nullptr;
@@ -269,9 +492,10 @@ vec4 KansToneMap(vec3 color)
             if (input.Location >= 5 || input.Columns != 1 || input.Scalar != ShaderInterfaceScalar::Float ||
                 input.Components != vertexComponents[input.Location])
                 return Contract("vertex input '" + input.Name + "' does not match the engine vertex layout");
-        if (fragment->Outputs.size() != 1 || fragment->Outputs[0].Location != 0 ||
-            fragment->Outputs[0].Components != 4 || fragment->Outputs[0].Columns != 1 ||
-            fragment->Outputs[0].Scalar != ShaderInterfaceScalar::Float)
+        if (!(depthOnly && fragment->Outputs.empty()) &&
+            (fragment->Outputs.size() != 1 || fragment->Outputs[0].Location != 0 ||
+             fragment->Outputs[0].Components != 4 || fragment->Outputs[0].Columns != 1 ||
+             fragment->Outputs[0].Scalar != ShaderInterfaceScalar::Float))
             return Contract("the fragment stage must write one vec4 color at location 0");
 
         for (const auto& stage : reflection)
@@ -293,6 +517,12 @@ vec4 KansToneMap(vec3 color)
                                     "; only set 0 (engine) and set 1 (material) are available");
             }
         return std::monostate {};
+    }
+
+    std::variant<std::monostate, AssetError>
+    ValidateMaterialShaderInterface(const std::vector<ShaderStageReflection>& reflection)
+    {
+        return ValidateMaterialInterface(reflection, false);
     }
 
     namespace
@@ -373,7 +603,7 @@ vec4 KansToneMap(vec3 color)
             if (auto* error = std::get_if<AssetError>(&extra))
                 return fail(error->Message);
             const auto& stages   = std::get<std::vector<ShaderStageReflection>>(extra);
-            auto        contract = ValidateMaterialShaderInterface(stages);
+            auto        contract = ValidateMaterialInterface(stages, pass.Tag == "ShadowCaster");
             if (auto* error = std::get_if<AssetError>(&contract))
                 return fail(error->Message);
             std::set<uint32_t> engine;
@@ -393,7 +623,8 @@ vec4 KansToneMap(vec3 color)
                     }
                 }
             for (const auto& [key, binding] : bindings)
-                if (key.first == 0 && !engine.count(key.second))
+                if (key.first == 0 && key.second < uint32_t(EngineBinding::DirectionalShadow) &&
+                    !engine.count(key.second))
                     return fail("set 0 contract omits main pass binding " + std::to_string(key.second));
         }
         return std::monostate {};

@@ -156,10 +156,11 @@ namespace Kans
                 continue;
             const auto& render = item.Render;
             frame              = litFrame;
-            frame.DebugView    = draw.ViewMode == SceneViewMode::BaseColor ? 1.0f :
-                                 draw.ViewMode == SceneViewMode::Normals   ? 2.0f :
-                                 draw.ViewMode == SceneViewMode::Wireframe ? 3.0f :
-                                                                             0.0f;
+            frame.DebugView    = draw.ViewMode == SceneViewMode::BaseColor      ? 1.0f :
+                                 draw.ViewMode == SceneViewMode::Normals        ? 2.0f :
+                                 draw.ViewMode == SceneViewMode::Wireframe      ? 3.0f :
+                                 draw.ViewMode == SceneViewMode::ShadowCascades ? 4.0f :
+                                                                                  0.0f;
             if (draw.ViewMode == SceneViewMode::Wireframe)
             {
                 // The wireframe diagnostic intentionally retains its phase-one appearance.
@@ -182,13 +183,17 @@ namespace Kans
             EngineObjectUniforms object;
             object.Transform      = draw.Transform;
             object.NormalMatrix   = glm::transpose(glm::inverse(draw.Transform));
-            object.MaterialRender = {float(render.AlphaMode), render.AlphaCutoff, render.DoubleSided ? 1.0f : 0.0f, 0};
+            object.MaterialRender = {float(render.AlphaMode),
+                                     render.AlphaCutoff,
+                                     render.DoubleSided ? 1.0f : 0.0f,
+                                     render.ReceiveShadows && draw.ReceiveShadows ? 0.0f : 1.0f};
             objects->Write(range * objectStride, &object, sizeof(object));
             MaterialPassData pass;
             pass.Frame              = frames;
             pass.Object             = objects;
             pass.FrameOffset        = frameRange * frameStride;
             pass.ObjectOffset       = range * objectStride;
+            pass.Shadows            = View.Shadows;
             pass.Environment        = environment;
             pass.EnvironmentSampler = Services.GetMaterialEnvironmentSampler();
             // Debug views, including wireframe's lit shading, retain display output.

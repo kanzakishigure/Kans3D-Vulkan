@@ -30,6 +30,7 @@ struct ShaderBinding
     BindingType      Type;
     size_t           Bytes;
     TextureDimension Dimension;
+    bool             Comparison = false;
 };
 // IDs and member names are deliberately excluded; compare the actual native byte layout.
 std::string PushLayout(spirv_cross::Compiler& compiler, uint32_t id)
@@ -110,8 +111,9 @@ struct VKShader final : Shader
                         {
                             auto image = nativeType.image;
                             Require((image.dim == spv::Dim2D || image.dim == spv::DimCube) && !image.arrayed &&
-                                        !image.ms && !image.depth,
-                                    "Unsupported shader image dimension or comparison image");
+                                        !image.ms,
+                                    "Unsupported shader image dimension");
+                            binding.Comparison = image.depth;
                             binding.Dimension =
                                 image.dim == spv::DimCube ? TextureDimension::Cube : TextureDimension::Texture2D;
                         }
@@ -122,7 +124,7 @@ struct VKShader final : Shader
                             Bindings.push_back(binding);
                         else
                             Require(old->Type == binding.Type && old->Bytes == binding.Bytes &&
-                                        old->Dimension == binding.Dimension,
+                                        old->Dimension == binding.Dimension && old->Comparison == binding.Comparison,
                                     "Shader stages disagree about a binding");
                     }
                 };
@@ -294,9 +296,10 @@ struct VKGroup final : BindGroup
                 Require(Has(t->Desc.Usage, TextureUsage::Sampled), "Binding texture usage mismatch");
                 images[i].imageView = t->SampledView;
                 add(t->SampledView);
-                images[i].imageLayout = Info(t->Desc.PixelFormat).Depth() ?
-                                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :
-                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                images[i].imageLayout =
+                    Info(t->Desc.PixelFormat).Depth() && Has(t->Desc.Usage, TextureUsage::DepthStencil) ?
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
             if (sampler)
             {

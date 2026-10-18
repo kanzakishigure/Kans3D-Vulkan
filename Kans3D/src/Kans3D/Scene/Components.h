@@ -8,6 +8,7 @@
 #include "Kans3D/Asset/Runtime/ModelData.h"
 
 #include "Kans3D/Core/UUID.h"
+#include "Kans3D/Renderer/Resource/ShadowSettings.h"
 #include "ProductModelComponent.h"
 
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
@@ -80,6 +81,7 @@ namespace Kans
         AssetID                 Mesh;
         std::vector<AssetID>    Materials;
         std::optional<uint32_t> Section; // Empty renders all sections, in mesh order.
+        bool                    CastShadows = true, ReceiveShadows = true;
     };
 
     struct BoundsComponent
@@ -181,6 +183,7 @@ namespace Kans
         glm::vec3 Diffuse_Intensity {1};
         glm::vec3 Specular_Intensity {1};
         glm::vec3 Ambient_Intensity {0};
+        ShadowSettings Shadows;
         DirLightComponent()                         = default;
         DirLightComponent(const DirLightComponent&) = default;
     };
@@ -190,6 +193,7 @@ namespace Kans
         glm::vec3 Diffuse_Intensity {1};
         glm::vec3 Specular_Intensity {1};
         glm::vec3 Ambient_Intensity {0};
+        ShadowSettings Shadows                          = ShadowSettings::PointDefaults();
         PointLightComponent()                           = default;
         PointLightComponent(const PointLightComponent&) = default;
     };

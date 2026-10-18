@@ -13,6 +13,11 @@ namespace Kans
         bool                                Wireframe = false, WriteStencil = false;
         MaterialRenderState                 Render;
         uint32_t                                                       Section = 0;
+        std::shared_ptr<ShadowResources>                               Shadows;
+        bool                                                           ShadowDepth = false;
+        RenderHardware::FrontFace                      DepthFront = RenderHardware::FrontFace::CounterClockwise;
+        RenderHardware::Handle<RenderHardware::Shader> DepthProgram;
+        float                                          ConstantBias = 0, SlopeBias = 0;
     };
     // Shared immutable pipeline/engine group/material group binding for scene and previews.
     // Returns false when assigned textures are unavailable; fallback textures still draw.

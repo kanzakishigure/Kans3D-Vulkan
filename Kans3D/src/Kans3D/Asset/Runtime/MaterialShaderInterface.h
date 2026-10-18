@@ -23,8 +23,14 @@ namespace Kans
         IrradianceMap = 2,
         PrefilterMap  = 3,
         BrdfLUT       = 4,
+        DirectionalShadow    = 5,
+        DirectionalShadowRaw = 6,
+        PointShadow0         = 7,
+        PointShadow1         = 8,
+        PointShadow2         = 9,
+        PointShadow3         = 10,
     };
-    constexpr uint32_t EngineBindingCount = 5;
+    constexpr uint32_t EngineBindingCount = 11;
 
     // std140 images of the engine uniform blocks.
     struct EngineFrameUniforms
@@ -47,8 +53,21 @@ namespace Kans
         glm::vec4 DirectionalSpecular {0};
         glm::vec4 DirectionalAmbient {0};
         glm::vec4 LightingInfo {0, 0.8f, 0, 0}; // x: point count, y: exposure multiplier.
+        glm::mat4 CascadeViewProjection[4] {glm::mat4(1), glm::mat4(1), glm::mat4(1), glm::mat4(1)};
+        glm::vec4 CascadeSplits {0};
+        glm::vec4 CascadeBlendStarts {0};
+        glm::vec4 CascadeTexel[4] {};
+        glm::vec4 ShadowInfo {0};
+        glm::vec4 ShadowCameraDepth {0};
+        glm::vec4 PointShadowIndices[4] {glm::vec4(-1), glm::vec4(-1), glm::vec4(-1), glm::vec4(-1)};
+        glm::vec4 PointShadowPositionRange[4] {};
+        glm::vec4 PointShadowParams[4] {};
+        glm::vec4 ShadowPass {0};
+        glm::vec4 ShadowPassPosition {0};
+        glm::vec4 PointShadowSourceRadius {0};
     };
-    static_assert(sizeof(EngineFrameUniforms) == 1136, "KansFrame std140 layout");
+    static_assert(sizeof(EngineFrameUniforms) == 1760, "KansFrame std140 layout");
+    static_assert(offsetof(EngineFrameUniforms, CascadeViewProjection) == 1136, "Published lighting prefix");
     static_assert(offsetof(EngineFrameUniforms, DebugView) == 276, "KansFrame debug uses existing tail padding");
 
     static_assert(offsetof(EngineFrameUniforms, PointPositions) == 288, "Published KansFrame prefix");

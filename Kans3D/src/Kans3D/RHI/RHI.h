@@ -220,6 +220,8 @@ namespace Kans::RenderHardware
         Filter      Min = Filter::Linear, Mag = Filter::Linear, Mip = Filter::Linear;
         AddressMode U = AddressMode::Repeat, V = AddressMode::Repeat, W = AddressMode::Repeat;
         float       MinLod = 0, MaxLod = 1000;
+        bool        CompareEnabled = false;
+        CompareOp   Compare        = CompareOp::LessEqual;
     };
     class Resource
     {

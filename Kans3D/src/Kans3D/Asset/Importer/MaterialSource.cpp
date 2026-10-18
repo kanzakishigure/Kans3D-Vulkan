@@ -247,6 +247,8 @@ namespace Kans
                     source.RenderOverrides.AlphaCutoff = source.Render.AlphaCutoff;
                 if (render && render["double_sided"])
                     source.RenderOverrides.DoubleSided = source.Render.DoubleSided;
+                if (render && render["receive_shadows"])
+                    source.RenderOverrides.ReceiveShadows = source.Render.ReceiveShadows;
                 source.Render = {};
             }
             source.Name = root["name"] ? root["name"].as<std::string>() : std::string();
@@ -309,7 +311,7 @@ namespace Kans
                 throw std::invalid_argument("an instance cannot specify both parent and shader");
             out << YAML::Key << "parent" << YAML::Value << source.Parent.ToString();
             const auto& render = source.RenderOverrides;
-            if (render.AlphaMode || render.AlphaCutoff || render.DoubleSided)
+            if (render.AlphaMode || render.AlphaCutoff || render.DoubleSided || render.ReceiveShadows)
             {
                 MaterialRenderState state;
                 if (render.AlphaMode)
@@ -326,6 +328,8 @@ namespace Kans
                                                                           "opaque");
                 if (render.AlphaCutoff)
                     out << YAML::Key << "alpha_cutoff" << YAML::Value << *render.AlphaCutoff;
+                if (render.ReceiveShadows)
+                    out << YAML::Key << "receive_shadows" << YAML::Value << *render.ReceiveShadows;
                 if (render.DoubleSided)
                     out << YAML::Key << "double_sided" << YAML::Value << *render.DoubleSided;
                 out << YAML::EndMap;
@@ -476,6 +480,8 @@ namespace Kans
             effective.Render.AlphaMode = *instance.RenderOverrides.AlphaMode;
         if (instance.RenderOverrides.AlphaCutoff)
             effective.Render.AlphaCutoff = *instance.RenderOverrides.AlphaCutoff;
+        if (instance.RenderOverrides.ReceiveShadows)
+            effective.Render.ReceiveShadows = *instance.RenderOverrides.ReceiveShadows;
         if (instance.RenderOverrides.DoubleSided)
             effective.Render.DoubleSided = *instance.RenderOverrides.DoubleSided;
         auto validated = ResolveMaterialSource(effective, shader);

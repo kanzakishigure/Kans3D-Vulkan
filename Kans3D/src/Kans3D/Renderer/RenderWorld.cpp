@@ -64,21 +64,31 @@ namespace Kans
                                             section.LocalBounds,
                                             section.LocalBounds.Transformed(world),
                                             id,
-                                            record.Sort.Root});
+                                            record.Sort.Root,
+                                            component.CastShadows,
+                                            component.ReceiveShadows});
                 }
             }
         }
         if (entity.HasComponent<DirLightComponent>())
         {
             const auto& light  = entity.GetComponent<DirLightComponent>();
-            record.Directional = {
-                light.Direction, light.Diffuse_Intensity, light.Specular_Intensity, light.Ambient_Intensity};
+            record.Directional = {light.Direction,
+                                  light.Diffuse_Intensity,
+                                  light.Specular_Intensity,
+                                  light.Ambient_Intensity,
+                                  light.Shadows,
+                                  id};
         }
         if (entity.HasComponent<PointLightComponent>())
         {
             const auto& light = entity.GetComponent<PointLightComponent>();
-            record.Point      = {
-                glm::vec3(world[3]), light.Diffuse_Intensity, light.Specular_Intensity, light.Ambient_Intensity};
+            record.Point      = {glm::vec3(world[3]),
+                                 light.Diffuse_Intensity,
+                                 light.Specular_Intensity,
+                                 light.Ambient_Intensity,
+                                 light.Shadows,
+                                 id};
         }
         if (entity.HasComponent<SpriteRendererComponent>())
         {
@@ -306,7 +316,9 @@ namespace Kans
                                     proxy.EntityID,
                                     proxy.InstanceRoot,
                                     proxy.WorldBounds,
-                                    true});
+                                    true,
+                                    proxy.CastShadows,
+                                    proxy.ReceiveShadows});
         const auto& state = settings.Piplinestate;
         for (const auto& [order, handle] : m_Order)
         {
@@ -327,7 +339,9 @@ namespace Kans
                                         proxy.EntityID,
                                         proxy.InstanceRoot,
                                         proxy.WorldBounds,
-                                        true});
+                                        true,
+                                        proxy.CastShadows,
+                                        proxy.ReceiveShadows});
             const auto& mesh = submission.Mesh;
             if (state.EnableStencil)
                 output.Geometry.push_back({record.OutlineTransform,
@@ -414,7 +428,8 @@ namespace Kans
                     const auto& y = actual.Draws[i];
                     if (x.Material != y.Material || x.Section != y.Section || x.LocalBounds.Min != y.LocalBounds.Min ||
                         x.LocalBounds.Max != y.LocalBounds.Max || x.WorldBounds.Min != y.WorldBounds.Min ||
-                        x.WorldBounds.Max != y.WorldBounds.Max)
+                        x.WorldBounds.Max != y.WorldBounds.Max || x.CastShadows != y.CastShadows ||
+                        x.ReceiveShadows != y.ReceiveShadows)
                         stale(e.EntityID);
                 }
             }
@@ -425,13 +440,15 @@ namespace Kans
             if (expected.Point && (actual.Point->Position != expected.Point->Position ||
                                    actual.Point->Diffuse_Intensity != expected.Point->Diffuse_Intensity ||
                                    actual.Point->Specular_Intensity != expected.Point->Specular_Intensity ||
-                                   actual.Point->Ambient_Intensity != expected.Point->Ambient_Intensity))
+                                   actual.Point->Ambient_Intensity != expected.Point->Ambient_Intensity ||
+                                   actual.Point->Shadows != expected.Point->Shadows))
                 stale(expected.Sort.EntityID);
             if (expected.Directional &&
                 (actual.Directional->Dirction != expected.Directional->Dirction ||
                  actual.Directional->Diffuse_Intensity != expected.Directional->Diffuse_Intensity ||
                  actual.Directional->Specular_Intensity != expected.Directional->Specular_Intensity ||
-                 actual.Directional->Ambient_Intensity != expected.Directional->Ambient_Intensity))
+                 actual.Directional->Ambient_Intensity != expected.Directional->Ambient_Intensity ||
+                 actual.Directional->Shadows != expected.Directional->Shadows))
                 stale(expected.Sort.EntityID);
         }
         const auto sprites =

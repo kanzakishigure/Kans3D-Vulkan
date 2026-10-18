@@ -383,6 +383,7 @@ namespace Kans::RenderHardware
         {
             Allocation Memory;
             VkSampler  Native = VK_NULL_HANDLE;
+            bool       Comparison = false;
             VKSampler(std::shared_ptr<State> owner, const SamplerDesc& desc) : Memory(std::move(owner))
             {
                 Require(std::isfinite(desc.MinLod) && std::isfinite(desc.MaxLod) && desc.MinLod >= 0 &&
@@ -408,6 +409,10 @@ namespace Kans::RenderHardware
                 sampler.addressModeU = address(desc.U);
                 sampler.addressModeV = address(desc.V);
                 sampler.addressModeW = address(desc.W);
+                Require(uint32_t(desc.Compare) <= uint32_t(CompareOp::Always), "Invalid sampler comparison");
+                Comparison            = desc.CompareEnabled;
+                sampler.compareEnable = desc.CompareEnabled;
+                sampler.compareOp     = static_cast<VkCompareOp>(uint32_t(desc.Compare));
                 sampler.minLod       = desc.MinLod;
                 sampler.maxLod       = desc.MaxLod;
                 auto device          = Memory.Owner->Native.Logical;
@@ -691,7 +696,8 @@ namespace Kans::RenderHardware
                                 {mip, face},
                                 {VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
                                  VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-                                 Info(texture->Desc.PixelFormat).Depth() ?
+                                 Info(texture->Desc.PixelFormat).Depth() &&
+                                         Has(texture->Desc.Usage, TextureUsage::DepthStencil) ?
                                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :
                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
                         }
@@ -1049,6 +1055,14 @@ namespace Kans::RenderHardware
                         auto texture = Cast<VKTexture>(entry->TextureResource, Owner);
                         Require(texture->Desc.Dimension == binding.Dimension,
                                 "Texture dimension disagrees with shader binding");
+                        if (binding.Type == BindingType::CombinedTextureSampler)
+                        {
+                            auto sampler = Cast<VKSampler>(entry->SamplerResource, Owner);
+                            Require(sampler->Comparison == binding.Comparison,
+                                    "Sampler comparison disagrees with shader binding");
+                            Require(!binding.Comparison || Info(texture->Desc.PixelFormat).Depth(),
+                                    "Comparison sampling requires a depth texture");
+                        }
                         Uses->Textures[texture.get()] = texture;
                     }
                 }
@@ -1479,7 +1493,8 @@ namespace Kans::RenderHardware
                 auto        same = [&](const auto& view) {
                     const auto& d = view.Desc;
                     return d.Min == desc.Min && d.Mag == desc.Mag && d.Mip == desc.Mip && d.U == desc.U &&
-                           d.V == desc.V && d.W == desc.W && d.MinLod == desc.MinLod && d.MaxLod == desc.MaxLod;
+                           d.V == desc.V && d.W == desc.W && d.MinLod == desc.MinLod && d.MaxLod == desc.MaxLod &&
+                           d.CompareEnabled == desc.CompareEnabled && d.Compare == desc.Compare;
                 };
                 auto found = std::find_if(image->UIViews.begin(), image->UIViews.end(), same);
                 if (found == image->UIViews.end())

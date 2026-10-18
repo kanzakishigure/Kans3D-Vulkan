@@ -30,7 +30,11 @@ namespace Kans
                                   false,
                                   uint32_t(i),
                                   submission.EntityID,
-                                  submission.InstanceRoot});
+                                  submission.InstanceRoot,
+                                  {},
+                                  false,
+                                  component.CastShadows,
+                                  component.ReceiveShadows});
         }
     }
     Frustum::Frustum(const glm::mat4& matrix)

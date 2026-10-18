@@ -18,6 +18,7 @@ namespace Kans
             glm::mat4 Transform {1};
             Bounds    LocalBounds, WorldBounds;
             UUID      EntityID = 0, InstanceRoot = 0;
+            bool      CastShadows = true, ReceiveShadows = true;
         };
         struct Stats
         {

@@ -59,6 +59,7 @@ namespace Kans
         MaterialAlphaMode AlphaMode   = MaterialAlphaMode::Opaque;
         float             AlphaCutoff = 0.5f;
         bool              DoubleSided = false;
+        bool              ReceiveShadows = true;
     };
 
     [[nodiscard]] bool IsValidMaterialRenderState(const MaterialRenderState& state);

@@ -176,10 +176,73 @@ namespace Kans
             }
             return result;
         }
+        YAML::Node EncodeShadows(const ShadowSettings& settings)
+        {
+            const auto s = settings.Validated();
+            YAML::Node n;
+            n["Enabled"]       = s.Enabled;
+            n["Resolution"]    = s.Resolution;
+            n["ConstantBias"]  = s.ConstantBias;
+            n["SlopeBias"]     = s.SlopeBias;
+            n["NormalOffset"]  = s.NormalOffset;
+            n["Filter"]        = uint32_t(s.Filter);
+            n["AngularRadius"] = s.AngularRadius;
+            n["SourceRadius"]  = s.SourceRadius;
+            n["Cascades"]      = s.Cascades;
+            n["Lambda"]        = s.Lambda;
+            n["MaxDistance"]   = s.MaxDistance;
+            n["Blend"]         = s.Blend;
+            return n;
+        }
+        ShadowSettings DecodeShadows(const YAML::Node& n, ShadowSettings s = {})
+        {
+            if (!n)
+                return s;
+            Keys(n,
+                 {"Enabled",
+                  "Resolution",
+                  "ConstantBias",
+                  "SlopeBias",
+                  "NormalOffset",
+                  "Filter",
+                  "AngularRadius",
+                  "SourceRadius",
+                  "Cascades",
+                  "Lambda",
+                  "MaxDistance",
+                  "Blend"});
+            if (n["Enabled"])
+                s.Enabled = n["Enabled"].as<bool>();
+            if (n["Resolution"])
+                s.Resolution = SceneIndex(n["Resolution"]);
+            if (n["ConstantBias"])
+                s.ConstantBias = Number(n["ConstantBias"]);
+            if (n["SlopeBias"])
+                s.SlopeBias = Number(n["SlopeBias"]);
+            if (n["NormalOffset"])
+                s.NormalOffset = Number(n["NormalOffset"]);
+            if (n["Filter"])
+                s.Filter = static_cast<ShadowFilter>(SceneIndex(n["Filter"]));
+            if (n["AngularRadius"])
+                s.AngularRadius = Number(n["AngularRadius"]);
+            if (n["SourceRadius"])
+                s.SourceRadius = Number(n["SourceRadius"]);
+            if (n["Cascades"])
+                s.Cascades = SceneIndex(n["Cascades"]);
+            if (n["Lambda"])
+                s.Lambda = Number(n["Lambda"]);
+            if (n["MaxDistance"])
+                s.MaxDistance = Number(n["MaxDistance"]);
+            if (n["Blend"])
+                s.Blend = Number(n["Blend"]);
+            return s.Validated();
+        }
         YAML::Node EncodeMesh(const MeshComponent& mesh)
         {
             YAML::Node value;
             value["Mesh"]      = IdentityText(mesh.Mesh);
+            value["CastShadows"]    = mesh.CastShadows;
+            value["ReceiveShadows"] = mesh.ReceiveShadows;
             value["Materials"] = YAML::Node(YAML::NodeType::Sequence);
             Require(mesh.Materials.size() <= 65536, "Too many mesh materials");
             for (auto material : mesh.Materials)
@@ -190,9 +253,13 @@ namespace Kans
         }
         MeshComponent DecodeMesh(const YAML::Node& value)
         {
-            Keys(value, {"Mesh", "Materials", "Section"});
+            Keys(value, {"Mesh", "Materials", "Section", "CastShadows", "ReceiveShadows"});
             MeshComponent mesh;
             mesh.Mesh = Identity(value["Mesh"]);
+            if (value["CastShadows"])
+                mesh.CastShadows = value["CastShadows"].as<bool>();
+            if (value["ReceiveShadows"])
+                mesh.ReceiveShadows = value["ReceiveShadows"].as<bool>();
             Require(value["Materials"].IsSequence() && value["Materials"].size() <= 65536, "Invalid mesh materials");
             for (const auto& material : value["Materials"])
                 mesh.Materials.push_back(Identity(material));
@@ -401,6 +468,7 @@ namespace Kans
                 value["Diffuse_Intensity"]  = Vector(light.Diffuse_Intensity, 3);
                 value["Specular_Intensity"] = Vector(light.Specular_Intensity, 3);
                 value["Ambient_Intensity"]  = Vector(light.Ambient_Intensity, 3);
+                value["Shadows"]            = EncodeShadows(light.Shadows);
             }
             if (entity.HasComponent<PointLightComponent>())
             {
@@ -409,6 +477,7 @@ namespace Kans
                 value["Diffuse_Intensity"]  = Vector(light.Diffuse_Intensity, 3);
                 value["Specular_Intensity"] = Vector(light.Specular_Intensity, 3);
                 value["Ambient_Intensity"]  = Vector(light.Ambient_Intensity, 3);
+                value["Shadows"]            = EncodeShadows(light.Shadows);
             }
             if (entity.HasComponent<ScriptComponent>())
             {
@@ -652,21 +721,24 @@ namespace Kans
                 if (node["DirLightComponent"])
                 {
                     value.reset(node["DirLightComponent"]);
-                    Keys(value, {"Direction", "Diffuse_Intensity", "Specular_Intensity", "Ambient_Intensity"});
+                    Keys(value,
+                         {"Direction", "Diffuse_Intensity", "Specular_Intensity", "Ambient_Intensity", "Shadows"});
                     auto& light              = entity.AddComponent<DirLightComponent>();
                     light.Direction          = Vec3(value["Direction"]);
                     light.Diffuse_Intensity  = Vec3(value["Diffuse_Intensity"]);
                     light.Specular_Intensity = Vec3(value["Specular_Intensity"]);
                     light.Ambient_Intensity  = Vec3(value["Ambient_Intensity"]);
+                    light.Shadows            = DecodeShadows(value["Shadows"]);
                 }
                 if (node["PointLightComponent"])
                 {
                     value.reset(node["PointLightComponent"]);
-                    Keys(value, {"Diffuse_Intensity", "Specular_Intensity", "Ambient_Intensity"});
+                    Keys(value, {"Diffuse_Intensity", "Specular_Intensity", "Ambient_Intensity", "Shadows"});
                     auto& light              = entity.AddComponent<PointLightComponent>();
                     light.Diffuse_Intensity  = Vec3(value["Diffuse_Intensity"]);
                     light.Specular_Intensity = Vec3(value["Specular_Intensity"]);
                     light.Ambient_Intensity  = Vec3(value["Ambient_Intensity"]);
+                    light.Shadows            = DecodeShadows(value["Shadows"], ShadowSettings::PointDefaults());
                 }
                 if (node["ScriptComponent"])
                 {

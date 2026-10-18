@@ -444,5 +444,17 @@ namespace Kans
         m_FallbackTextures = {};
         m_MaterialSampler.reset();
         m_TextureSamplers.clear();
+        m_ShadowFallback.reset();
+    }
+} // namespace Kans
+
+#include "ShadowMaps.h"
+namespace Kans
+{
+    std::shared_ptr<ShadowResources> RenderAssetCache::GetShadowFallback()
+    {
+        if (!m_ShadowFallback)
+            m_ShadowFallback = CreateShadowFallback(*GetDevice());
+        return m_ShadowFallback;
     }
 } // namespace Kans

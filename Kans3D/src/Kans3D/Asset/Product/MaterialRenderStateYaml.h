@@ -19,7 +19,7 @@ namespace Kans
         {
             const auto name = entry.first.as<std::string>();
             if (!fields.insert(name).second ||
-                !std::set<std::string> {"alpha_mode", "alpha_cutoff", "double_sided"}.count(name))
+                !std::set<std::string> {"alpha_mode", "alpha_cutoff", "double_sided", "receive_shadows"}.count(name))
                 throw std::runtime_error("unknown or duplicate render field '" + name + "'");
         }
         if (node["alpha_mode"])
@@ -36,6 +36,8 @@ namespace Kans
             state.AlphaCutoff = node["alpha_cutoff"].as<float>();
         if (node["double_sided"])
             state.DoubleSided = node["double_sided"].as<bool>();
+        if (node["receive_shadows"])
+            state.ReceiveShadows = node["receive_shadows"].as<bool>();
         if (!IsValidMaterialRenderState(state))
             throw std::runtime_error("invalid material render state (cutoff must be finite and non-negative)");
         return state;
@@ -50,6 +52,9 @@ namespace Kans
                                                                          "opaque";
         out << YAML::Key << "render" << YAML::Value << YAML::Flow << YAML::BeginMap << YAML::Key << "alpha_mode"
             << YAML::Value << mode << YAML::Key << "alpha_cutoff" << YAML::Value << state.AlphaCutoff << YAML::Key
-            << "double_sided" << YAML::Value << state.DoubleSided << YAML::EndMap;
+            << "double_sided" << YAML::Value << state.DoubleSided;
+        if (!state.ReceiveShadows)
+            out << YAML::Key << "receive_shadows" << YAML::Value << false;
+        out << YAML::EndMap;
     }
 } // namespace Kans

@@ -143,6 +143,13 @@ void main()
         o_Color = vec4(N * 0.5 + 0.5, alpha);
         return;
     }
+    if (u_Frame.DebugView == 4)
+    {
+        int cascade = KansShadowCascade(v_WorldPosition);
+        vec3 colors[4] = vec3[](vec3(1,.2,.2), vec3(.2,1,.2), vec3(.2,.4,1), vec3(1,1,.2));
+        o_Color = vec4(cascade < 0 ? vec3(.2) : colors[cascade] * (.3 + .7 * KansShadow(v_WorldPosition,N)), alpha);
+        return;
+    }
     vec4 mr = texture(MetallicRoughnessMap, uv);
     float ao = mix(1.0, texture(OcclusionMap, uv).r, p.OcclusionStrength);
     vec3 color = KansShadePbr(albedo, p.Metallic * mr.b, p.Roughness * mr.g, ao, N, v_WorldPosition);

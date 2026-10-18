@@ -96,7 +96,8 @@ namespace Kans
         }
         static bool SameRenderValue(const MeshComponent& a, const MeshComponent& b)
         {
-            return a.Mesh == b.Mesh && a.Section == b.Section && a.Materials == b.Materials;
+            return a.Mesh == b.Mesh && a.Section == b.Section && a.Materials == b.Materials &&
+                   a.CastShadows == b.CastShadows && a.ReceiveShadows == b.ReceiveShadows;
         }
         static bool SameRenderValue(const SpriteRendererComponent& a, const SpriteRendererComponent& b)
         {
@@ -105,12 +106,13 @@ namespace Kans
         static bool SameRenderValue(const PointLightComponent& a, const PointLightComponent& b)
         {
             return a.Diffuse_Intensity == b.Diffuse_Intensity && a.Specular_Intensity == b.Specular_Intensity &&
-                   a.Ambient_Intensity == b.Ambient_Intensity;
+                   a.Ambient_Intensity == b.Ambient_Intensity && a.Shadows == b.Shadows;
         }
         static bool SameRenderValue(const DirLightComponent& a, const DirLightComponent& b)
         {
             return a.Direction == b.Direction && a.Diffuse_Intensity == b.Diffuse_Intensity &&
-                   a.Specular_Intensity == b.Specular_Intensity && a.Ambient_Intensity == b.Ambient_Intensity;
+                   a.Specular_Intensity == b.Specular_Intensity && a.Ambient_Intensity == b.Ambient_Intensity &&
+                   a.Shadows == b.Shadows;
         }
         entt::entity m_EntityHandle {entt::null};
         Scene*       m_Scene = nullptr;

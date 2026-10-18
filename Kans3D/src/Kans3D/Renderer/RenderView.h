@@ -13,6 +13,7 @@ namespace Kans
     class Scene;
     class RenderFeatureSet;
     class RenderWorld;
+    struct ShadowResources;
     struct ScenePickHit
     {
         UUID                     EntityID = 0, InstanceRoot = 0;
@@ -22,6 +23,10 @@ namespace Kans
     {
         uint32_t DrawCalls = 0;
         uint64_t Triangles = 0;
+    };
+    struct ShadowStatistics
+    {
+        uint32_t Passes = 0, DrawCalls = 0, CastersCulled = 0;
     };
     struct SpriteStatistics
     {
@@ -60,7 +65,8 @@ namespace Kans
         Lit,
         BaseColor,
         Normals,
-        Wireframe
+        Wireframe,
+        ShadowCascades
     };
     struct PrefabPreview
     {
@@ -89,6 +95,7 @@ namespace Kans
         UUID                EntityID = 0, InstanceRoot = 0;
         Bounds              WorldBounds;
         bool                HasWorldBounds = false;
+        bool                CastShadows = true, ReceiveShadows = true;
     };
     struct ViewGeometryDraw
     {
@@ -162,6 +169,9 @@ namespace Kans
         std::string                                       Pipeline = "Forward";
         std::optional<float>                              Exposure;
         float                                             Time         = 0;
+        uint32_t                                          MaxShadowedPointLights = 4;
+        std::shared_ptr<ShadowResources>                  Shadows;
+        ShadowStatistics                                  ShadowStats;
         bool                                              ExtractWorld = true;
         std::optional<std::filesystem::path> EnvironmentPath; // nullopt inherits world; empty disables IBL.
         bool                                 DrawEnvironment     = true;

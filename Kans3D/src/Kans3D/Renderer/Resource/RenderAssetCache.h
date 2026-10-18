@@ -11,6 +11,7 @@
 
 namespace Kans
 {
+    struct ShadowResources;
     struct GpuMesh
     {
         std::shared_ptr<RenderHardware::Device> Device;
@@ -93,6 +94,7 @@ namespace Kans
         // Evicts resources not used for `unusedFrames` frames.
         void BeginFrame(uint64_t unusedFrames = 600);
         void Clear();
+        std::shared_ptr<ShadowResources> GetShadowFallback();
 
         const ModelInstances* GetModel(AssetID id);
         const GpuMesh*        GetMesh(AssetID id);
@@ -138,6 +140,7 @@ namespace Kans
         std::unordered_map<AssetID, RenderHardware::Handle<RenderHardware::Sampler>> m_TextureSamplers;
         std::array<Ref<Texture2D>, 3>                                      m_FallbackTextures;
         AssetManager&                                                      m_Assets;
+        std::shared_ptr<ShadowResources>                                             m_ShadowFallback;
         uint64_t                                                           m_Frame = 0;
         std::unordered_map<AssetID, Entry<ModelAsset, ModelInstances>>     m_Models;
         std::unordered_map<AssetID, Entry<MeshAsset, GpuMesh>>             m_Meshes;

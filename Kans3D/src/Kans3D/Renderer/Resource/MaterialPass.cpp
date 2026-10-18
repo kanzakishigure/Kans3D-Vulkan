@@ -1,5 +1,7 @@
 #include "kspch.h"
 #include "MaterialPass.h"
+#include "Kans3D/RHI/PipelineKey.h"
+#include "ShadowMaps.h"
 
 namespace Kans
 {
@@ -20,11 +22,14 @@ namespace Kans
                        (uint32_t(data.ColorFormats.size()) << 8);
         for (size_t i = 0; i < data.ColorFormats.size(); ++i)
             key |= uint32_t(data.ColorFormats[i]) << (12 + i * 6);
-        auto& pipeline = extraPass ? extraPass->Pipelines[key] : shader.Pipelines[key];
+        Handle<Pipeline> shadowPipeline;
+        auto&            pipeline = data.ShadowDepth ? shadowPipeline :
+                                    extraPass        ? extraPass->Pipelines[key] :
+                                                       shader.Pipelines[key];
         if (!pipeline)
         {
             PipelineDesc desc;
-            desc.Program                      = extraPass ? extraPass->Program : shader.Program;
+            desc.Program = data.DepthProgram ? data.DepthProgram : extraPass ? extraPass->Program : shader.Program;
             desc.GroupLayouts                 = {shader.EngineLayout, shader.MaterialLayout};
             desc.VertexBindings               = mesh.VertexBindings;
             desc.Attributes                   = mesh.Attributes;
@@ -64,8 +69,30 @@ namespace Kans
                 blend.DestinationAlpha         = static_cast<BlendFactor>(state.DestinationAlpha);
                 blend.WriteMask                = state.ColorWriteMask;
             }
+            if (data.ShadowDepth)
+            {
+                desc.Rasterizer.Front       = data.DepthFront;
+                desc.DepthStencilFormat     = Format::Depth32Float;
+                desc.DepthStencil.DepthTest = desc.DepthStencil.DepthWrite = true;
+                desc.DepthStencil.DepthCompare                             = CompareOp::LessEqual;
+                desc.DepthStencil.StencilTest                              = false;
+                desc.Rasterizer.DepthBiasConstant                          = data.ConstantBias;
+                desc.Rasterizer.DepthBiasSlope                             = data.SlopeBias;
+                desc.Rasterizer.Cull = data.Render.DoubleSided ? CullMode::None :
+                                       extraPass               ? static_cast<CullMode>(extraPass->State.Cull) :
+                                                                 CullMode::Back;
+            }
             desc.Blends.resize(data.ColorFormats.size(), blend);
-            pipeline = device->CreatePipeline(desc);
+            if (data.ShadowDepth)
+            {
+                auto  resources = data.Shadows ? data.Shadows : cache.GetShadowFallback();
+                auto& cached    = resources->DepthPipelines[Detail::PipelineKey(desc)];
+                if (!cached)
+                    cached = device->CreatePipeline(desc);
+                pipeline = cached;
+            }
+            else
+                pipeline = device->CreatePipeline(desc);
         }
         BindGroupDesc engine;
         engine.Layout = shader.EngineLayout;
@@ -84,6 +111,13 @@ namespace Kans
                 entry.BufferResource = data.Object;
                 entry.Offset         = data.ObjectOffset;
                 entry.Bytes          = sizeof(EngineObjectUniforms);
+            }
+            else if (binding.Binding >= uint32_t(EngineBinding::DirectionalShadow))
+            {
+                auto shadows = data.Shadows ? data.Shadows : cache.GetShadowFallback();
+                entry.TextureResource =
+                    binding.Binding <= 6 ? shadows->Directional : shadows->Points.at(binding.Binding - 7);
+                entry.SamplerResource = binding.Binding == 6 ? shadows->Raw : shadows->Compare;
             }
             else
             {

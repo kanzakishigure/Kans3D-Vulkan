@@ -1,5 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
+#include "Kans3D/Core/UUID.h"
+#include "Resource/ShadowSettings.h"
 namespace Kans
 {
     struct DirLight
@@ -8,6 +10,8 @@ namespace Kans
         glm::vec3 Diffuse_Intensity {0};
         glm::vec3 Specular_Intensity {0};
         glm::vec3 Ambient_Intensity {0};
+        ShadowSettings Shadows;
+        UUID           EntityID = 0;
     };
     struct PointLight
     {
@@ -15,6 +19,8 @@ namespace Kans
         glm::vec3 Diffuse_Intensity {0};
         glm::vec3 Specular_Intensity {0};
         glm::vec3 Ambient_Intensity {0};
+        ShadowSettings Shadows  = ShadowSettings::PointDefaults();
+        UUID           EntityID = 0;
     };
 
     struct PipLineState
