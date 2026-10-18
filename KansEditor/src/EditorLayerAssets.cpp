@@ -108,10 +108,15 @@ namespace Kans
     std::vector<EditorAssetChoice> EditorLayer::CollectAssetChoices(const AssetRegistry& registry) const
     {
         std::unordered_map<SourceAssetID, std::filesystem::path> sources;
-        if (auto  listed = m_AssetImports->GetSources();
-            auto* list   = std::get_if<std::vector<SourceAssetMetadata>>(&listed))
+        bool                                                     listed = false;
+        if (auto  all  = m_AssetImports->GetSources();
+            auto* list = std::get_if<std::vector<SourceAssetMetadata>>(&all))
+        {
+            listed = true;
             for (const auto& source : *list)
-                sources.emplace(source.sourceAssetID, source.Path.GetPath());
+                if (source.Exists)
+                    sources.emplace(source.sourceAssetID, source.Path.GetPath());
+        }
         const auto& assetRoot = m_AssetImports->GetConfig().AssetDirectory;
 
         std::vector<EditorAssetChoice> choices;
@@ -130,6 +135,8 @@ namespace Kans
                 choice.SourcePath = std::filesystem::weakly_canonical(assetRoot / found->second, error);
                 choice.Name       = found->second.generic_u8string();
             }
+            else if (listed)
+                continue; // Products left behind by a deleted or moved source are not offered.
             else
                 choice.Name = id.GetSourceID().ToString();
             // Products other than a source's main Model are distinguished by LocalID.

@@ -22,6 +22,8 @@ namespace Kans
         {
             m_Preview = preview;
             m_PreviewKey.clear();
+            m_PreviewImage.reset();
+            m_PreviewTexture = 0;
         }
 
         // Loads a material for editing; the editor opens the window.
@@ -36,6 +38,7 @@ namespace Kans
         bool HasFocus() const { return m_Focused; }
 
     private:
+        friend struct MaterialEditorPanelTestAccess;
         // Schema of the selected Shader; nullptr while it loads or if it is invalid.
         const MaterialSchema* Schema();
         void                  DrawParameter(const MaterialParameterInfo& parameter, const MaterialSchema& schema);
@@ -99,7 +102,8 @@ namespace Kans
         MaterialPreviewShape     m_PreviewShape = MaterialPreviewShape::Sphere;
         glm::vec2                m_PreviewRotation {0.6f, 0.3f};
         std::string              m_PreviewKey;
-        uint32_t                 m_PreviewTexture  = 0;
+        RenderHardware::Handle<RenderHardware::Texture> m_PreviewImage;
+        uintptr_t                                       m_PreviewTexture  = 0;
         bool                     m_PreviewComplete = false;
         std::string              m_PreviewError;
 

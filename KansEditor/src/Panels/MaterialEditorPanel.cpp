@@ -39,6 +39,21 @@ namespace Kans
             auto            result = std::filesystem::weakly_canonical(path, error);
             return error ? path.lexically_normal() : result;
         }
+
+        MaterialSource DeclaredValues(MaterialSource source, const MaterialSchema& schema)
+        {
+            for (auto it = source.Parameters.begin(); it != source.Parameters.end();)
+                it = std::any_of(schema.Parameters.begin(),
+                                 schema.Parameters.end(),
+                                 [&](const auto& p) { return p.Name == it->first; }) ?
+                         std::next(it) :
+                         source.Parameters.erase(it);
+            for (auto it = source.Textures.begin(); it != source.Textures.end();)
+                it = std::find(schema.Textures.begin(), schema.Textures.end(), it->first) != schema.Textures.end() ?
+                         std::next(it) :
+                         source.Textures.erase(it);
+            return source;
+        }
     } // namespace
 
     void MaterialEditorPanel::Open(const std::filesystem::path& file)
@@ -50,6 +65,11 @@ namespace Kans
         m_Building = false;
         m_PendingTexture.reset();
         m_Thumbnails.clear();
+        m_PreviewKey.clear();
+        m_PreviewImage.reset();
+        m_PreviewTexture  = 0;
+        m_PreviewComplete = false;
+        m_PreviewError.clear();
         auto bytes = ReadProductFile(file, 1024 * 1024);
         if (const auto* error = std::get_if<AssetError>(&bytes))
         {
@@ -575,16 +595,8 @@ namespace Kans
         // Values the current Shader does not declare would fail the import.
         if (const auto* schema = Schema())
         {
-            for (auto it = m_Source.Parameters.begin(); it != m_Source.Parameters.end();)
-                it = std::any_of(schema->Parameters.begin(),
-                                 schema->Parameters.end(),
-                                 [&](const auto& p) { return p.Name == it->first; }) ?
-                         std::next(it) :
-                         m_Source.Parameters.erase(it);
-            for (auto it = m_Source.Textures.begin(); it != m_Source.Textures.end();)
-                it = std::find(schema->Textures.begin(), schema->Textures.end(), it->first) != schema->Textures.end() ?
-                         std::next(it) :
-                         m_Source.Textures.erase(it);
+            m_Source = DeclaredValues(m_Source, *schema);
+            TrackEdits();
         }
         if (auto error = WriteText(m_File, SerializeMaterialSource(m_Source)))
         {
@@ -807,6 +819,9 @@ namespace Kans
     {
         if (!m_Preview)
             return;
+        const auto* schema = Schema();
+        if (!schema)
+            m_PreviewComplete = false;
         const float side = std::floor(std::clamp(ImGui::GetContentRegionAvail().x, 64.0f, 256.0f));
         // Re-render when the edited source, the view or the Shader asset changes, and
         // until every texture has loaded.
@@ -819,7 +834,7 @@ namespace Kans
             const ShaderData* shader    = nullptr;
             const auto*       parent    = IsInstance() ? ParentEffective() : nullptr;
             const AssetID     shaderID  = parent ? parent->Shader : m_Source.Shader;
-            bool              ready     = !IsInstance() || parent;
+            bool              ready     = schema && (!IsInstance() || parent);
             if (ready && !IsStandardShader(shaderID))
             {
                 ready  = m_SchemaShader && m_Schema;
@@ -827,9 +842,12 @@ namespace Kans
             }
             if (ready)
             {
-                std::variant<MaterialSource, AssetError> effective = m_Source;
+                // Keep other shaders' values in the editable source and undo snapshots.
+                // Only the selected shader's declarations participate in validation/preview.
+                const auto                               source    = DeclaredValues(m_Source, *schema);
+                std::variant<MaterialSource, AssetError> effective = source;
                 if (parent)
-                    effective = ApplyMaterialOverrides(*parent, m_Source, shader);
+                    effective = ApplyMaterialOverrides(*parent, source, shader);
                 auto resolved = std::holds_alternative<AssetError>(effective) ?
                                     std::variant<MaterialData, AssetError>(std::get<AssetError>(effective)) :
                                     ResolveMaterialSource(std::get<MaterialSource>(effective), shader);
@@ -844,9 +862,9 @@ namespace Kans
                     options.Size      = {uint32_t(side), uint32_t(side)};
                     options.Shape     = m_PreviewShape;
                     options.Rotation  = m_PreviewRotation;
-                    const auto result = m_Preview->Render(std::get<MaterialData>(resolved), shader, options);
-                    m_PreviewTexture  = result.Texture;
-                    m_PreviewComplete = result.Complete || !result.Texture;
+                    const auto result = m_Preview->RenderImage(std::get<MaterialData>(resolved), shader, options);
+                    m_PreviewImage    = result.Target;
+                    m_PreviewComplete = result.Complete || !result.Target;
                     m_PreviewError.clear();
                 }
                 m_PreviewKey = key;
@@ -867,6 +885,10 @@ namespace Kans
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Drag to rotate. Shows unsaved changes.");
         ImDrawList* draw = ImGui::GetWindowDrawList();
+        // Export on every use, including cached previews. The UI frame retains this
+        // image/descriptor through GPU completion even if another draw resizes the target.
+        m_PreviewTexture =
+            m_PreviewImage ? m_Preview->GetViewTarget().GetDevice()->GetImGuiTextureID(m_PreviewImage) : 0;
         if (m_PreviewTexture)
             draw->AddImage(reinterpret_cast<ImTextureID>(uintptr_t(m_PreviewTexture)),
                            at,
