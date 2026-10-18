@@ -1,4 +1,5 @@
 #include "ViewportClient.h"
+#include "Kans3D/Renderer/Features/BloomFeature.h"
 #include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include "Kans3D/Renderer/Features/MaterialPassFeature.h"
 #include "Kans3D/Renderer/RenderWorld.h"
@@ -18,6 +19,8 @@ namespace Kans
         m_Features.Register("MaterialOutline",
                             std::make_unique<MaterialPassFeature>("Outline", RenderExtensionPoint::AfterTransparent));
         RegisterDefaultEditorFeatures(m_Features);
+        // Post-processing reads the camera's settings (the editor or the scene camera).
+        m_Features.Register("Bloom", std::make_unique<BloomFeature>());
     }
 
     ViewportClient::~ViewportClient()

@@ -6,6 +6,7 @@
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Script/ScriptEngine.h"
+#include "UI/BloomSettingsWidget.h"
 #include "UI/EditorIcons.h"
 #include "UI/PropertyGrid.h"
 
@@ -267,6 +268,9 @@ namespace Kans
         float exposure = camera.GetExposure();
         if (PropertyGrid::Float("Exposure", exposure, 0.01f, 0.0f, 100.0f))
             camera.SetExposure(exposure);
+        auto bloom = camera.GetBloomSettings();
+        if (DrawBloomSettings(bloom, [this](AssetID& dirt) { return AssetPicker("Lens dirt", AssetType::Texture, dirt); }))
+            camera.SetBloomSettings(bloom);
         PropertyGrid::End();
     }
 
