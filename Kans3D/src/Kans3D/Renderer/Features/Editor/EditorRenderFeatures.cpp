@@ -18,8 +18,16 @@ namespace Kans
         auto&       renderer  = *context.Frame;
         const auto& view      = context.View;
         const auto  immediate = *context.Immediate;
-        context.Graph.AddPass("Grid", context.Target, [&renderer, &view, immediate](auto& pass) {
-            renderer.DrawGrid(view.Grids.at(immediate.Index), pass.Commands);
+        // Materials deliberately preserve target alpha, including for custom shaders.
+        // Apply grid coverage only after their depth writes can occlude it; keep its
+        // RGB/depth in the original immediate position for identical HDR conversion.
+        const bool deferAlpha = !view.Opaque.empty() || !view.Mask.empty();
+        if (deferAlpha)
+            renderer.DeferredGridAlpha.push_back(immediate.Index);
+        context.Graph.AddPass("Grid", context.Target, [&renderer, &view, immediate, deferAlpha](auto& pass) {
+            renderer.DrawGrid(view.Grids.at(immediate.Index),
+                              pass.Commands,
+                              deferAlpha ? RenderFrame::GridChannels::Color : RenderFrame::GridChannels::All);
         });
     }
     void DebugGeometryFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)

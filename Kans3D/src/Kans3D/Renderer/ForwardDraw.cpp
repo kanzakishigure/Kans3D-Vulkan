@@ -229,6 +229,9 @@ namespace Kans
         }
         if (rendering)
             commands->EndRendering();
+        if (tag.empty())
+            for (auto index : DeferredGridAlpha)
+                DrawGrid(View.Grids.at(index), *commands, GridChannels::Alpha, hdr);
         if (DeferToneMapping)
             PostProcessHDR = hdr;
         if (hdr && !DeferToneMapping)
@@ -341,7 +344,10 @@ namespace Kans
                     });
     }
 
-    void RenderFrame::DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commandList)
+    void RenderFrame::DrawGrid(const ViewGrid&              grid,
+                               RenderHardware::CommandList& commandList,
+                               GridChannels                 channels,
+                               bool                         hdr)
     {
         const auto  size = grid.Size, scale = grid.Scale;
         const auto& transform = grid.Transform;
@@ -361,6 +367,16 @@ namespace Kans
         desc.Blends[0].SourceColor      = BlendFactor::SourceAlpha;
         desc.Blends[0].DestinationColor = BlendFactor::OneMinusSourceAlpha;
         desc.Blends[1]                  = desc.Blends[0];
+        if (channels == GridChannels::Color)
+            desc.Blends[0].WriteMask &= 7;
+        else if (channels == GridChannels::Alpha)
+        {
+            desc.Blends[0].WriteMask &= 8;
+            desc.Blends[1].WriteMask     = 0;
+            desc.DepthStencil.DepthWrite = false;
+        }
+        if (hdr)
+            desc.ColorFormats[0] = Output.GetHDR()->GetDesc().PixelFormat;
         const float    vertices[]       = {-0.5f, 0, -0.5f, 0, 0, 0.5f,  0, -0.5f, 1, 0,
                                            0.5f,  0, 0.5f,  1, 1, -0.5f, 0, 0.5f,  0, 1};
         const uint32_t indices[]        = {0, 1, 2, 2, 3, 0};
@@ -374,7 +390,7 @@ namespace Kans
         data.Transform      = transform;
         data.Settings       = {scale, size, 0, 0};
         auto* commands      = &commandList;
-        commands->BeginRendering(SceneTarget(LoadOp::Load));
+        commands->BeginRendering(SceneTarget(LoadOp::Load, hdr));
         commands->SetViewport({0, 0, float(View.Viewport.x), float(View.Viewport.y)});
         commands->BindPipeline(Services.CachedPipeline(desc));
         commands->BindGroup(DrawGroup(*Services.GetDevice(), desc.GroupLayouts[0], data));
