@@ -1,0 +1,11 @@
+magic: KansMaterial
+version: 4
+name: Concrete
+shader: ""
+render: {alpha_mode: opaque, alpha_cutoff: 0.5, double_sided: false}
+parameters:
+  BaseColor: [0.78, 0.72, 0.64, 1]
+  Metallic: 0
+  Roughness: 0.75
+textures:
+  {}

@@ -1,0 +1,11 @@
+magic: KansMaterial
+version: 4
+name: Brick
+shader: ""
+render: {alpha_mode: opaque, alpha_cutoff: 0.5, double_sided: false}
+parameters:
+  BaseColor: [0.72, 0.25, 0.18, 1]
+  Metallic: 0
+  Roughness: 0.6
+textures:
+  {}

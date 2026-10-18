@@ -15,6 +15,12 @@
 
 namespace Kans
 {
+    namespace
+    {
+        // Relative to the project's asset folder.
+        constexpr const char* StartupScene = "scenes/Showcase.kans";
+    } // namespace
+
 
     EditorLayer::EditorLayer() : Layer("EditorLayer") {}
     void EditorLayer::OnAttach()
@@ -135,6 +141,12 @@ namespace Kans
             });
             auto configured = RefreshProductAssets();
             Record(configured);
+            // Until projects have their own settings, the project's showcase scene opens
+            // when it exists; otherwise the scene built above stays.
+            const auto      startup = KansFileSystem::GetAssetFolder() / StartupScene;
+            std::error_code missing;
+            if (std::holds_alternative<std::monostate>(configured) && std::filesystem::exists(startup, missing))
+                Record(OpenScene(startup));
         }
     }
 
@@ -210,6 +222,7 @@ namespace Kans
                     StartPendingPlacementBuild();
                 else
                     PlacePendingModel();
+                StartNextSceneImport();
                 if (!m_Play.IsActive())
                     m_History.Record(*m_ActiveScene);
             }

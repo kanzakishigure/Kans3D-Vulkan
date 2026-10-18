@@ -6,6 +6,7 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Scene/SceneSerializer.h"
 #include "EditorLayer.h"
+#include <set>
 
 namespace Kans
 {
@@ -483,7 +484,73 @@ namespace Kans
         auto candidate = SceneSerializer::DeserializeChecked(fullPath);
         if (const auto* error = std::get_if<AssetError>(&candidate))
             return *error;
-        return ActivateScene(std::get<Ref<Scene>>(std::move(candidate)), std::move(fullPath));
+        auto activated = ActivateScene(std::get<Ref<Scene>>(std::move(candidate)), std::move(fullPath));
+        if (!std::holds_alternative<std::monostate>(activated))
+            return activated;
+        // The editor view starts with the scene camera's exposure and bloom, so it looks
+        // like the game; the viewport's camera menu still changes them independently.
+        if (Entity camera = m_ActiveScene->GetCameraEntity())
+        {
+            const auto& sceneCamera = camera.GetComponent<CameraComponent>().SceneCamera;
+            m_ViewportPanel.GetCamera().SetExposure(sceneCamera.GetExposure());
+            m_ViewportPanel.GetCamera().SetBloomSettings(sceneCamera.GetBloomSettings());
+        }
+        QueueMissingSceneAssets();
+        return activated;
+    }
+
+    void EditorLayer::QueueMissingSceneAssets()
+    {
+        if (!m_AssetImports || !m_ActiveScene)
+            return;
+        std::set<SourceAssetID> referenced;
+        const auto              add = [&](AssetID id) {
+            if (id.IsValid())
+                referenced.insert(id.GetSourceID());
+        };
+        for (Entity entity : m_ActiveScene->GetMeshEntities())
+        {
+            if (entity.HasComponent<EditableMeshComponent>())
+                for (auto material : entity.GetComponent<EditableMeshComponent>().Materials)
+                    add(material);
+            if (entity.HasComponent<MeshComponent>())
+                for (auto material : entity.GetComponent<MeshComponent>().Materials)
+                    add(material);
+        }
+        std::function<void(Entity)> visit = [&](Entity entity) {
+            if (entity.HasComponent<PrefabInstanceComponent>())
+                add(entity.GetComponent<PrefabInstanceComponent>().Prefab);
+            for (Entity child : m_ActiveScene->GetChildren(entity))
+                visit(child);
+        };
+        for (Entity root : m_ActiveScene->GetRootEntities())
+            visit(root);
+        // Sources with published products are rebuilt by the open-time sweep instead.
+        for (const auto& record : m_AssetImports->GetRuntimeAssetRegistry()->GetAllProducts())
+            referenced.erase(record.Metadata.assetID.GetSourceID());
+        auto sources = m_AssetImports->GetSources();
+        if (const auto* list = std::get_if<std::vector<SourceAssetMetadata>>(&sources))
+            for (const auto& source : *list)
+                if (source.Exists && referenced.count(source.sourceAssetID) &&
+                    std::find(m_SceneImports.begin(), m_SceneImports.end(), source.sourceAssetID) ==
+                        m_SceneImports.end())
+                    m_SceneImports.push_back(source.sourceAssetID);
+        StartNextSceneImport();
+    }
+
+    void EditorLayer::StartNextSceneImport()
+    {
+        if (m_SceneImports.empty() || m_PendingPlacement)
+            return;
+        auto snapshot = m_AssetImports->GetSnapshot();
+        if (const auto* state = std::get_if<EditorAssetImportSnapshot>(&snapshot);
+            !state || state->State == EditorAssetImportState::Building)
+            return; // Retried when the running build completes.
+        AssetBuildOptions options;
+        options.Target = EditorAssetTarget;
+        const auto source = m_SceneImports.front();
+        m_SceneImports.pop_front();
+        Record(m_AssetImports->Start(source, options));
     }
 
     std::variant<std::monostate, AssetError> EditorLayer::SaveScene(const std::filesystem::path& path)

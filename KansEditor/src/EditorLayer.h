@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <deque>
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Project/Project.h"
 #include <Kans3D.h>
@@ -89,6 +90,11 @@ namespace Kans
         std::optional<glm::vec3>                 m_PendingPlacementPosition;
         // Dropped while another build ran: build it once that build completes.
         bool                                     m_PendingPlacementWaiting = false;
+        // Assets the open scene references that have never been imported (e.g. the
+        // materials of a scene copied into the project), built one after another.
+        void                                     QueueMissingSceneAssets();
+        void                                     StartNextSceneImport();
+        std::deque<SourceAssetID>                m_SceneImports;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);

@@ -1,0 +1,11 @@
+magic: KansMaterial
+version: 4
+name: Lagoon
+shader: ""
+render: {alpha_mode: opaque, alpha_cutoff: 0.5, double_sided: false}
+parameters:
+  BaseColor: [0.16, 0.38, 0.72, 1]
+  Metallic: 0
+  Roughness: 0.35
+textures:
+  {}
