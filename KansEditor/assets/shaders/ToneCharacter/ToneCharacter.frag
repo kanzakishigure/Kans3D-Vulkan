@@ -9,6 +9,7 @@
 // configured them (see LegacySample). The result is decoded to linear and
 // written as scene-linear radiance (output_space=linear_hdr).
 #include <Kans3D/Engine.glsl>
+#include <Kans3D/Lighting.glsl>
 
 layout(set = 1, binding = 0, std140) uniform ToneParameters
 {
@@ -79,7 +80,9 @@ void main()
     if (!u_Tone.LightMapIsData)
         lightMap.rgb = Stored(lightMap.rgb);
 
-    float lambert = max(0.0, dot(lightDir, norm)) * 0.5 + 0.5;
+    // Shadow from the same light (1 when its shadows are off) darkens the half-Lambert
+    // before the ramp, so cast shadows fall into the ramp's shadow rows.
+    float lambert = (max(0.0, dot(lightDir, norm)) * 0.5 + 0.5) * KansPointShadow(0, v_WorldPos, norm);
     float NoV     = dot(viewDir, norm);
 
     // Material region from the light map.
