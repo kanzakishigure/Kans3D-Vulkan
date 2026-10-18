@@ -5,8 +5,9 @@
 // Textures: u_Diffuse (base color), u_LightMap (*_Light: R specular type,
 // G shadow/AO mask, B specular mask, A ramp row), u_RampMap (*_Ramp).
 // Like the legacy shader, shading is computed on the stored (gamma-encoded)
-// texture values and written without further encoding, and textures are
-// sampled the way the legacy loader configured them (see LegacySample).
+// texture values, and textures are sampled the way the legacy loader
+// configured them (see LegacySample). The result is decoded to linear and
+// written as scene-linear radiance (output_space=linear_hdr).
 #include <Kans3D/Engine.glsl>
 
 layout(set = 1, binding = 0, std140) uniform ToneParameters
@@ -51,6 +52,13 @@ vec4 LegacySample(sampler2D image, vec2 uv)
     ivec2 size  = textureSize(image, 0);
     ivec2 texel = clamp(ivec2(floor(fract(uv) * vec2(size))), ivec2(0), size - 1);
     return texelFetch(image, texel, 0);
+}
+
+// Inverse of Encode, extended beyond 1 for highlights.
+vec3 Decode(vec3 encoded)
+{
+    encoded = max(encoded, vec3(0.0));
+    return mix(encoded / 12.92, pow((encoded + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), encoded));
 }
 
 // Stored 8-bit value of a color texture channel.
@@ -112,5 +120,5 @@ void main()
         intensity = u_Tone.SpecularIntensity3;
     vec3 specular = clamp(NoV, 0.0, 1.0) * intensity * vec3(specularMask) * baseColor.rgb;
 
-    o_Color = vec4(specular + diffuse, 1.0);
+    o_Color = vec4(Decode(specular + diffuse), 1.0);
 }
