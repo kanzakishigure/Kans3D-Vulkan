@@ -1025,9 +1025,13 @@ namespace Kans
         DrawParent();
         const AssetID     shownShader = IsInstance() && ParentEffective() ? ParentEffective()->Shader : m_Source.Shader;
         const std::string shaderName  = !IsStandardShader(shownShader) ? ChoiceName(shownShader) : "Standard";
-        ImGui::BeginDisabled(IsInstance());
+        // Disable only for instances: a disabled combo never opens, so the pair cannot
+        // straddle the combo's popup window (ImGui asserts on a mismatched stack there).
+        if (IsInstance())
+            ImGui::BeginDisabled();
         const bool shaderOpen = ImGui::BeginCombo("Shader", shaderName.c_str());
-        ImGui::EndDisabled();
+        if (IsInstance())
+            ImGui::EndDisabled();
         if (IsInstance() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Inherited from the parent material.");
         if (shaderOpen)
