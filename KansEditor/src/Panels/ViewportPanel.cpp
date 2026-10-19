@@ -9,6 +9,7 @@
 #include "Kans3D/Core/Math/Math.h"
 #include "Kans3D/Input/Input.h"
 #include "Kans3D/Scene/Components.h"
+#include "Kans3D/Animation/AnimatorComponent.h"
 #include "UI/BloomSettingsWidget.h"
 #include "UI/EditorIcons.h"
 #include "UI/PropertyGrid.h"
@@ -338,6 +339,38 @@ namespace Kans
             if (ToScreen(a, sa) && ToScreen(b, sb))
                 draw->AddLine(sa, sb, color, 1.5f);
         };
+        // The selected animated model's skeleton: a line from each joint to its parent.
+        if (Entity picked = m_Hierarchy.GetSelected())
+        {
+            Entity root = m_Scene->GetPrefabInstanceRoot(picked);
+            root        = root ? root : picked;
+            if (root.HasComponent<AnimatorComponent>())
+            {
+                const auto& animator = root.GetComponent<AnimatorComponent>();
+                if (animator.SkeletonSource)
+                {
+                    const auto& joints = animator.SkeletonSource->GetData().Joints;
+                    for (size_t j = 0; j < joints.size() && j < animator.JointEntities.size(); ++j)
+                    {
+                        const int32_t parent = joints[j].Parent;
+                        if (parent < 0 || size_t(parent) >= animator.JointEntities.size())
+                            continue;
+                        Entity bone = m_Scene->GetEntityByUUID(animator.JointEntities[j]);
+                        Entity up   = m_Scene->GetEntityByUUID(animator.JointEntities[parent]);
+                        if (!bone || !up)
+                            continue;
+                        const glm::vec3 a = glm::vec3(m_Scene->GetWorldTransform(up)[3]);
+                        const glm::vec3 b = glm::vec3(m_Scene->GetWorldTransform(bone)[3]);
+                        ImVec2          sa, sb;
+                        if (ToScreen(a, sa) && ToScreen(b, sb))
+                        {
+                            draw->AddLine(sa, sb, IM_COL32(90, 200, 255, 220), 2.0f);
+                            draw->AddCircleFilled(sb, 2.5f, IM_COL32(90, 200, 255, 255));
+                        }
+                    }
+                }
+            }
+        }
         draw->PushClipRect(m_Min, m_Max, true);
         std::function<void(Entity)> visit = [&](Entity entity) {
             for (Entity child : m_Scene->GetChildren(entity))

@@ -1,4 +1,5 @@
 #include "ComponentEditors.h"
+#include "Kans3D/Animation/AnimatorComponent.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Scene.h"
@@ -118,6 +119,15 @@ namespace Kans
         for (int type = 0; type <= int(ShapeType::Prism); ++type)
             editable.CreateItems.push_back(
                 {ShapeName(ShapeType(type)), nullptr, [type](Entity e) { CreateShape(e, ShapeType(type)); }});
+
+        // Added with skinned prefabs (which know their skeleton); not added by hand.
+        auto& animator    = registry.Register<AnimatorComponent>("Animator", ICON_FA_PERSON_RUNNING, "Animation");
+        animator.IconRank = 4;
+        animator.Add      = {};
+        animator.Reset    = {};
+        animator.Copy     = {};
+        animator.Paste    = {};
+        animator.Draw     = DrawAnimator;
 
         auto& sprite    = registry.Register<SpriteRendererComponent>("Sprite Renderer", ICON_FA_IMAGE, "Rendering");
         sprite.IconRank = 6;

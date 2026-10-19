@@ -85,3 +85,4 @@
 #define ICON_FA_LINK                   "\xef\x83\x81" // U+F0C1
 #define ICON_FA_OBJECT_GROUP           "\xef\x89\x87" // U+F247
 #define ICON_FA_RIGHT_LEFT             "\xef\x8d\xa2" // U+F362
+#define ICON_FA_PERSON_RUNNING         "\xef\x9c\x8c" // U+F70C
