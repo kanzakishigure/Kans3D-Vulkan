@@ -228,8 +228,8 @@ namespace Kans
                 return false;
             if (m.Type == AnimationMotionType::Clip)
             {
-                if (!m.InlineClip && !m.Clip.IsValid())
-                    return false;
+                // A clip motion without a clip is valid: it holds the rest pose (a state
+                // the editor has added but not assigned yet).
                 if (m.InlineClip && std::holds_alternative<AssetError>(ValidateAnimationClip(*m.InlineClip)))
                     return false;
             }

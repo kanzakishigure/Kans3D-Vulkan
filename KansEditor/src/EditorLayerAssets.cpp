@@ -83,6 +83,7 @@ namespace Kans
             snapshot = m_AssetImports->GetRuntimeAssetRegistry();
         auto choices = CollectAssetChoices(*snapshot);
         m_MaterialEditorPanel.SetAssetChoices(choices);
+        m_AnimatorGraphPanel.SetAssetChoices(choices);
         m_PropertiesPanel.SetAssetChoices(std::move(choices));
         if (m_Assets)
         {

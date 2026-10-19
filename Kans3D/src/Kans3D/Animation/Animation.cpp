@@ -313,8 +313,8 @@ namespace Kans
                 m_MotionPoses[i].Resize(skeleton.Joints.size());
                 m_MotionPoses[i].MorphWeights.resize(skeleton.ShapeKeys.size());
                 m_Weights[i].resize(motion.Children.size());
-                if (motion.Type != AnimationMotionType::Clip)
-                    continue;
+                if (motion.Type != AnimationMotionType::Clip || (!motion.InlineClip && !motion.Clip.IsValid()))
+                    continue; // Unassigned clips sample the rest pose.
                 const auto* clip = motion.InlineClip ? &*motion.InlineClip : resolve ? resolve(motion.Clip) : nullptr;
                 if (!clip)
                     return AssetError {AssetErrorCode::NotFound, "Animation clip is not ready"};

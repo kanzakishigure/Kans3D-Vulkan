@@ -86,3 +86,4 @@
 #define ICON_FA_OBJECT_GROUP           "\xef\x89\x87" // U+F247
 #define ICON_FA_RIGHT_LEFT             "\xef\x8d\xa2" // U+F362
 #define ICON_FA_PERSON_RUNNING         "\xef\x9c\x8c" // U+F70C
+#define ICON_FA_FACE_SMILE             "\xef\x84\x98" // U+F118
