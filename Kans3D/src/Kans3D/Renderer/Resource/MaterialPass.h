@@ -11,6 +11,7 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::Sampler>                EnvironmentSampler;
         std::vector<RenderHardware::Format> ColorFormats {RenderHardware::Format::RGBA8Unorm};
         bool                                Wireframe = false, WriteStencil = false;
+        uint32_t                                                       Samples = 1;
         MaterialRenderState                 Render;
         uint32_t                                                       Section = 0;
         std::shared_ptr<ShadowResources>                               Shadows;

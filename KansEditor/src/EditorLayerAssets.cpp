@@ -494,6 +494,7 @@ namespace Kans
             const auto& sceneCamera = camera.GetComponent<CameraComponent>().SceneCamera;
             m_ViewportPanel.GetCamera().SetExposure(sceneCamera.GetExposure());
             m_ViewportPanel.GetCamera().SetBloomSettings(sceneCamera.GetBloomSettings());
+            m_ViewportPanel.GetCamera().SetAntiAliasing(sceneCamera.GetAntiAliasing());
         }
         QueueMissingSceneAssets();
         return activated;

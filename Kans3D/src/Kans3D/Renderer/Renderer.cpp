@@ -551,6 +551,20 @@ namespace Kans
         }
         RenderFrame frame {world, view, target, *this, result.Stats, result.SpriteStats, result.Complete};
         auto        pipeline = RenderPipelineRegistry::Create(view.Pipeline);
+        const auto  requestedAA = view.AntiAliasing.value_or(view.Scene.sceneCamera.camera.GetAntiAliasing());
+        uint32_t    supportedAA = 15;
+        for (const auto& color : target.GetColors())
+            supportedAA &= m_Device->GetSupportedSampleCounts(color->GetDesc());
+        supportedAA &= m_Device->GetSupportedSampleCounts(target.GetHDR()->GetDesc());
+        supportedAA &= m_Device->GetSupportedSampleCounts(target.GetDepth()->GetDesc());
+        if (AntiAliasingSamples(requestedAA) > 1 && !m_Device->SupportsSampleRateShading())
+            supportedAA = 1;
+        view.EffectiveAA            = EffectiveAntiAliasing(requestedAA, supportedAA);
+        frame.Samples               = AntiAliasingSamples(view.EffectiveAA);
+        statistics.EffectiveAA      = view.EffectiveAA;
+        statistics.EffectiveSamples = frame.Samples;
+        if (frame.Samples == 1)
+            target.GetTransientPool().DiscardMultisampled();
         m_Device->BeginFrame();
         double                        executeStart = 0;
         std::shared_ptr<GraphCapture> capture;

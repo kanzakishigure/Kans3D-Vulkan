@@ -79,6 +79,8 @@ void KansAlphaClip(float alpha)
 }
 float KansOutputAlpha(float alpha)
 {
+    if (u_Object.MaterialRender.x == 3.0)
+        return clamp((alpha-u_Object.MaterialRender.y)/max(fwidth(alpha), 1e-4)+0.5, 0.0, 1.0);
     return u_Object.MaterialRender.x == 2.0 ? alpha : 1.0;
 }
 #endif

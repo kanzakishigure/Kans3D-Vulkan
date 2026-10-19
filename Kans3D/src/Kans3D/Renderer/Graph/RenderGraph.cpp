@@ -13,7 +13,7 @@ namespace Kans
         {
             return a.Width == b.Width && a.Height == b.Height && a.MipLevels == b.MipLevels &&
                    a.Dimension == b.Dimension && a.ArrayLayers == b.ArrayLayers && a.PixelFormat == b.PixelFormat &&
-                   a.Usage == b.Usage;
+                   a.Usage == b.Usage && a.Samples == b.Samples;
         }
         bool Reads(GraphAccess a)
         {
@@ -63,6 +63,13 @@ namespace Kans
         }
         m_Textures = textures;
         return textures;
+    }
+    void TransientTexturePool::DiscardMultisampled()
+    {
+        m_Textures.erase(std::remove_if(m_Textures.begin(),
+                                        m_Textures.end(),
+                                        [](const auto& t) { return t->GetDesc().Samples > 1; }),
+                         m_Textures.end());
     }
     GraphTexture RenderGraph::ImportTexture(std::string name, RenderHardware::Handle<RenderHardware::Texture> image)
     {

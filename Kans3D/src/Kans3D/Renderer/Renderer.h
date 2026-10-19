@@ -6,6 +6,7 @@
 #include "Kans3D/RHI/Backend.h"
 #include "Graph/RenderGraph.h"
 #include "RenderView.h"
+#include "Resource/AntiAliasingPass.h"
 #include "Resource/Environment.h"
 #include "Resource/SelectionTools.h"
 #include "Resource/ToneMappingPass.h"
@@ -75,6 +76,7 @@ namespace Kans
         }
         EntityPicker&    GetPickingService() { return m_Picker; }
         ToneMappingPass& GetToneMapping() { return m_ToneMapping; }
+        AntiAliasingPass& GetAntiAliasing() { return m_AntiAliasing; }
         const GpuMesh&   GetCube();
         RenderHardware::Handle<RenderHardware::Shader>
         GetInternalProgram(const char* name, const char* vertex, const char* fragment);
@@ -105,5 +107,6 @@ namespace Kans
         SelectionOutline                                                                  m_Outline;
         std::unique_ptr<SpriteBatch>                                                      m_Sprites;
         ToneMappingPass                                                                   m_ToneMapping;
+        AntiAliasingPass                                                                  m_AntiAliasing;
     };
 } // namespace Kans

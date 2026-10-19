@@ -157,6 +157,7 @@ namespace Kans
                     // ImageQuery: textureSize / textureQueryLod.
                     if ((opcode == spv::OpCapability && module.Words[cursor + 1] != spv::CapabilityShader &&
                          module.Words[cursor + 1] != spv::CapabilityMatrix &&
+                         module.Words[cursor + 1] != spv::CapabilitySampleRateShading &&
                          module.Words[cursor + 1] != spv::CapabilityImageQuery) ||
                         opcode == spv::OpExtension)
                         return AssetError {AssetErrorCode::NotImplemented,
@@ -212,7 +213,6 @@ namespace Kans
                         binding.Members = std::get<std::vector<ShaderUniformMember>>(std::move(members));
                     }
                     else if ((type.image.dim != spv::Dim2D && type.image.dim != spv::DimCube) || type.image.arrayed ||
-                             type.image.ms ||
                              (compiler.get_type(type.image.type).basetype != spirv_cross::SPIRType::Float &&
                               compiler.get_type(type.image.type).basetype != spirv_cross::SPIRType::UInt))
                         return AssetError {AssetErrorCode::NotImplemented, "Shader sampled image shape is unsupported"};

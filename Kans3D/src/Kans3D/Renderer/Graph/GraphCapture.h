@@ -3,6 +3,7 @@
 #include <map>
 #include <optional>
 #include <glm/glm.hpp>
+#include "Kans3D/Renderer/Resource/AntiAliasingPass.h"
 #include "RenderGraph.h"
 
 namespace Kans
@@ -32,6 +33,7 @@ namespace Kans
         bool                        DepthInColor   = false; // R = raw depth, G = stencil (when present), B = 0, A = 1.
         glm::mat4                   InverseProjection {1};  // Device depth 0..1; captured with the view.
         RenderHardware::Handle<RenderHardware::Texture> Texture;
+        std::string                                     Label; // Includes the resolve method for multisampled sources.
         std::string Unavailable; // Nonempty when the backend/source does not support capture.
     };
     struct CapturedGraphFrame
@@ -90,6 +92,7 @@ namespace Kans
                                                         bool                                                   snapshot,
                                                         const glm::mat4&                                       inverseProjection,
                                                         const CaptureDisplaySettings&                          settings = {});
+        AntiAliasingPass                                m_AntiAliasing;
         std::shared_ptr<RenderHardware::Device> m_Device;
         GraphCaptureSettings                    m_Settings;
         std::shared_ptr<CapturedGraphFrame>     m_Current;

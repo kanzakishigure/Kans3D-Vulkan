@@ -60,6 +60,7 @@ namespace Kans
         std::vector<RenderHardware::Handle<RenderHardware::Texture>>
                Acquire(const std::vector<RenderHardware::TextureDesc>& descriptions, const Factory& create);
         size_t Size() const { return m_Textures.size(); }
+        void   DiscardMultisampled();
 
     private:
         std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Textures;

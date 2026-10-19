@@ -219,6 +219,7 @@ namespace Kans::RenderHardware
         Format           PixelFormat = Format::RGBA8Unorm;
         TextureUsage     Usage       = TextureUsage::Sampled;
         uint32_t         ArrayLayers = 1; // Cube has six faces; cube arrays are not supported.
+        uint32_t         Samples     = 1; // 1, 2, 4 or 8. Multisampled images have one mip and are 2D.
     };
     struct SamplerDesc
     {
@@ -352,6 +353,8 @@ namespace Kans::RenderHardware
         // Ignored when HasDepthStencil is false.
         bool   HasDepthStencil    = false;
         Format DepthStencilFormat = Format::Depth32Float;
+        uint32_t Samples            = 1;
+        bool     AlphaToCoverage    = false;
     };
     class Pipeline : public Resource
     {
@@ -366,6 +369,8 @@ namespace Kans::RenderHardware
         StoreOp              Store = StoreOp::Store;
         std::array<float, 4> ClearColor {0, 0, 0, 0};
         uint32_t             ClearUint = 0; // R32Uint only.
+        Handle<Texture>      ResolveTarget; // Same format/extent, one sample; average resolve at EndRendering.
+        TextureSubresource   ResolveSubresource;
     };
     struct DepthAttachment
     {
@@ -375,6 +380,8 @@ namespace Kans::RenderHardware
         StoreOp            Store        = StoreOp::Store;
         float              ClearDepth   = 1;
         uint32_t           ClearStencil = 0;
+        Handle<Texture>    ResolveTarget; // Same format/extent, one sample; sample 0 for BOTH depth and stencil.
+        TextureSubresource ResolveSubresource;
     };
     struct RenderingDesc
     {
@@ -478,6 +485,10 @@ namespace Kans::RenderHardware
         virtual const DeviceDesc&     GetDesc() const                  = 0;
         virtual CoordinateConventions GetCoordinateConventions() const = 0;
         virtual DeviceStats           GetStats() const                 = 0;
+        // Bit mask of supported sample counts (bits 1/2/4/8), for this format, usage and dimension.
+        // Samples is ignored. Unsupported backends report single-sample only.
+        virtual uint32_t GetSupportedSampleCounts(const TextureDesc&) const { return 1; }
+        virtual bool     SupportsSampleRateShading() const { return false; }
         // Required byte alignment for uniform/storage buffer binding offsets.
         virtual size_t                  GetBufferBindingAlignment(BindingType type) const      = 0;
         virtual Handle<TimestampQueryPool> CreateTimestampQueryPool(uint32_t count) { return {}; }

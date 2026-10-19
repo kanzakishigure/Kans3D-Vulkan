@@ -570,6 +570,9 @@ namespace Kans
                     float exposure = m_Camera.GetExposure();
                     if (PropertyGrid::Float("Exposure", exposure, 0.01f, 0.0f, 100.0f))
                         m_Camera.SetExposure(exposure);
+                    auto antiAliasing = m_Camera.GetAntiAliasing();
+                    if (DrawAntiAliasing(antiAliasing))
+                        m_Camera.SetAntiAliasing(antiAliasing);
                     auto bloom = m_Camera.GetBloomSettings();
                     if (DrawBloomSettings(bloom))
                         m_Camera.SetBloomSettings(bloom);

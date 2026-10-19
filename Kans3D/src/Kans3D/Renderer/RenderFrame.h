@@ -18,13 +18,39 @@ namespace Kans
         bool&                         Complete;
         std::optional<double>         FinalPostRecordMilliseconds;
         bool                          DeferToneMapping = false, PostProcessHDR = false;
+        uint32_t                                        Samples    = 1;
+        RenderGraph*                                    SceneGraph = nullptr;
+        std::vector<GraphTexture>                       MSColors;
+        GraphTexture                                    MSHDR = 0, MSDepth = 0;
+        bool                                            MSAAResolved = false;
+        RenderHardware::Handle<RenderHardware::Texture> HDR() const
+        {
+            return Samples > 1 && !MSAAResolved ? SceneGraph->Texture(MSHDR) : Output.GetHDR();
+        }
+        std::vector<RenderHardware::Handle<RenderHardware::Texture>> Colors() const
+        {
+            if (Samples == 1 || MSAAResolved)
+                return Output.GetColors();
+            std::vector<RenderHardware::Handle<RenderHardware::Texture>> colors;
+            for (auto id : MSColors)
+                colors.push_back(SceneGraph->Texture(id));
+            return colors;
+        }
         const GpuMesh*                GetMesh(const MeshKey& id) const;
         const GpuMaterialBindings*    GetBindings(AssetID id, bool debug) const;
         const GpuShader*              GetShader(AssetID material, AssetID shader) const;
         RenderAssetCache*             Assets() const { return View.Assets.get(); }
         RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load, bool hdr = false) const
         {
-            return Output.Target(load, hdr);
+            auto target = Output.Target(load, hdr);
+            if (Samples > 1 && !MSAAResolved)
+            {
+                const auto colors = Colors();
+                for (size_t i = 0; i < colors.size(); ++i)
+                    target.Colors[i].Target = i == 0 && hdr ? HDR() : colors[i];
+                target.Depth.Target = SceneGraph->Texture(MSDepth);
+            }
+            return target;
         }
         std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> GetMaterialEnvironment();
         std::shared_ptr<RenderHardware::Device> GetDevice() const { return Services.GetDevice(); }

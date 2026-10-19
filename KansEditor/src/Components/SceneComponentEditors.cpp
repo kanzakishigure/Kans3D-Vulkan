@@ -62,6 +62,9 @@ namespace Kans::ComponentEditors
             float exposure = camera.GetExposure();
             if (PropertyGrid::Float("Exposure", exposure, 0.01f, 0.0f, 100.0f))
                 camera.SetExposure(exposure);
+            auto antiAliasing = camera.GetAntiAliasing();
+            if (DrawAntiAliasing(antiAliasing))
+                camera.SetAntiAliasing(antiAliasing);
             auto bloom = camera.GetBloomSettings();
             if (DrawBloomSettings(bloom,
                                   [&](AssetID& dirt) { return ui.AssetPicker("Lens dirt", AssetType::Texture, dirt); }))

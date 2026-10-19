@@ -195,6 +195,8 @@ namespace Kans
         std::optional<EngineFrameUniforms>                LightingUniforms;
         std::string                                       Pipeline = "Forward";
         std::optional<float>                              Exposure;
+        std::optional<Kans::AntiAliasing>                 AntiAliasing; // nullopt inherits the camera.
+        Kans::AntiAliasing                                EffectiveAA            = Kans::AntiAliasing::None;
         float                                             Time         = 0;
         uint32_t                                          MaxShadowedPointLights = 4;
         std::shared_ptr<ShadowResources>                  Shadows;

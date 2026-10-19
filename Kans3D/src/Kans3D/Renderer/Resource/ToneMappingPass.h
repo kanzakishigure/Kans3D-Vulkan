@@ -17,9 +17,11 @@ namespace Kans
         static float EffectiveExposure(float exposure);
 
     private:
-        RenderHardware::Handle<RenderHardware::Shader>                                                  m_Program;
+        RenderHardware::Handle<RenderHardware::Shader>                                                  m_Programs[2];
         RenderHardware::Handle<RenderHardware::BindGroupLayout>                                         m_Layout;
         RenderHardware::Handle<RenderHardware::Sampler>                                                 m_Sampler;
-        std::map<std::vector<RenderHardware::Format>, RenderHardware::Handle<RenderHardware::Pipeline>> m_Pipelines;
+        std::map<std::pair<std::vector<RenderHardware::Format>, uint32_t>,
+                 RenderHardware::Handle<RenderHardware::Pipeline>>
+            m_Pipelines;
     };
 } // namespace Kans

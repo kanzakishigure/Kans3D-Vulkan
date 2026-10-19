@@ -12,6 +12,8 @@ namespace Kans::RenderHardware::Detail
         auto        shader = d.Program.get();
         add(shader);
         add(d.PushConstantBytes);
+        add(d.Samples);
+        add(d.AlphaToCoverage);
         add(d.Primitive);
         add(d.Rasterizer.Cull);
         add(d.Rasterizer.Front);

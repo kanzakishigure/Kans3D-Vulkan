@@ -14,6 +14,27 @@ namespace Kans
         auto* renderer = context.Frame;
         if (!renderer || !renderer->HasMaterialPass(context.View, m_Tag))
             return;
+        if (renderer->Samples > 1)
+        {
+            auto uses    = context.Target;
+            auto sampled = [&](const auto& image) {
+                if (!image)
+                    return;
+                const auto id = context.Graph.ImportTexture("MaterialPassTexture", image);
+                if (std::none_of(uses.begin(), uses.end(), [&](auto u) { return u.Texture == id; }))
+                    uses.push_back({id, GraphAccess::SampledRead});
+            };
+            for (const auto& image : renderer->GetMaterialEnvironment())
+                sampled(image);
+            for (const auto& draw : context.View.Draws)
+                if (const auto* bindings = renderer->GetBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit))
+                    for (const auto& image : bindings->Images)
+                        sampled(image);
+            context.Graph.AddPass("Material passes: " + m_Tag, std::move(uses), [renderer, tag = m_Tag](auto& c) {
+                renderer->DrawShaderMaterials(c.Commands, {}, tag);
+            });
+            return;
+        }
         auto       uses    = context.Target;
         uses.push_back(
             {context.Graph.ImportTexture("SceneHDR", renderer->Output.GetHDR()), GraphAccess::ColorReadWrite});

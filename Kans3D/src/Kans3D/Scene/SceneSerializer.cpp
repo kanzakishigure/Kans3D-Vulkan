@@ -771,6 +771,8 @@ namespace Kans
                 value["AspectRatio"]          = camera.GetAspectRatio();
                 value["Exposure"]             = camera.GetExposure();
                 value["Bloom"]                = EncodeBloom(camera.GetBloomSettings());
+                if (camera.GetAntiAliasing() != AntiAliasing::None)
+                    value["AntiAliasing"] = uint32_t(camera.GetAntiAliasing());
                 value["Primary"]              = component.Primary;
                 value["FixedAspectRatio"]     = component.FixedAspectRatio;
             }
@@ -1052,6 +1054,7 @@ namespace Kans
                           "AspectRatio",
                           "Exposure",
                           "Bloom",
+                          "AntiAliasing",
                           "Primary",
                           "FixedAspectRatio"});
                     auto type = SceneIndex(value["ProjectionType"]);
@@ -1063,6 +1066,12 @@ namespace Kans
                         camera.SetExposure(Number(value["Exposure"]));
                     if (value["Bloom"])
                         camera.SetBloomSettings(DecodeBloom(value["Bloom"]));
+                    if (value["AntiAliasing"])
+                    {
+                        const auto aa = SceneIndex(value["AntiAliasing"]);
+                        Require(aa <= uint32_t(AntiAliasing::MSAA8), "Invalid camera anti-aliasing mode");
+                        camera.SetAntiAliasing(static_cast<AntiAliasing>(aa));
+                    }
                     camera.SetPerspectiveVerticalFOV(Number(value["PerspectiveFOV"]));
                     camera.SetPerspectiveNearClip(Number(value["PerspectiveNearClip"]));
                     camera.SetPerspectiveFarClip(Number(value["PerspectiveFarClip"]));

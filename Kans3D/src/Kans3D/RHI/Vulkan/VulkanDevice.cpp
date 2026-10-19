@@ -319,6 +319,54 @@ namespace Kans::RenderHardware
                     "Invalid texture subresource");
             return size_t(Width(d, sub.Mip)) * Height(d, sub.Mip) * Info(d.PixelFormat).Bytes;
         }
+        uint32_t SupportedSamples(const Context& context, const TextureDesc& desc)
+        {
+            auto              f     = Info(desc.PixelFormat);
+            VkImageUsageFlags usage = 0;
+            if (Has(desc.Usage, TextureUsage::Sampled))
+                usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+            if (Has(desc.Usage, TextureUsage::RenderTarget))
+                usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            if (Has(desc.Usage, TextureUsage::DepthStencil))
+                usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            if (Has(desc.Usage, TextureUsage::CopySource))
+                usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            if (Has(desc.Usage, TextureUsage::CopyDestination))
+                usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            if (!usage)
+                return 0;
+            VkImageFormatProperties properties {};
+            if (vkGetPhysicalDeviceImageFormatProperties(
+                    context.Physical,
+                    f.Native,
+                    VK_IMAGE_TYPE_2D,
+                    VK_IMAGE_TILING_OPTIMAL,
+                    usage,
+                    desc.Dimension == TextureDimension::Cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
+                    &properties) != VK_SUCCESS)
+                return 0;
+            uint32_t counts = properties.sampleCounts & 15u;
+            if (desc.MipLevels != 1 || desc.Dimension != TextureDimension::Texture2D)
+                return counts & 1u;
+            const auto& limits = context.Properties.limits;
+            if (Has(desc.Usage, TextureUsage::RenderTarget))
+                counts &= limits.framebufferColorSampleCounts;
+            if (Has(desc.Usage, TextureUsage::DepthStencil))
+            {
+                counts &= limits.framebufferDepthSampleCounts;
+                if (f.Stencil())
+                    counts &= limits.framebufferStencilSampleCounts;
+            }
+            if (Has(desc.Usage, TextureUsage::Sampled))
+            {
+                counts &= f.Depth()                           ? limits.sampledImageDepthSampleCounts :
+                          desc.PixelFormat == Format::R32Uint ? limits.sampledImageIntegerSampleCounts :
+                                                                limits.sampledImageColorSampleCounts;
+            }
+            if (Has(desc.Usage, TextureUsage::Sampled) && f.Stencil())
+                counts &= limits.sampledImageStencilSampleCounts;
+            return counts;
+        }
         struct VKTexture final : Texture
         {
             struct UIView
@@ -381,6 +429,9 @@ namespace Kans::RenderHardware
                             (desc.Dimension != TextureDimension::Cube || desc.ArrayLayers == 1) &&
                             uint32_t(desc.Usage) && !(uint32_t(desc.Usage) & ~31u),
                         "Invalid texture description");
+                Require((desc.Samples == 1 || desc.Samples == 2 || desc.Samples == 4 || desc.Samples == 8) &&
+                            (SupportedSamples(Memory.Owner->Native, desc) & desc.Samples),
+                        "Unsupported texture sample count");
                 uint32_t maxMips = 1;
                 for (uint32_t size = std::max(desc.Width, desc.Height); size > 1; size >>= 1)
                     ++maxMips;
@@ -398,7 +449,7 @@ namespace Kans::RenderHardware
                 image.extent      = {desc.Width, desc.Height, 1};
                 image.mipLevels   = desc.MipLevels;
                 image.arrayLayers = desc.Dimension == TextureDimension::Cube ? 6 : desc.ArrayLayers;
-                image.samples     = VK_SAMPLE_COUNT_1_BIT;
+                image.samples     = VkSampleCountFlagBits(desc.Samples);
                 image.tiling      = VK_IMAGE_TILING_OPTIMAL;
                 if (Has(desc.Usage, TextureUsage::Sampled))
                     image.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -890,7 +941,7 @@ namespace Kans::RenderHardware
                 Require(!desc.Colors.empty() || desc.Depth.Target, "Rendering requires an attachment");
                 Require(desc.Colors.size() <= Owner->Native.Properties.limits.maxColorAttachments,
                         "Too many color attachments");
-                uint32_t                                   width = 0, height = 0;
+                uint32_t                                   width = 0, height = 0, samples = 0;
                 std::vector<std::pair<VKTexture*, size_t>> seen;
                 auto validate = [&](const Handle<Texture>& target, TextureSubresource sub, bool depth) {
                     auto t = Cast<VKTexture>(target, Owner);
@@ -902,22 +953,40 @@ namespace Kans::RenderHardware
                     {
                         width  = Width(t->Desc, sub.Mip);
                         height = Height(t->Desc, sub.Mip);
+                        samples = t->Desc.Samples;
                     }
                     Require(width == Width(t->Desc, sub.Mip) && height == Height(t->Desc, sub.Mip),
                             "Attachment extents differ");
+                    Require(samples == t->Desc.Samples, "Attachment sample counts differ");
                     auto key = std::make_pair(t.get(), t->Index(sub));
                     Require(std::find(seen.begin(), seen.end(), key) == seen.end(), "Duplicate rendering attachment");
                     seen.push_back(key);
                 };
+                auto validateResolve = [&](const Handle<Texture>& source,
+                                           const Handle<Texture>& target,
+                                           TextureSubresource     sub,
+                                           bool                   depth) {
+                    if (!target)
+                        return;
+                    auto t = Cast<VKTexture>(target, Owner);
+                    Require(samples > 1 && t->Desc.Samples == 1 && t->Desc.PixelFormat == source->GetDesc().PixelFormat,
+                            "Invalid resolve sample count or format");
+                    const auto saved = samples;
+                    samples          = 1;
+                    validate(target, sub, depth);
+                    samples = saved;
+                };
                 for (const auto& color : desc.Colors)
                 {
                     validate(color.Target, color.Subresource, false);
+                    validateResolve(color.Target, color.ResolveTarget, color.ResolveSubresource, false);
                     Load(color.Load);
                     Store(color.Store);
                 }
                 if (desc.Depth.Target)
                 {
                     validate(desc.Depth.Target, desc.Depth.Subresource, true);
+                    validateResolve(desc.Depth.Target, desc.Depth.ResolveTarget, desc.Depth.ResolveSubresource, true);
                     Load(desc.Depth.Load);
                     Store(desc.Depth.Store);
                     Require(desc.Depth.ClearDepth >= 0 && desc.Depth.ClearDepth <= 1, "Invalid depth clear");
@@ -946,6 +1015,21 @@ namespace Kans::RenderHardware
                             attachment.clearValue.color.uint32[0] = a.ClearUint;
                         else
                             std::copy(a.ClearColor.begin(), a.ClearColor.end(), attachment.clearValue.color.float32);
+                        if (a.ResolveTarget)
+                        {
+                            auto r = Cast<VKTexture>(a.ResolveTarget, state);
+                            e.Use(*r,
+                                  a.ResolveSubresource,
+                                  {VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                   VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL});
+                            attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                            // Integer formats resolve sample zero, as required by Vulkan.
+                            if (t->Desc.PixelFormat == Format::R32Uint)
+                                attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+                            attachment.resolveImageView   = r->Views[r->Index(a.ResolveSubresource)];
+                            attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                        }
                         colors.push_back(attachment);
                     }
                     VkRenderingAttachmentInfo depth {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -970,6 +1054,11 @@ namespace Kans::RenderHardware
                                 VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
                             access.Mask |= VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
                         }
+                        if (a.ResolveTarget)
+                        {
+                            access.Stage |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                            access.Mask |= VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+                        }
                         e.Use(*t, a.Subresource, access);
                         depth.imageView               = t->Views[t->Index(a.Subresource)];
                         depth.imageLayout             = layout;
@@ -977,6 +1066,19 @@ namespace Kans::RenderHardware
                         depth.storeOp = uses->PreserveAttachments ? VK_ATTACHMENT_STORE_OP_STORE : Store(a.Store);
                         depth.clearValue.depthStencil = {a.ClearDepth, a.ClearStencil};
                         stencil                       = Info(t->Desc.PixelFormat).Stencil();
+                        if (a.ResolveTarget)
+                        {
+                            auto r = Cast<VKTexture>(a.ResolveTarget, state);
+                            // Depth/stencil resolves execute in COLOR_ATTACHMENT_OUTPUT, too.
+                            e.Use(*r,
+                                  a.ResolveSubresource,
+                                  {VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                   VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                                   VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL});
+                            depth.resolveMode        = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+                            depth.resolveImageView   = r->Views[r->Index(a.ResolveSubresource)];
+                            depth.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                        }
                     }
                     VkRenderingInfo rendering {VK_STRUCTURE_TYPE_RENDERING_INFO};
                     rendering.renderArea.extent    = {width, height};
@@ -1086,6 +1188,11 @@ namespace Kans::RenderHardware
                 Inside();
                 Require(bool(BoundPipeline), "Draw requires pipeline");
                 const auto& d = BoundPipeline->Desc;
+                Require(d.Samples ==
+                            (RenderingInfo.Colors.empty() ? RenderingInfo.Depth.Target : RenderingInfo.Colors[0].Target)
+                                ->GetDesc()
+                                .Samples,
+                        "Pipeline sample count mismatch");
                 Require(d.ColorFormats.size() == RenderingInfo.Colors.size(), "Pipeline target count mismatch");
                 for (size_t i = 0; i < d.ColorFormats.size(); ++i)
                     Require(d.ColorFormats[i] == RenderingInfo.Colors[i].Target->GetDesc().PixelFormat,
@@ -1183,6 +1290,8 @@ namespace Kans::RenderHardware
                         Require((entry->Subresource ? TextureDimension::Texture2D : texture->Desc.Dimension) ==
                                     binding.Dimension,
                                 "Texture dimension disagrees with shader binding");
+                        Require(binding.Multisampled == (texture->Desc.Samples > 1),
+                                "Shader image sample count mismatch");
                         Require(binding.Unsigned == (entry->Aspect == TextureAspect::Stencil ||
                                                      texture->Desc.PixelFormat == Format::R32Uint),
                                 "Sampled image scalar type disagrees with texture aspect/format");
@@ -1306,6 +1415,7 @@ namespace Kans::RenderHardware
                 Require(Has(s->Desc.Usage, BufferUsage::CopySource) &&
                             Has(d->Desc.Usage, TextureUsage::CopyDestination),
                         "Texture upload usage mismatch");
+                Require(d->Desc.Samples == 1, "Cannot upload multisampled texture");
                 Require(offset % Info(d->Desc.PixelFormat).Bytes == 0, "Texture copy offset must be texel aligned");
                 Range(s->Desc.Bytes, offset, TextureBytes(d->Desc, sub));
                 Recorded.push_back([s, d, offset, sub](Execution& e) {
@@ -1327,6 +1437,7 @@ namespace Kans::RenderHardware
                 Require(Has(s->Desc.Usage, TextureUsage::CopySource) &&
                             Has(d->Desc.Usage, BufferUsage::CopyDestination),
                         "Texture readback usage mismatch");
+                Require(s->Desc.Samples == 1, "Cannot read back multisampled texture; resolve first");
                 Require(offset % Info(s->Desc.PixelFormat).Bytes == 0, "Texture copy offset must be texel aligned");
                 Range(d->Desc.Bytes, offset, TextureBytes(s->Desc, sub));
                 Recorded.push_back([s, d, offset, sub](Execution& e) {
@@ -1366,7 +1477,7 @@ namespace Kans::RenderHardware
                 Require(s != d && Has(s->Desc.Usage, TextureUsage::CopySource) &&
                             Has(d->Desc.Usage, TextureUsage::CopyDestination),
                         "Texture copy usage mismatch");
-                Require(s->Desc.PixelFormat == d->Desc.PixelFormat &&
+                Require(s->Desc.Samples == d->Desc.Samples && s->Desc.PixelFormat == d->Desc.PixelFormat &&
                             TextureBytes(s->Desc, from) == TextureBytes(d->Desc, to) &&
                             Width(s->Desc, from.Mip) == Width(d->Desc, to.Mip) &&
                             Height(s->Desc, from.Mip) == Height(d->Desc, to.Mip),
@@ -1417,6 +1528,7 @@ namespace Kans::RenderHardware
                 Require(Has(s->Desc.Usage, TextureUsage::CopySource) &&
                             Has(d->Desc.Usage, BufferUsage::CopyDestination),
                         "Texel copy usage mismatch");
+                Require(s->Desc.Samples == 1, "Resolve before reading a multisampled texel");
                 Require(x < Width(s->Desc, sub.Mip) && y < Height(s->Desc, sub.Mip) && offset % 4 == 0 &&
                             offset % format.Bytes == 0,
                         "Invalid texel copy region");
@@ -1609,6 +1721,18 @@ namespace Kans::RenderHardware
                     return {};
                 return std::make_shared<VKQueries>(Owner, count);
             }
+            bool SupportsSampleRateShading() const override
+            {
+                Owner->CheckThread();
+                VkPhysicalDeviceFeatures features {};
+                vkGetPhysicalDeviceFeatures(Owner->Native.Physical, &features);
+                return features.sampleRateShading;
+            }
+            uint32_t GetSupportedSampleCounts(const TextureDesc& d) const override
+            {
+                Owner->CheckThread();
+                return SupportedSamples(Owner->Native, d);
+            }
             Handle<Texture> CreateTexture(const TextureDesc& d) override
             {
                 Owner->CheckThread();
@@ -1739,7 +1863,8 @@ namespace Kans::RenderHardware
                 Owner->CheckThread();
                 auto image = Cast<VKTexture>(texture, Owner);
                 Require(image->SampledView && image->Desc.Dimension == TextureDimension::Texture2D &&
-                            image->Desc.ArrayLayers == 1 && !Info(image->Desc.PixelFormat).Depth(),
+                            image->Desc.ArrayLayers == 1 && image->Desc.Samples == 1 &&
+                            !Info(image->Desc.PixelFormat).Depth(),
                         "ImGui requires a sampled 2D colour texture");
                 SamplerDesc desc = sampling ? *sampling : SamplerDesc {};
                 auto        same = [&](const auto& view) {

@@ -31,4 +31,13 @@ namespace Kans
         }
         return changed;
     }
+    bool DrawAntiAliasing(AntiAliasing& mode)
+    {
+        const char* names[] = {"Off", "FXAA (fast)", "MSAA 2x", "MSAA 4x", "MSAA 8x"};
+        int         index   = int(mode);
+        if (!PropertyGrid::Combo("Anti-aliasing", names, 5, index))
+            return false;
+        mode = AntiAliasing(index);
+        return true;
+    }
 } // namespace Kans

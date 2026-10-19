@@ -36,7 +36,9 @@ namespace Kans
         }
         bool Compatible(const TextureDesc& a, const TextureDesc& b)
         {
-            return a.Width == b.Width && a.Height == b.Height && a.PixelFormat == b.PixelFormat && a.Usage == b.Usage;
+            return a.Width == b.Width && a.Height == b.Height && a.MipLevels == b.MipLevels &&
+                   a.Dimension == b.Dimension && a.ArrayLayers == b.ArrayLayers && a.PixelFormat == b.PixelFormat &&
+                   a.Usage == b.Usage && a.Samples == b.Samples;
         }
     } // namespace
     const CapturedImage* CapturedGraphFrame::Find(CaptureSelection selection, bool fullResolution) const
@@ -93,6 +95,39 @@ namespace Kans
                 continue;
             const auto&                   resource = graph.Resources().at(use.Texture);
             const auto&                   desc     = resource.Description;
+            auto                          source   = graph.Texture(use.Texture);
+            if (desc.Samples > 1)
+            {
+                auto resolved    = desc;
+                resolved.Samples = 1;
+                resolved.Usage   = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopySource |
+                                   RenderHardware::TextureUsage::CopyDestination |
+                                   (Depth(desc.PixelFormat) ? RenderHardware::TextureUsage::DepthStencil :
+                                                              RenderHardware::TextureUsage::RenderTarget);
+                auto image       = Acquire(resolved);
+                if (!Depth(desc.PixelFormat) && desc.PixelFormat != Format::R32Uint)
+                    m_AntiAliasing.Resolve(
+                        *m_Device, *commands, source, image, desc.PixelFormat == Format::RGBA16Float);
+                else
+                {
+                    RenderingDesc render;
+                    if (Depth(desc.PixelFormat))
+                    {
+                        render.Depth.Target        = source;
+                        render.Depth.Load          = LoadOp::Load;
+                        render.Depth.ResolveTarget = image;
+                    }
+                    else
+                    {
+                        render.Colors.push_back({source, {}, LoadOp::Load});
+                        render.Colors[0].ResolveTarget = image;
+                    }
+                    commands->BeginRendering(render);
+                    commands->EndRendering();
+                }
+                source   = image;
+                recorded = true;
+            }
             std::vector<CaptureSelection> selections {{passID, resource.ID, {}}};
             for (auto& request : m_Settings.Requests)
                 if (request.Pass == passID && request.Resource == resource.ID)
@@ -119,6 +154,13 @@ namespace Kans
                     image.Selection         = selection;
                     image.Frame             = m_Current->Frame;
                     image.SourceDescription = desc;
+                    image.Label             = resource.Name;
+                    if (desc.Samples > 1)
+                        image.Label += " (" + std::to_string(desc.Samples) + "x resolved: " +
+                                       (Depth(desc.PixelFormat) || desc.PixelFormat == Format::R32Uint ? "sample 0" :
+                                        desc.PixelFormat == Format::RGBA16Float                        ? "Karis HDR" :
+                                                                                                         "average") +
+                                       ")";
                     image.FullResolution    = kind == 1;
                     image.InverseProjection = m_InverseProjection;
                     const auto sub          = selection.Subresource;
@@ -126,9 +168,9 @@ namespace Kans
                         image.Unavailable = "Invalid mip/layer";
                     else
                     {
-                        const bool canCopy =
-                            image.FullResolution && (uint32_t(desc.Usage) & uint32_t(TextureUsage::CopySource));
-                        const bool canSample = uint32_t(desc.Usage) & uint32_t(TextureUsage::Sampled);
+                        const bool canCopy   = image.FullResolution &&
+                                               (uint32_t(source->GetDesc().Usage) & uint32_t(TextureUsage::CopySource));
+                        const bool canSample = uint32_t(source->GetDesc().Usage) & uint32_t(TextureUsage::Sampled);
                         if (!canCopy && !canSample)
                             image.Unavailable = "Source requires sampled or copy-source usage";
                         else
@@ -145,20 +187,15 @@ namespace Kans
                             }
                             image.DepthInColor = Depth(desc.PixelFormat) && !canCopy;
                             output.PixelFormat = image.DepthInColor ? Format::RGBA32Float : desc.PixelFormat;
-                            output.Usage =
-                                TextureUsage::Sampled | TextureUsage::CopySource | TextureUsage::CopyDestination |
-                                (Depth(output.PixelFormat) ? TextureUsage::DepthStencil : TextureUsage::RenderTarget);
+                            output.Usage  = TextureUsage::Sampled | RenderHardware::TextureUsage::CopySource |
+                                            RenderHardware::TextureUsage::CopyDestination |
+                                            (Depth(output.PixelFormat) ? RenderHardware::TextureUsage::DepthStencil :
+                                                                         RenderHardware::TextureUsage::RenderTarget);
                             image.Texture = Acquire(output);
                             if (canCopy)
-                                commands->CopyTexture(graph.Texture(use.Texture), sub, image.Texture);
+                                commands->CopyTexture(source, sub, image.Texture);
                             else
-                                Convert(*commands,
-                                        graph.Texture(use.Texture),
-                                        sub,
-                                        image.Texture,
-                                        false,
-                                        true,
-                                        m_InverseProjection);
+                                Convert(*commands, source, sub, image.Texture, false, true, m_InverseProjection);
                             recorded = true;
                         }
                     }

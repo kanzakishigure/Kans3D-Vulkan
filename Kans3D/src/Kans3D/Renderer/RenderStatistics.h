@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "Kans3D/RHI/RHI.h"
+#include "Resource/AntiAliasing.h"
 
 namespace Kans
 {
@@ -51,6 +52,8 @@ namespace Kans
     struct FrameStatistics
     {
         uint64_t Frame                        = 0;
+        AntiAliasing EffectiveAA                  = AntiAliasing::None;
+        uint32_t     EffectiveSamples             = 1;
         double   WorldSyncExtractMilliseconds = 0, GraphBuildMilliseconds = 0, CompileMilliseconds = 0,
                  ExecuteSubmitMilliseconds = 0, TotalMilliseconds = 0;
         std::vector<PassStatistics>                      Passes; // Includes culled passes.

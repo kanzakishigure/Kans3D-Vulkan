@@ -27,6 +27,10 @@ namespace Kans
         void Prepare(RenderView& view) override;
         void Begin(RenderGraph& graph, RenderFrame& frame) override;
         void Build(RenderGraph& graph, RenderFrame& frame) override;
+
+    private:
+        void BuildMSAA(RenderGraph& graph, RenderFrame& frame);
+        void AddFXAA(RenderGraph& graph, RenderFrame& frame);
     };
     class RenderPipelineRegistry
     {

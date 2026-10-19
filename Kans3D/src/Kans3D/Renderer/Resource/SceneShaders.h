@@ -390,6 +390,7 @@ void main()
                          Settings.z * localPos.x + Settings.y * localPos.z);
     vec3 envColor = texture(environmentMap, direction).rgb;
     if (Settings.x != 1.0) envColor *= Settings.x;
+    if (Settings.w != 0) { FragColor = vec4(envColor,1); return; }
     envColor = envColor / (envColor + vec3(1.0));
     envColor = pow(envColor, vec3(1.0/2.2));
     FragColor = vec4(envColor, 1.0);

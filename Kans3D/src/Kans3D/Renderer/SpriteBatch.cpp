@@ -191,6 +191,7 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
         frame->Write(0, &m_Data->ViewProjection, sizeof(glm::mat4));
         PipelineDesc desc;
         desc.Program         = m_Data->Program;
+        desc.Samples         = m_Data->Target.Colors[0].Target->GetDesc().Samples;
         desc.GroupLayouts    = {m_Data->Layout};
         desc.VertexBindings  = {{0, sizeof(QuadVertex), false}};
         desc.Attributes      = {{0, 0, offsetof(QuadVertex, Position), VertexFormat::Float3},

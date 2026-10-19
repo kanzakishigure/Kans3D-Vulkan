@@ -22,7 +22,13 @@ namespace Kans
         // Include attachment formats as well as count: display and HDR share a shader cache.
         uint32_t key = uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
                        (uint32_t(data.Wireframe) << 2) | (uint32_t(data.WriteStencil) << 3) |
-                       (uint32_t(data.ColorFormats.size()) << 8);
+                       (uint32_t(data.ColorFormats.size()) << 8) |
+                       ((data.Samples == 8 ? 3u :
+                         data.Samples == 4 ? 2u :
+                         data.Samples == 2 ? 1u :
+                                             0u)
+                        << 4) |
+                       (uint32_t(data.Samples > 1 && data.Render.AlphaMode == MaterialAlphaMode::Mask) << 6);
         for (size_t i = 0; i < data.ColorFormats.size(); ++i)
             key |= uint32_t(data.ColorFormats[i]) << (12 + i * 6);
         Handle<Pipeline> shadowPipeline;
@@ -32,6 +38,8 @@ namespace Kans
         if (!pipeline)
         {
             PipelineDesc desc;
+            desc.Samples         = data.Samples;
+            desc.AlphaToCoverage = data.Samples > 1 && data.Render.AlphaMode == MaterialAlphaMode::Mask;
             desc.Program = data.DepthProgram ? data.DepthProgram : extraPass ? extraPass->Program : shader.Program;
             desc.GroupLayouts                 = {shader.EngineLayout, shader.MaterialLayout};
             desc.VertexBindings               = mesh.VertexBindings;

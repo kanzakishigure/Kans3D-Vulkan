@@ -16,16 +16,20 @@ namespace Kans
                                  bool                                                                inverse)
     {
         using namespace RenderHardware;
-        if (!m_Program)
+        const auto samples = source->GetDesc().Samples;
+        auto&      program = m_Programs[samples > 1];
+        if (!program)
         {
-            auto built = CreateInternalShader(device,
-                                              "ACES fitted + sRGB",
-                                              R"(#version 450
+            auto built = CreateInternalShader(
+                device,
+                "ACES fitted + sRGB",
+                R"(#version 450
 void main() {
     vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
     gl_Position = vec4(p * 2 - 1, 0, 1);
 })",
-                                              R"(#version 450
+                [&] {
+                    std::string fragment = R"(#version 450
 layout(set=0,binding=0,std140) uniform Parameters { vec4 Settings; } p;
 layout(set=0,binding=1) uniform sampler2D InputColor;
 layout(location=0) out vec4 Color;
@@ -50,10 +54,21 @@ void main() {
         vec3 mapped = clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0,1);
         Color = vec4(encodeSRGB(mapped),sampleColor.a);
     }
-})");
+})";
+                    if (samples > 1)
+                    {
+                        auto at = fragment.find("uniform sampler2D InputColor;");
+                        fragment.replace(
+                            at, std::string("uniform sampler2D InputColor;").size(), "uniform sampler2DMS InputColor;");
+                        at = fragment.find("ivec2(gl_FragCoord.xy), 0");
+                        fragment.replace(
+                            at, std::string("ivec2(gl_FragCoord.xy), 0").size(), "ivec2(gl_FragCoord.xy), gl_SampleID");
+                    }
+                    return fragment;
+                }());
             if (auto* error = std::get_if<AssetError>(&built))
                 throw std::runtime_error(error->Message);
-            m_Program = std::get<Handle<RenderHardware::Shader>>(std::move(built));
+            program   = std::get<Handle<RenderHardware::Shader>>(std::move(built));
             m_Layout  = device.CreateBindGroupLayout(
                 {0, {{0, BindingType::UniformBuffer}, {1, BindingType::CombinedTextureSampler}}});
             m_Sampler = device.CreateSampler({});
@@ -65,11 +80,12 @@ void main() {
             formats.push_back(target->GetDesc().PixelFormat);
             render.Colors.push_back({target, {}, LoadOp::Load});
         }
-        auto& pipeline = m_Pipelines[formats];
+        auto& pipeline = m_Pipelines[{formats, samples}];
         if (!pipeline)
         {
             PipelineDesc desc;
-            desc.Program         = m_Program;
+            desc.Program         = program;
+            desc.Samples         = samples;
             desc.GroupLayouts    = {m_Layout};
             desc.ColorFormats    = formats;
             desc.Rasterizer.Cull = CullMode::None;
