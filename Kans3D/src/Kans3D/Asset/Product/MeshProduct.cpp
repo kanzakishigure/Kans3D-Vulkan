@@ -121,7 +121,7 @@ namespace Kans
         std::vector<std::byte> bytes;
         bytes.reserve(size);
         Write(bytes, kMagic);
-        Write(bytes, kVersion);
+        Write(bytes, mesh.VertexFormat == MeshVertexFormat::Skinned ? 5u : kVersion);
         Write(bytes, static_cast<uint32_t>(AssetType::StaticMesh));
         Write(bytes, static_cast<uint32_t>(mesh.VertexFormat));
         Write(bytes, uint32_t(mesh.Vertices.size()));
@@ -153,6 +153,26 @@ namespace Kans
             WriteID(bytes, slot.DefaultMaterial);
             WriteID(bytes, slot.AuthoredMaterial);
         }
+        if (mesh.VertexFormat == MeshVertexFormat::Skinned)
+        {
+            WriteID(bytes, mesh.Skeleton);
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                    WriteFloat(bytes, mesh.SkinBindTransform[c][r]);
+            Write(bytes, uint32_t(mesh.JointBounds.size()));
+            for (const auto& v : mesh.Skin)
+            {
+                for (auto j : v.Joints)
+                    Write(bytes, j);
+                WriteFloats(bytes, v.Weights);
+            }
+            for (const auto& b : mesh.JointBounds)
+            {
+                Write(bytes, uint32_t(b.IsValid()));
+                if (b.IsValid())
+                    WriteBounds(bytes, b);
+            }
+        }
         return bytes;
     }
 
@@ -165,7 +185,8 @@ namespace Kans
             Reader reader {bytes, size};
             if (reader.Read<uint32_t>() != kMagic)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product magic"};
-            if (reader.Read<uint32_t>() != kVersion)
+            const auto version = reader.Read<uint32_t>();
+            if (version != kVersion && version != 5)
                 return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Mesh Product version"};
             if (reader.Read<uint32_t>() != static_cast<uint32_t>(AssetType::StaticMesh))
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product type"};
@@ -205,6 +226,36 @@ namespace Kans
                 slot.DefaultMaterial  = reader.ID();
                 slot.AuthoredMaterial = reader.ID();
             }
+            if (version == 5)
+            {
+                if (mesh.VertexFormat != MeshVertexFormat::Skinned)
+                    throw std::runtime_error("Invalid skinned mesh format");
+                mesh.Skeleton = reader.ID();
+                for (int c = 0; c < 4; ++c)
+                    for (int r = 0; r < 4; ++r)
+                        mesh.SkinBindTransform[c][r] = reader.Float();
+                const auto joints = reader.Read<uint32_t>();
+                if (!joints || joints > 65536 || vertices * 32ull + joints * 4ull > reader.Remaining)
+                    throw std::runtime_error("Invalid skin counts");
+                mesh.Skin.resize(vertices);
+                mesh.JointBounds.resize(joints);
+                for (auto& v : mesh.Skin)
+                {
+                    for (auto& j : v.Joints)
+                        j = reader.Read<uint32_t>();
+                    reader.Floats(v.Weights);
+                }
+                for (auto& b : mesh.JointBounds)
+                {
+                    const auto valid = reader.Read<uint32_t>();
+                    if (valid > 1)
+                        throw std::runtime_error("Invalid joint bounds");
+                    if (valid)
+                        b = reader.Box();
+                }
+            }
+            else if (mesh.VertexFormat != MeshVertexFormat::PositionNormalUVColorTangent)
+                throw std::runtime_error("Invalid legacy mesh format");
             if (reader.Remaining)
                 return AssetError {AssetErrorCode::InvalidData, "Trailing Mesh Product bytes"};
             // Source compatibility for the editor's single-part API.

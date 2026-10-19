@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "GpuShader.h"
 #include "Kans3D/RHI/Backend.h"
+#include "Skinning.h"
 namespace Kans
 {
     GpuUniformBuffer::GpuUniformBuffer(size_t bytes, const void* data, std::shared_ptr<RenderHardware::Device> device)
@@ -51,6 +52,7 @@ namespace Kans
                 return Failure("texture fallback '" + name + "' does not name a material sampler");
         GpuShader shader;
         shader.OutputSpace = data.OutputSpace;
+        shader.m_Source    = std::make_shared<const ShaderData>(data);
         shader.m_Device = std::move(device);
         try
         {
@@ -112,6 +114,29 @@ namespace Kans
 
         return shader;
     }
+    bool GpuShader::PrepareSkinning() const
+    {
+        if (SkinnedProgram)
+            return true;
+        if (!m_Source)
+            return false;
+        auto converted = MakeSkinnedShader(*m_Source);
+        if (auto* error = std::get_if<AssetError>(&converted))
+        {
+            CORE_ERROR("Skinning shader: {0}", error->Message);
+            return false;
+        }
+        auto& data     = std::get<ShaderData>(converted);
+        SkinnedProgram = m_Device->CreateShader(data);
+        SkinLayout     = SkinningLayout(*m_Device);
+        for (size_t i = 0; i < Passes.size(); ++i)
+        {
+            ShaderData pass;
+            pass.Code                = data.Passes[i].Code;
+            Passes[i].SkinnedProgram = m_Device->CreateShader(pass);
+        }
+        return true;
+    }
     GpuShader::~GpuShader()                               = default;
     GpuShader::GpuShader(GpuShader&&) noexcept            = default;
     GpuShader& GpuShader::operator=(GpuShader&&) noexcept = default;
@@ -124,6 +149,9 @@ namespace Kans
         GpuShader copy;
         copy.m_Device           = m_Device;
         copy.Program            = Program;
+        copy.m_Source           = m_Source;
+        copy.SkinnedProgram     = SkinnedProgram;
+        copy.SkinLayout         = SkinLayout;
         copy.EngineLayout       = EngineLayout;
         copy.MaterialLayout     = MaterialLayout;
         copy.EngineResources    = EngineResources;

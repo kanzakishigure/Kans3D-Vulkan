@@ -3,6 +3,7 @@
 #include <mutex>
 #include <tuple>
 #include "Kans3D/Asset/Importer/ShaderImporter.h"
+#include "Skinning.h"
 
 namespace Kans
 {
@@ -47,6 +48,27 @@ namespace Kans
         {
             return AssetError {AssetErrorCode::InvalidData, "Internal shader '" + name + "': " + error.what()};
         }
+    }
+
+    RenderHardware::Handle<RenderHardware::Shader> GetSkinnedInternalProgram(RenderHardware::Device& device,
+                                                                             const std::string&      name,
+                                                                             const std::string&      vertex,
+                                                                             const std::string&      fragment)
+    {
+        using Key = std::tuple<const RenderHardware::Device*, std::string, std::string, std::string>;
+        static std::map<Key, std::weak_ptr<RenderHardware::Shader>> cache;
+        const Key                                                   key {&device, name, vertex, fragment};
+        if (auto shader = cache[key].lock())
+            return shader;
+        const auto& source = GetInternalShaderData(name, vertex, fragment);
+        if (auto* error = std::get_if<AssetError>(&source))
+            throw std::runtime_error(error->Message);
+        auto converted = MakeSkinnedShader(std::get<ShaderData>(source));
+        if (auto* error = std::get_if<AssetError>(&converted))
+            throw std::runtime_error(error->Message);
+        auto shader = device.CreateShader(std::get<ShaderData>(converted));
+        cache[key]  = shader;
+        return shader;
     }
 
     glm::mat4 DeviceProjection(const glm::mat4& projection, RenderHardware::CoordinateConventions coordinates)

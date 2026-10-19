@@ -258,7 +258,8 @@ namespace Kans
         YAML::Emitter out;
         out.SetFloatPrecision(9);
         out << YAML::BeginMap << YAML::Key << "magic" << YAML::Value << "KMOD" << YAML::Key << "version" << YAML::Value
-            << 3 << YAML::Key << "nodes" << YAML::Value << YAML::BeginSeq;
+            << (data.Skeleton.IsValid() || !data.AnimationClips.empty() ? 5 : 3) << YAML::Key << "nodes" << YAML::Value
+            << YAML::BeginSeq;
         for (const auto& node : data.Nodes)
         {
             out << YAML::BeginMap << YAML::Key << "name" << YAML::Value << node.Name << YAML::Key << "parent"
@@ -296,7 +297,16 @@ namespace Kans
                 out << (material.IsValid() ? material.ToString() : "");
             out << YAML::EndSeq << YAML::EndMap;
         }
-        out << YAML::EndSeq << YAML::EndMap;
+        out << YAML::EndSeq;
+        if (data.Skeleton.IsValid() || !data.AnimationClips.empty())
+        {
+            out << YAML::Key << "skeleton" << YAML::Value << data.Skeleton.ToString();
+            out << YAML::Key << "clips" << YAML::Value << YAML::BeginSeq;
+            for (auto clip : data.AnimationClips)
+                out << clip.ToString();
+            out << YAML::EndSeq;
+        }
+        out << YAML::EndMap;
         return Finish(out);
     }
 
@@ -304,28 +314,43 @@ namespace Kans
     {
         try
         {
-            auto loaded = ReadRoot(bytes, size, "KMOD", 3);
+            auto loaded = ReadRoot(bytes, size, "KMOD", 5);
             if (const auto* error = std::get_if<AssetError>(&loaded))
                 return *error;
             const auto& root = std::get<YAML::Node>(loaded);
             const auto  version = root["version"].as<uint32_t>();
-            if (version != 2 && version != 3)
+            if (version != 2 && version != 3 && version != 5)
                 return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Model Product version"};
-            if (root.size() != (version == 3 ? 5u : 4u) || !root["section_identities"].IsSequence() ||
-                root["section_identities"].size() > kMaximumItems || !root["nodes"].IsSequence() ||
-                root["nodes"].size() > kMaximumItems)
+            if (root.size() != (version == 5 ? 7u :
+                                version == 3 ? 5u :
+                                               4u) ||
+                !root["section_identities"].IsSequence() || root["section_identities"].size() > kMaximumItems ||
+                !root["nodes"].IsSequence() || root["nodes"].size() > kMaximumItems)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid model Product fields"};
             ModelData data;
+            if (version == 5)
+            {
+                data.Skeleton = AssetID::FromString(root["skeleton"].as<std::string>());
+                if (!data.Skeleton.IsValid() || !root["clips"].IsSequence() || root["clips"].size() > 65536)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid model skeleton/clips"};
+                for (const auto& value : root["clips"])
+                {
+                    auto id = AssetID::FromString(value.as<std::string>());
+                    if (!id.IsValid())
+                        return AssetError {AssetErrorCode::InvalidData, "Invalid model clip"};
+                    data.AnimationClips.push_back(id);
+                }
+            }
             size_t    bindings = 0;
             for (const auto& input : root["nodes"])
             {
-                if (!input.IsMap() || input.size() != (version == 3 ? 5u : 4u) || !input["meshes"].IsSequence() ||
+                if (!input.IsMap() || input.size() != (version >= 3 ? 5u : 4u) || !input["meshes"].IsSequence() ||
                     input["meshes"].size() > kMaximumItems - bindings)
                     return AssetError {AssetErrorCode::InvalidData, "Invalid model node fields"};
                 ModelNodeData node;
                 node.Name   = input["name"].as<std::string>();
                 node.Parent = input["parent"].as<int64_t>();
-                if (version == 3)
+                if (version >= 3)
                     node.Key = input["key"].as<std::string>();
                 if (!ReadFloats(input["transform"], node.LocalTransform))
                     return AssetError {AssetErrorCode::InvalidData, "Invalid model node transform"};
@@ -343,7 +368,7 @@ namespace Kans
                                                   AssetID::FromString(input["mesh"].as<std::string>()),
                                                   input["section"].as<uint32_t>()});
             }
-            if (version == 3)
+            if (version >= 3)
             {
                 const auto entities = root["entities"];
                 if (!entities.IsSequence() || entities.size() > kMaximumItems || entities.size() == 0)

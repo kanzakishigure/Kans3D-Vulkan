@@ -63,6 +63,20 @@ namespace Kans
             if (record.MeshSource)
             {
                 const auto& data = record.MeshSource->GetData();
+                Ref<const SkinningPose> skin;
+                auto                    geometryWorld = world;
+                Bounds                  animatedBounds;
+                if (!data.Skin.empty() && root && root.HasComponent<AnimatorComponent>())
+                {
+                    skin = root.GetComponent<AnimatorComponent>().SkinPose;
+                    if (skin)
+                    {
+                        geometryWorld           = m_Scene->GetWorldTransform(root);
+                        animatedBounds          = SkinnedBounds(data.JointBounds, *skin);
+                        record.Mesh->Transform  = geometryWorld;
+                        record.OutlineTransform = geometryWorld * glm::scale(glm::mat4(1), glm::vec3(1.007f));
+                    }
+                }
                 for (size_t i = 0; i < data.Sections.size(); ++i)
                 {
                     if (component.Section && *component.Section != i)
@@ -72,16 +86,20 @@ namespace Kans
                     const auto  material = slot < component.Materials.size() && component.Materials[slot].IsValid() ?
                                                component.Materials[slot] :
                                                data.MaterialSlots.at(slot).DefaultMaterial;
+                    const auto  bindBounds =
+                        !skin ? section.LocalBounds : section.LocalBounds.Transformed(data.SkinBindTransform);
+                    const auto localBounds = animatedBounds.IsValid() ? animatedBounds : bindBounds;
                     record.Draws.push_back({record.Key,
                                             material,
                                             uint32_t(i),
-                                            world,
-                                            section.LocalBounds,
-                                            section.LocalBounds.Transformed(world),
+                                            geometryWorld,
+                                            localBounds,
+                                            localBounds.Transformed(geometryWorld),
                                             id,
                                             record.Sort.Root,
                                             component.CastShadows,
-                                            component.ReceiveShadows});
+                                            component.ReceiveShadows,
+                                            skin});
                 }
             }
         }
@@ -333,7 +351,8 @@ namespace Kans
                                     proxy.WorldBounds,
                                     true,
                                     proxy.CastShadows,
-                                    proxy.ReceiveShadows});
+                                    proxy.ReceiveShadows,
+                                    proxy.SkinPose});
         const auto& state = settings.Piplinestate;
         for (const auto& [order, handle] : m_Order)
         {
@@ -356,29 +375,36 @@ namespace Kans
                                         proxy.WorldBounds,
                                         true,
                                         proxy.CastShadows,
-                                        proxy.ReceiveShadows});
+                                        proxy.ReceiveShadows,
+                                        proxy.SkinPose});
             const auto& mesh = submission.Mesh;
             if (state.EnableStencil)
-                output.Geometry.push_back({record.OutlineTransform,
-                                           "StencilShader",
-                                           ModelGeometryMode::StencilOutline,
-                                           record.Key,
-                                           mesh.Section,
-                                           submission.EntityID});
+                output.Geometry.push_back(
+                    {record.OutlineTransform,
+                     "StencilShader",
+                     ModelGeometryMode::StencilOutline,
+                     record.Key,
+                     mesh.Section,
+                     submission.EntityID,
+                     record.Draws.empty() ? Ref<const SkinningPose>() : record.Draws.front().SkinPose});
             if (state.EnableOutline)
-                output.Geometry.push_back({submission.Transform,
-                                           "OutLineShader",
-                                           ModelGeometryMode::BackFaces,
-                                           record.Key,
-                                           mesh.Section,
-                                           submission.EntityID});
+                output.Geometry.push_back(
+                    {submission.Transform,
+                     "OutLineShader",
+                     ModelGeometryMode::BackFaces,
+                     record.Key,
+                     mesh.Section,
+                     submission.EntityID,
+                     record.Draws.empty() ? Ref<const SkinningPose>() : record.Draws.front().SkinPose});
             if (state.EnableDebugNormal)
-                output.Geometry.push_back({submission.Transform,
-                                           "DebugNormalShader",
-                                           ModelGeometryMode::Default,
-                                           record.Key,
-                                           mesh.Section,
-                                           submission.EntityID});
+                output.Geometry.push_back(
+                    {submission.Transform,
+                     "DebugNormalShader",
+                     ModelGeometryMode::Default,
+                     record.Key,
+                     mesh.Section,
+                     submission.EntityID,
+                     record.Draws.empty() ? Ref<const SkinningPose>() : record.Draws.front().SkinPose});
         }
         // Phase 3 groups shell kinds across parts sharing the same submission order.
         std::unordered_map<UUID, uint64_t> submissions;

@@ -21,7 +21,17 @@ namespace Kans
     enum class MeshVertexFormat : uint32_t
     {
         PositionNormalUVColorTangent = 1,
+        Skinned                      = 2,
     };
+
+    struct MeshSkinVertex
+    {
+        std::array<uint32_t, 4> Joints {};
+        std::array<float, 4>    Weights {};
+    };
+    // Inserts strongest influences in descending order; ties preserve source order.
+    void InsertSkinInfluence(MeshSkinVertex&, uint32_t joint, float weight);
+    bool NormalizeSkinWeights(MeshSkinVertex&);
 
     struct MeshSection
     {
@@ -50,6 +60,12 @@ namespace Kans
         std::vector<MeshSection>      Sections;
         std::vector<MeshMaterialSlot> MaterialSlots;
         Bounds                        LocalBounds;
+        AssetID                       Skeleton;
+        std::vector<MeshSkinVertex>   Skin;
+        // Each box contains model-space bind vertices with a nonzero influence from that joint.
+        std::vector<Bounds> JointBounds;
+        // Source mesh -> skeleton model space. Applied once during GPU upload; base vertex bytes stay unchanged.
+        glm::mat4 SkinBindTransform {1};
     };
     // Explicit construction helper for procedural single-material meshes. Importers
     // build their sections and bounds in source mesh space instead.

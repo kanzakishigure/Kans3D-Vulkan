@@ -94,20 +94,53 @@ void main()
         void DrawMeshes(Device&                      device,
                         CommandList&                 commands,
                         const Handle<Pipeline>&      pipeline,
+                        Handle<Pipeline>&            skinnedPipeline,
                         const std::vector<MeshDraw>& draws,
                         const glm::mat4&             projection)
         {
-            commands.BindPipeline(pipeline);
             for (const auto& draw : draws)
             {
                 if (!draw.Mesh || !draw.Mesh->Vertices || !draw.Mesh->Indices ||
                     draw.Section >= draw.Mesh->Sections.size())
                     continue;
+                auto active = pipeline;
+                if (draw.Mesh->Skin && draw.Palette)
+                {
+                    auto& variant = skinnedPipeline;
+                    if (!variant)
+                    {
+                        auto       desc = pipeline->GetDesc();
+                        const bool ids  = desc.ColorFormats[0] == Format::R32Uint;
+                        desc.Program    = GetSkinnedInternalProgram(device,
+                                                                    ids ? "SkinnedPick" : "SkinnedMask",
+                                                                    PositionVertex,
+                                                                    ids ? IdFragment : MaskFragment);
+                        desc.GroupLayouts.push_back(device.CreateBindGroupLayout({1, {}}));
+                        desc.GroupLayouts.push_back(SkinningLayout(device));
+                        desc.VertexBindings.push_back({1, 32, false});
+                        desc.Attributes.push_back({5, 1, 0, VertexFormat::Uint4});
+                        desc.Attributes.push_back({6, 1, 16, VertexFormat::Float4});
+                        variant = device.CreatePipeline(desc);
+                    }
+                    active = variant;
+                }
+                commands.BindPipeline(active);
                 const DrawData data {projection * draw.Transform, glm::uvec4(draw.ID, 0, 0, 0)};
                 auto           buffer = device.CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
                 buffer->Write(0, &data, sizeof(data));
                 commands.BindGroup(device.CreateBindGroup({pipeline->GetDesc().GroupLayouts[0], {{0, buffer}}}));
-                commands.BindVertexBuffers({{0, draw.Mesh->Vertices, 0}});
+                if (draw.Mesh->Skin && draw.Palette)
+                {
+                    commands.BindGroup(device.CreateBindGroup({active->GetDesc().GroupLayouts[1], {}}));
+                    BindSkinning(device,
+                                 commands,
+                                 active->GetDesc().GroupLayouts[2],
+                                 draw.Palette ? draw.Palette : draw.Mesh->BindPalette);
+                    commands.BindVertexBuffers({{0, draw.Mesh->Vertices, 0}, {1, draw.Mesh->Skin, 0}});
+                }
+                else
+                    commands.BindVertexBuffers(
+                        {{0, draw.Mesh->BindVertices ? draw.Mesh->BindVertices : draw.Mesh->Vertices, 0}});
                 commands.BindIndexBuffer(draw.Mesh->Indices, IndexType::Uint32);
                 const auto& section = draw.Mesh->Sections[draw.Section];
                 commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);
@@ -179,7 +212,8 @@ void main()
         commands->BeginRendering(target);
         commands->SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
         commands->SetScissor({int32_t(pixel.x), int32_t(row), 1, 1});
-        DrawMeshes(*m_Device, *commands, m_Pipeline, draws, DeviceProjection(projection, coordinates));
+        DrawMeshes(
+            *m_Device, *commands, m_Pipeline, m_SkinnedPipeline, draws, DeviceProjection(projection, coordinates));
         commands->EndRendering();
         const size_t bytes = size_t(viewport.x) * viewport.y * 4;
         auto readback      = m_Device->CreateBuffer({bytes * 2, BufferUsage::CopyDestination, MemoryUsage::Readback});
@@ -271,8 +305,12 @@ void main()
         commands.BeginRendering(mask);
         commands.SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
         commands.SetScissor({0, 0, viewport.x, viewport.y});
-        DrawMeshes(
-            *m_Device, commands, m_Mask, draws, DeviceProjection(projection, m_Device->GetCoordinateConventions()));
+        DrawMeshes(*m_Device,
+                   commands,
+                   m_Mask,
+                   m_SkinnedPipeline,
+                   draws,
+                   DeviceProjection(projection, m_Device->GetCoordinateConventions()));
         commands.EndRendering();
     }
 

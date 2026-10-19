@@ -13,6 +13,9 @@
 #include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <yaml-cpp/yaml.h>
 
 namespace Kans
 {
@@ -201,13 +204,11 @@ namespace Kans
         if (!context.MissingMaterials.empty())
             return AssetError {AssetErrorCode::NotFound,
                                "Cannot read model material input: " + context.MissingMaterials.front().u8string()};
-        if (!scene || !scene->mRootNode || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mNumMeshes)
+        if (!scene || !scene->mRootNode || (!scene->mNumMeshes && !scene->mNumAnimations))
             return AssetError {AssetErrorCode::InvalidData, "Model parse failed: " + parseError};
         // Unsupported content is skipped so the static geometry still imports.
         ImportedModelData result;
         result.SourceFiles = context.Files;
-        if (scene->HasAnimations())
-            result.Warnings.push_back(std::to_string(scene->mNumAnimations) + " animation(s) were not imported");
         if (scene->HasTextures())
             result.Warnings.push_back(std::to_string(scene->mNumTextures) + " embedded texture(s) were not imported");
         auto extension = path.extension().u8string();
@@ -300,8 +301,6 @@ namespace Kans
         {
             const auto* mesh = scene->mMeshes[i];
             const std::string name = mesh->mName.C_Str();
-            if (mesh->HasBones())
-                result.Warnings.push_back("mesh '" + name + "' imported in its bind pose without skinning");
             if (mesh->GetNumUVChannels() > 1 || mesh->GetNumColorChannels() > 1)
                 result.Warnings.push_back("mesh '" + name + "' keeps only its first UV and color channel");
             if (mesh->mNumAnimMeshes > 0)
@@ -382,6 +381,241 @@ namespace Kans
             for (uint32_t i = entry.first->mNumChildren; i > 0; --i)
                 pending.emplace_back(entry.first->mChildren[i - 1], index);
         }
+        bool animated = scene->HasAnimations();
+        for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
+            animated |= scene->mMeshes[i]->HasBones();
+        if (animated)
+        {
+            result.Skeleton.emplace();
+            auto&                         skeleton = *result.Skeleton;
+            std::vector<glm::mat4>        world(result.Nodes.size());
+            std::map<std::string, size_t> paths;
+            for (size_t i = 0; i < result.Nodes.size(); ++i)
+            {
+                const auto& node   = result.Nodes[i];
+                const auto  matrix = glm::transpose(glm::make_mat4(node.LocalTransform.data()));
+                world[i]           = node.Parent < 0 ? matrix : world[node.Parent] * matrix;
+                SkeletonJoint joint;
+                joint.Name            = node.Name.empty() ? "unnamed" : node.Name;
+                joint.Path            = (node.Parent < 0 ? std::string() : skeleton.Joints[node.Parent].Path) + "/" +
+                                        std::to_string(joint.Name.size()) + ":" + joint.Name;
+                const auto occurrence = paths[joint.Path]++;
+                if (occurrence)
+                    joint.Path += "#" + std::to_string(occurrence);
+                joint.Parent = int32_t(node.Parent);
+                try
+                {
+                    joint.RestLocal = joint.BindLocal = JointTransform::FromMatrix(matrix);
+                }
+                catch (const std::exception& e)
+                {
+                    return AssetError {AssetErrorCode::InvalidData, e.what()};
+                }
+                joint.InverseBind = glm::inverse(world[i]);
+                skeleton.Joints.push_back(std::move(joint));
+                for (auto mesh : node.Meshes)
+                    if (result.Meshes[mesh].Node < 0)
+                    {
+                        result.Meshes[mesh].Node        = int32_t(i);
+                        result.Meshes[mesh].BindToModel = world[i];
+                    }
+            }
+            std::vector<bool> bound(skeleton.Joints.size());
+            auto              matrix = [](const aiMatrix4x4& m) {
+                const float values[] = {
+                    m.a1, m.a2, m.a3, m.a4, m.b1, m.b2, m.b3, m.b4, m.c1, m.c2, m.c3, m.c4, m.d1, m.d2, m.d3, m.d4};
+                return glm::transpose(glm::make_mat4(values));
+            };
+            for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
+            {
+                const auto* mesh = scene->mMeshes[i];
+                auto&       data = result.Meshes[i];
+                if (!mesh->HasBones())
+                    continue;
+                if (data.Node < 0)
+                    return AssetError {AssetErrorCode::InvalidData, "Skinned mesh has no source node"};
+                const auto meshWorld = world[data.Node];
+                data.Skin.resize(data.Vertices.size());
+                std::vector<uint32_t> counts(data.Vertices.size());
+                for (uint32_t b = 0; b < mesh->mNumBones; ++b)
+                {
+                    const auto* bone = mesh->mBones[b];
+                    const auto  j    = skeleton.FindJoint(bone->mName.C_Str());
+                    if (j < 0)
+                        return AssetError {AssetErrorCode::InvalidData,
+                                           "Missing or ambiguous skin bone: " + std::string(bone->mName.C_Str())};
+                    const auto inverseBind = matrix(bone->mOffsetMatrix) * glm::inverse(meshWorld);
+                    if (!bound[j])
+                    {
+                        skeleton.Joints[j].InverseBind = inverseBind;
+                        bound[j]                       = true;
+                    }
+                    else
+                    {
+                        float difference = 0;
+                        for (int c = 0; c < 4; ++c)
+                            for (int r = 0; r < 4; ++r)
+                                difference = std::max(
+                                    difference, std::abs(inverseBind[c][r] - skeleton.Joints[j].InverseBind[c][r]));
+                        if (difference > 0.01f)
+                            return AssetError {AssetErrorCode::InvalidData,
+                                               "Meshes have incompatible bind poses for joint: " +
+                                                   skeleton.Joints[j].Name};
+                    }
+                    for (uint32_t w = 0; w < bone->mNumWeights; ++w)
+                    {
+                        const auto& influence = bone->mWeights[w];
+                        if (influence.mVertexId >= data.Skin.size() || !std::isfinite(influence.mWeight) ||
+                            influence.mWeight < 0)
+                            return AssetError {AssetErrorCode::InvalidData, "Invalid source skin influence"};
+                        if (influence.mWeight > 0)
+                            ++counts[influence.mVertexId];
+                        InsertSkinInfluence(data.Skin[influence.mVertexId], uint32_t(j), influence.mWeight);
+                    }
+                }
+                size_t truncated = 0, unweighted = 0;
+                for (size_t v = 0; v < data.Skin.size(); ++v)
+                {
+                    truncated += counts[v] > 4;
+                    if (!NormalizeSkinWeights(data.Skin[v]))
+                    {
+                        ++unweighted;
+                        data.Skin[v].Joints[0]  = uint32_t(data.Node);
+                        data.Skin[v].Weights[0] = 1;
+                    }
+                }
+                if (truncated)
+                    result.Warnings.push_back("mesh '" + data.Name + "': " + std::to_string(truncated) +
+                                              " vertices exceeded 4 influences; strongest 4 retained and renormalized");
+                if (unweighted)
+                    result.Warnings.push_back("mesh '" + data.Name + "': " + std::to_string(unweighted) +
+                                              " unweighted vertices bound to mesh node");
+            }
+            // Derive bind locals from the canonical inverse binds, independently of source rest locals.
+            for (size_t j = 0; j < skeleton.Joints.size(); ++j)
+            {
+                const auto parent = skeleton.Joints[j].Parent;
+                const auto bind   = glm::inverse(skeleton.Joints[j].InverseBind);
+                try
+                {
+                    skeleton.Joints[j].BindLocal =
+                        JointTransform::FromMatrix(parent < 0 ? bind : skeleton.Joints[parent].InverseBind * bind);
+                }
+                catch (const std::exception& e)
+                {
+                    return AssetError {AssetErrorCode::InvalidData, e.what()};
+                }
+            }
+            for (uint32_t a = 0; a < scene->mNumAnimations; ++a)
+            {
+                const auto&       animation = *scene->mAnimations[a];
+                AnimationClipData clip;
+                clip.Name       = animation.mName.length ? animation.mName.C_Str() : "Animation" + std::to_string(a);
+                clip.SourceName = path.filename().u8string();
+                clip.FrameRate  = animation.mTicksPerSecond > 0 ? animation.mTicksPerSecond : 30;
+                clip.Duration   = animation.mDuration / clip.FrameRate;
+                for (uint32_t t = 0; t < animation.mNumChannels; ++t)
+                {
+                    const auto&         channel = *animation.mChannels[t];
+                    JointAnimationTrack track;
+                    track.Joint = channel.mNodeName.C_Str();
+                    for (uint32_t k = 0; k < channel.mNumPositionKeys; ++k)
+                    {
+                        const auto& v = channel.mPositionKeys[k];
+                        track.Translation.Keys.push_back(
+                            {v.mTime / clip.FrameRate, {v.mValue.x, v.mValue.y, v.mValue.z}});
+                    }
+                    for (uint32_t k = 0; k < channel.mNumRotationKeys; ++k)
+                    {
+                        const auto& v = channel.mRotationKeys[k];
+                        track.Rotation.Keys.push_back(
+                            {v.mTime / clip.FrameRate,
+                             glm::normalize(glm::quat(v.mValue.w, v.mValue.x, v.mValue.y, v.mValue.z))});
+                    }
+                    for (uint32_t k = 0; k < channel.mNumScalingKeys; ++k)
+                    {
+                        const auto& v = channel.mScalingKeys[k];
+                        track.Scale.Keys.push_back({v.mTime / clip.FrameRate, {v.mValue.x, v.mValue.y, v.mValue.z}});
+                    }
+                    clip.Tracks.push_back(std::move(track));
+                }
+                auto valid = ValidateAnimationClip(clip);
+                if (auto* e = std::get_if<AssetError>(&valid))
+                    return *e;
+                result.Clips.push_back(std::move(clip));
+            }
+        }
+        // Assimp's node-key representation drops glTF sampler interpolation. Restore the declared contract.
+        if (gltfSource && !result.Clips.empty())
+        {
+            try
+            {
+                std::ifstream input(path, std::ios::binary);
+                std::string   json;
+                if (extension == ".gltf")
+                    json.assign(std::istreambuf_iterator<char>(input), {});
+                else
+                {
+                    uint32_t header[5] {};
+                    input.read(reinterpret_cast<char*>(header), sizeof(header));
+                    if (!input || header[0] != 0x46546c67 || header[4] != 0x4e4f534a || header[3] > 64 * 1024 * 1024)
+                        return AssetError {AssetErrorCode::InvalidData, "Invalid glTF JSON chunk"};
+                    json.resize(header[3]);
+                    input.read(json.data(), json.size());
+                }
+                const auto document   = YAML::Load(json);
+                const auto animations = document["animations"];
+                for (size_t a = 0; a < result.Clips.size() && a < animations.size(); ++a)
+                {
+                    auto&      clip      = result.Clips[a];
+                    const auto animation = animations[a];
+                    for (const auto& channel : animation["channels"])
+                    {
+                        const auto node = channel["target"]["node"].as<size_t>();
+                        const auto name =
+                            document["nodes"][node]["name"].as<std::string>("nodes[" + std::to_string(node) + "]");
+                        const auto sampler       = animation["samplers"][channel["sampler"].as<size_t>()];
+                        const auto interpolation = sampler["interpolation"].as<std::string>("LINEAR");
+                        const auto property      = channel["target"]["path"].as<std::string>();
+                        if (property == "weights")
+                            continue;
+                        if (interpolation != "LINEAR" && interpolation != "STEP")
+                            return AssetError {AssetErrorCode::InvalidData,
+                                               "Unsupported glTF animation interpolation: " + interpolation};
+                        for (auto& track : clip.Tracks)
+                            if (track.Joint == name)
+                            {
+                                const auto mode =
+                                    interpolation == "STEP" ? TrackInterpolation::Step : TrackInterpolation::Linear;
+                                if (property == "translation")
+                                    track.Translation.Interpolation = mode;
+                                else if (property == "scale")
+                                    track.Scale.Interpolation = mode;
+                                else if (property == "rotation")
+                                    track.Rotation.Interpolation =
+                                        mode == TrackInterpolation::Step ? mode : TrackInterpolation::Spherical;
+                            }
+                    }
+                    double interval = std::numeric_limits<double>::max();
+                    auto   rate     = [&](const auto& track) {
+                        for (size_t k = 1; k < track.Keys.size(); ++k)
+                            interval = std::min(interval, track.Keys[k].Time - track.Keys[k - 1].Time);
+                    };
+                    for (const auto& track : clip.Tracks)
+                    {
+                        rate(track.Translation);
+                        rate(track.Rotation);
+                        rate(track.Scale);
+                    }
+                    clip.FrameRate = interval > 0 && interval < std::numeric_limits<double>::max() ? 1 / interval : 30;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                return AssetError {AssetErrorCode::InvalidData,
+                                   "Cannot read glTF animation metadata: " + std::string(e.what())};
+            }
+        }
         // The engine works in meters. FBX records its unit as centimeters per unit.
         double unit = 0;
         if (scene->mMetaData)
@@ -402,6 +636,32 @@ namespace Kans
             if (node.Parent < 0)
                 for (size_t i = 0; i < 12; ++i)
                     node.LocalTransform[i] *= scale;
+        if (model.Skeleton)
+        {
+            const auto inverseScale = glm::scale(glm::mat4(1), glm::vec3(1 / scale));
+            for (auto& j : model.Skeleton->Joints)
+            {
+                j.InverseBind *= inverseScale;
+                if (j.Parent < 0)
+                {
+                    j.RestLocal.Translation *= scale;
+                    j.RestLocal.Scale *= scale;
+                    j.BindLocal.Translation *= scale;
+                    j.BindLocal.Scale *= scale;
+                    for (auto& clip : model.Clips)
+                        for (auto& track : clip.Tracks)
+                            if (track.Joint == j.Name)
+                            {
+                                for (auto& k : track.Translation.Keys)
+                                    k.Value *= scale;
+                                for (auto& k : track.Scale.Keys)
+                                    k.Value *= scale;
+                            }
+                }
+            }
+            for (auto& mesh : model.Meshes)
+                mesh.BindToModel = glm::scale(glm::mat4(1), glm::vec3(scale)) * mesh.BindToModel;
+        }
     }
 
     std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path)

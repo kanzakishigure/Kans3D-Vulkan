@@ -16,6 +16,7 @@ namespace Kans
         glm::mat4      Transform {1.0f};
         uint32_t       ID = 0; // Non-zero.
         uint32_t       Section = 0;
+        RenderHardware::Handle<RenderHardware::Buffer> Palette;
     };
 
     struct PickHit
@@ -48,7 +49,7 @@ namespace Kans
     private:
         void       Resize(glm::uvec2 size);
         std::shared_ptr<RenderHardware::Device>          m_Device;
-        RenderHardware::Handle<RenderHardware::Pipeline> m_Pipeline;
+        RenderHardware::Handle<RenderHardware::Pipeline> m_Pipeline, m_SkinnedPipeline;
         RenderHardware::Handle<RenderHardware::Texture>  m_Color, m_Depth;
         glm::uvec2 m_Size {0, 0};
     };
@@ -86,7 +87,7 @@ namespace Kans
     private:
         void       Resize(glm::uvec2 size);
         std::shared_ptr<RenderHardware::Device>                 m_Device;
-        RenderHardware::Handle<RenderHardware::Pipeline>        m_Mask, m_Composite;
+        RenderHardware::Handle<RenderHardware::Pipeline>        m_Mask, m_Composite, m_SkinnedPipeline;
         RenderHardware::Handle<RenderHardware::BindGroupLayout> m_Layout;
         RenderHardware::Handle<RenderHardware::Sampler>         m_Sampler;
         RenderHardware::Handle<RenderHardware::Texture>         m_Texture;

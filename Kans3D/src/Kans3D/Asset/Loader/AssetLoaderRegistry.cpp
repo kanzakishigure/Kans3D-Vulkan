@@ -42,6 +42,9 @@ namespace Kans
         registry.m_Decoders.emplace(ModelAsset::GetStaticType(), Decode<ModelAsset>);
         registry.m_Decoders.emplace(TextureAsset::GetStaticType(), Decode<TextureAsset>);
         registry.m_Decoders.emplace(ShaderDataAsset::GetStaticType(), Decode<ShaderDataAsset>);
+        registry.m_Decoders.emplace(SkeletonAsset::GetStaticType(), Decode<SkeletonAsset>);
+        registry.m_Decoders.emplace(AnimationClipAsset::GetStaticType(), Decode<AnimationClipAsset>);
+        registry.m_Decoders.emplace(AnimationControllerAsset::GetStaticType(), Decode<AnimationControllerAsset>);
         return registry;
     }
 } // namespace Kans

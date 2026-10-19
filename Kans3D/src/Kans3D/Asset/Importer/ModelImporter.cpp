@@ -1,5 +1,7 @@
 #include "kspch.h"
 #include "ModelImporter.h"
+#include <glm/gtc/type_ptr.hpp>
+#include "Kans3D/Animation/AnimationProduct.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
@@ -74,6 +76,7 @@ namespace Kans
         // Settings: "scale" (positive number, default 1) multiplies the model size.
         struct ModelSettings
         {
+            AnimationNameMapping           Mapping;
             float                          Scale = 1;
             std::map<std::string, AssetID> Materials;
         };
@@ -89,6 +92,16 @@ namespace Kans
                     if (!id.IsValid() || id.ToString() != value)
                         return AssetError {AssetErrorCode::InvalidArgument, "Invalid material remap AssetID: " + value};
                     parsed.Materials.emplace(key.substr(9), id);
+                    continue;
+                }
+                if (key == "animation.strip_prefix")
+                {
+                    parsed.Mapping.StripPrefix = value;
+                    continue;
+                }
+                if (key.compare(0, 14, "animation.map.") == 0)
+                {
+                    parsed.Mapping.Names[key.substr(14)] = value;
                     continue;
                 }
                 if (key != "scale")
@@ -258,11 +271,19 @@ namespace Kans
         keys.insert(keys.end(), materialKeys.begin(), materialKeys.end());
         keys.insert(keys.end(), meshKeys.begin(), meshKeys.end());
         keys.insert(keys.end(), groupKeys.begin(), groupKeys.end());
+        std::vector<std::string> clipKeys;
+        for (const auto& clip : source.Clips)
+            clipKeys.push_back(ObjectKey("clip", clip.Name));
+        MakeUnique(clipKeys, std::vector<std::string>(clipKeys.size()));
+        keys.insert(keys.end(), clipKeys.begin(), clipKeys.end());
+        if (source.Skeleton)
+            keys.push_back("skeleton:root");
         auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, keys);
         if (const auto* error = std::get_if<AssetError>(&allocated))
             return *error;
         ImportResult result;
         result.LocalIDs = std::get<LocalIDMap>(std::move(allocated));
+        result.Warnings = source.Warnings;
         std::vector<StagedProduct> staged;
         const auto idFor = [&](const std::string& key) { return AssetID(context.SourceID, result.LocalIDs.at(key)); };
 
@@ -300,12 +321,55 @@ namespace Kans
 
         std::set<std::string> warnedRemaps;
         ModelData             model;
+        if (source.Skeleton)
+        {
+            model.Skeleton = idFor("skeleton:root");
+            // Node identities use the same disambiguation as the prefab, including duplicate names.
+            std::vector<std::string> jointKeys;
+            for (const auto& node : source.Nodes)
+                jointKeys.push_back(ObjectKey("node", node.Name));
+            MakeUnique(jointKeys, nodePaths);
+            for (size_t i = 0; i < jointKeys.size(); ++i)
+                source.Skeleton->Joints[i].NodeKey = jointKeys[i];
+            auto encoded = EncodeSkeletonProduct(*source.Skeleton);
+            if (auto* error = std::get_if<AssetError>(&encoded))
+                return *error;
+            staged.push_back({{model.Skeleton.GetLocalID(),
+                               AssetType::Skeleton,
+                               std::to_string(model.Skeleton.GetLocalID()) + ".kskeleton",
+                               {}},
+                              std::get<std::vector<std::byte>>(std::move(encoded))});
+        }
+        for (size_t i = 0; i < source.Clips.size(); ++i)
+        {
+            auto& clip = source.Clips[i];
+            for (auto& track : clip.Tracks)
+                track.Joint = std::get<ModelSettings>(scale).Mapping.Map(track.Joint);
+            const auto id = idFor(clipKeys[i]);
+            model.AnimationClips.push_back(id);
+            auto encoded = EncodeAnimationClipProduct(clip);
+            if (auto* error = std::get_if<AssetError>(&encoded))
+                return *error;
+            staged.push_back(
+                {{id.GetLocalID(), AssetType::AnimationClip, std::to_string(id.GetLocalID()) + ".kanim", {}},
+                 std::get<std::vector<std::byte>>(std::move(encoded))});
+        }
         for (size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex)
         {
             MeshData          data;
             const auto        meshID = idFor(groupKeys[groupIndex]);
             ProductDescriptor descriptor {meshID.GetLocalID(), AssetType::StaticMesh, {}, {}};
             descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmesh";
+            bool skinned          = false;
+            for (auto index : groups[groupIndex])
+                skinned |= !source.Meshes[index].Skin.empty();
+            if (skinned)
+            {
+                data.VertexFormat = MeshVertexFormat::Skinned;
+                data.Skeleton     = model.Skeleton;
+                data.JointBounds.resize(source.Skeleton->Joints.size());
+                AddUnique(descriptor.Dependencies, model.Skeleton);
+            }
             for (uint32_t inputIndex : groups[groupIndex])
             {
                 const auto& input    = source.Meshes.at(inputIndex);
@@ -337,10 +401,42 @@ namespace Kans
                 const uint64_t baseVertex = data.Vertices.size(), firstIndex = data.Indices.size();
                 if (baseVertex + input.Vertices.size() > UINT32_MAX || firstIndex + input.Indices.size() > UINT32_MAX)
                     return AssetError {AssetErrorCode::InvalidData, "Merged model mesh exceeds index limits"};
+                const auto* vertices = &input.Vertices;
+                if (skinned)
+                {
+                    if (data.Vertices.empty())
+                        data.SkinBindTransform = input.BindToModel;
+                    else if (data.SkinBindTransform != input.BindToModel)
+                        return AssetError {AssetErrorCode::InvalidData,
+                                           "Merged skin sections disagree about mesh bind space"};
+                }
                 Bounds bounds;
-                for (const auto& vertex : input.Vertices)
+                for (const auto& vertex : *vertices)
                     bounds.Expand(glm::vec3(vertex.Position[0], vertex.Position[1], vertex.Position[2]));
-                data.Vertices.insert(data.Vertices.end(), input.Vertices.begin(), input.Vertices.end());
+                data.Vertices.insert(data.Vertices.end(), vertices->begin(), vertices->end());
+                if (skinned)
+                {
+                    if (input.Skin.empty())
+                    {
+                        if (input.Node < 0)
+                            return AssetError {AssetErrorCode::InvalidData, "Rigid skin section has no source node"};
+                        MeshSkinVertex rigid;
+                        rigid.Joints[0]  = uint32_t(input.Node);
+                        rigid.Weights[0] = 1;
+                        data.Skin.insert(data.Skin.end(), vertices->size(), rigid);
+                    }
+                    else
+                        data.Skin.insert(data.Skin.end(), input.Skin.begin(), input.Skin.end());
+                    for (size_t v = 0; v < vertices->size(); ++v)
+                    {
+                        const auto& p    = (*vertices)[v].Position;
+                        const auto& skin = data.Skin[baseVertex + v];
+                        for (size_t k = 0; k < 4; ++k)
+                            if (skin.Weights[k] > 0)
+                                data.JointBounds[skin.Joints[k]].Expand(
+                                    glm::vec3(input.BindToModel * glm::vec4(p[0], p[1], p[2], 1)));
+                    }
+                }
                 for (uint32_t index : input.Indices)
                     data.Indices.push_back(static_cast<uint32_t>(baseVertex + index));
                 model.SectionIdentities.push_back({meshKeys[inputIndex],
@@ -365,6 +461,10 @@ namespace Kans
 
         ProductDescriptor descriptor {result.LocalIDs.at("model:root"), AssetType::Model, {}, {}};
         descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmodel";
+        if (model.Skeleton.IsValid())
+            AddUnique(descriptor.Dependencies, model.Skeleton);
+        for (auto clip : model.AnimationClips)
+            AddUnique(descriptor.Dependencies, clip);
         for (const auto& key : groupKeys)
             AddUnique(descriptor.Dependencies, idFor(key));
         std::vector<std::string> nodeKeys;

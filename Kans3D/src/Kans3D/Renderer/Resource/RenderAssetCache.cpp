@@ -28,6 +28,27 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, e.what()};
             }
         }
+        std::vector<MeshVertexData> canonical;
+        const auto*                 vertices = &data.Vertices;
+        if (!data.Skin.empty())
+        {
+            canonical               = data.Vertices;
+            const auto transform    = data.SkinBindTransform;
+            const auto normalMatrix = glm::transpose(glm::inverse(glm::mat3(transform)));
+            for (auto& vertex : canonical)
+            {
+                const auto p = transform * glm::vec4(vertex.Position[0], vertex.Position[1], vertex.Position[2], 1);
+                const auto n =
+                    glm::normalize(normalMatrix * glm::vec3(vertex.Normal[0], vertex.Normal[1], vertex.Normal[2]));
+                const auto t    = glm::normalize(glm::mat3(transform) *
+                                                 glm::vec3(vertex.Tangent[0], vertex.Tangent[1], vertex.Tangent[2]));
+                vertex.Position = {p.x, p.y, p.z};
+                vertex.Normal   = {n.x, n.y, n.z};
+                vertex.Tangent  = {
+                    t.x, t.y, t.z, vertex.Tangent[3] * (glm::determinant(glm::mat3(transform)) < 0 ? -1.f : 1.f)};
+            }
+            vertices = &canonical;
+        }
         static_assert(sizeof(MeshVertexData) == 64 && std::is_standard_layout_v<MeshVertexData>);
         GpuMesh mesh;
         mesh.Device = device;
@@ -37,7 +58,7 @@ namespace Kans
         mesh.Vertices      = device->CreateBuffer({data.Vertices.size() * sizeof(MeshVertexData),
                                                    RenderHardware::BufferUsage::Vertex,
                                                    RenderHardware::MemoryUsage::Upload});
-        mesh.Vertices->Write(0, data.Vertices.data(), data.Vertices.size() * sizeof(MeshVertexData));
+        mesh.Vertices->Write(0, vertices->data(), vertices->size() * sizeof(MeshVertexData));
         mesh.Indices = device->CreateBuffer({data.Indices.size() * sizeof(uint32_t),
                                              RenderHardware::BufferUsage::Index,
                                              RenderHardware::MemoryUsage::Upload});
@@ -48,7 +69,7 @@ namespace Kans
         for (uint32_t index : data.Indices)
             for (float end : {0.0f, 1.0f})
             {
-                const auto& v = data.Vertices[index];
+                const auto& v = (*vertices)[index];
                 for (auto value : v.Position)
                     lines[cursor++] = value;
                 for (auto value : v.Normal)
@@ -58,10 +79,89 @@ namespace Kans
         mesh.NormalLines = device->CreateBuffer(
             {lines.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
         mesh.NormalLines->Write(0, lines.data(), lines.size() * sizeof(float));
+        if (!data.Skin.empty())
+        {
+            mesh.BindVertices = device->CreateBuffer({data.Vertices.size() * sizeof(MeshVertexData),
+                                                      RenderHardware::BufferUsage::Vertex,
+                                                      RenderHardware::MemoryUsage::Upload});
+            mesh.BindVertices->Write(0, data.Vertices.data(), data.Vertices.size() * sizeof(MeshVertexData));
+            cursor = 0;
+            for (uint32_t index : data.Indices)
+                for (float end : {0.0f, 1.0f})
+                {
+                    const auto& v = data.Vertices[index];
+                    for (auto value : v.Position)
+                        lines[cursor++] = value;
+                    for (auto value : v.Normal)
+                        lines[cursor++] = value;
+                    lines[cursor++] = end;
+                }
+            mesh.BindNormalLines = device->CreateBuffer({lines.size() * sizeof(float),
+                                                         RenderHardware::BufferUsage::Vertex,
+                                                         RenderHardware::MemoryUsage::Upload});
+            mesh.BindNormalLines->Write(0, lines.data(), lines.size() * sizeof(float));
+            mesh.Skin = device->CreateBuffer({data.Skin.size() * sizeof(MeshSkinVertex),
+                                              RenderHardware::BufferUsage::Vertex,
+                                              RenderHardware::MemoryUsage::Upload});
+            mesh.Skin->Write(0, data.Skin.data(), data.Skin.size() * sizeof(MeshSkinVertex));
+            std::vector<MeshSkinVertex> normalSkin;
+            normalSkin.reserve(data.Indices.size() * 2);
+            for (auto index : data.Indices)
+            {
+                normalSkin.push_back(data.Skin[index]);
+                normalSkin.push_back(data.Skin[index]);
+            }
+            mesh.NormalSkin = device->CreateBuffer({normalSkin.size() * sizeof(MeshSkinVertex),
+                                                    RenderHardware::BufferUsage::Vertex,
+                                                    RenderHardware::MemoryUsage::Upload});
+            mesh.NormalSkin->Write(0, normalSkin.data(), normalSkin.size() * sizeof(MeshSkinVertex));
+            mesh.VertexBindings.push_back({1, 32, false});
+            mesh.Attributes.push_back({5, 1, 0, RenderHardware::VertexFormat::Uint4});
+            mesh.Attributes.push_back({6, 1, 16, RenderHardware::VertexFormat::Float4});
+            std::vector<glm::mat4> identity(data.JointBounds.size(), glm::mat4(1));
+            mesh.BindPalette = device->CreateBuffer({identity.size() * sizeof(glm::mat4),
+                                                     RenderHardware::BufferUsage::Storage,
+                                                     RenderHardware::MemoryUsage::Upload});
+            mesh.BindPalette->Write(0, identity.data(), identity.size() * sizeof(glm::mat4));
+        }
         mesh.IndexCount  = static_cast<uint32_t>(data.Indices.size());
         mesh.Material    = data.Material;
         mesh.AuthoredMaterial = data.AuthoredMaterial;
         return mesh;
+    }
+
+    RenderHardware::Handle<RenderHardware::Buffer>
+    RenderAssetCache::GetSkinningPalette(const Ref<const SkinningPose>& pose)
+    {
+        if (!pose || pose->Palette.empty())
+            return {};
+        auto& entry = m_Palettes[pose.get()];
+        if (entry.Source.lock() != pose)
+        {
+            entry        = {};
+            entry.Source = pose;
+            entry.Pool.reserve(4);
+        }
+        entry.Frame = m_Frame;
+        if (entry.Version == pose->Version && entry.Current)
+            return entry.Current;
+        entry.Current.reset();
+        const size_t bytes = pose->Palette.size() * sizeof(glm::mat4);
+        for (const auto& buffer : entry.Pool)
+            if (buffer.use_count() == 1 && buffer->GetDesc().Bytes == bytes)
+            {
+                entry.Current = buffer;
+                break;
+            }
+        if (!entry.Current)
+        {
+            entry.Current = GetDevice()->CreateBuffer(
+                {bytes, RenderHardware::BufferUsage::Storage, RenderHardware::MemoryUsage::Upload});
+            entry.Pool.push_back(entry.Current);
+        }
+        entry.Current->Write(0, pose->Palette.data(), bytes);
+        entry.Version = pose->Version;
+        return entry.Current;
     }
 
     std::variant<ModelInstances, AssetError> FlattenModel(const ModelData& data)
@@ -443,6 +543,11 @@ namespace Kans
         if (m_Device)
             m_Device->WaitIdle();
         ++m_Frame;
+        for (auto it = m_Palettes.begin(); it != m_Palettes.end();)
+            if (it->second.Source.expired() || m_Frame - it->second.Frame > unusedFrames)
+                it = m_Palettes.erase(it);
+            else
+                ++it;
         for (auto it = m_EditableMeshes.begin(); it != m_EditableMeshes.end();)
             if (it->second.Source.expired())
             {
@@ -466,6 +571,7 @@ namespace Kans
 
     void RenderAssetCache::Clear()
     {
+        m_Palettes.clear();
 
         m_Models.clear();
         m_Meshes.clear();

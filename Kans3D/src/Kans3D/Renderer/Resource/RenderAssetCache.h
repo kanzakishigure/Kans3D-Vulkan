@@ -9,6 +9,7 @@
 #include "Kans3D/Renderer/Resource/GpuShader.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 #include "MeshKey.h"
+#include "Skinning.h"
 
 namespace Kans
 {
@@ -16,7 +17,9 @@ namespace Kans
     struct GpuMesh
     {
         std::shared_ptr<RenderHardware::Device> Device;
-        RenderHardware::Handle<RenderHardware::Buffer> Vertices, Indices, NormalLines;
+        RenderHardware::Handle<RenderHardware::Buffer> Vertices, Indices, NormalLines, Skin, NormalSkin, BindPalette;
+        // Original mesh-local streams for submissions without an animator palette.
+        RenderHardware::Handle<RenderHardware::Buffer> BindVertices, BindNormalLines;
         std::vector<RenderHardware::VertexBinding>     VertexBindings {{0, 64, false}};
         std::vector<RenderHardware::VertexAttribute>   Attributes {{0, 0, 0, RenderHardware::VertexFormat::Float3},
                                                                    {1, 0, 12, RenderHardware::VertexFormat::Float3},
@@ -99,6 +102,7 @@ namespace Kans
 
         const ModelInstances* GetModel(AssetID id);
         const GpuMesh*        GetMesh(const MeshKey& id);
+        RenderHardware::Handle<RenderHardware::Buffer> GetSkinningPalette(const Ref<const SkinningPose>&);
         const GpuMaterial*    GetMaterial(AssetID id);
         Ref<Texture2D>        GetTexture(AssetID id);
         const GpuShader*      GetShader(AssetID id);
@@ -157,6 +161,14 @@ namespace Kans
         };
         std::unordered_map<uint64_t, EditableEntry>                        m_EditableMeshes;
         EditableMeshStatistics                                             m_EditableStats;
+        struct PaletteEntry
+        {
+            std::weak_ptr<const SkinningPose>                           Source;
+            uint64_t                                                    Version = UINT64_MAX, Frame = 0;
+            RenderHardware::Handle<RenderHardware::Buffer>              Current;
+            std::vector<RenderHardware::Handle<RenderHardware::Buffer>> Pool;
+        };
+        std::unordered_map<const SkinningPose*, PaletteEntry>              m_Palettes;
         uint64_t                                                           m_Frame = 0;
         std::unordered_map<AssetID, Entry<ModelAsset, ModelInstances>>     m_Models;
         std::unordered_map<AssetID, Entry<MeshAsset, GpuMesh>>             m_Meshes;

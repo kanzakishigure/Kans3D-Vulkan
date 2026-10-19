@@ -4,6 +4,7 @@
 #include <optional>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "Kans3D/Animation/AnimatorComponent.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 
@@ -235,6 +236,7 @@ namespace Kans
                                          MeshComponent,
                                          EditableMeshComponent,
                                          PrefabInstanceComponent,
+                                         AnimatorComponent,
                                          PrefabOwnedComponent,
                                          PrefabAttachmentComponent,
                                          BoundsComponent,

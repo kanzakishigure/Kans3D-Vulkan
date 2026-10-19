@@ -293,6 +293,8 @@ namespace Kans
                 auto ob = device->CreateBuffer({sizeof(object), BufferUsage::Uniform, MemoryUsage::Upload});
                 ob->Write(0, &object, sizeof(object));
                 MaterialPassData pass;
+                pass.Palette =
+                    mesh->Skin ? frame.Assets()->GetSkinningPalette(proxy.SkinPose) : Handle<RenderHardware::Buffer>();
                 pass.Frame              = buffer;
                 pass.Object             = ob;
                 pass.Environment        = environment;
@@ -301,7 +303,9 @@ namespace Kans
                 pass.ShadowDepth        = true;
                 pass.DepthFront         = point ? FrontFace::Clockwise : FrontFace::CounterClockwise;
                 if (!caster)
-                    pass.DepthProgram = frame.Services.GetInternalProgram("ShadowDepth", DepthVertex, DepthFragment);
+                    pass.DepthProgram =
+                        pass.Palette ? GetSkinnedInternalProgram(*device, "ShadowDepth", DepthVertex, DepthFragment) :
+                                       frame.Services.GetInternalProgram("ShadowDepth", DepthVertex, DepthFragment);
                 pass.ColorFormats.clear();
                 pass.Section      = proxy.Section;
                 pass.Render       = bindings->Render;

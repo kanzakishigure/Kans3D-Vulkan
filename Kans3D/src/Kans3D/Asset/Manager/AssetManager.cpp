@@ -144,6 +144,9 @@ namespace Kans
                 const auto& slot    = shared.MaterialSlots[section.MaterialSlot];
                 MeshData    view;
                 view.VertexFormat     = shared.VertexFormat;
+                view.Skeleton          = shared.Skeleton;
+                view.JointBounds       = shared.JointBounds;
+                view.SkinBindTransform = shared.SkinBindTransform;
                 view.Material         = slot.DefaultMaterial;
                 view.AuthoredMaterial = slot.AuthoredMaterial;
                 view.MaterialSlots    = {slot};
@@ -155,7 +158,11 @@ namespace Kans
                     const auto index  = shared.Indices[i];
                     const auto mapped = vertices.emplace(index, static_cast<uint32_t>(view.Vertices.size()));
                     if (mapped.second)
+                    {
                         view.Vertices.push_back(shared.Vertices[index]);
+                        if (!shared.Skin.empty())
+                            view.Skin.push_back(shared.Skin[index]);
+                    }
                     view.Indices.push_back(mapped.first->second);
                 }
                 auto asset     = CreateRef<MeshAsset>(std::move(view));

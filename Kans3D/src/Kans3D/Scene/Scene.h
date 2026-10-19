@@ -74,6 +74,12 @@ namespace Kans
         Ref<const RuntimeMesh> ResolveEditableMesh(Entity entity) const;
         uint64_t               GetEditableMeshBuildCount() const { return m_EditableMeshBuildCount; }
         void UpdatePrefabs();
+        // Nonblocking asset preparation. Pose drives prefab skeleton entities.
+        bool PrepareAnimator(Entity root);
+        void UpdateAnimations(double seconds);
+        bool PreviewAnimation(Entity root, size_t layer, uint32_t state, double time);
+        void ApplyAnimatorPose(Entity root, const struct AnimationPose& pose);
+        void ResetAnimator(Entity root);
         void UpdatePrefabs(AssetManager& assets)
         {
             SetPrefabAssetManager(&assets);

@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <variant>
+#include "Kans3D/Animation/AnimationProduct.h"
 #include "Kans3D/Asset/Asset.h"
 #include "Kans3D/Asset/AssetError.h"
 
@@ -53,5 +54,28 @@ namespace Kans
     public:
         // CPU-only Product decoding. No source paths, file IO, importer or GPU calls.
         [[nodiscard]] std::variant<Ref<MeshAsset>, AssetError> Load(const AssetLoadContext& context) const;
+    };
+    template<class T, AssetType Type>
+    class Loader<AnimationDataAsset<T, Type>>
+    {
+    public:
+        std::variant<Ref<AnimationDataAsset<T, Type>>, AssetError> Load(const AssetLoadContext& context) const
+        {
+            if (!context.ID.IsValid() || context.Type != Type)
+                return AssetError {AssetErrorCode::InvalidArgument, "Invalid animation Product input"};
+            auto decoded = [&] {
+                if constexpr (Type == AssetType::Skeleton)
+                    return DecodeSkeletonProduct(context.Data, context.Size);
+                else if constexpr (Type == AssetType::AnimationClip)
+                    return DecodeAnimationClipProduct(context.Data, context.Size);
+                else
+                    return DecodeAnimationControllerProduct(context.Data, context.Size);
+            }();
+            if (auto* error = std::get_if<AssetError>(&decoded))
+                return *error;
+            auto asset     = CreateRef<AnimationDataAsset<T, Type>>(std::get<T>(std::move(decoded)));
+            asset->assetID = context.ID;
+            return asset;
+        }
     };
 } // namespace Kans

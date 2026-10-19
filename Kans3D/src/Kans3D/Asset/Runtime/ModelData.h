@@ -112,6 +112,8 @@ namespace Kans
         std::vector<ModelNodeData> Nodes;
         std::vector<ModelSectionIdentity> SectionIdentities;
         std::vector<PrefabNodeData>       Entities;
+        AssetID                           Skeleton;
+        std::vector<AssetID>              AnimationClips;
     };
 
     // Builds the prefab entity list while retaining the stage-2 model view.

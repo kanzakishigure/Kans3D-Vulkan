@@ -5,6 +5,7 @@
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Core/Math/Math.h"
 #include "Kans3D/Renderer/RenderWorld.h"
+#include "Kans3D/Renderer/Resource/Skinning.h"
 #include "Entity.h"
 
 namespace Kans
@@ -141,6 +142,8 @@ namespace Kans
         auto& instance = root.GetComponent<PrefabInstanceComponent>();
         if (!instance.Source)
             return;
+        if (instance.Source->GetMeshData().Skeleton.IsValid() && !root.HasComponent<AnimatorComponent>())
+            root.AddComponent<AnimatorComponent>().Skeleton = instance.Source->GetMeshData().Skeleton;
         const auto& nodes = instance.Source->GetEntities();
         // Require all CPU meshes before migration: a missing material table must not
         // silently discard a pending old-part override.
@@ -334,6 +337,8 @@ namespace Kans
             TrackPrefabAssets(root);
             ExpandPrefab(root);
         }
+        for (auto handle : m_Registry.view<AnimatorComponent>())
+            PrepareAnimator({handle, this});
         UpdateBounds();
     }
 
@@ -436,6 +441,21 @@ namespace Kans
     {
         if (auto found = Values.find(child); found != Values.end())
         {
+            if (bounds.IsValid())
+            {
+                // Animation changes values, not topology. Reuse the six tree nodes and map entry.
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    auto lo    = Min[axis].extract(Min[axis].find(found->second.Min[axis]));
+                    auto hi    = Max[axis].extract(Max[axis].find(found->second.Max[axis]));
+                    lo.value() = bounds.Min[axis];
+                    hi.value() = bounds.Max[axis];
+                    Min[axis].insert(std::move(lo));
+                    Max[axis].insert(std::move(hi));
+                }
+                found->second = bounds;
+                return;
+            }
             for (int axis = 0; axis < 3; ++axis)
             {
                 Min[axis].erase(Min[axis].find(found->second.Min[axis]));
@@ -487,11 +507,22 @@ namespace Kans
                 const auto  selected  = entity.HasComponent<MeshComponent>() ?
                                             entity.GetComponent<MeshComponent>().Section :
                                             std::optional<uint32_t>();
-                const auto  world     = GetWorldTransform(entity);
+                auto        world     = GetWorldTransform(entity);
+                Bounds      animated;
+                const auto  root = GetPrefabInstanceRoot(entity);
+                if (!mesh->GetData().Skin.empty() && root && root.HasComponent<AnimatorComponent>())
+                {
+                    const auto& a = root.GetComponent<AnimatorComponent>();
+                    if (a.SkinPose)
+                    {
+                        animated = SkinnedBounds(mesh->GetData().JointBounds, *a.SkinPose);
+                        world    = GetWorldTransform(root);
+                    }
+                }
                 const auto& sections  = mesh->GetData().Sections;
                 for (size_t i = 0; i < sections.size(); ++i)
                     if (!selected || *selected == i)
-                        bounds.Expand(sections[i].LocalBounds.Transformed(world));
+                        bounds.Expand((animated.IsValid() ? animated : sections[i].LocalBounds).Transformed(world));
             }
             if (auto children = m_ChildBounds.find(entt::entity(entity)); children != m_ChildBounds.end())
                 bounds.Expand(children->second.Aggregate());
@@ -523,7 +554,9 @@ namespace Kans
             const auto& sections = mesh.Asset->GetData().Sections;
             for (size_t section = 0; section < sections.size(); ++section)
                 if (!node.Section || *node.Section == section)
-                    bounds.Expand(sections[section].LocalBounds.Transformed(transform * world[i]));
+                    bounds.Expand(sections[section].LocalBounds.Transformed(
+                        transform *
+                        (mesh.Asset->GetData().Skin.empty() ? world[i] : mesh.Asset->GetData().SkinBindTransform)));
         }
         return bounds;
     }

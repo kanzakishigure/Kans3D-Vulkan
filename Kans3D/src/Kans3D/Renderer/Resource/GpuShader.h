@@ -37,6 +37,7 @@ namespace Kans
         std::string                                                                  Name, Tag;
         ShaderPassState                                                              State;
         RenderHardware::Handle<RenderHardware::Shader>                               Program;
+        mutable RenderHardware::Handle<RenderHardware::Shader>                       SkinnedProgram;
         mutable std::map<uint32_t, RenderHardware::Handle<RenderHardware::Pipeline>> Pipelines;
     };
     // Validated material product backed by an RHI Shader and cached state pipelines.
@@ -51,6 +52,7 @@ namespace Kans
         Create(const ShaderData& data, std::shared_ptr<RenderHardware::Device> device = {});
 
         GpuShader Snapshot() const;
+        bool      PrepareSkinning() const;
         ~GpuShader();
         GpuShader(GpuShader&& other) noexcept;
         GpuShader& operator=(GpuShader&& other) noexcept;
@@ -62,6 +64,8 @@ namespace Kans
         std::vector<ShaderResourceBinding>                                           EngineResources;
         mutable std::map<uint32_t, RenderHardware::Handle<RenderHardware::Pipeline>> Pipelines;
 
+        mutable RenderHardware::Handle<RenderHardware::Shader>          SkinnedProgram;
+        mutable RenderHardware::Handle<RenderHardware::BindGroupLayout> SkinLayout;
         std::vector<GpuShaderPass> Passes;
         ShaderOutputSpace          OutputSpace = ShaderOutputSpace::Display;
 
@@ -69,6 +73,7 @@ namespace Kans
 
     private:
         GpuShader() = default;
+        std::shared_ptr<const ShaderData> m_Source;
 
         std::map<uint32_t, ShaderTextureFallback> m_SamplerFallbacks;
     };
