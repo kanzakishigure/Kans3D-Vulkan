@@ -242,6 +242,8 @@ namespace Kans
         std::vector<AnimationMotion>    Motions; // Index-based acyclic graph; nested blend trees allowed.
         std::vector<AnimationLayer>     Layers;
         std::string                     RootMotionJoint;
+        bool RootMotionPlanar            = false; // Model-space Y-up: entity receives XZ translation and yaw only.
+        bool RootMotionKeepInitialOffset = false; // Retain each clip's first-frame root placement in the pose.
         std::vector<ExpressionPreset>   Expressions;
         std::vector<TwoBoneIK>          TwoBoneConstraints;
         std::vector<LookAtIK>           LookAtConstraints;

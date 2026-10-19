@@ -458,7 +458,13 @@ namespace Kans::ComponentEditors
                 a.Speed = speed, changed = true;
             changed |= PropertyGrid::Checkbox("Root motion", a.ApplyRootMotion);
             if (a.InlineController)
-                changed |= JointCombo("Root joint", a.InlineController->RootMotionJoint, skeleton);
+            {
+                auto& c = *a.InlineController;
+                changed |= JointCombo("Root joint", c.RootMotionJoint, skeleton);
+                // Hips-rooted rigs (Mixamo): only ground travel and turning move the entity.
+                changed |= PropertyGrid::Checkbox("Planar (XZ + yaw)", c.RootMotionPlanar);
+                changed |= PropertyGrid::Checkbox("Keep initial offset", c.RootMotionKeepInitialOffset);
+            }
             PropertyGrid::End();
         }
         if (a.LastError)

@@ -93,7 +93,9 @@ namespace Kans
         bool                  AddShapeKeyWeight(const std::string&, float weight); // Persistent additive offset.
         bool                  ClearShapeKeyOverride(const std::string&);
         bool                  SetExpression(const std::string&, double seconds);
-        void                  Advance(double seconds, const AnimationEventSink& sink = {});
+        // Applies entity root motion before modifiers/IK, so world-space targets need only one solve.
+        using RootMotionSink = std::function<void(const RootMotionDelta&)>;
+        void Advance(double seconds, const AnimationEventSink& sink = {}, const RootMotionSink& applyMotion = {});
         // Independent preview: samples one state without changing parameters, playback times, triggers or events.
         bool EvaluateState(size_t layer, uint32_t state, double time, AnimationPose& output);
         // Explicit event query for editor scrubbing. Does not change playback state.
@@ -126,7 +128,7 @@ namespace Kans
     private:
         void PrepareIK();
         void EvaluateIK(AnimationPose&);
-        void RefreshIK(const AnimationPose&, int32_t start = 0);
+        void RefreshIK(const AnimationPose&, int32_t joint);
         void RotateIK(AnimationPose&, int32_t joint, glm::quat modelRotation);
         bool ResolveIK(const IKTarget&, glm::vec3&, glm::quat&) const;
         struct BoundTwoBone
@@ -145,6 +147,8 @@ namespace Kans
         std::vector<glm::mat4>    m_IKModel;
         std::vector<glm::quat>    m_IKRotations;
         std::vector<uint8_t>      m_IKDirty;
+        std::vector<uint64_t>     m_IKGeneration, m_IKParentGeneration;
+        std::vector<int32_t>      m_IKChain;
         glm::mat4                 m_IKWorld {1}, m_IKInverse {1};
         glm::quat                 m_IKWorldRotation {1, 0, 0, 0};
         IKEntityResolver          m_IKResolver;
@@ -156,6 +160,8 @@ namespace Kans
         void    StatePose(size_t layer, uint32_t state, double time, AnimationPose&);
         void MotionEvents(uint32_t motion, double from, double to, bool loop, const AnimationEventSink&, uint32_t layer)
             const;
+        JointTransform  InitialRoot(uint32_t motion);
+        JointTransform  LayerRootReference(size_t layer);
         JointTransform  MotionRoot(uint32_t motion, double time, bool loop);
         RootMotionDelta StateRootDelta(size_t layer, uint32_t state, double from, double to);
         bool            Conditions(const AnimationTransition&) const;
@@ -165,6 +171,7 @@ namespace Kans
         {
             AnimationPose      Source, Target, Frozen;
             bool               UseFrozen = false;
+            JointTransform     FrozenRootReference;
             std::vector<float> Mask, MorphMask;
             float              Weight = 1;
         };

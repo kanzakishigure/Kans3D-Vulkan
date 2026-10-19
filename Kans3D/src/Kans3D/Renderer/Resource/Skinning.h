@@ -15,7 +15,7 @@ namespace Kans
     };
     // Material vertex inputs at locations 0/1/4 are transformed before the original main.
     // The static shader's bytecode is untouched. Set 2/binding 0 is a readonly mat4 palette SSBO;
-    // Binding 1 stores immutable target-major position/normal/tangent float triples. A tagged
+    // Binding 1 stores sparse integer indices and packed float position/optional normal/tangent streams. A tagged
     // final palette matrix describes the active (weight, target) records; morphs run before skinning.
     // skin stream locations 5/6 are uvec4 joints/vec4 weights. There is no fixed palette length.
     std::variant<ShaderData, AssetError>                    MakeSkinnedShader(const ShaderData&);

@@ -49,6 +49,19 @@ namespace Kans
                     Sample(track.Rotation, time, rest.Rotation),
                     Sample(track.Scale, time, rest.Scale)};
         }
+        JointTransform PlanarRoot(JointTransform transform)
+        {
+            // Imported ancestor axes/units are already converted to instance model space (Y-up).
+            const auto  forward     = transform.Rotation * glm::vec3(0, 0, 1);
+            const auto  right       = transform.Rotation * glm::vec3(1, 0, 0);
+            const float yaw         = forward.x * forward.x + forward.z * forward.z > 1e-12f ?
+                                          std::atan2(forward.x, forward.z) :
+                                          std::atan2(-right.z, right.x);
+            transform.Translation.y = 0;
+            transform.Rotation      = glm::angleAxis(yaw, glm::vec3(0, 1, 0));
+            transform.Scale         = glm::vec3(1);
+            return transform;
+        }
         glm::mat4 Power(glm::mat4 base, int64_t exponent)
         {
             if (exponent < 0)
@@ -463,6 +476,8 @@ namespace Kans
             }
             StatePose(layer, s.Target, s.TargetTime, w.Target);
             BlendAnimationPoses(w.Source, w.Target, s.CrossfadeWeight(), w.Frozen);
+            if (m_Root >= 0 && m_Controller->RootMotionKeepInitialOffset)
+                w.FrozenRootReference = LayerRootReference(layer);
             w.UseFrozen = true;
         }
         s.Target        = state;
@@ -568,12 +583,50 @@ namespace Kans
         const auto& s = m_Controller->Layers[layer].States[state];
         MotionEvents(s.Motion, from, to, s.Loop, sink, uint32_t(layer));
     }
+    JointTransform Animator::InitialRoot(uint32_t motion)
+    {
+        const auto& m = m_Controller->Motions[motion];
+        if (m.Type == AnimationMotionType::Clip)
+        {
+            const auto& binding = m_Clips[motion];
+            const auto  rest    = m_Rest.Local[m_Root];
+            if (!binding.Clip)
+                return rest;
+            const auto track = binding.JointTracks[m_Root];
+            return track >= 0 ? SampleJoint(rest, binding.Clip->Tracks[track], 0) : rest;
+        }
+        AnimationBlendWeights(m, {float(Value(m.ParameterX)), float(Value(m.ParameterY))}, m_Weights[motion]);
+        JointTransform result = m_Rest.Local[m_Root];
+        float          total  = 0;
+        for (size_t i = 0; i < m.Children.size(); ++i)
+        {
+            const float w = m_Weights[motion][i];
+            if (w <= 0)
+                continue;
+            const auto child = InitialRoot(m.Children[i].Motion);
+            result           = total == 0 ? child : BlendJoint(result, child, w / (total + w));
+            total += w;
+        }
+        return result;
+    }
+    JointTransform Animator::LayerRootReference(size_t layer)
+    {
+        const auto& s      = m_Status[layer];
+        const auto& w      = m_Work[layer];
+        const auto& states = m_Controller->Layers[layer].States;
+        auto        result = w.UseFrozen ? w.FrozenRootReference : InitialRoot(states[s.State].Motion);
+        if (s.Transitioning)
+            result = BlendJoint(result, InitialRoot(states[s.Target].Motion), s.CrossfadeWeight());
+        return result;
+    }
     JointTransform Animator::MotionRoot(uint32_t motion, double time, bool loop)
     {
         const auto& m = m_Controller->Motions[motion];
         if (m.Type == AnimationMotionType::Clip)
         {
             const auto& binding = m_Clips[motion];
+            if (!binding.Clip)
+                return {};
             const auto& clip    = *binding.Clip;
             const auto  rest    = m_Skeleton->Joints[m_Root].RestLocal;
             const auto  t       = binding.JointTracks[m_Root];
@@ -581,13 +634,20 @@ namespace Kans
                 return {};
             const auto parent           = m_Skeleton->Joints[m_Root].Parent;
             const auto parentModel      = parent < 0 ? glm::mat4(1) : m_Rest.Model[parent];
-            auto       reference        = JointTransform::FromMatrix(m_Rest.Model[m_Root]);
-            reference.Scale             = glm::vec3(1);
+            auto       reference =
+                m_Controller->RootMotionKeepInitialOffset ?
+                    JointTransform::FromMatrix(parentModel * SampleJoint(rest, clip.Tracks[t], 0).Matrix()) :
+                    JointTransform::FromMatrix(m_Rest.Model[m_Root]);
+            reference.Scale = glm::vec3(1);
+            if (m_Controller->RootMotionPlanar)
+                reference = PlanarRoot(reference);
             const auto inverseReference = glm::inverse(reference.Matrix());
             auto       sample           = [&](double at) {
                 auto local  = SampleJoint(rest, clip.Tracks[t], at);
                 auto model  = JointTransform::FromMatrix(parentModel * local.Matrix());
                 model.Scale = glm::vec3(1);
+                if (m_Controller->RootMotionPlanar)
+                    model = PlanarRoot(model);
                 // Motion is a factor in instance model space, relative to the rest joint. This
                 // converts FBX ancestor unit scales/axis rotations before applying deltas to the entity.
                 auto result  = JointTransform::FromMatrix(model.Matrix() * inverseReference);
@@ -687,7 +747,7 @@ namespace Kans
                 m_Parameters[i] = 0;
         }
     }
-    void Animator::Advance(double seconds, const AnimationEventSink& sink)
+    void Animator::Advance(double seconds, const AnimationEventSink& sink, const RootMotionSink& applyMotion)
     {
         if (IsPrepared() && std::isfinite(seconds))
         {
@@ -832,6 +892,8 @@ namespace Kans
             else
                 advance(seconds);
         }
+        if (applyMotion)
+            applyMotion(m_RootDelta);
         RebuildPose();
     }
     bool Animator::SetShapeKeyWeight(const std::string& name, float weight)
@@ -956,6 +1018,9 @@ namespace Kans
         m_IKModel.resize(m_Skeleton->Joints.size());
         m_IKRotations.resize(m_Skeleton->Joints.size());
         m_IKDirty.resize(m_Skeleton->Joints.size());
+        m_IKGeneration.assign(m_Skeleton->Joints.size(), 0);
+        m_IKParentGeneration.assign(m_Skeleton->Joints.size(), 0);
+        m_IKChain.resize(m_Skeleton->Joints.size());
     }
     bool Animator::SetIKTarget(const std::string& name, const IKTarget& target)
     {
@@ -1038,20 +1103,25 @@ namespace Kans
         rotation = glm::normalize(glm::inverse(m_IKWorldRotation) * q);
         return IKFinite(position) && IKFinite(rotation);
     }
-    void Animator::RefreshIK(const AnimationPose& pose, int32_t start)
+    void Animator::RefreshIK(const AnimationPose& pose, int32_t joint)
     {
-        // Parent-before-child order need not be depth-first. Dirty propagation also updates side branches.
-        std::fill(m_IKDirty.begin(), m_IKDirty.end(), 0);
-        for (size_t j = start; j < pose.Local.size(); ++j)
+        // Resolve only the requested joint's ancestors. Generation stamps detect changes to any
+        // ancestor, including shared/overlapping chains and non-depth-first skeleton layouts.
+        size_t count = 0;
+        for (auto j = joint; j >= 0; j = m_Skeleton->Joints[j].Parent)
+            m_IKChain[count++] = j;
+        while (count > 0)
         {
-            const auto parent = m_Skeleton->Joints[j].Parent;
-            const bool dirty  = start == 0 || int32_t(j) == start || (parent >= 0 && m_IKDirty[parent]);
-            m_IKDirty[j]      = dirty;
-            if (!dirty)
+            const auto     j = m_IKChain[--count], parent = m_Skeleton->Joints[j].Parent;
+            const uint64_t generation = parent < 0 ? 0 : m_IKGeneration[parent];
+            if (!m_IKDirty[j] && m_IKParentGeneration[j] == generation)
                 continue;
             m_IKModel[j] = parent < 0 ? pose.Local[j].Matrix() : m_IKModel[parent] * pose.Local[j].Matrix();
             m_IKRotations[j] =
                 glm::normalize(parent < 0 ? pose.Local[j].Rotation : m_IKRotations[parent] * pose.Local[j].Rotation);
+            m_IKDirty[j]            = 0;
+            m_IKParentGeneration[j] = generation;
+            ++m_IKGeneration[j];
         }
     }
     void Animator::RotateIK(AnimationPose& pose, int32_t joint, glm::quat modelRotation)
@@ -1059,6 +1129,7 @@ namespace Kans
         const auto parent = m_Skeleton->Joints[joint].Parent;
         pose.Local[joint].Rotation =
             glm::normalize(parent < 0 ? modelRotation : glm::inverse(m_IKRotations[parent]) * modelRotation);
+        m_IKDirty[joint] = 1;
         RefreshIK(pose, joint);
     }
     void Animator::EvaluateIK(AnimationPose& pose)
@@ -1070,7 +1141,7 @@ namespace Kans
             return;
         m_IKInverse       = glm::inverse(m_IKWorld);
         m_IKWorldRotation = JointTransform::FromMatrix(m_IKWorld).Rotation;
-        RefreshIK(pose);
+        std::fill(m_IKDirty.begin(), m_IKDirty.end(), 1);
         for (const auto& b : m_TwoBone)
         {
             const auto& ik = b.Data;
@@ -1080,6 +1151,7 @@ namespace Kans
             glm::quat rotation;
             if (!ResolveIK(ik.Target, target, rotation))
                 continue;
+            RefreshIK(pose, b.End);
             const auto root   = glm::vec3(m_IKModel[b.Root][3]);
             auto       middle = glm::vec3(m_IKModel[b.Middle][3]);
             auto       end    = glm::vec3(m_IKModel[b.End][3]);
@@ -1105,7 +1177,8 @@ namespace Kans
                     pose.Local[b.End].Translation *= factor;
                     a *= factor;
                     c *= factor;
-                    RefreshIK(pose, b.Root);
+                    m_IKDirty[b.Middle] = m_IKDirty[b.End] = 1;
+                    RefreshIK(pose, b.End);
                     middle = glm::vec3(m_IKModel[b.Middle][3]);
                 }
                 const float reach = std::clamp(distance, std::abs(a - c), a + c);
@@ -1115,6 +1188,7 @@ namespace Kans
                 const auto  desiredMiddle = root + x * direction + h * bend;
                 const auto  desiredEnd    = root + reach * direction;
                 RotateIK(pose, b.Root, IKBetween(middle - root, desiredMiddle - root) * m_IKRotations[b.Root]);
+                RefreshIK(pose, b.End);
                 middle = glm::vec3(m_IKModel[b.Middle][3]);
                 end    = glm::vec3(m_IKModel[b.End][3]);
                 RotateIK(pose, b.Middle, IKBetween(end - middle, desiredEnd - middle) * m_IKRotations[b.Middle]);
@@ -1123,10 +1197,13 @@ namespace Kans
                     RotationBlend(oldMiddle, pose.Local[b.Middle].Rotation, ik.Weight, true);
                 pose.Local[b.Middle].Translation = glm::mix(oldMiddleT, pose.Local[b.Middle].Translation, ik.Weight);
                 pose.Local[b.End].Translation    = glm::mix(oldEndT, pose.Local[b.End].Translation, ik.Weight);
-                RefreshIK(pose, b.Root);
+                m_IKDirty[b.Root] = m_IKDirty[b.Middle] = m_IKDirty[b.End] = 1;
             }
             if (ik.RotationWeight > 0)
+            {
+                RefreshIK(pose, b.End);
                 RotateIK(pose, b.End, RotationBlend(m_IKRotations[b.End], rotation, ik.RotationWeight, true));
+            }
         }
         for (const auto& b : m_LookAt)
         {
@@ -1143,6 +1220,7 @@ namespace Kans
                 const auto& bone = ik.Bones[k];
                 if (j < 0 || bone.Weight <= 0)
                     continue;
+                RefreshIK(pose, j);
                 const auto offset = target - glm::vec3(m_IKModel[j][3]);
                 if (glm::length2(offset) < 1e-14f)
                     continue;
@@ -1167,11 +1245,28 @@ namespace Kans
             return;
         m_Pose.Local = m_Rest.Local;
         m_Pose.MorphWeights = m_Rest.MorphWeights;
+        auto rootReference  = m_Root >= 0 ? m_Rest.Local[m_Root] : JointTransform {};
         for (size_t l = 0; l < m_Status.size(); ++l)
         {
             const auto& s     = m_Status[l];
             auto&       w     = m_Work[l];
             const auto& layer = m_Controller->Layers[l];
+            if (m_Root >= 0 && m_Controller->RootMotionKeepInitialOffset)
+            {
+                const auto  initial = LayerRootReference(l);
+                const float weight  = w.Weight * w.Mask[m_Root];
+                if (layer.Mode == AnimationLayerMode::Additive)
+                {
+                    const auto& rest = m_Rest.Local[m_Root];
+                    rootReference.Translation += (initial.Translation - rest.Translation) * weight;
+                    rootReference.Rotation = glm::normalize(
+                        rootReference.Rotation *
+                        RotationBlend(
+                            glm::quat(1, 0, 0, 0), glm::inverse(rest.Rotation) * initial.Rotation, weight, true));
+                }
+                else
+                    rootReference = BlendJoint(rootReference, initial, weight);
+            }
             if (s.Transitioning && w.UseFrozen)
             {
                 w.Source.Local        = w.Frozen.Local;
@@ -1191,8 +1286,24 @@ namespace Kans
         }
         if (ExtractRootMotion && m_Root >= 0)
         {
-            m_Pose.Local[m_Root].Translation = m_Rest.Local[m_Root].Translation;
-            m_Pose.Local[m_Root].Rotation    = m_Rest.Local[m_Root].Rotation;
+            auto& local = m_Pose.Local[m_Root];
+            if (m_Controller->RootMotionPlanar)
+            {
+                const auto parent      = m_Skeleton->Joints[m_Root].Parent;
+                const auto parentModel = parent < 0 ? glm::mat4(1) : m_Rest.Model[parent];
+                const auto model       = parentModel * local.Matrix();
+                const auto sampled     = PlanarRoot(JointTransform::FromMatrix(model));
+                const auto reference   = PlanarRoot(JointTransform::FromMatrix(parentModel * rootReference.Matrix()));
+                const auto residual    = JointTransform::FromMatrix(glm::inverse(parentModel) * reference.Matrix() *
+                                                                    glm::inverse(sampled.Matrix()) * model);
+                local.Translation      = residual.Translation;
+                local.Rotation         = residual.Rotation;
+            }
+            else
+            {
+                local.Translation = rootReference.Translation;
+                local.Rotation    = rootReference.Rotation;
+            }
         }
         // Clips/blend trees -> masked layers -> additive preset -> absolute script override ->
         // script offset -> modifier -> two-bone IK -> look-at -> one final [0,1] clamp. Presets do not stop clip

@@ -68,7 +68,11 @@ namespace Kans
 layout(location=5) in uvec4 kans_Joints;
 layout(location=6) in vec4 kans_Weights;
 layout(set=2,binding=0,std430) readonly buffer KansSkinningPalette { mat4 kans_Palette[]; };
-layout(set=2,binding=1,std430) readonly buffer KansMorphDeltas { float kans_Deltas[]; };
+layout(set=2,binding=1,std430) readonly buffer KansMorphDeltas { uint kans_Deltas[]; };
+vec3 kans_MorphVector(uint offset) {
+    return vec3(uintBitsToFloat(kans_Deltas[offset]),uintBitsToFloat(kans_Deltas[offset+1]),
+                uintBitsToFloat(kans_Deltas[offset+2]));
+}
 void main() {
     vec3 p=kans_RawPosition;
 )";
@@ -81,25 +85,31 @@ void main() {
                         source += R"(
     mat4 header=kans_Palette[kans_Palette.length()-1];
     if(header[3][3]==-2718.0) {
-        uint first=uint(header[0][0]), count=uint(header[0][1]), vertices=uint(header[0][2]);
+        uint first=uint(header[0][0]), count=uint(header[0][1]);
  )";
-                        source +=
-                            normalLines ?
-                                "uint "
-                                "vertex=uint(kans_Deltas[uint(header[0][3])*vertices*9+uint(gl_VertexIndex)/2]);\n" :
-                                "uint vertex=uint(gl_VertexIndex);\n";
+                        source += normalLines ? "uint "
+                                                "vertex=kans_Deltas[kans_Deltas[0]+uint(gl_VertexIndex)/2];\n" :
+                                                "uint vertex=uint(gl_VertexIndex);\n";
                         source += R"(
         for(uint i=0; i<count; ++i) {
             vec4 kans_Active=kans_Palette[first+i][0];
-            uint base=(uint(kans_Active.y)*vertices+vertex)*9;
-            p+=kans_Active.x*vec3(kans_Deltas[base],kans_Deltas[base+1],kans_Deltas[base+2]);
+            uint key=1+uint(kans_Active.y)*5, size=kans_Deltas[key], indices=kans_Deltas[key+1];
+            uint lo=0, hi=size;
+            while(lo<hi) {
+                uint mid=lo+(hi-lo)/2;
+                if(kans_Deltas[indices+mid]<vertex) lo=mid+1;
+                else hi=mid;
+            }
+            if(lo==size || kans_Deltas[indices+lo]!=vertex) continue;
+            uint base=lo*3;
+            p+=kans_Active.x*kans_MorphVector(kans_Deltas[key+2]+base);
 )";
                         if (normal)
-                            source +=
-                                "n+=kans_Active.x*vec3(kans_Deltas[base+3],kans_Deltas[base+4],kans_Deltas[base+5]);\n";
+                            source += "if(kans_Deltas[key+3]!=0) "
+                                      "n+=kans_Active.x*kans_MorphVector(kans_Deltas[key+3]+base);\n";
                         if (tangent)
-                            source +=
-                                "t+=kans_Active.x*vec3(kans_Deltas[base+6],kans_Deltas[base+7],kans_Deltas[base+8]);\n";
+                            source += "if(kans_Deltas[key+4]!=0) "
+                                      "t+=kans_Active.x*kans_MorphVector(kans_Deltas[key+4]+base);\n";
                         source += R"(
         }
     }

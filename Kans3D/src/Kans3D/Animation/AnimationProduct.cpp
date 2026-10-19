@@ -256,6 +256,8 @@ namespace Kans
         Valid(ValidateAnimationController(c));
         YAML::Node n;
         n["root_motion_joint"] = c.RootMotionJoint;
+        n["root_motion_planar"]              = c.RootMotionPlanar;
+        n["root_motion_keep_initial_offset"] = c.RootMotionKeepInitialOffset;
         n["parameters"]        = YAML::Node(YAML::NodeType::Sequence);
         n["motions"]           = YAML::Node(YAML::NodeType::Sequence);
         n["layers"]            = YAML::Node(YAML::NodeType::Sequence);
@@ -397,6 +399,9 @@ namespace Kans
     {
         AnimationControllerData c;
         c.RootMotionJoint = n["root_motion_joint"].as<std::string>();
+        c.RootMotionPlanar = n["root_motion_planar"] ? n["root_motion_planar"].as<bool>() : false;
+        c.RootMotionKeepInitialOffset =
+            n["root_motion_keep_initial_offset"] ? n["root_motion_keep_initial_offset"].as<bool>() : false;
         Sequence(n["parameters"], 4096);
         Sequence(n["motions"], 4096);
         Sequence(n["layers"], 64);

@@ -63,44 +63,77 @@ namespace Kans
         }
         if (!data.MorphTargets.empty())
         {
-            const size_t       deltaFloats = data.MorphTargets.size() * data.Vertices.size() * 9;
-            std::vector<float> dense(deltaFloats + data.Indices.size(), 0);
-            const auto         transform    = glm::mat3(data.SkinBindTransform);
-            const auto         normalMatrix = glm::transpose(glm::inverse(transform));
+            // Word 0 points to the debug-normal corner map. Each key has five words:
+            // count, indices, positions, optional normals, optional tangents (absolute word offsets).
+            // Indices stay integer; stream values are IEEE float bits, avoiding std430 vec3 padding.
+            std::vector<uint32_t> sparse(1 + data.MorphTargets.size() * 5, 0);
+            const auto            transform    = glm::mat3(data.SkinBindTransform);
+            const auto            normalMatrix = glm::transpose(glm::inverse(transform));
+            const auto            nonzero      = [](const auto& v) { return v[0] != 0 || v[1] != 0 || v[2] != 0; };
+            auto                  append       = [&](glm::vec3 value) {
+                for (int c = 0; c < 3; ++c)
+                {
+                    uint32_t bits;
+                    std::memcpy(&bits, &value[c], sizeof(bits));
+                    sparse.push_back(bits);
+                }
+            };
             for (size_t t = 0; t < data.MorphTargets.size(); ++t)
             {
                 const auto& target = data.MorphTargets[t];
                 mesh.MorphTargets.push_back({target.Name, target.DefaultWeight});
+                size_t count   = 0;
+                bool   normals = false, tangents = false;
                 for (const auto& d : target.Deltas)
                 {
-                    auto p       = glm::vec3(d.Position[0], d.Position[1], d.Position[2]);
-                    auto n       = glm::vec3(d.Normal[0], d.Normal[1], d.Normal[2]);
-                    auto tangent = glm::vec3(d.Tangent[0], d.Tangent[1], d.Tangent[2]);
-                    if (!data.Skin.empty())
+                    count += nonzero(d.Position) || nonzero(d.Normal) || nonzero(d.Tangent);
+                    normals |= nonzero(d.Normal);
+                    tangents |= nonzero(d.Tangent);
+                }
+                const size_t descriptor = 1 + t * 5;
+                sparse[descriptor]      = uint32_t(count);
+                sparse[descriptor + 1]  = uint32_t(sparse.size());
+                for (const auto& d : target.Deltas)
+                    if (nonzero(d.Position) || nonzero(d.Normal) || nonzero(d.Tangent))
+                        sparse.push_back(d.Vertex);
+                for (int stream = 0; stream < 3; ++stream)
+                {
+                    if ((stream == 1 && !normals) || (stream == 2 && !tangents))
+                        continue;
+                    sparse[descriptor + 2 + stream] = uint32_t(sparse.size());
+                    for (const auto& d : target.Deltas)
                     {
-                        const auto& v  = data.Vertices[d.Vertex];
-                        p              = transform * p;
-                        const float nl = glm::length(normalMatrix * glm::vec3(v.Normal[0], v.Normal[1], v.Normal[2]));
-                        const float tl = glm::length(transform * glm::vec3(v.Tangent[0], v.Tangent[1], v.Tangent[2]));
-                        n              = normalMatrix * n / std::max(nl, 1e-20f);
-                        tangent        = transform * tangent / std::max(tl, 1e-20f);
-                    }
-                    const auto base = (t * data.Vertices.size() + d.Vertex) * 9;
-                    for (int c = 0; c < 3; ++c)
-                    {
-                        dense[base + c]     = p[c];
-                        dense[base + 3 + c] = n[c];
-                        dense[base + 6 + c] = tangent[c];
+                        if (!nonzero(d.Position) && !nonzero(d.Normal) && !nonzero(d.Tangent))
+                            continue;
+                        const auto& raw   = stream == 0 ? d.Position : stream == 1 ? d.Normal : d.Tangent;
+                        auto        value = glm::vec3(raw[0], raw[1], raw[2]);
+                        if (!data.Skin.empty())
+                        {
+                            const auto& v = data.Vertices[d.Vertex];
+                            if (stream == 0)
+                                value = transform * value;
+                            else if (stream == 1)
+                                value = normalMatrix * value /
+                                        std::max(glm::length(normalMatrix *
+                                                             glm::vec3(v.Normal[0], v.Normal[1], v.Normal[2])),
+                                                 1e-20f);
+                            else
+                                value = transform * value /
+                                        std::max(glm::length(transform *
+                                                             glm::vec3(v.Tangent[0], v.Tangent[1], v.Tangent[2])),
+                                                 1e-20f);
+                        }
+                        append(value);
                     }
                 }
             }
-            // Debug-normal lines have two endpoints per indexed corner; keep their source vertex mapping immutable too.
-            for (size_t i = 0; i < data.Indices.size(); ++i)
-                dense[deltaFloats + i] = float(data.Indices[i]);
-            mesh.MorphDeltas = device->CreateBuffer({dense.size() * sizeof(float),
+            // Two debug-normal endpoints share the original indexed corner's source vertex.
+            sparse[0] = uint32_t(sparse.size());
+            sparse.insert(sparse.end(), data.Indices.begin(), data.Indices.end());
+            mesh.MorphDeltas = device->CreateBuffer({sparse.size() * sizeof(uint32_t),
                                                      RenderHardware::BufferUsage::Storage,
                                                      RenderHardware::MemoryUsage::Upload});
-            mesh.MorphDeltas->Write(0, dense.data(), dense.size() * sizeof(float));
+            mesh.MorphDeltas->Write(0, sparse.data(), sparse.size() * sizeof(uint32_t));
         }
         mesh.LocalBounds   = data.LocalBounds;
         mesh.Sections      = data.Sections;

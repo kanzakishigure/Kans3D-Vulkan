@@ -267,27 +267,27 @@ namespace Kans
             a.Player->SetIKWorldTransform(GetWorldTransform(root));
             a.Player->ExtractRootMotion = a.ApplyRootMotion;
             a.Player->Speed             = a.Speed;
-            a.Player->Advance(seconds, [&](const auto& event) { a.Events.push_back(event); });
-            if (a.ApplyRootMotion)
-            {
-                const auto& delta  = a.Player->GetRootMotion();
-                const auto  matrix = root.GetComponent<TransformComponent>().GetTransform() *
-                                     glm::translate(glm::mat4(1), delta.Translation) * glm::mat4_cast(delta.Rotation);
-                const auto  local  = JointTransform::FromMatrix(matrix);
-                auto&       transform      = root.GetComponent<TransformComponent>();
-                transform.Position         = local.Translation;
-                transform.Rotation         = glm::eulerAngles(local.Rotation);
-                transform.Scale            = local.Scale;
-                transform.ImportedMatrix   = matrix;
-                transform.ImportedPosition = transform.Position;
-                transform.ImportedRotation = transform.Rotation;
-                transform.ImportedScale    = transform.Scale;
-            }
-            if (a.ApplyRootMotion && a.Player->HasIK())
-            {
-                a.Player->SetIKWorldTransform(GetWorldTransform(root));
-                a.Player->RebuildPose();
-            }
+            a.Player->Advance(
+                seconds,
+                [&](const auto& event) { a.Events.push_back(event); },
+                [this, &root](const auto& delta) {
+                    auto& animator = root.GetComponent<AnimatorComponent>();
+                    if (!animator.ApplyRootMotion)
+                        return;
+                    const auto matrix          = root.GetComponent<TransformComponent>().GetTransform() *
+                                                 glm::translate(glm::mat4(1), delta.Translation) *
+                                                 glm::mat4_cast(delta.Rotation);
+                    const auto local           = JointTransform::FromMatrix(matrix);
+                    auto&      transform       = root.GetComponent<TransformComponent>();
+                    transform.Position         = local.Translation;
+                    transform.Rotation         = glm::eulerAngles(local.Rotation);
+                    transform.Scale            = local.Scale;
+                    transform.ImportedMatrix   = matrix;
+                    transform.ImportedPosition = transform.Position;
+                    transform.ImportedRotation = transform.Rotation;
+                    transform.ImportedScale    = transform.Scale;
+                    animator.Player->SetIKWorldTransform(GetWorldTransform(root));
+                });
             ApplyAnimatorPose(root, a.Player->GetPose());
         }
         UpdateBounds();
