@@ -37,6 +37,49 @@ namespace Kans::ComponentEditors
             return true;
         }
 
+        void ListEntities(Scene& scene, Entity entity, int depth, uint64_t& id, bool& changed)
+        {
+            const uint64_t uuid = uint64_t(entity.GetUUID());
+            ImGui::PushID(&uuid);
+            ImGui::Indent(float(depth) * 10.0f);
+            if (ImGui::Selectable(entity.GetComponent<TagComponent>().Tag.c_str(), id == uuid))
+                id = uuid, changed = true;
+            ImGui::Unindent(float(depth) * 10.0f);
+            ImGui::PopID();
+            for (Entity child : scene.GetChildren(entity))
+                ListEntities(scene, child, depth + 1, id, changed);
+        }
+
+        // An entity whose world transform drives an IK target (0 = use the explicit value).
+        // Also accepts an entity dragged from the Hierarchy.
+        bool EntityField(const char* label, uint64_t& id, Scene* scene)
+        {
+            PropertyGrid::Row(label);
+            Entity      target  = scene && id ? scene->GetEntityByUUID(UUID(id)) : Entity {};
+            std::string current = !id ? "(none)" : target ? target.GetComponent<TagComponent>().Tag : "(missing)";
+            bool        changed = false;
+            ImGui::PushID(label);
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::BeginCombo("##entity", current.c_str(), ImGuiComboFlags_HeightLarge))
+            {
+                if (ImGui::Selectable("(none)", id == 0))
+                    id = 0, changed = true;
+                if (scene)
+                    for (Entity root : scene->GetRootEntities())
+                        ListEntities(*scene, root, 0, id, changed);
+                ImGui::EndCombo();
+            }
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const auto* payload = ImGui::AcceptDragDropPayload("entity_payload");
+                    payload && payload->DataSize == sizeof(uint64_t))
+                    id = *static_cast<const uint64_t*>(payload->Data), changed = true;
+                ImGui::EndDragDropTarget();
+            }
+            ImGui::PopID();
+            return changed;
+        }
+
         // A joint chosen from the skeleton (empty = none).
         bool JointCombo(const char* label, std::string& joint, const SkeletonData* skeleton)
         {
@@ -322,7 +365,7 @@ namespace Kans::ComponentEditors
             return changed;
         }
 
-        bool DrawIK(AnimationControllerData& c, const SkeletonData* skeleton)
+        bool DrawIK(AnimationControllerData& c, const SkeletonData* skeleton, Scene* scene)
         {
             bool changed = false;
             if (!ImGui::TreeNode("IK"))
@@ -340,8 +383,12 @@ namespace Kans::ComponentEditors
                     changed |= JointCombo("Root", ik.Root, skeleton);
                     changed |= JointCombo("Middle", ik.Middle, skeleton);
                     changed |= JointCombo("End", ik.End, skeleton);
-                    changed |= PropertyGrid::Vec3("Target", ik.Target.Position, 0.0f, 0.01f);
-                    changed |= PropertyGrid::Vec3("Pole", ik.PoleDirection, 0.0f, 0.01f);
+                    changed |= EntityField("Target entity", ik.Target.Entity, scene);
+                    if (!ik.Target.Entity)
+                        changed |= PropertyGrid::Vec3("Target", ik.Target.Position, 0.0f, 0.01f);
+                    changed |= EntityField("Pole entity", ik.PoleEntity, scene);
+                    if (!ik.PoleEntity)
+                        changed |= PropertyGrid::Vec3("Pole", ik.PoleDirection, 0.0f, 0.01f);
                     changed |= PropertyGrid::Float("Weight", ik.Weight, 0.01f, 0.0f, 1.0f);
                     changed |= PropertyGrid::Float("Rotation weight", ik.RotationWeight, 0.01f, 0.0f, 1.0f);
                     changed |= PropertyGrid::Checkbox("Stretch", ik.Stretch);
@@ -367,7 +414,9 @@ namespace Kans::ComponentEditors
                         changed |= PropertyGrid::Vec3("Forward", ik.Bones[b].Forward, 0.0f, 0.01f);
                         ImGui::PopID();
                     }
-                    changed |= PropertyGrid::Vec3("Target", ik.Target.Position, 0.0f, 0.01f);
+                    changed |= EntityField("Target entity", ik.Target.Entity, scene);
+                    if (!ik.Target.Entity)
+                        changed |= PropertyGrid::Vec3("Target", ik.Target.Position, 0.0f, 0.01f);
                     changed |= PropertyGrid::Float("Weight", ik.Weight, 0.01f, 0.0f, 1.0f);
                     float degrees = glm::degrees(ik.AngleLimit);
                     if (PropertyGrid::Float("Angle limit", degrees, 0.5f, 0.0f, 180.0f, "%.0f deg"))
@@ -444,7 +493,7 @@ namespace Kans::ComponentEditors
             }
             if (ImGui::SmallButton(ICON_FA_PLUS " Layer"))
                 c.Layers.push_back({"Layer" + std::to_string(c.Layers.size())}), changed = true;
-            changed |= DrawIK(c, skeleton);
+            changed |= DrawIK(c, skeleton, scene);
         }
         // Edits change the controller the animator was prepared with.
         if (changed && scene)

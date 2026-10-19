@@ -1,5 +1,4 @@
 #pragma once
-#include <map>
 #include <string>
 #include <imgui.h>
 #include <vector>
@@ -9,6 +8,7 @@
 namespace Kans
 {
     struct AnimationControllerData;
+    struct AnimationLayer;
 
     // The selected model's animator as a node graph: one tab per layer, its states as
     // nodes and transitions as arrows, the playing state highlighted. Right-click adds a
@@ -27,7 +27,8 @@ namespace Kans
         bool DrawGraph(AnimationControllerData& controller, size_t layer);
         bool DrawSelection(AnimationControllerData& controller, size_t layer);
         bool DrawExpressions(AnimationControllerData& controller);
-        ImVec2& NodePosition(size_t layer, size_t state);
+        static ImVec2 NodePosition(const AnimationLayer& layer, size_t state);
+        static void   MoveNode(AnimationLayer& layer, size_t state, ImVec2 delta);
 
         // A clip from the project (true when `clip` changed).
         bool ClipCombo(const char* id, AssetID& clip);
@@ -39,7 +40,5 @@ namespace Kans
         int             m_SelectedState = -1, m_SelectedTransition = -1;
         int             m_LinkFrom = -2; // State a new transition starts from (-1 = Any State), -2 = none.
         ImVec2          m_Pan {240, 60}; // Leaves room for Any State, left of the first state.
-        // Node positions per (layer, state) of the current entity; laid out on first sight.
-        std::map<std::pair<size_t, size_t>, ImVec2> m_Positions;
     };
 } // namespace Kans

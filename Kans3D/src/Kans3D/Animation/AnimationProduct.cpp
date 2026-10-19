@@ -361,6 +361,11 @@ namespace Kans
                 a["motion"] = s.Motion;
                 a["speed"]  = s.Speed;
                 a["loop"]   = s.Loop;
+                if (s.EditorPosition)
+                {
+                    a["editor_x"] = s.EditorPosition->x;
+                    a["editor_y"] = s.EditorPosition->y;
+                }
                 v["states"].push_back(a);
             }
             for (const auto& t : l.Transitions)
@@ -475,10 +480,14 @@ namespace Kans
             for (const auto& a : v["mask"])
                 l.Mask.push_back({a["joint"].as<std::string>(), a["weight"].as<float>(), a["descendants"].as<bool>()});
             for (const auto& a : v["states"])
+            {
                 l.States.push_back({a["name"].as<std::string>(),
                                     a["motion"].as<uint32_t>(),
                                     a["speed"].as<double>(),
                                     a["loop"].as<bool>()});
+                if (a["editor_x"] && a["editor_y"])
+                    l.States.back().EditorPosition = glm::vec2(a["editor_x"].as<float>(), a["editor_y"].as<float>());
+            }
             for (const auto& a : v["transitions"])
             {
                 AnimationTransition t;

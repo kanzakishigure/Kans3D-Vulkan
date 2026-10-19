@@ -39,14 +39,18 @@ namespace Kans
         }
     } // namespace
 
-    ImVec2& AnimatorGraphPanel::NodePosition(size_t layer, size_t state)
+    ImVec2 AnimatorGraphPanel::NodePosition(const AnimationLayer& layer, size_t state)
     {
-        auto found = m_Positions.find({layer, state});
-        if (found == m_Positions.end())
-            found = m_Positions.emplace(std::make_pair(layer, state),
-                                        ImVec2 {float(state % 4) * 210.0f, float(state / 4) * 110.0f})
-                        .first;
-        return found->second;
+        // States never moved in the editor sit on a grid; the scene stores a position once moved.
+        if (const auto& saved = layer.States[state].EditorPosition)
+            return {saved->x, saved->y};
+        return {float(state % 4) * 210.0f, float(state / 4) * 110.0f};
+    }
+
+    void AnimatorGraphPanel::MoveNode(AnimationLayer& layer, size_t state, ImVec2 delta)
+    {
+        const ImVec2 p                     = Add(NodePosition(layer, state), delta);
+        layer.States[state].EditorPosition = glm::vec2(p.x, p.y);
     }
 
     bool AnimatorGraphPanel::ClipCombo(const char* id, AssetID& clip)
@@ -84,7 +88,6 @@ namespace Kans
         if (root.GetUUID() != m_Entity)
         {
             m_Entity = root.GetUUID();
-            m_Positions.clear();
             m_Layer = 0, m_SelectedState = m_SelectedTransition = -1, m_LinkFrom = -2;
             m_Pan   = {240, 60};
         }
@@ -169,7 +172,7 @@ namespace Kans
                 playing = int32_t(status[layerIndex].State);
         }
         const auto position = [&](int32_t state) {
-            return state < 0 ? AnyStatePosition : NodePosition(layerIndex, size_t(state));
+            return state < 0 ? AnyStatePosition : NodePosition(layer, size_t(state));
         };
 
         // Transitions: arrows from source to target (offset sideways when both directions exist).
@@ -233,7 +236,7 @@ namespace Kans
             }
             if (s >= 0 && ImGui::IsMouseDragging(ImGuiMouseButton_Left) && !io.KeyShift && m_LinkFrom == -2 &&
                 m_SelectedState == s)
-                NodePosition(layerIndex, size_t(s)) = Add(NodePosition(layerIndex, size_t(s)), io.MouseDelta);
+                MoveNode(layer, size_t(s), io.MouseDelta);
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && m_LinkFrom != -2 && s >= 0 && s != m_LinkFrom)
             {
                 layer.Transitions.push_back({m_LinkFrom, uint32_t(s)});
@@ -254,8 +257,7 @@ namespace Kans
             ImGui::IsMouseDragging(ImGuiMouseButton_Left) &&
             !ImGui::IsMouseHoveringRect(toScreen(position(m_SelectedState)),
                                         Add(toScreen(position(m_SelectedState)), {NodeWidth, NodeHeight})))
-            NodePosition(layerIndex, size_t(m_SelectedState)) =
-                Add(NodePosition(layerIndex, size_t(m_SelectedState)), io.MouseDelta);
+            MoveNode(layer, size_t(m_SelectedState), io.MouseDelta);
         draw->PopClipRect();
 
         // Right-click: add a state where clicked.
@@ -267,8 +269,9 @@ namespace Kans
             {
                 controller.Motions.push_back({});
                 layer.States.push_back({"State" + std::to_string(layer.States.size()), uint32_t(controller.Motions.size() - 1)});
-                NodePosition(layerIndex, layer.States.size() - 1) = {ImGui::GetMousePosOnOpeningCurrentPopup().x - origin.x - m_Pan.x,
-                                                                     ImGui::GetMousePosOnOpeningCurrentPopup().y - origin.y - m_Pan.y};
+                layer.States.back().EditorPosition =
+                    glm::vec2(ImGui::GetMousePosOnOpeningCurrentPopup().x - origin.x - m_Pan.x,
+                              ImGui::GetMousePosOnOpeningCurrentPopup().y - origin.y - m_Pan.y);
                 m_SelectedState = int(layer.States.size() - 1), m_SelectedTransition = -1;
                 changed         = true;
             }
@@ -456,9 +459,6 @@ namespace Kans
             }
             if (layer.EntryState >= layer.States.size())
                 layer.EntryState = layer.States.empty() ? 0 : uint32_t(layer.States.size() - 1);
-            // Later states move up one slot; keep their node positions with them.
-            for (size_t s = size_t(removed); s < layer.States.size(); ++s)
-                NodePosition(m_Layer, s) = NodePosition(m_Layer, s + 1);
             m_SelectedState = -1;
             changed         = true;
         }

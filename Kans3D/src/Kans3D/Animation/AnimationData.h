@@ -141,6 +141,8 @@ namespace Kans
         uint32_t    Motion = 0;
         double      Speed  = 1;
         bool        Loop   = true;
+        // Node position in the editor's graph; not used at runtime.
+        std::optional<glm::vec2> EditorPosition;
     };
     enum class AnimationConditionOp : uint8_t
     {
