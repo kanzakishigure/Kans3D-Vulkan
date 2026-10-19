@@ -12,8 +12,13 @@ namespace Kans
     {
         using RenderHardware::Format;
 
-        constexpr float ColumnWidth = 280.0f, PassWidth = 200.0f, ResourceWidth = 170.0f, ResourceHeight = 52.0f;
-        constexpr float ThumbnailWidth = PassWidth - 16.0f, ResourceRowTop = 40.0f;
+        constexpr float ColumnWidth = 230.0f, PassWidth = 190.0f, PassHeight = 66.0f;
+        constexpr float VersionWidth = 170.0f, ThumbnailWidth = VersionWidth - 12.0f, VersionRowTop = 50.0f;
+
+        GraphDebugID VersionID(GraphDebugID resource, uint32_t version)
+        {
+            return resource ^ ((version + 1) * 0x9E3779B97F4A7C15ull);
+        }
 
         const char* FormatName(Format format)
         {
@@ -74,8 +79,9 @@ namespace Kans
         float ThumbnailHeight(const CompiledGraphResource& resource)
         {
             const auto& d = resource.Description;
-            return std::clamp(ThumbnailWidth * float(d.Height) / float(std::max(1u, d.Width)), 24.0f, 160.0f);
+            return std::clamp(ThumbnailWidth * float(d.Height) / float(std::max(1u, d.Width)), 24.0f, 120.0f);
         }
+        float VersionHeight(const CompiledGraphResource& resource) { return 40.0f + ThumbnailHeight(resource) + 6.0f; }
     } // namespace
 
     GraphCaptureSettings FrameGraphPanel::CaptureSettings() const
@@ -149,49 +155,62 @@ namespace Kans
         std::map<GraphDebugID, float> column;
         for (size_t i = 0; i < order.size(); ++i)
         {
-            const auto& pass   = *order[i];
-            float       height = 66.0f;
-            for (const auto* output : Outputs(pass))
-                height += ThumbnailHeight(*output) + 22.0f;
-            m_Nodes.push_back({pass.ID, true, {float(i) * ColumnWidth, 0.0f}, {PassWidth, height}});
-            column[pass.ID] = float(i);
+            m_Nodes.push_back({order[i]->ID, true, {float(i) * ColumnWidth, 0.0f}, {PassWidth, PassHeight}});
+            column[order[i]->ID] = float(i);
         }
-        float tallest = 0;
-        for (const auto& node : m_Nodes)
-            tallest = std::max(tallest, node.Size.y);
-        // Each resource sits in the band below the passes, just after the pass that first
-        // writes it (or before the pass that first reads it, for textures only read),
-        // stacked when several land in the same column.
+        // Walk each texture's accesses in execution order: a write starts a new version,
+        // a read uses the current one, and a read-write consumes one and produces the next.
         std::map<int, int> stacked;
+        const auto         place = [&](Node node, float at) {
+            const int slot = stacked[int(std::lround(at * 2))]++;
+            node.Position  = {at * ColumnWidth + (PassWidth - VersionWidth) * 0.5f,
+                             PassHeight + VersionRowTop + slot * (VersionHeight(m_Resources[node.Resource]) + 16)};
+            node.Size      = {VersionWidth, VersionHeight(m_Resources[node.Resource])};
+            m_Nodes.push_back(node);
+            return m_Nodes.back().ID;
+        };
         for (uint32_t r = 0; r < m_Resources.size(); ++r)
         {
             const auto& resource = m_Resources[r];
-            float       place    = -1.0f;
-            for (const auto* pass : order)
+            std::vector<const CompiledResourceAccess*> accesses;
+            for (const auto& access : resource.DeclaredAccesses)
+                if (access.ExecutionIndex != uint32_t(-1) && access.Pass < m_Passes.size())
+                    accesses.push_back(&access);
+            std::stable_sort(accesses.begin(), accesses.end(),
+                             [](const auto* a, const auto* b) { return a->ExecutionIndex < b->ExecutionIndex; });
+            GraphDebugID current = 0;
+            uint32_t     version = 0;
+            for (const auto* access : accesses)
             {
-                for (const auto& use : pass->Uses)
-                    if (use.Texture == r)
-                    {
-                        place = Writes(use.Access) ? column[pass->ID] + 0.55f : column[pass->ID] - 0.45f;
-                        break;
-                    }
-                if (place >= -0.5f)
-                    break;
+                const auto& pass   = m_Passes[access->Pass];
+                const bool  writes = Writes(access->Access);
+                const bool  reads  = !writes || access->Access == GraphAccess::ColorReadWrite ||
+                                    access->Access == GraphAccess::DepthReadWrite;
+                if (reads)
+                {
+                    if (!current) // Read before any write: the content the frame started with.
+                        current = place({VersionID(resource.ID, 0), false, {}, {}, r, 0, 0, false},
+                                        column[pass.ID] - 0.5f);
+                    for (auto& node : m_Nodes)
+                        if (node.ID == current)
+                            node.Read = true;
+                    m_Edges.push_back({current, pass.ID});
+                    m_EdgeWrites.push_back(false);
+                }
+                if (writes)
+                {
+                    ++version;
+                    current = place({VersionID(resource.ID, version), false, {}, {}, r, version, pass.ID, false},
+                                    column[pass.ID] + 0.5f);
+                    m_Edges.push_back({pass.ID, current});
+                    m_EdgeWrites.push_back(true);
+                }
             }
-            const int slot = stacked[int(std::lround(place * 2))]++;
-            m_Nodes.push_back({resource.ID,
-                               false,
-                               {place * ColumnWidth + (PassWidth - ResourceWidth) * 0.5f,
-                                tallest + ResourceRowTop + slot * (ResourceHeight + 16)},
-                               {ResourceWidth, ResourceHeight}});
-            for (const auto& pass : m_Passes)
-                for (const auto& use : pass.Uses)
-                    if (use.Texture == r)
-                    {
-                        const bool write = Writes(use.Access);
-                        m_Edges.push_back(write ? std::make_pair(pass.ID, resource.ID) : std::make_pair(resource.ID, pass.ID));
-                        m_EdgeWrites.push_back(write);
-                    }
+            // An imported texture's last version leaves the frame (it is displayed or kept).
+            if (resource.Imported && current)
+                for (auto& node : m_Nodes)
+                    if (node.ID == current)
+                        node.Read = true;
         }
     }
 
@@ -309,7 +328,7 @@ namespace Kans
         for (size_t i = 0; i < m_Edges.size(); ++i)
         {
             const bool inSelection = m_Edges[i].first == m_SelectedPass || m_Edges[i].second == m_SelectedPass ||
-                                     m_Edges[i].first == m_SelectedResource || m_Edges[i].second == m_SelectedResource;
+                                     m_Edges[i].first == m_SelectedVersion || m_Edges[i].second == m_SelectedVersion;
             if (inSelection != (layer == 1))
                 continue;
             const Node* from = nodes.count(m_Edges[i].first) ? nodes[m_Edges[i].first] : nullptr;
@@ -319,10 +338,9 @@ namespace Kans
             const ImVec2 a = toScreen({from->Position.x + from->Size.x, from->Position.y + from->Size.y * 0.5f});
             const ImVec2 b = toScreen({to->Position.x, to->Position.y + std::min(to->Size.y * 0.5f, 30.0f)});
             const float  bend = std::max(40.0f, std::abs(b.x - a.x) * 0.5f);
-            const bool   selected = m_Edges[i].first == m_SelectedPass || m_Edges[i].second == m_SelectedPass ||
-                                  m_Edges[i].first == m_SelectedResource || m_Edges[i].second == m_SelectedResource;
+            const bool   selected     = inSelection;
             // Only the selection's edges stand out; the rest stay faint context.
-            const bool   anySelection = m_SelectedPass || m_SelectedResource;
+            const bool   anySelection = m_SelectedPass || m_SelectedVersion;
             const int    alpha        = selected ? 255 : anySelection ? 25 : 70;
             const ImU32  color        = m_EdgeWrites[i] ? IM_COL32(235, 150, 60, alpha) : IM_COL32(90, 160, 240, alpha);
             draw->AddBezierCubic(a, {a.x + bend, a.y}, {b.x - bend, b.y}, b, color, selected ? 2.5f : 1.0f);
@@ -373,43 +391,37 @@ namespace Kans
                     text({min.x + pad, min.y + 44 * m_Zoom}, IM_COL32(160, 170, 180, 255),
                          std::to_string(stats->Draws->DrawCalls) + " draws, " + std::to_string(stats->Draws->Triangles) +
                              " tris");
-                // The pass's outputs as captured after it ran.
-                float y = 66.0f;
-                for (const auto* output : Outputs(*pass))
-                {
-                    const float  h  = ThumbnailHeight(*output);
-                    const ImVec2 at = toScreen({node.Position.x + 8, node.Position.y + y});
-                    text(at, IM_COL32(200, 200, 200, 255), output->Name);
-                    const ImVec2 imageMin = toScreen({node.Position.x + 8, node.Position.y + y + 18});
-                    const ImVec2 imageMax = toScreen({node.Position.x + 8 + ThumbnailWidth, node.Position.y + y + 18 + h});
-                    uintptr_t    id       = 0;
-                    if (m_Captures)
-                        if (const auto* image = m_Captures->Find({pass->ID, output->ID, {0, 0}}))
-                            id = Display(*image, ThumbnailSettings(*output));
-                    if (id)
-                        draw->AddImage(reinterpret_cast<ImTextureID>(id), imageMin, imageMax, {0, 0}, {1, 1});
-                    else
-                        draw->AddRectFilled(imageMin, imageMax, IM_COL32(35, 35, 38, 255));
-                    draw->AddRect(imageMin, imageMax, IM_COL32(70, 70, 80, 255));
-                    y += h + 22.0f;
-                }
             }
             else
             {
-                const auto* resource = FindResource(node.ID);
-                const bool  selected = node.ID == m_SelectedResource;
-                draw->AddRectFilled(min, max, IM_COL32(52, 46, 40, 240), 10.0f * m_Zoom);
+                const auto& resource = m_Resources.at(node.Resource);
+                const bool  selected = node.ID == m_SelectedVersion;
+                // Versions nobody reads (and that do not leave the frame) are wasted work.
+                const ImU32 fill = node.Read ? IM_COL32(52, 46, 40, 240) : IM_COL32(42, 40, 40, 200);
+                draw->AddRectFilled(min, max, fill, 8.0f * m_Zoom);
                 draw->AddRect(min, max, selected ? IM_COL32(255, 200, 80, 255) : over ? IM_COL32(200, 170, 140, 255) :
                                                                                         IM_COL32(110, 95, 80, 255),
-                              10.0f * m_Zoom, 0, selected ? 2.5f : 1.0f);
-                if (!resource)
-                    continue;
-                text({min.x + pad, min.y + 4 * m_Zoom}, IM_COL32(240, 230, 220, 255), resource->Name);
-                const auto& d = resource->Description;
+                              8.0f * m_Zoom, 0, selected ? 2.5f : 1.0f);
+                text({min.x + pad, min.y + 4 * m_Zoom}, node.Read ? IM_COL32(240, 230, 220, 255) : IM_COL32(150, 145, 140, 255),
+                     resource.Name + "  v" + std::to_string(node.Version) + (node.Read ? "" : "  (unused)"));
+                const auto& d = resource.Description;
                 char        info[96];
                 std::snprintf(info, sizeof(info), "%ux%u %s%s", d.Width, d.Height, FormatName(d.PixelFormat),
-                              resource->Imported ? "  imported" : "  transient");
-                text({min.x + pad, min.y + 24 * m_Zoom}, IM_COL32(190, 180, 170, 255), info);
+                              resource.Imported ? "  imported" : "  transient");
+                text({min.x + pad, min.y + 20 * m_Zoom}, IM_COL32(170, 160, 150, 255), info);
+                // The content right after the write that produced this version.
+                const ImVec2 imageMin = toScreen({node.Position.x + 6, node.Position.y + 40});
+                const ImVec2 imageMax =
+                    toScreen({node.Position.x + 6 + ThumbnailWidth, node.Position.y + 40 + ThumbnailHeight(resource)});
+                uintptr_t id = 0;
+                if (m_Captures && node.Writer)
+                    if (const auto* image = m_Captures->Find({node.Writer, resource.ID, {0, 0}}))
+                        id = Display(*image, ThumbnailSettings(resource));
+                if (id)
+                    draw->AddImage(reinterpret_cast<ImTextureID>(id), imageMin, imageMax, {0, 0}, {1, 1});
+                else
+                    draw->AddRectFilled(imageMin, imageMax, IM_COL32(35, 35, 38, 255));
+                draw->AddRect(imageMin, imageMax, IM_COL32(70, 70, 80, 255));
             }
         }
         draw->PopClipRect();
@@ -417,7 +429,8 @@ namespace Kans
         {
             if (clickedPass)
             {
-                m_SelectedPass = clicked;
+                m_SelectedPass    = clicked;
+                m_SelectedVersion = 0;
                 // Keep the resource selected when the new pass writes it; otherwise its first output.
                 const auto* pass    = FindPass(clicked);
                 const auto  outputs = pass ? Outputs(*pass) : std::vector<const CompiledGraphResource*> {};
@@ -425,12 +438,19 @@ namespace Kans
                     m_SelectedResource = outputs.empty() ? 0 : outputs.front()->ID;
             }
             else
-                m_SelectedResource = clicked;
+                for (const auto& node : m_Nodes)
+                    if (node.ID == clicked)
+                    {
+                        // A version shows the image its writer produced.
+                        m_SelectedVersion  = node.ID;
+                        m_SelectedResource = m_Resources.at(node.Resource).ID;
+                        m_SelectedPass     = node.Writer;
+                    }
             m_Probe.reset();
             m_ProbeResult.reset();
         }
         else if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
-            m_SelectedPass = m_SelectedResource = 0;
+            m_SelectedPass = m_SelectedResource = m_SelectedVersion = 0;
     }
 
     void FrameGraphPanel::DrawInspector()

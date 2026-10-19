@@ -26,11 +26,17 @@ namespace Kans
         void                 Draw();
 
     private:
+        // A pass, or one version of a texture: the texture's content after one write
+        // (version 0 is what it held before its first write in this frame).
         struct Node
         {
             GraphDebugID ID = 0;
             bool         Pass = false;
             ImVec2       Position, Size; // Graph space (unzoomed).
+            uint32_t     Resource = uint32_t(-1);
+            uint32_t     Version  = 0;
+            GraphDebugID Writer   = 0; // The pass that produced this version (0 for version 0).
+            bool         Read     = false; // Some later pass reads this version.
         };
         void Snapshot();
         void Layout();
@@ -60,7 +66,7 @@ namespace Kans
 
         ImVec2       m_Pan {40, 40};
         float        m_Zoom = 1.0f;
-        GraphDebugID m_SelectedPass = 0, m_SelectedResource = 0;
+        GraphDebugID m_SelectedPass = 0, m_SelectedResource = 0, m_SelectedVersion = 0;
 
         CaptureDisplaySettings m_Display;
         uint32_t               m_Mip = 0, m_Face = 0;
