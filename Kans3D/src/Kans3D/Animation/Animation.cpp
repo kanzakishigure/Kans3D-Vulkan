@@ -388,6 +388,7 @@ namespace Kans
         m_ExpressionTo.assign(count, 0);
         m_ExpressionElapsed = m_ExpressionDuration = 0;
         m_RootDelta = {};
+        PrepareIK();
         RebuildPose();
         return std::monostate {};
     }
@@ -524,6 +525,9 @@ namespace Kans
             return false;
         out.Resize(m_Skeleton->Joints.size());
         StatePose(layer, state, time, out);
+        if (m_Modifier)
+            m_Modifier(*m_Skeleton, out);
+        EvaluateIK(out);
         BuildModelPose(*m_Skeleton, out);
         return true;
     }
@@ -888,6 +892,275 @@ namespace Kans
         RebuildPose();
         return true;
     }
+    namespace
+    {
+        bool      IKFinite(glm::vec3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
+        bool      IKFinite(glm::quat q) { return std::isfinite(q.w) && IKFinite(glm::vec3(q.x, q.y, q.z)); }
+        glm::vec3 IKUnit(glm::vec3 v, glm::vec3 fallback)
+        {
+            const float length = glm::length(v);
+            return std::isfinite(length) && length > 1e-7f ? v / length : fallback;
+        }
+        glm::vec3 IKPerpendicular(glm::vec3 v)
+        {
+            return IKUnit(glm::cross(v, std::abs(v.x) < .8f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0)), {0, 0, 1});
+        }
+        glm::quat IKBetween(glm::vec3 from, glm::vec3 to)
+        {
+            from              = IKUnit(from, {0, 1, 0});
+            to                = IKUnit(to, from);
+            const float dot   = std::clamp(glm::dot(from, to), -1.f, 1.f);
+            const auto  cross = glm::cross(from, to);
+            const float sine  = glm::length(cross);
+            if (sine > 1e-7f)
+                return glm::angleAxis(std::atan2(sine, dot), cross / sine);
+            return dot < 0 ? glm::angleAxis(glm::pi<float>(), IKPerpendicular(from)) : glm::quat(1, 0, 0, 0);
+        }
+        glm::quat IKFrame(glm::vec3 forward, glm::vec3 up)
+        {
+            forward    = IKUnit(forward, {0, 0, 1});
+            auto right = IKUnit(glm::cross(up, forward), IKPerpendicular(forward));
+            return glm::normalize(glm::quat_cast(glm::mat3(right, glm::cross(forward, right), forward)));
+        }
+    } // namespace
+    void Animator::PrepareIK()
+    {
+        m_TwoBone.clear();
+        m_LookAt.clear();
+        m_IKWarnings.clear();
+        auto bind = [&](const std::string& name) {
+            const auto j = m_Skeleton->FindJoint(name);
+            if (j < 0)
+                m_IKWarnings.push_back("Missing or ambiguous IK joint: " + name);
+            return j;
+        };
+        for (const auto& data : m_Controller->TwoBoneConstraints)
+        {
+            BoundTwoBone b {data, bind(data.Root), bind(data.Middle), bind(data.End)};
+            if (b.Root >= 0 && b.Middle >= 0 && b.End >= 0 &&
+                (m_Skeleton->Joints[b.Middle].Parent != b.Root || m_Skeleton->Joints[b.End].Parent != b.Middle))
+            {
+                m_IKWarnings.push_back("IK requires consecutive root-middle-end joints: " + data.Name);
+                b.Root = -1;
+            }
+            m_TwoBone.push_back(std::move(b));
+        }
+        for (const auto& data : m_Controller->LookAtConstraints)
+        {
+            BoundLookAt b;
+            b.Data = data;
+            for (const auto& bone : data.Bones)
+                b.Joints.push_back(bind(bone.Joint));
+            m_LookAt.push_back(std::move(b));
+        }
+        m_IKModel.resize(m_Skeleton->Joints.size());
+        m_IKRotations.resize(m_Skeleton->Joints.size());
+        m_IKDirty.resize(m_Skeleton->Joints.size());
+    }
+    bool Animator::SetIKTarget(const std::string& name, const IKTarget& target)
+    {
+        if (!IKFinite(target.Position) || !IKFinite(target.Rotation) ||
+            glm::dot(target.Rotation, target.Rotation) < 1e-12f)
+            return false;
+        for (auto& b : m_TwoBone)
+            if (b.Data.Name == name)
+            {
+                b.Data.Target = target;
+                return true;
+            }
+        for (auto& b : m_LookAt)
+            if (b.Data.Name == name)
+            {
+                b.Data.Target = target;
+                return true;
+            }
+        return false;
+    }
+    bool Animator::SetIKWeight(const std::string& name, float weight)
+    {
+        if (!std::isfinite(weight))
+            return false;
+        weight = std::clamp(weight, 0.f, 1.f);
+        for (auto& b : m_TwoBone)
+            if (b.Data.Name == name)
+            {
+                b.Data.Weight = weight;
+                return true;
+            }
+        for (auto& b : m_LookAt)
+            if (b.Data.Name == name)
+            {
+                b.Data.Weight = weight;
+                return true;
+            }
+        return false;
+    }
+    bool Animator::SetIKPole(const std::string& name, glm::vec3 direction, uint64_t entity)
+    {
+        if (!IKFinite(direction))
+            return false;
+        for (auto& b : m_TwoBone)
+            if (b.Data.Name == name)
+            {
+                b.Data.PoleDirection = direction;
+                b.Data.PoleEntity    = entity;
+                return true;
+            }
+        return false;
+    }
+    bool Animator::SetIKRotation(const std::string& name, glm::quat rotation, float weight)
+    {
+        if (!IKFinite(rotation) || glm::dot(rotation, rotation) < 1e-12f || !std::isfinite(weight))
+            return false;
+        for (auto& b : m_TwoBone)
+            if (b.Data.Name == name)
+            {
+                b.Data.Target.Rotation = glm::normalize(rotation);
+                b.Data.RotationWeight  = std::clamp(weight, 0.f, 1.f);
+                return true;
+            }
+        return false;
+    }
+    bool Animator::ResolveIK(const IKTarget& target, glm::vec3& position, glm::quat& rotation) const
+    {
+        auto point = target.Position;
+        auto q     = target.Rotation;
+        if (target.Entity)
+        {
+            glm::mat4 world;
+            if (!m_IKResolver || !m_IKResolver(target.Entity, world) || !std::isfinite(glm::determinant(world)) ||
+                std::abs(glm::determinant(world)) < 1e-12f)
+                return false;
+            point = glm::vec3(world[3]);
+            q     = JointTransform::FromMatrix(world).Rotation;
+        }
+        position = glm::vec3(m_IKInverse * glm::vec4(point, 1));
+        rotation = glm::normalize(glm::inverse(m_IKWorldRotation) * q);
+        return IKFinite(position) && IKFinite(rotation);
+    }
+    void Animator::RefreshIK(const AnimationPose& pose, int32_t start)
+    {
+        // Parent-before-child order need not be depth-first. Dirty propagation also updates side branches.
+        std::fill(m_IKDirty.begin(), m_IKDirty.end(), 0);
+        for (size_t j = start; j < pose.Local.size(); ++j)
+        {
+            const auto parent = m_Skeleton->Joints[j].Parent;
+            const bool dirty  = start == 0 || int32_t(j) == start || (parent >= 0 && m_IKDirty[parent]);
+            m_IKDirty[j]      = dirty;
+            if (!dirty)
+                continue;
+            m_IKModel[j] = parent < 0 ? pose.Local[j].Matrix() : m_IKModel[parent] * pose.Local[j].Matrix();
+            m_IKRotations[j] =
+                glm::normalize(parent < 0 ? pose.Local[j].Rotation : m_IKRotations[parent] * pose.Local[j].Rotation);
+        }
+    }
+    void Animator::RotateIK(AnimationPose& pose, int32_t joint, glm::quat modelRotation)
+    {
+        const auto parent = m_Skeleton->Joints[joint].Parent;
+        pose.Local[joint].Rotation =
+            glm::normalize(parent < 0 ? modelRotation : glm::inverse(m_IKRotations[parent]) * modelRotation);
+        RefreshIK(pose, joint);
+    }
+    void Animator::EvaluateIK(AnimationPose& pose)
+    {
+        if (!HasIK())
+            return;
+        const float determinant = glm::determinant(m_IKWorld);
+        if (!std::isfinite(determinant) || std::abs(determinant) < 1e-12f)
+            return;
+        m_IKInverse       = glm::inverse(m_IKWorld);
+        m_IKWorldRotation = JointTransform::FromMatrix(m_IKWorld).Rotation;
+        RefreshIK(pose);
+        for (const auto& b : m_TwoBone)
+        {
+            const auto& ik = b.Data;
+            if (b.Root < 0 || b.Middle < 0 || b.End < 0)
+                continue;
+            glm::vec3 target;
+            glm::quat rotation;
+            if (!ResolveIK(ik.Target, target, rotation))
+                continue;
+            const auto root   = glm::vec3(m_IKModel[b.Root][3]);
+            auto       middle = glm::vec3(m_IKModel[b.Middle][3]);
+            auto       end    = glm::vec3(m_IKModel[b.End][3]);
+            auto       pole   = glm::mat3(m_IKInverse) * ik.PoleDirection;
+            if (ik.PoleEntity)
+            {
+                glm::mat4 world;
+                if (!m_IKResolver || !m_IKResolver(ik.PoleEntity, world))
+                    continue;
+                pole = glm::vec3(m_IKInverse * world[3]) - root;
+            }
+            float a = glm::length(middle - root), c = glm::length(end - middle);
+            if (ik.Weight > 0 && a > 1e-7f && c > 1e-7f)
+            {
+                const auto  oldRoot = pose.Local[b.Root].Rotation, oldMiddle = pose.Local[b.Middle].Rotation;
+                const auto  oldMiddleT = pose.Local[b.Middle].Translation, oldEndT = pose.Local[b.End].Translation;
+                const float distance  = glm::length(target - root);
+                const auto  direction = IKUnit(target - root, IKUnit(end - root, {0, 1, 0}));
+                if (ik.Stretch && distance > a + c)
+                {
+                    const float factor = distance / (a + c);
+                    pose.Local[b.Middle].Translation *= factor;
+                    pose.Local[b.End].Translation *= factor;
+                    a *= factor;
+                    c *= factor;
+                    RefreshIK(pose, b.Root);
+                    middle = glm::vec3(m_IKModel[b.Middle][3]);
+                }
+                const float reach = std::clamp(distance, std::abs(a - c), a + c);
+                const float x     = reach > 1e-7f ? (a * a - c * c + reach * reach) / (2 * reach) : 0;
+                const float h     = std::sqrt(std::max(0.f, a * a - x * x));
+                auto        bend  = IKUnit(pole - direction * glm::dot(pole, direction), IKPerpendicular(direction));
+                const auto  desiredMiddle = root + x * direction + h * bend;
+                const auto  desiredEnd    = root + reach * direction;
+                RotateIK(pose, b.Root, IKBetween(middle - root, desiredMiddle - root) * m_IKRotations[b.Root]);
+                middle = glm::vec3(m_IKModel[b.Middle][3]);
+                end    = glm::vec3(m_IKModel[b.End][3]);
+                RotateIK(pose, b.Middle, IKBetween(end - middle, desiredEnd - middle) * m_IKRotations[b.Middle]);
+                pose.Local[b.Root].Rotation = RotationBlend(oldRoot, pose.Local[b.Root].Rotation, ik.Weight, true);
+                pose.Local[b.Middle].Rotation =
+                    RotationBlend(oldMiddle, pose.Local[b.Middle].Rotation, ik.Weight, true);
+                pose.Local[b.Middle].Translation = glm::mix(oldMiddleT, pose.Local[b.Middle].Translation, ik.Weight);
+                pose.Local[b.End].Translation    = glm::mix(oldEndT, pose.Local[b.End].Translation, ik.Weight);
+                RefreshIK(pose, b.Root);
+            }
+            if (ik.RotationWeight > 0)
+                RotateIK(pose, b.End, RotationBlend(m_IKRotations[b.End], rotation, ik.RotationWeight, true));
+        }
+        for (const auto& b : m_LookAt)
+        {
+            const auto& ik = b.Data;
+            if (ik.Weight <= 0)
+                continue;
+            glm::vec3 target;
+            glm::quat ignored;
+            if (!ResolveIK(ik.Target, target, ignored))
+                continue;
+            for (size_t k = 0; k < b.Joints.size(); ++k)
+            {
+                const auto  j    = b.Joints[k];
+                const auto& bone = ik.Bones[k];
+                if (j < 0 || bone.Weight <= 0)
+                    continue;
+                const auto offset = target - glm::vec3(m_IKModel[j][3]);
+                if (glm::length2(offset) < 1e-14f)
+                    continue;
+                const auto  current = m_IKRotations[j];
+                const auto  forward = IKUnit(current * bone.Forward, {0, 0, 1});
+                const auto  desired = IKUnit(offset, forward);
+                const auto  swing   = IKBetween(forward, desired);
+                const float angle   = std::acos(std::clamp(glm::dot(forward, desired), -1.f, 1.f));
+                const auto  clampedForward =
+                    (angle > ik.AngleLimit ? RotationBlend(glm::quat(1, 0, 0, 0), swing, ik.AngleLimit / angle, true) :
+                                             swing) *
+                    forward;
+                const auto solved = IKFrame(clampedForward, glm::mat3(m_IKInverse) * ik.WorldUp) *
+                                    glm::inverse(IKFrame(bone.Forward, bone.Up));
+                RotateIK(pose, j, RotationBlend(current, solved, ik.Weight * bone.Weight, true));
+            }
+        }
+    }
     void Animator::RebuildPose()
     {
         if (!IsPrepared())
@@ -922,7 +1195,8 @@ namespace Kans
             m_Pose.Local[m_Root].Rotation    = m_Rest.Local[m_Root].Rotation;
         }
         // Clips/blend trees -> masked layers -> additive preset -> absolute script override ->
-        // script offset -> modifier -> one final [0,1] clamp. Presets do not stop clip playback.
+        // script offset -> modifier -> two-bone IK -> look-at -> one final [0,1] clamp. Presets do not stop clip
+        // playback.
         for (size_t k = 0; k < m_Pose.MorphWeights.size(); ++k)
         {
             m_Pose.MorphWeights[k] += m_Expression[k];
@@ -932,6 +1206,7 @@ namespace Kans
         }
         if (m_Modifier)
             m_Modifier(*m_Skeleton, m_Pose);
+        EvaluateIK(m_Pose);
         for (auto& weight : m_Pose.MorphWeights)
             weight = std::isfinite(weight) ? std::clamp(weight, 0.f, 1.f) : 0;
         BuildModelPose(*m_Skeleton, m_Pose);

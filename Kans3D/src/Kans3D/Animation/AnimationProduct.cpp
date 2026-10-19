@@ -51,6 +51,18 @@ namespace Kans
         {
             return {ReadVec(n["t"]), ReadQuat(n["r"]), ReadVec(n["s"])};
         }
+        YAML::Node Target(const IKTarget& t)
+        {
+            YAML::Node n;
+            n["entity"]   = t.Entity;
+            n["position"] = Vec(t.Position);
+            n["rotation"] = Quat(t.Rotation);
+            return n;
+        }
+        IKTarget ReadTarget(const YAML::Node& n)
+        {
+            return {n["entity"].as<uint64_t>(), ReadVec(n["position"]), ReadQuat(n["rotation"])};
+        }
         AssetID ReadID(const YAML::Node& n)
         {
             auto text = n.as<std::string>();
@@ -248,6 +260,43 @@ namespace Kans
         n["motions"]           = YAML::Node(YAML::NodeType::Sequence);
         n["layers"]            = YAML::Node(YAML::NodeType::Sequence);
         n["expressions"]       = YAML::Node(YAML::NodeType::Sequence);
+        n["two_bone_ik"]       = YAML::Node(YAML::NodeType::Sequence);
+        n["look_at_ik"]        = YAML::Node(YAML::NodeType::Sequence);
+        for (const auto& ik : c.TwoBoneConstraints)
+        {
+            YAML::Node v;
+            v["name"]            = ik.Name;
+            v["root"]            = ik.Root;
+            v["middle"]          = ik.Middle;
+            v["end"]             = ik.End;
+            v["target"]          = Target(ik.Target);
+            v["pole_entity"]     = ik.PoleEntity;
+            v["pole_direction"]  = Vec(ik.PoleDirection);
+            v["weight"]          = ik.Weight;
+            v["rotation_weight"] = ik.RotationWeight;
+            v["stretch"]         = ik.Stretch;
+            n["two_bone_ik"].push_back(v);
+        }
+        for (const auto& ik : c.LookAtConstraints)
+        {
+            YAML::Node v;
+            v["name"]        = ik.Name;
+            v["target"]      = Target(ik.Target);
+            v["world_up"]    = Vec(ik.WorldUp);
+            v["weight"]      = ik.Weight;
+            v["angle_limit"] = ik.AngleLimit;
+            v["bones"]       = YAML::Node(YAML::NodeType::Sequence);
+            for (const auto& b : ik.Bones)
+            {
+                YAML::Node a;
+                a["joint"]   = b.Joint;
+                a["weight"]  = b.Weight;
+                a["forward"] = Vec(b.Forward);
+                a["up"]      = Vec(b.Up);
+                v["bones"].push_back(a);
+            }
+            n["look_at_ik"].push_back(v);
+        }
         for (const auto& p : c.Expressions)
         {
             YAML::Node v;
@@ -351,6 +400,45 @@ namespace Kans
             Sequence(n["expressions"], 4096);
             for (const auto& p : n["expressions"])
                 c.Expressions.push_back({p["name"].as<std::string>(), ReadShapeKeyWeights(p["weights"])});
+        }
+        if (n["two_bone_ik"])
+        {
+            Sequence(n["two_bone_ik"], 256);
+            for (const auto& v : n["two_bone_ik"])
+            {
+                TwoBoneIK ik;
+                ik.Name           = v["name"].as<std::string>();
+                ik.Root           = v["root"].as<std::string>();
+                ik.Middle         = v["middle"].as<std::string>();
+                ik.End            = v["end"].as<std::string>();
+                ik.Target         = ReadTarget(v["target"]);
+                ik.PoleEntity     = v["pole_entity"].as<uint64_t>();
+                ik.PoleDirection  = ReadVec(v["pole_direction"]);
+                ik.Weight         = v["weight"].as<float>();
+                ik.RotationWeight = v["rotation_weight"].as<float>();
+                ik.Stretch        = v["stretch"].as<bool>();
+                c.TwoBoneConstraints.push_back(std::move(ik));
+            }
+        }
+        if (n["look_at_ik"])
+        {
+            Sequence(n["look_at_ik"], 256);
+            for (const auto& v : n["look_at_ik"])
+            {
+                LookAtIK ik;
+                ik.Name       = v["name"].as<std::string>();
+                ik.Target     = ReadTarget(v["target"]);
+                ik.WorldUp    = ReadVec(v["world_up"]);
+                ik.Weight     = v["weight"].as<float>();
+                ik.AngleLimit = v["angle_limit"].as<float>();
+                Sequence(v["bones"], 64);
+                for (const auto& a : v["bones"])
+                    ik.Bones.push_back({a["joint"].as<std::string>(),
+                                        a["weight"].as<float>(),
+                                        ReadVec(a["forward"]),
+                                        ReadVec(a["up"])});
+                c.LookAtConstraints.push_back(std::move(ik));
+            }
         }
         for (const auto& v : n["parameters"])
             c.Parameters.push_back({v["name"].as<std::string>(),

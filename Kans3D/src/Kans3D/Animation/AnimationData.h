@@ -203,6 +203,37 @@ namespace Kans
         std::string                 Name;
         std::vector<ShapeKeyWeight> Weights;
     };
+    // All points, directions and rotations are world space. Entity=0 uses the explicit value.
+    // An unresolved entity disables that constraint for the current evaluation.
+    struct IKTarget
+    {
+        uint64_t  Entity = 0;
+        glm::vec3 Position {0};
+        glm::quat Rotation {1, 0, 0, 0};
+    };
+    struct TwoBoneIK
+    {
+        std::string Name, Root, Middle, End;
+        IKTarget    Target;
+        uint64_t    PoleEntity = 0;
+        glm::vec3   PoleDirection {0, 0, 1};
+        float       Weight = 1, RotationWeight = 0;
+        bool        Stretch = false;
+    };
+    struct LookAtBone
+    {
+        std::string Joint;
+        float       Weight = 1;
+        glm::vec3   Forward {0, 0, 1}, Up {0, 1, 0};
+    };
+    struct LookAtIK
+    {
+        std::string             Name;
+        std::vector<LookAtBone> Bones; // Proximal to distal; applied in this order.
+        IKTarget                Target;
+        glm::vec3               WorldUp {0, 1, 0};
+        float                   Weight = 1, AngleLimit = 3.14159265f; // Radians from the incoming pose's forward axis.
+    };
     struct AnimationControllerData
     {
         std::vector<AnimationParameter> Parameters;
@@ -210,6 +241,8 @@ namespace Kans
         std::vector<AnimationLayer>     Layers;
         std::string                     RootMotionJoint;
         std::vector<ExpressionPreset>   Expressions;
+        std::vector<TwoBoneIK>          TwoBoneConstraints;
+        std::vector<LookAtIK>           LookAtConstraints;
     };
     using AnimationValidation = std::variant<std::monostate, AssetError>;
     AnimationValidation ValidateSkeleton(const SkeletonData&);

@@ -108,11 +108,46 @@ namespace Kans
         {
             m_Modifier = std::move(modifier);
         }
+        // Runtime overrides are instance-local and apply on the next update/rebuild/preview (no damping).
+        // Authoring edits belong in the controller + ResetAnimator.
+        bool SetIKTarget(const std::string& name, const IKTarget&);
+        bool SetIKWeight(const std::string& name, float);
+        bool SetIKPole(const std::string& name, glm::vec3 worldDirection, uint64_t entity = 0);
+        bool SetIKRotation(const std::string& name, glm::quat worldRotation, float weight);
+        using IKEntityResolver = std::function<bool(uint64_t, glm::mat4& world)>;
+        void SetIKEntityResolver(IKEntityResolver resolver) { m_IKResolver = std::move(resolver); }
+        void SetIKWorldTransform(const glm::mat4& world) { m_IKWorld = world; }
+        const std::vector<std::string>& GetIKWarnings() const { return m_IKWarnings; }
+        bool                            HasIK() const { return !m_TwoBone.empty() || !m_LookAt.empty(); }
         void   RebuildPose();
         bool   ExtractRootMotion = false; // Removes sampled root T/R from pose; caller applies GetRootMotion().
         double Speed             = 1;
 
     private:
+        void PrepareIK();
+        void EvaluateIK(AnimationPose&);
+        void RefreshIK(const AnimationPose&, int32_t start = 0);
+        void RotateIK(AnimationPose&, int32_t joint, glm::quat modelRotation);
+        bool ResolveIK(const IKTarget&, glm::vec3&, glm::quat&) const;
+        struct BoundTwoBone
+        {
+            TwoBoneIK Data;
+            int32_t   Root = -1, Middle = -1, End = -1;
+        };
+        struct BoundLookAt
+        {
+            LookAtIK             Data;
+            std::vector<int32_t> Joints;
+        };
+        std::vector<BoundTwoBone> m_TwoBone;
+        std::vector<BoundLookAt>  m_LookAt;
+        std::vector<std::string>  m_IKWarnings;
+        std::vector<glm::mat4>    m_IKModel;
+        std::vector<glm::quat>    m_IKRotations;
+        std::vector<uint8_t>      m_IKDirty;
+        glm::mat4                 m_IKWorld {1}, m_IKInverse {1};
+        glm::quat                 m_IKWorldRotation {1, 0, 0, 0};
+        IKEntityResolver          m_IKResolver;
         int32_t Parameter(const std::string&) const;
         bool    Set(const std::string&, double, AnimationParameterType);
         double  Value(const std::string&) const;

@@ -113,6 +113,14 @@ namespace Kans
                     break;
             }
         }
+        player->SetIKEntityResolver([this](uint64_t id, glm::mat4& world) {
+            auto entity = GetEntityByUUID(UUID(id));
+            if (!entity)
+                return false;
+            world = GetWorldTransform(entity);
+            return true;
+        });
+        player->SetIKWorldTransform(GetWorldTransform(root));
         player->ExtractRootMotion = a.ApplyRootMotion;
         player->Speed             = a.Speed;
         player->RebuildPose();
@@ -256,6 +264,7 @@ namespace Kans
             a.Events.clear();
             if (!a.Enabled || !PrepareAnimator(root))
                 continue;
+            a.Player->SetIKWorldTransform(GetWorldTransform(root));
             a.Player->ExtractRootMotion = a.ApplyRootMotion;
             a.Player->Speed             = a.Speed;
             a.Player->Advance(seconds, [&](const auto& event) { a.Events.push_back(event); });
@@ -274,6 +283,11 @@ namespace Kans
                 transform.ImportedRotation = transform.Rotation;
                 transform.ImportedScale    = transform.Scale;
             }
+            if (a.ApplyRootMotion && a.Player->HasIK())
+            {
+                a.Player->SetIKWorldTransform(GetWorldTransform(root));
+                a.Player->RebuildPose();
+            }
             ApplyAnimatorPose(root, a.Player->GetPose());
         }
         UpdateBounds();
@@ -283,6 +297,7 @@ namespace Kans
         if (!PrepareAnimator(root))
             return false;
         auto& a = root.GetComponent<AnimatorComponent>();
+        a.Player->SetIKWorldTransform(GetWorldTransform(root));
         if (!a.Player->EvaluateState(layer, state, time, a.PreviewPose))
             return false;
         ApplyAnimatorPose(root, a.PreviewPose);

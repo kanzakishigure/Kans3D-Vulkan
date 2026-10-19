@@ -175,6 +175,29 @@ namespace Kans
         if (c.Motions.empty() || c.Motions.size() > 4096 || c.Layers.empty() || c.Layers.size() > 64 ||
             c.Parameters.size() > 4096 || !Text(c.RootMotionJoint))
             return Invalid("Invalid controller counts");
+        auto unitWeight  = [](float w) { return std::isfinite(w) && w >= 0 && w <= 1; };
+        auto targetValid = [](const IKTarget& t) {
+            return Finite(t.Position) && Finite(t.Rotation) && glm::dot(t.Rotation, t.Rotation) > 1e-12f;
+        };
+        std::set<std::string> ikNames;
+        auto nameValid = [&](const std::string& n) { return !n.empty() && Text(n) && ikNames.insert(n).second; };
+        if (c.TwoBoneConstraints.size() > 256 || c.LookAtConstraints.size() > 256)
+            return Invalid("Too many IK constraints");
+        for (const auto& ik : c.TwoBoneConstraints)
+            if (!nameValid(ik.Name) || !Text(ik.Root) || !Text(ik.Middle) || !Text(ik.End) || !targetValid(ik.Target) ||
+                !Finite(ik.PoleDirection) || !unitWeight(ik.Weight) || !unitWeight(ik.RotationWeight))
+                return Invalid("Invalid two-bone IK constraint");
+        for (const auto& ik : c.LookAtConstraints)
+        {
+            if (!nameValid(ik.Name) || !targetValid(ik.Target) || !unitWeight(ik.Weight) || !Finite(ik.WorldUp) ||
+                !std::isfinite(ik.AngleLimit) || ik.AngleLimit < 0 || ik.AngleLimit > glm::pi<float>() ||
+                ik.Bones.empty() || ik.Bones.size() > 64)
+                return Invalid("Invalid look-at constraint");
+            for (const auto& bone : ik.Bones)
+                if (!Text(bone.Joint) || !unitWeight(bone.Weight) || !Finite(bone.Forward) || !Finite(bone.Up) ||
+                    glm::length2(bone.Forward) < 1e-12f || glm::length2(glm::cross(bone.Forward, bone.Up)) < 1e-12f)
+                    return Invalid("Invalid look-at bone axes/weight");
+        }
         std::set<std::string> expressionNames;
         for (const auto& p : c.Expressions)
         {
