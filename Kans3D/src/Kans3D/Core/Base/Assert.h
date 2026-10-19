@@ -18,9 +18,9 @@
 
 #ifdef ENABLE_ASSERTS
 #define CORE_ASSERT_CALL(...) \
-    ::Kans::Log::PrintAssertMessage(::Kans::Log::Type::Core, "Assertion Failed" __VA_OPT__(, ) __VA_ARGS__)
+    ::Kans::Log::AssertPrinter{::Kans::Log::Type::Core}(__VA_ARGS__)
 #define CLIENT_ASSERT_CALL(...) \
-    ::Kans::Log::PrintAssertMessage(::Kans::Log::Type::Client, "Assertion Failed" __VA_OPT__(, ) __VA_ARGS__)
+    ::Kans::Log::AssertPrinter{::Kans::Log::Type::Client}(__VA_ARGS__)
 #define CORE_ASSERT(x, ...) \
     { \
         if (!(x)) \

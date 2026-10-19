@@ -52,7 +52,7 @@ namespace Kans
             }
             bool Intersects(const Bounds& box, glm::dvec3 origin, glm::dvec3 direction, double maximum) const
             {
-                double near = 0, far = maximum;
+                double tMin = 0, tMax = maximum;
                 for (int axis = 0; axis < 3; ++axis)
                 {
                     if (std::abs(direction[axis]) < 1e-30)
@@ -66,9 +66,9 @@ namespace Kans
                                b = (box.Max[axis] - origin[axis]) / direction[axis];
                         if (a > b)
                             std::swap(a, b);
-                        near = std::max(near, a);
-                        far  = std::min(far, b);
-                        if (near > far)
+                        tMin = std::max(tMin, a);
+                        tMax = std::min(tMax, b);
+                        if (tMin > tMax)
                             return false;
                     }
                 }
@@ -190,10 +190,10 @@ namespace Kans
                 auto      near4 = Inverse * glm::vec4(ndc, 0, 1);
                 if (near4.w == 0)
                     return false;
-                glm::vec3 near  = glm::vec3(near4) / near4.w;
-                auto      delta = point - near;
+                glm::vec3 eye   = glm::vec3(near4) / near4.w;
+                auto      delta = point - eye;
                 float     depth = glm::length(delta);
-                auto      hit   = Tree.Cast({near, delta});
+                auto      hit   = Tree.Cast({eye, delta});
                 return !hit || hit->Distance >= depth - 1e-4f * std::max(1.0f, depth);
             }
             bool Segment(MeshEdge edge, glm::vec3& a, glm::vec3& b, Projected& pa, Projected& pb) const

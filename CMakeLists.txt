@@ -139,7 +139,18 @@ endif()
 # ============================================================
 add_subdirectory(${KANSEDITOR_DIR})
 
-# Tests live in the Kans3D-tests submodule; the engine builds without it.
-if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/CMakeLists.txt")
-    add_subdirectory(test)
+# Tests live in the Kans3D-tests submodule; the engine builds without it
+# (submodule not pulled, KANS_BUILD_TESTS=OFF, or GoogleTest not installed).
+option(KANS_BUILD_TESTS "Build the Kans3D-tests submodule when it is present" ON)
+if(BUILD_TESTING AND KANS_BUILD_TESTS)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/CMakeLists.txt")
+        message(STATUS "Kans3D: test/ submodule not checked out, skipping tests")
+    else()
+        find_package(GTest QUIET)
+        if(GTest_FOUND)
+            add_subdirectory(test)
+        else()
+            message(WARNING "Kans3D: GoogleTest not found, skipping tests")
+        endif()
+    endif()
 endif()

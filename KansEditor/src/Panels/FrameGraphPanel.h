@@ -47,7 +47,7 @@ namespace Kans
         uintptr_t                    Display(const CapturedImage& image, const CaptureDisplaySettings& settings);
         CaptureDisplaySettings       ThumbnailSettings(const CompiledGraphResource& resource) const;
         const CompiledGraphPass*     FindPass(GraphDebugID id) const;
-        const CompiledGraphResource* FindResource(GraphDebugID id) const;
+        const CompiledGraphResource* FindGraphResource(GraphDebugID id) const;
         const PassStatistics*        FindStatistics(GraphDebugID id) const;
         // Resources a pass writes (in its declared order).
         std::vector<const CompiledGraphResource*> Outputs(const CompiledGraphPass& pass) const;

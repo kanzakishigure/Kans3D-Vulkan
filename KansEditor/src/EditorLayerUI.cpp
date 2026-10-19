@@ -368,7 +368,7 @@ namespace Kans
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FILE_IMPORT, "Asset Importer").c_str()))
                 m_Panels.Open(PanelID::AssetImporter);
             if (ImGui::MenuItem(MenuLabel(ICON_FA_PALETTE, "Create Material").c_str()))
-                CreateMaterial(m_ContentBrowserPanel.GetCurrentDirectory());
+                CreateMaterial(m_ContentBrowserPanel.GetCurrentFolder());
             ImGui::Separator();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_ROTATE_RIGHT, "Refresh Published Products").c_str()))
                 Record(RefreshProductAssets());
@@ -421,7 +421,7 @@ namespace Kans
             m_Panels.Toggle(PanelID::AssetImporter);
         ImGui::SameLine();
         if (ToolButton(ICON_FA_PALETTE, "Create a material in the content browser's folder"))
-            CreateMaterial(m_ContentBrowserPanel.GetCurrentDirectory());
+            CreateMaterial(m_ContentBrowserPanel.GetCurrentFolder());
         ImGui::SameLine();
         if (ToolButton(ICON_FA_ROTATE_RIGHT, "Refresh published products"))
             Record(RefreshProductAssets());

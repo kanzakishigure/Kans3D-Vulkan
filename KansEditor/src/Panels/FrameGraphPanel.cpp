@@ -101,7 +101,7 @@ namespace Kans
         return nullptr;
     }
 
-    const CompiledGraphResource* FrameGraphPanel::FindResource(GraphDebugID id) const
+    const CompiledGraphResource* FrameGraphPanel::FindGraphResource(GraphDebugID id) const
     {
         for (const auto& resource : m_Resources)
             if (resource.ID == id)
@@ -456,7 +456,7 @@ namespace Kans
     void FrameGraphPanel::DrawInspector()
     {
         const auto* pass     = FindPass(m_SelectedPass);
-        const auto* resource = FindResource(m_SelectedResource);
+        const auto* resource = FindGraphResource(m_SelectedResource);
         if (!pass && !resource)
         {
             ImGui::TextDisabled("Click a pass or a texture.");

@@ -47,6 +47,7 @@ if(WIN32)
     endif()
     target_compile_definitions(Kans3D PUBLIC
         PLATFORM_WINDOWS
+        NOMINMAX # Keep <Windows.h> min/max macros away from std::min/std::max.
         _CRT_SECURE_NO_WARNINGS)
 elseif(LINUX)
     target_compile_definitions(Kans3D PUBLIC
