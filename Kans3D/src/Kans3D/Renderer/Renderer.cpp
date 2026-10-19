@@ -666,7 +666,7 @@ namespace Kans
                                  proxy.Transform,
                                  id,
                                  proxy.Section,
-                                 cache ? cache->GetSkinningPalette(proxy.SkinPose) :
+                                 cache ? cache->GetSkinningPalette(proxy.SkinPose, mesh) :
                                          RenderHardware::Handle<RenderHardware::Buffer>()});
         }
     }
@@ -693,7 +693,7 @@ namespace Kans
                                  proxies[i].Transform,
                                  uint32_t(i + 1),
                                  proxies[i].Section,
-                                 cache ? cache->GetSkinningPalette(proxies[i].SkinPose) :
+                                 cache ? cache->GetSkinningPalette(proxies[i].SkinPose, mesh) :
                                          RenderHardware::Handle<RenderHardware::Buffer>()});
         }
         const auto hit = m_Picker.PickSurface(draws,

@@ -191,7 +191,7 @@ namespace Kans
                 object.MaterialRender.x = 3.0f;
             objects->Write(range * objectStride, &object, sizeof(object));
             MaterialPassData pass;
-            pass.Palette            = mesh->Skin ? Assets()->GetSkinningPalette(draw.SkinPose) :
+            pass.Palette            = mesh->Skin ? Assets()->GetSkinningPalette(draw.SkinPose, mesh) :
                                                    RenderHardware::Handle<RenderHardware::Buffer>();
             pass.Frame              = frames;
             pass.Object             = objects;
@@ -355,9 +355,12 @@ void main() {
                 if (mesh->Skin && draw.SkinPose)
                 {
                     commands->BindGroup(Services.GetDevice()->CreateBindGroup({desc.GroupLayouts[1], {}}));
-                    auto palette = Assets()->GetSkinningPalette(draw.SkinPose);
-                    BindSkinning(
-                        *Services.GetDevice(), *commands, desc.GroupLayouts[2], palette ? palette : mesh->BindPalette);
+                    auto palette = Assets()->GetSkinningPalette(draw.SkinPose, mesh);
+                    BindSkinning(*Services.GetDevice(),
+                                 *commands,
+                                 desc.GroupLayouts[2],
+                                 palette ? palette : mesh->BindPalette,
+                                 mesh->MorphDeltas);
                     commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0},
                                                  {1, normals ? mesh->NormalSkin : mesh->Skin, 0}});
                 }

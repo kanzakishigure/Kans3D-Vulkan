@@ -70,6 +70,8 @@ namespace Kans
                 a.push_back(k.Time);
                 if constexpr (std::is_same_v<T, glm::quat>)
                     a.push_back(Quat(k.Value));
+                else if constexpr (std::is_same_v<T, float>)
+                    a.push_back(k.Value);
                 else
                     a.push_back(Vec(k.Value));
                 n["keys"].push_back(a);
@@ -88,10 +90,56 @@ namespace Kans
                 Require(k.size() == 2);
                 if constexpr (std::is_same_v<T, glm::quat>)
                     t.Keys.push_back({k[0].as<double>(), ReadQuat(k[1])});
+                else if constexpr (std::is_same_v<T, float>)
+                    t.Keys.push_back({k[0].as<double>(), k[1].as<float>()});
                 else
                     t.Keys.push_back({k[0].as<double>(), ReadVec(k[1])});
             }
             return t;
+        }
+        YAML::Node ShapeKeys(const std::vector<ShapeKey>& keys)
+        {
+            YAML::Node n(YAML::NodeType::Sequence);
+            for (const auto& k : keys)
+            {
+                YAML::Node v;
+                v["name"]   = k.Name;
+                v["weight"] = k.DefaultWeight;
+                n.push_back(v);
+            }
+            return n;
+        }
+        std::vector<ShapeKey> ReadShapeKeys(const YAML::Node& n)
+        {
+            std::vector<ShapeKey> keys;
+            if (!n)
+                return keys; // v1 products have no morph channels.
+            Sequence(n, 65536);
+            for (const auto& v : n)
+                keys.push_back({v["name"].as<std::string>(), v["weight"].as<float>()});
+            return keys;
+        }
+        YAML::Node ShapeKeys(const std::vector<ShapeKeyWeight>& keys)
+        {
+            YAML::Node n(YAML::NodeType::Sequence);
+            for (const auto& k : keys)
+            {
+                YAML::Node v;
+                v["name"]   = k.Name;
+                v["weight"] = k.Weight;
+                n.push_back(v);
+            }
+            return n;
+        }
+        std::vector<ShapeKeyWeight> ReadShapeKeyWeights(const YAML::Node& n)
+        {
+            std::vector<ShapeKeyWeight> keys;
+            if (!n)
+                return keys;
+            Sequence(n, 65536);
+            for (const auto& v : n)
+                keys.push_back({v["name"].as<std::string>(), v["weight"].as<float>()});
+            return keys;
         }
         YAML::Node Clip(const AnimationClipData& c)
         {
@@ -110,6 +158,14 @@ namespace Kans
                 v["rotation"]    = Track(t.Rotation);
                 v["scale"]       = Track(t.Scale);
                 n["tracks"].push_back(v);
+            }
+            n["morph_tracks"] = YAML::Node(YAML::NodeType::Sequence);
+            for (const auto& t : c.MorphTracks)
+            {
+                YAML::Node v;
+                v["shape_key"] = t.ShapeKey;
+                v["weight"]    = Track(t.Weight);
+                n["morph_tracks"].push_back(v);
             }
             for (const auto& e : c.Events)
             {
@@ -147,6 +203,12 @@ namespace Kans
             for (const auto& v : n["events"])
                 c.Events.push_back(
                     {v["time"].as<double>(), v["name"].as<std::string>(), v["payload"].as<std::string>()});
+            if (n["morph_tracks"])
+            {
+                Sequence(n["morph_tracks"], 65536);
+                for (const auto& v : n["morph_tracks"])
+                    c.MorphTracks.push_back({v["shape_key"].as<std::string>(), ReadTrack<float>(v["weight"])});
+            }
             Valid(ValidateAnimationClip(c));
             return c;
         }
@@ -154,7 +216,7 @@ namespace Kans
         {
             YAML::Node root;
             root["magic"]   = magic;
-            root["version"] = 1;
+            root["version"] = 2;
             root["data"]    = data;
             YAML::Emitter out;
             out.SetFloatPrecision(9);
@@ -172,7 +234,7 @@ namespace Kans
             Require(docs.size() == 1);
             auto root = docs.front();
             Require(root.IsMap() && root.size() == 3 && root["magic"].as<std::string>() == magic);
-            Require(root["version"].as<unsigned>() == 1);
+            Require(root["version"].as<unsigned>() == 1 || root["version"].as<unsigned>() == 2);
             return root["data"];
         }
         AssetError Error(const std::exception& e) { return {AssetErrorCode::InvalidData, e.what()}; }
@@ -185,6 +247,14 @@ namespace Kans
         n["parameters"]        = YAML::Node(YAML::NodeType::Sequence);
         n["motions"]           = YAML::Node(YAML::NodeType::Sequence);
         n["layers"]            = YAML::Node(YAML::NodeType::Sequence);
+        n["expressions"]       = YAML::Node(YAML::NodeType::Sequence);
+        for (const auto& p : c.Expressions)
+        {
+            YAML::Node v;
+            v["name"]    = p.Name;
+            v["weights"] = ShapeKeys(p.Weights);
+            n["expressions"].push_back(v);
+        }
         for (const auto& p : c.Parameters)
         {
             YAML::Node v;
@@ -226,6 +296,7 @@ namespace Kans
             v["mask"]        = YAML::Node(YAML::NodeType::Sequence);
             v["states"]      = YAML::Node(YAML::NodeType::Sequence);
             v["transitions"] = YAML::Node(YAML::NodeType::Sequence);
+            v["shape_key_mask"] = ShapeKeys(l.ShapeKeyMask);
             for (const auto& m : l.Mask)
             {
                 YAML::Node a;
@@ -275,6 +346,12 @@ namespace Kans
         Sequence(n["parameters"], 4096);
         Sequence(n["motions"], 4096);
         Sequence(n["layers"], 64);
+        if (n["expressions"])
+        {
+            Sequence(n["expressions"], 4096);
+            for (const auto& p : n["expressions"])
+                c.Expressions.push_back({p["name"].as<std::string>(), ReadShapeKeyWeights(p["weights"])});
+        }
         for (const auto& v : n["parameters"])
             c.Parameters.push_back({v["name"].as<std::string>(),
                                     AnimationParameterType(v["type"].as<unsigned>()),
@@ -299,6 +376,7 @@ namespace Kans
         for (const auto& v : n["layers"])
         {
             AnimationLayer l;
+            l.ShapeKeyMask = ReadShapeKeyWeights(v["shape_key_mask"]);
             l.Name       = v["name"].as<std::string>();
             l.Weight     = v["weight"].as<float>();
             l.Mode       = AnimationLayerMode(v["mode"].as<unsigned>());
@@ -355,7 +433,10 @@ namespace Kans
                         v["inverse_bind"].push_back(j.InverseBind[c][r]);
                 n.push_back(v);
             }
-            return Bytes("KSKL", n);
+            YAML::Node data;
+            data["joints"]     = n;
+            data["shape_keys"] = ShapeKeys(s.ShapeKeys);
+            return Bytes("KSKL", data);
         }
         catch (const std::exception& e)
         {
@@ -390,8 +471,13 @@ namespace Kans
         try
         {
             auto n = Root(bytes, size, "KSKL");
-            Sequence(n, 65536);
             SkeletonData s;
+            if (n.IsMap())
+            {
+                s.ShapeKeys = ReadShapeKeys(n["shape_keys"]);
+                n           = n["joints"];
+            }
+            Sequence(n, 65536);
             for (const auto& v : n)
             {
                 SkeletonJoint j;

@@ -165,7 +165,9 @@ namespace Kans
     } // namespace
 
     static std::variant<ImportedModelData, AssetError>
-    ParseModelCpuImpl(const std::filesystem::path& path, const std::vector<std::filesystem::path>* allowedFiles)
+    ParseModelCpuImpl(const std::filesystem::path&              path,
+                      const std::vector<std::filesystem::path>* allowedFiles,
+                      std::optional<bool>                       recomputeMorphNormals)
     {
         std::error_code error;
         if (!std::filesystem::is_regular_file(path, error))
@@ -185,13 +187,39 @@ namespace Kans
         std::string       parseError;
         {
             std::lock_guard<std::mutex> lock(importMutex);
-            rawScene =
-                aiImportFileEx(path.u8string().c_str(),
-                               aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals |
-                                   aiProcess_CalcTangentSpace | aiProcess_ValidateDataStructure,
-                               &io);
+            const unsigned              flags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
+                                                aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace;
+            rawScene = aiImportFileEx(path.u8string().c_str(), flags | aiProcess_ValidateDataStructure, &io);
             if (!rawScene)
+            {
                 parseError = aiGetErrorString();
+                // Assimp's validator rejects morph-only clips by requiring a node channel. Its C API
+                // also double-releases on a failed aiApplyPostProcessing, so do not revalidate that way.
+                // Retry only this specific error, require real morph channels, then use the geometry,
+                // hierarchy, skeleton and clip validation below (including sparse target indices/weights).
+                if (parseError.find("aiAnimation::mNumChannels is 0") != std::string::npos)
+                {
+                    rawScene          = aiImportFileEx(path.u8string().c_str(), flags, &io);
+                    bool hasMorphOnly = false, invalid = false;
+                    if (rawScene)
+                    {
+                        for (unsigned i = 0; i < rawScene->mNumAnimations; ++i)
+                        {
+                            const auto& animation = *rawScene->mAnimations[i];
+                            if (!animation.mNumChannels)
+                            {
+                                hasMorphOnly |= animation.mNumMorphMeshChannels > 0;
+                                invalid |= animation.mNumMorphMeshChannels == 0;
+                            }
+                        }
+                        if (!hasMorphOnly || invalid)
+                        {
+                            aiReleaseImport(rawScene);
+                            rawScene = nullptr;
+                        }
+                    }
+                }
+            }
         }
         std::unique_ptr<const aiScene, decltype(&aiReleaseImport)> owned(rawScene, aiReleaseImport);
         const auto*                                                scene = owned.get();
@@ -216,6 +244,44 @@ namespace Kans
             return static_cast<char>(std::tolower(c));
         });
         const bool gltfSource = extension == ".gltf" || extension == ".glb";
+        YAML::Node              gltf;
+        std::vector<YAML::Node> gltfMeshes, gltfPrimitives;
+        std::vector<size_t>     gltfMeshIndices;
+        if (gltfSource)
+        {
+            try
+            {
+                std::ifstream input(path, std::ios::binary);
+                std::string   json;
+                if (extension == ".gltf")
+                    json.assign(std::istreambuf_iterator<char>(input), {});
+                else
+                {
+                    uint32_t header[5] {};
+                    input.read(reinterpret_cast<char*>(header), sizeof(header));
+                    if (!input || header[0] != 0x46546c67 || header[4] != 0x4e4f534a || header[3] > 64 * 1024 * 1024)
+                        throw std::runtime_error("Invalid glTF JSON chunk");
+                    json.resize(header[3]);
+                    input.read(json.data(), json.size());
+                }
+                gltf             = YAML::Load(json);
+                size_t meshIndex = 0;
+                for (const auto& m : gltf["meshes"])
+                {
+                    for (const auto& primitive : m["primitives"])
+                    {
+                        gltfMeshes.push_back(m);
+                        gltfPrimitives.push_back(primitive);
+                        gltfMeshIndices.push_back(meshIndex);
+                    }
+                    ++meshIndex;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                return AssetError {AssetErrorCode::InvalidData, e.what()};
+            }
+        }
         for (uint32_t i = 0; i < scene->mNumMaterials; ++i)
         {
             const auto*          material = scene->mMaterials[i];
@@ -303,8 +369,7 @@ namespace Kans
             const std::string name = mesh->mName.C_Str();
             if (mesh->GetNumUVChannels() > 1 || mesh->GetNumColorChannels() > 1)
                 result.Warnings.push_back("mesh '" + name + "' keeps only its first UV and color channel");
-            if (mesh->mNumAnimMeshes > 0)
-                result.Warnings.push_back("mesh '" + name + "' morph targets were not imported");
+
             if (!mesh->HasPositions() || !mesh->HasNormals() || mesh->mMaterialIndex >= result.Materials.size())
                 return AssetError {AssetErrorCode::InvalidData, "Model mesh has invalid geometry or material"};
             ImportedMeshData data;
@@ -351,6 +416,94 @@ namespace Kans
                     data.Indices.push_back(triangle.mIndices[corner]);
                 }
             }
+            for (uint32_t t = 0; t < mesh->mNumAnimMeshes; ++t)
+            {
+                const auto& source = *mesh->mAnimMeshes[t];
+                if (source.mNumVertices != mesh->mNumVertices)
+                    return AssetError {AssetErrorCode::InvalidData, "Morph vertex count mismatch"};
+                MeshMorphTarget target;
+                target.Name = source.mName.length ? source.mName.C_Str() : "ShapeKey" + std::to_string(t);
+                // Assimp FBX joins channel and shape names with a dot; Blender commonly repeats the
+                // same name on both. Collapse "Smile.Smile" while preserving authored names such as "Blink.L".
+                if (extension == ".fbx" && target.Name.size() % 2 == 1)
+                {
+                    const auto half = target.Name.size() / 2;
+                    if (half && target.Name[half] == '.' &&
+                        target.Name.compare(0, half, target.Name, half + 1, half) == 0)
+                        target.Name.resize(half);
+                }
+                // FBX aiAnimMesh::mWeight describes the full blend-shape endpoint (usually 1),
+                // rather than an initial expression. glTF authored defaults are restored below.
+                target.DefaultWeight = extension == ".fbx" ? 0.f : source.mWeight;
+                bool hasNormals      = source.mNormals != nullptr;
+                if (gltfSource && i < gltfMeshes.size())
+                {
+                    const auto m      = gltfMeshes[i];
+                    const auto extras = m["extras"];
+                    const auto names  = extras ? extras["targetNames"] : YAML::Node();
+                    if (names && t < names.size())
+                        target.Name = names[t].as<std::string>();
+                    const auto weights = m["weights"];
+                    if (weights && t < weights.size())
+                        target.DefaultWeight = weights[t].as<float>();
+                    std::optional<float> nodeDefault;
+                    for (const auto& node : gltf["nodes"])
+                        if (node["mesh"] && node["mesh"].as<size_t>() == gltfMeshIndices[i])
+                        {
+                            const auto overrideWeights = node["weights"];
+                            if (overrideWeights &&
+                                (!overrideWeights.IsSequence() || overrideWeights.size() != mesh->mNumAnimMeshes))
+                                return AssetError {AssetErrorCode::InvalidData, "Invalid glTF node morph weights"};
+                            const float w = overrideWeights ? overrideWeights[t].as<float>() : target.DefaultWeight;
+                            if (nodeDefault && std::abs(*nodeDefault - w) > 1e-6f)
+                                return AssetError {AssetErrorCode::InvalidData,
+                                                   "Conflicting instance defaults for shared shape key: " +
+                                                       target.Name};
+                            nodeDefault = w;
+                        }
+                    if (nodeDefault)
+                        target.DefaultWeight = *nodeDefault;
+                    const auto targets = gltfPrimitives[i]["targets"];
+                    hasNormals         = targets && t < targets.size() && bool(targets[t]["NORMAL"]);
+                }
+                for (uint32_t v = 0; v < source.mNumVertices; ++v)
+                {
+                    MorphVertexDelta d;
+                    d.Vertex = v;
+                    if (source.mVertices)
+                    {
+                        const auto x = source.mVertices[v] - mesh->mVertices[v];
+                        d.Position   = {x.x, x.y, x.z};
+                    }
+                    if (source.mNormals && hasNormals)
+                    {
+                        const auto x = source.mNormals[v] - mesh->mNormals[v];
+                        d.Normal     = {x.x, x.y, x.z};
+                    }
+                    if (source.mTangents && mesh->mTangents)
+                    {
+                        const auto x = source.mTangents[v] - mesh->mTangents[v];
+                        d.Tangent    = {x.x, x.y, x.z};
+                    }
+                    if (d.Position != std::array<float, 3> {} || d.Normal != std::array<float, 3> {} ||
+                        d.Tangent != std::array<float, 3> {})
+                        target.Deltas.push_back(d);
+                }
+                const bool unchangedNormals =
+                    std::all_of(target.Deltas.begin(), target.Deltas.end(), [](const auto& d) {
+                        return d.Normal == std::array<float, 3> {};
+                    });
+                // FBX/Assimp may fill absent target normals with the base normals, losing presence information.
+                if ((!hasNormals || (!gltfSource && unchangedNormals)) && recomputeMorphNormals.value_or(!gltfSource))
+                    RecomputeMorphNormals(data.Vertices, data.Indices, target);
+                BuildMorphBounds(target);
+                result.Warnings.push_back("mesh '" + data.Name + "' morph '" + target.Name +
+                                          "': " + std::to_string(target.Deltas.size()) + "/" +
+                                          std::to_string(data.Vertices.size()) + " sparse vertices, " +
+                                          std::to_string(target.Deltas.size() * 40) + " delta bytes (dense " +
+                                          std::to_string(data.Vertices.size() * 36) + ")");
+                data.MorphTargets.push_back(std::move(target));
+            }
             result.Meshes.push_back(std::move(data));
         }
 
@@ -383,11 +536,21 @@ namespace Kans
         }
         bool animated = scene->HasAnimations();
         for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
-            animated |= scene->mMeshes[i]->HasBones();
+            animated |= scene->mMeshes[i]->HasBones() || scene->mMeshes[i]->mNumAnimMeshes > 0;
         if (animated)
         {
             result.Skeleton.emplace();
             auto&                         skeleton = *result.Skeleton;
+            for (const auto& m : result.Meshes)
+                for (const auto& t : m.MorphTargets)
+                {
+                    const auto i = skeleton.FindShapeKey(t.Name);
+                    if (i < 0)
+                        skeleton.ShapeKeys.push_back({t.Name, t.DefaultWeight});
+                    else if (std::abs(skeleton.ShapeKeys[i].DefaultWeight - t.DefaultWeight) > 1e-6f)
+                        return AssetError {AssetErrorCode::InvalidData,
+                                           "Conflicting defaults for shared shape key: " + t.Name};
+                }
             std::vector<glm::mat4>        world(result.Nodes.size());
             std::map<std::string, size_t> paths;
             for (size_t i = 0; i < result.Nodes.size(); ++i)
@@ -539,6 +702,80 @@ namespace Kans
                     }
                     clip.Tracks.push_back(std::move(track));
                 }
+                for (uint32_t c = 0; c < animation.mNumMorphMeshChannels; ++c)
+                {
+                    const auto&             channel     = *animation.mMorphMeshChannels[c];
+                    const std::string       channelName = channel.mName.C_Str();
+                    const ImportedMeshData* mesh        = nullptr;
+                    for (const auto& m : result.Meshes)
+                        if (m.Name == channelName || (m.Node >= 0 && result.Nodes[m.Node].Name == channelName))
+                        {
+                            mesh = &m;
+                            break;
+                        }
+                    if (!mesh)
+                    {
+                        // Assimp FBX names morph channels "node*primitiveIndex" for split material meshes.
+                        auto       nodeName  = channelName;
+                        size_t     primitive = 0;
+                        const auto star      = channelName.find_last_of('*');
+                        if (star != std::string::npos && star + 1 < channelName.size())
+                        {
+                            char*      end  = nullptr;
+                            const auto part = std::strtoul(channelName.c_str() + star + 1, &end, 10);
+                            if (end && !*end)
+                            {
+                                nodeName  = channelName.substr(0, star);
+                                primitive = size_t(part);
+                            }
+                        }
+                        for (const auto& node : result.Nodes)
+                            if (node.Name == nodeName && primitive < node.Meshes.size())
+                            {
+                                mesh = &result.Meshes[node.Meshes[primitive]];
+                                break;
+                            }
+                    }
+                    if (!mesh)
+                        return AssetError {AssetErrorCode::InvalidData,
+                                           "Unbound morph animation channel: " + channelName};
+                    if (!channel.mNumKeys)
+                        return AssetError {AssetErrorCode::InvalidData, "Empty morph animation channel"};
+                    for (uint32_t k = 0; k < channel.mNumKeys; ++k)
+                        for (uint32_t v = 0; v < channel.mKeys[k].mNumValuesAndWeights; ++v)
+                            if (channel.mKeys[k].mValues[v] >= mesh->MorphTargets.size() ||
+                                !std::isfinite(channel.mKeys[k].mWeights[v]))
+                                return AssetError {AssetErrorCode::InvalidData,
+                                                   "Invalid morph animation target or weight"};
+                    for (uint32_t t = 0; t < mesh->MorphTargets.size(); ++t)
+                    {
+                        MorphAnimationTrack track;
+                        track.ShapeKey = mesh->MorphTargets[t].Name;
+                        for (uint32_t k = 0; k < channel.mNumKeys; ++k)
+                        {
+                            const auto& key   = channel.mKeys[k];
+                            float       value = 0;
+                            for (uint32_t v = 0; v < key.mNumValuesAndWeights; ++v)
+                                if (key.mValues[v] == t)
+                                    value = float(key.mWeights[v]);
+                            track.Weight.Keys.push_back({key.mTime / clip.FrameRate, value});
+                        }
+                        auto found = std::find_if(clip.MorphTracks.begin(), clip.MorphTracks.end(), [&](const auto& v) {
+                            return v.ShapeKey == track.ShapeKey;
+                        });
+                        if (found == clip.MorphTracks.end())
+                            clip.MorphTracks.push_back(std::move(track));
+                        else
+                        {
+                            if (found->Weight.Keys.size() != track.Weight.Keys.size())
+                                return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
+                            for (size_t k = 0; k < track.Weight.Keys.size(); ++k)
+                                if (found->Weight.Keys[k].Time != track.Weight.Keys[k].Time ||
+                                    std::abs(found->Weight.Keys[k].Value - track.Weight.Keys[k].Value) > 1e-6f)
+                                    return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
+                        }
+                    }
+                }
                 auto valid = ValidateAnimationClip(clip);
                 if (auto* e = std::get_if<AssetError>(&valid))
                     return *e;
@@ -578,7 +815,21 @@ namespace Kans
                         const auto interpolation = sampler["interpolation"].as<std::string>("LINEAR");
                         const auto property      = channel["target"]["path"].as<std::string>();
                         if (property == "weights")
+                        {
+                            if (interpolation != "LINEAR" && interpolation != "STEP")
+                                return AssetError {AssetErrorCode::InvalidData,
+                                                   "Unsupported glTF morph interpolation: " + interpolation};
+                            for (const auto& targetNode : result.Nodes)
+                                if (targetNode.Name == name)
+                                    for (auto meshIndex : targetNode.Meshes)
+                                        for (const auto& key : result.Meshes[meshIndex].MorphTargets)
+                                            for (auto& track : clip.MorphTracks)
+                                                if (track.ShapeKey == key.Name)
+                                                    track.Weight.Interpolation = interpolation == "STEP" ?
+                                                                                     TrackInterpolation::Step :
+                                                                                     TrackInterpolation::Linear;
                             continue;
+                        }
                         if (interpolation != "LINEAR" && interpolation != "STEP")
                             return AssetError {AssetErrorCode::InvalidData,
                                                "Unsupported glTF animation interpolation: " + interpolation};
@@ -664,13 +915,15 @@ namespace Kans
         }
     }
 
-    std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path)
+    std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path,
+                                                              std::optional<bool>          recomputeMorphNormals)
     {
-        return ParseModelCpuImpl(path, nullptr);
+        return ParseModelCpuImpl(path, nullptr, recomputeMorphNormals);
     }
 
     std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path&              path,
-                                                              const std::vector<std::filesystem::path>& allowedFiles)
+                                                              const std::vector<std::filesystem::path>& allowedFiles,
+                                                              std::optional<bool> recomputeMorphNormals)
     {
         if (allowedFiles.empty() || allowedFiles.size() > 1024)
             return AssetError {AssetErrorCode::InvalidArgument, "Invalid model input set size"};
@@ -682,7 +935,7 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, "Empty model input path"};
             normalized.push_back(std::filesystem::absolute(file).lexically_normal());
         }
-        return ParseModelCpuImpl(path, &normalized);
+        return ParseModelCpuImpl(path, &normalized, recomputeMorphNormals);
     }
     std::variant<std::filesystem::path, AssetError> ResolveModelTexture(const std::filesystem::path& modelFile,
                                                                         const std::string&           reference)

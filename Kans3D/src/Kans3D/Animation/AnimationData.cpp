@@ -37,6 +37,13 @@ namespace Kans
             }
         return found;
     }
+    int32_t SkeletonData::FindShapeKey(const std::string& name) const
+    {
+        for (size_t i = 0; i < ShapeKeys.size(); ++i)
+            if (ShapeKeys[i].Name == name)
+                return int32_t(i);
+        return -1;
+    }
     std::string AnimationNameMapping::Map(const std::string& source) const
     {
         const auto name  = !StripPrefix.empty() && source.compare(0, StripPrefix.size(), StripPrefix) == 0 ?
@@ -61,6 +68,16 @@ namespace Kans
                 result.JointTracks[joint] = int32_t(t);
             }
         }
+        result.MorphTracks.assign(skeleton.ShapeKeys.size(), -1);
+        for (size_t t = 0; t < clip.MorphTracks.size(); ++t)
+        {
+            const auto key = skeleton.FindShapeKey(mapping.Map(clip.MorphTracks[t].ShapeKey));
+            if (key < 0)
+                continue;
+            if (result.MorphTracks[key] >= 0)
+                throw std::invalid_argument("Multiple tracks map to the same shape key");
+            result.MorphTracks[key] = int32_t(t);
+        }
         for (size_t j = 0; j < result.JointTracks.size(); ++j)
             if (result.JointTracks[j] < 0)
                 result.MissingJoints.push_back(skeleton.Joints[j].Path);
@@ -69,6 +86,7 @@ namespace Kans
     namespace
     {
         AssetError Invalid(const std::string& message) { return {AssetErrorCode::InvalidData, message}; }
+        bool       Finite(float v) { return std::isfinite(v); }
         bool       Finite(glm::vec3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
         bool       Finite(glm::quat q)
         {
@@ -101,6 +119,13 @@ namespace Kans
     {
         if (data.Joints.empty() || data.Joints.size() > 65536)
             return Invalid("Invalid skeleton joint count");
+        std::set<std::string> shapeNames;
+        if (data.ShapeKeys.size() > 65536)
+            return Invalid("Too many shape keys");
+        for (const auto& key : data.ShapeKeys)
+            if (key.Name.empty() || !Text(key.Name) || !Finite(key.DefaultWeight) ||
+                !shapeNames.insert(key.Name).second)
+                return Invalid("Invalid logical shape key");
         std::set<std::string> paths;
         for (size_t j = 0; j < data.Joints.size(); ++j)
         {
@@ -128,6 +153,13 @@ namespace Kans
                 !Track(t.Translation, clip.Duration) || !Track(t.Rotation, clip.Duration) ||
                 !Track(t.Scale, clip.Duration))
                 return Invalid("Invalid animation track");
+        names.clear();
+        if (clip.MorphTracks.size() > 65536)
+            return Invalid("Too many morph tracks");
+        for (const auto& t : clip.MorphTracks)
+            if (t.ShapeKey.empty() || !Text(t.ShapeKey) || !names.insert(t.ShapeKey).second ||
+                !Track(t.Weight, clip.Duration) || t.Weight.Interpolation == TrackInterpolation::Spherical)
+                return Invalid("Invalid morph animation track");
         double previous = -1;
         for (const auto& e : clip.Events)
         {
@@ -143,6 +175,16 @@ namespace Kans
         if (c.Motions.empty() || c.Motions.size() > 4096 || c.Layers.empty() || c.Layers.size() > 64 ||
             c.Parameters.size() > 4096 || !Text(c.RootMotionJoint))
             return Invalid("Invalid controller counts");
+        std::set<std::string> expressionNames;
+        for (const auto& p : c.Expressions)
+        {
+            if (p.Name.empty() || !Text(p.Name) || !expressionNames.insert(p.Name).second)
+                return Invalid("Invalid expression name");
+            std::set<std::string> keys;
+            for (const auto& k : p.Weights)
+                if (k.Name.empty() || !Text(k.Name) || !Finite(k.Weight) || !keys.insert(k.Name).second)
+                    return Invalid("Invalid expression weight");
+        }
         std::set<std::string> parameters;
         for (const auto& p : c.Parameters)
             if (p.Name.empty() || !Text(p.Name) || !parameters.insert(p.Name).second || !std::isfinite(p.Default) ||
@@ -197,6 +239,9 @@ namespace Kans
                 layer.EntryState >= layer.States.size() || !std::isfinite(layer.Weight) || layer.Weight < 0 ||
                 layer.Weight > 1 || layer.Mode > AnimationLayerMode::Additive || !Text(layer.Name))
                 return Invalid("Invalid animation layer");
+            for (const auto& key : layer.ShapeKeyMask)
+                if (key.Name.empty() || !Text(key.Name) || !Finite(key.Weight) || key.Weight < 0 || key.Weight > 1)
+                    return Invalid("Invalid shape key mask");
             for (const auto& mask : layer.Mask)
                 if (!Text(mask.Joint) || !std::isfinite(mask.Weight) || mask.Weight < 0 || mask.Weight > 1)
                     return Invalid("Invalid avatar mask");

@@ -66,17 +66,20 @@ namespace Kans
                 Ref<const SkinningPose> skin;
                 auto                    geometryWorld = world;
                 Bounds                  animatedBounds;
-                if (!data.Skin.empty() && root && root.HasComponent<AnimatorComponent>())
+                if ((!data.Skin.empty() || !data.MorphTargets.empty()) && root &&
+                    root.HasComponent<AnimatorComponent>())
                 {
                     skin = root.GetComponent<AnimatorComponent>().SkinPose;
-                    if (skin)
+                    if (skin && !data.Skin.empty())
                     {
                         geometryWorld           = m_Scene->GetWorldTransform(root);
-                        animatedBounds          = SkinnedBounds(data.JointBounds, *skin);
+                        animatedBounds          = DeformedBounds(data, skin.get());
                         record.Mesh->Transform  = geometryWorld;
                         record.OutlineTransform = geometryWorld * glm::scale(glm::mat4(1), glm::vec3(1.007f));
                     }
                 }
+                if (!data.MorphTargets.empty())
+                    animatedBounds = DeformedBounds(data, skin.get());
                 for (size_t i = 0; i < data.Sections.size(); ++i)
                 {
                     if (component.Section && *component.Section != i)
@@ -86,8 +89,9 @@ namespace Kans
                     const auto  material = slot < component.Materials.size() && component.Materials[slot].IsValid() ?
                                                component.Materials[slot] :
                                                data.MaterialSlots.at(slot).DefaultMaterial;
-                    const auto  bindBounds =
-                        !skin ? section.LocalBounds : section.LocalBounds.Transformed(data.SkinBindTransform);
+                    const auto  bindBounds  = !skin || data.Skin.empty() ?
+                                                  section.LocalBounds :
+                                                  section.LocalBounds.Transformed(data.SkinBindTransform);
                     const auto localBounds = animatedBounds.IsValid() ? animatedBounds : bindBounds;
                     record.Draws.push_back({record.Key,
                                             material,

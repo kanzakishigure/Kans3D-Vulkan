@@ -161,7 +161,8 @@ namespace Kans
         commands.BindGroup(material);
         if (skinned)
         {
-            BindSkinning(*device, commands, shader.SkinLayout, data.Palette ? data.Palette : mesh.BindPalette);
+            BindSkinning(
+                *device, commands, shader.SkinLayout, data.Palette ? data.Palette : mesh.BindPalette, mesh.MorphDeltas);
             commands.BindVertexBuffers({{0, mesh.Vertices, 0}, {1, mesh.Skin, 0}});
         }
         else

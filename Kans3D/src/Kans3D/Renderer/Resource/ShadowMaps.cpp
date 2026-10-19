@@ -293,8 +293,8 @@ namespace Kans
                 auto ob = device->CreateBuffer({sizeof(object), BufferUsage::Uniform, MemoryUsage::Upload});
                 ob->Write(0, &object, sizeof(object));
                 MaterialPassData pass;
-                pass.Palette =
-                    mesh->Skin ? frame.Assets()->GetSkinningPalette(proxy.SkinPose) : Handle<RenderHardware::Buffer>();
+                pass.Palette            = mesh->Skin ? frame.Assets()->GetSkinningPalette(proxy.SkinPose, mesh) :
+                                                       Handle<RenderHardware::Buffer>();
                 pass.Frame              = buffer;
                 pass.Object             = ob;
                 pass.Environment        = environment;

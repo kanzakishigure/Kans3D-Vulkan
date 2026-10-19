@@ -52,6 +52,56 @@ namespace Kans
         static_assert(sizeof(MeshVertexData) == 64 && std::is_standard_layout_v<MeshVertexData>);
         GpuMesh mesh;
         mesh.Device = device;
+        mesh.VertexCount     = uint32_t(data.Vertices.size());
+        mesh.HasSkeletonSkin = !data.Skin.empty();
+        std::vector<MeshSkinVertex> morphSkin;
+        const auto*                 skinStream = &data.Skin;
+        if (data.Skin.empty() && !data.MorphTargets.empty())
+        {
+            morphSkin.resize(data.Vertices.size());
+            skinStream = &morphSkin;
+        }
+        if (!data.MorphTargets.empty())
+        {
+            const size_t       deltaFloats = data.MorphTargets.size() * data.Vertices.size() * 9;
+            std::vector<float> dense(deltaFloats + data.Indices.size(), 0);
+            const auto         transform    = glm::mat3(data.SkinBindTransform);
+            const auto         normalMatrix = glm::transpose(glm::inverse(transform));
+            for (size_t t = 0; t < data.MorphTargets.size(); ++t)
+            {
+                const auto& target = data.MorphTargets[t];
+                mesh.MorphTargets.push_back({target.Name, target.DefaultWeight});
+                for (const auto& d : target.Deltas)
+                {
+                    auto p       = glm::vec3(d.Position[0], d.Position[1], d.Position[2]);
+                    auto n       = glm::vec3(d.Normal[0], d.Normal[1], d.Normal[2]);
+                    auto tangent = glm::vec3(d.Tangent[0], d.Tangent[1], d.Tangent[2]);
+                    if (!data.Skin.empty())
+                    {
+                        const auto& v  = data.Vertices[d.Vertex];
+                        p              = transform * p;
+                        const float nl = glm::length(normalMatrix * glm::vec3(v.Normal[0], v.Normal[1], v.Normal[2]));
+                        const float tl = glm::length(transform * glm::vec3(v.Tangent[0], v.Tangent[1], v.Tangent[2]));
+                        n              = normalMatrix * n / std::max(nl, 1e-20f);
+                        tangent        = transform * tangent / std::max(tl, 1e-20f);
+                    }
+                    const auto base = (t * data.Vertices.size() + d.Vertex) * 9;
+                    for (int c = 0; c < 3; ++c)
+                    {
+                        dense[base + c]     = p[c];
+                        dense[base + 3 + c] = n[c];
+                        dense[base + 6 + c] = tangent[c];
+                    }
+                }
+            }
+            // Debug-normal lines have two endpoints per indexed corner; keep their source vertex mapping immutable too.
+            for (size_t i = 0; i < data.Indices.size(); ++i)
+                dense[deltaFloats + i] = float(data.Indices[i]);
+            mesh.MorphDeltas = device->CreateBuffer({dense.size() * sizeof(float),
+                                                     RenderHardware::BufferUsage::Storage,
+                                                     RenderHardware::MemoryUsage::Upload});
+            mesh.MorphDeltas->Write(0, dense.data(), dense.size() * sizeof(float));
+        }
         mesh.LocalBounds   = data.LocalBounds;
         mesh.Sections      = data.Sections;
         mesh.MaterialSlots = data.MaterialSlots;
@@ -79,7 +129,7 @@ namespace Kans
         mesh.NormalLines = device->CreateBuffer(
             {lines.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
         mesh.NormalLines->Write(0, lines.data(), lines.size() * sizeof(float));
-        if (!data.Skin.empty())
+        if (!skinStream->empty())
         {
             mesh.BindVertices = device->CreateBuffer({data.Vertices.size() * sizeof(MeshVertexData),
                                                       RenderHardware::BufferUsage::Vertex,
@@ -100,16 +150,16 @@ namespace Kans
                                                          RenderHardware::BufferUsage::Vertex,
                                                          RenderHardware::MemoryUsage::Upload});
             mesh.BindNormalLines->Write(0, lines.data(), lines.size() * sizeof(float));
-            mesh.Skin = device->CreateBuffer({data.Skin.size() * sizeof(MeshSkinVertex),
+            mesh.Skin = device->CreateBuffer({skinStream->size() * sizeof(MeshSkinVertex),
                                               RenderHardware::BufferUsage::Vertex,
                                               RenderHardware::MemoryUsage::Upload});
-            mesh.Skin->Write(0, data.Skin.data(), data.Skin.size() * sizeof(MeshSkinVertex));
+            mesh.Skin->Write(0, skinStream->data(), skinStream->size() * sizeof(MeshSkinVertex));
             std::vector<MeshSkinVertex> normalSkin;
             normalSkin.reserve(data.Indices.size() * 2);
             for (auto index : data.Indices)
             {
-                normalSkin.push_back(data.Skin[index]);
-                normalSkin.push_back(data.Skin[index]);
+                normalSkin.push_back((*skinStream)[index]);
+                normalSkin.push_back((*skinStream)[index]);
             }
             mesh.NormalSkin = device->CreateBuffer({normalSkin.size() * sizeof(MeshSkinVertex),
                                                     RenderHardware::BufferUsage::Vertex,
@@ -118,7 +168,29 @@ namespace Kans
             mesh.VertexBindings.push_back({1, 32, false});
             mesh.Attributes.push_back({5, 1, 0, RenderHardware::VertexFormat::Uint4});
             mesh.Attributes.push_back({6, 1, 16, RenderHardware::VertexFormat::Float4});
-            std::vector<glm::mat4> identity(data.JointBounds.size(), glm::mat4(1));
+            // Without an animator the scene still supplies the source node transform. Cancel the canonical
+            // mesh-to-model upload transform when applying default morphs through the skin variant.
+            const auto fallback =
+                !data.Skin.empty() && !data.MorphTargets.empty() ? glm::inverse(data.SkinBindTransform) : glm::mat4(1);
+            std::vector<glm::mat4> identity(std::max(size_t(1), data.JointBounds.size()), fallback);
+            if (!data.MorphTargets.empty())
+            {
+                const auto joints = identity.size();
+                size_t     active = 0;
+                for (size_t t = 0; t < mesh.MorphTargets.size(); ++t)
+                    if (mesh.MorphTargets[t].DefaultWeight != 0)
+                    {
+                        glm::mat4 item(0);
+                        item[0] = glm::vec4(mesh.MorphTargets[t].DefaultWeight, float(t), 0, 0);
+                        identity.push_back(item);
+                        ++active;
+                    }
+                glm::mat4 header(0);
+                header[0] =
+                    glm::vec4(float(joints), float(active), float(mesh.VertexCount), float(mesh.MorphTargets.size()));
+                header[3][3] = -2718;
+                identity.push_back(header);
+            }
             mesh.BindPalette = device->CreateBuffer({identity.size() * sizeof(glm::mat4),
                                                      RenderHardware::BufferUsage::Storage,
                                                      RenderHardware::MemoryUsage::Upload});
@@ -131,22 +203,81 @@ namespace Kans
     }
 
     RenderHardware::Handle<RenderHardware::Buffer>
-    RenderAssetCache::GetSkinningPalette(const Ref<const SkinningPose>& pose)
+    RenderAssetCache::GetSkinningPalette(const Ref<const SkinningPose>& pose, const GpuMesh* mesh)
     {
-        if (!pose || pose->Palette.empty())
+        if (mesh && !mesh->Skin)
             return {};
-        auto& entry = m_Palettes[pose.get()];
-        if (entry.Source.lock() != pose)
+        if (!pose || pose->Palette.empty())
+        {
+            bool active = false;
+            if (mesh)
+                for (const auto& t : mesh->MorphTargets)
+                    active |= t.DefaultWeight != 0;
+            return mesh && active ? mesh->BindPalette : RenderHardware::Handle<RenderHardware::Buffer>();
+        }
+        // Preserve A1 palette sharing for meshes without morph data.
+        if (mesh && mesh->MorphTargets.empty())
+            mesh = nullptr;
+        auto& entry = m_Palettes[{pose.get(), mesh}];
+        if (entry.Source.lock() != pose || (mesh && entry.MeshSource.lock() != mesh->Vertices))
         {
             entry        = {};
             entry.Source = pose;
+            if (mesh)
+                entry.MeshSource = mesh->Vertices;
+            if (mesh)
+            {
+                // Catalog topology is immutable for a prepared instance. Bind names once, never in the frame loop.
+                entry.ShapeIndices.assign(mesh->MorphTargets.size(), -1);
+                for (size_t t = 0; t < mesh->MorphTargets.size(); ++t)
+                    for (size_t k = 0; k < pose->ShapeKeys.size(); ++k)
+                        if (pose->ShapeKeys[k].Name == mesh->MorphTargets[t].Name)
+                        {
+                            entry.ShapeIndices[t] = int32_t(k);
+                            break;
+                        }
+            }
             entry.Pool.reserve(4);
         }
         entry.Frame = m_Frame;
-        if (entry.Version == pose->Version && entry.Current)
+        if (entry.Version == pose->Version && (entry.Current || !entry.Packed.empty()))
             return entry.Current;
         entry.Current.reset();
-        const size_t bytes = pose->Palette.size() * sizeof(glm::mat4);
+        entry.Packed = pose->Palette;
+        if (mesh && !mesh->MorphTargets.empty())
+        {
+            const auto joints = entry.Packed.size();
+            size_t     active = 0;
+            entry.Packed.reserve(joints + mesh->MorphTargets.size() + 1);
+            for (size_t t = 0; t < mesh->MorphTargets.size(); ++t)
+            {
+                float      weight = mesh->MorphTargets[t].DefaultWeight;
+                const auto key    = entry.ShapeIndices[t];
+                if (key >= 0 && size_t(key) < pose->MorphWeights.size())
+                    weight = pose->MorphWeights[key];
+                if (weight == 0 || !std::isfinite(weight))
+                    continue;
+                glm::mat4 item(0);
+                item[0] = glm::vec4(weight, float(t), 0, 0);
+                entry.Packed.push_back(item);
+                ++active;
+            }
+            if (active == 0 && !mesh->HasSkeletonSkin)
+            {
+                entry.Version = pose->Version;
+                return {};
+            }
+            glm::mat4 header(0);
+            header[0] =
+                glm::vec4(float(joints), float(active), float(mesh->VertexCount), float(mesh->MorphTargets.size()));
+            header[3][3] = -2718;
+            entry.Packed.resize(joints + mesh->MorphTargets.size(), glm::mat4(0));
+            entry.Packed.push_back(header);
+        }
+        // Allocate capacity for all targets once; active counts may change without reallocating.
+        const size_t bytes =
+            (pose->Palette.size() + (mesh && !mesh->MorphTargets.empty() ? mesh->MorphTargets.size() + 1 : 0)) *
+            sizeof(glm::mat4);
         for (const auto& buffer : entry.Pool)
             if (buffer.use_count() == 1 && buffer->GetDesc().Bytes == bytes)
             {
@@ -159,7 +290,7 @@ namespace Kans
                 {bytes, RenderHardware::BufferUsage::Storage, RenderHardware::MemoryUsage::Upload});
             entry.Pool.push_back(entry.Current);
         }
-        entry.Current->Write(0, pose->Palette.data(), bytes);
+        entry.Current->Write(0, entry.Packed.data(), bytes);
         entry.Version = pose->Version;
         return entry.Current;
     }

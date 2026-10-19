@@ -26,6 +26,10 @@ namespace Kans
                                                                    {2, 0, 24, RenderHardware::VertexFormat::Float2},
                                                                    {3, 0, 32, RenderHardware::VertexFormat::Float4},
                                                                    {4, 0, 48, RenderHardware::VertexFormat::Float4}};
+        RenderHardware::Handle<RenderHardware::Buffer> MorphDeltas;
+        std::vector<ShapeKey>                          MorphTargets;
+        uint32_t                                       VertexCount     = 0;
+        bool                                           HasSkeletonSkin = false;
         uint32_t         IndexCount = 0;
         AssetID          Material;
         AssetID          AuthoredMaterial;
@@ -102,7 +106,8 @@ namespace Kans
 
         const ModelInstances* GetModel(AssetID id);
         const GpuMesh*        GetMesh(const MeshKey& id);
-        RenderHardware::Handle<RenderHardware::Buffer> GetSkinningPalette(const Ref<const SkinningPose>&);
+        RenderHardware::Handle<RenderHardware::Buffer> GetSkinningPalette(const Ref<const SkinningPose>&,
+                                                                          const GpuMesh* mesh = nullptr);
         const GpuMaterial*    GetMaterial(AssetID id);
         Ref<Texture2D>        GetTexture(AssetID id);
         const GpuShader*      GetShader(AssetID id);
@@ -164,11 +169,14 @@ namespace Kans
         struct PaletteEntry
         {
             std::weak_ptr<const SkinningPose>                           Source;
+            std::weak_ptr<RenderHardware::Buffer>                       MeshSource;
+            std::vector<glm::mat4>                                      Packed;
+            std::vector<int32_t>                                        ShapeIndices;
             uint64_t                                                    Version = UINT64_MAX, Frame = 0;
             RenderHardware::Handle<RenderHardware::Buffer>              Current;
             std::vector<RenderHardware::Handle<RenderHardware::Buffer>> Pool;
         };
-        std::unordered_map<const SkinningPose*, PaletteEntry>              m_Palettes;
+        std::map<std::pair<const SkinningPose*, const GpuMesh*>, PaletteEntry> m_Palettes;
         uint64_t                                                           m_Frame = 0;
         std::unordered_map<AssetID, Entry<ModelAsset, ModelInstances>>     m_Models;
         std::unordered_map<AssetID, Entry<MeshAsset, GpuMesh>>             m_Meshes;

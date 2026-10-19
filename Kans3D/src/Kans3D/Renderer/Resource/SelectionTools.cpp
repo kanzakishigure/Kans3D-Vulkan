@@ -135,7 +135,8 @@ void main()
                     BindSkinning(device,
                                  commands,
                                  active->GetDesc().GroupLayouts[2],
-                                 draw.Palette ? draw.Palette : draw.Mesh->BindPalette);
+                                 draw.Palette ? draw.Palette : draw.Mesh->BindPalette,
+                                 draw.Mesh->MorphDeltas);
                     commands.BindVertexBuffers({{0, draw.Mesh->Vertices, 0}, {1, draw.Mesh->Skin, 0}});
                 }
                 else

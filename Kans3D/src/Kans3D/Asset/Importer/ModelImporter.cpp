@@ -78,6 +78,7 @@ namespace Kans
         {
             AnimationNameMapping           Mapping;
             float                          Scale = 1;
+            std::optional<bool>            RecomputeMorphNormals;
             std::map<std::string, AssetID> Materials;
         };
 
@@ -104,6 +105,14 @@ namespace Kans
                     parsed.Mapping.Names[key.substr(14)] = value;
                     continue;
                 }
+                if (key == "morph.recompute_normals")
+                {
+                    if (value != "true" && value != "false")
+                        return AssetError {AssetErrorCode::InvalidArgument,
+                                           "morph.recompute_normals must be true or false"};
+                    parsed.RecomputeMorphNormals = value == "true";
+                    continue;
+                }
                 if (key != "scale")
                     return AssetError {AssetErrorCode::InvalidArgument, "Unknown model import setting: " + key};
                 char* end = nullptr;
@@ -122,7 +131,7 @@ namespace Kans
         auto settings = ParseModelSettings(context.Settings);
         if (const auto* error = std::get_if<AssetError>(&settings))
             return *error;
-        auto parsed = ParseModelCpu(context.SourceFile);
+        auto parsed = ParseModelCpu(context.SourceFile, std::get<ModelSettings>(settings).RecomputeMorphNormals);
         if (const auto* error = std::get_if<AssetError>(&parsed))
             return *error;
         const auto&  model = std::get<ImportedModelData>(parsed);
@@ -203,7 +212,8 @@ namespace Kans
         std::vector<std::filesystem::path> allowedFiles {context.SourceFile};
         for (const auto& input : context.SourceInputs)
             allowedFiles.push_back(input.first);
-        auto parsed = ParseModelCpu(context.SourceFile, allowedFiles);
+        auto parsed =
+            ParseModelCpu(context.SourceFile, allowedFiles, std::get<ModelSettings>(scale).RecomputeMorphNormals);
         if (const auto* error = std::get_if<AssetError>(&parsed))
             return *error;
         auto& source = std::get<ImportedModelData>(parsed);
@@ -345,6 +355,8 @@ namespace Kans
             auto& clip = source.Clips[i];
             for (auto& track : clip.Tracks)
                 track.Joint = std::get<ModelSettings>(scale).Mapping.Map(track.Joint);
+            for (auto& track : clip.MorphTracks)
+                track.ShapeKey = std::get<ModelSettings>(scale).Mapping.Map(track.ShapeKey);
             const auto id = idFor(clipKeys[i]);
             model.AnimationClips.push_back(id);
             auto encoded = EncodeAnimationClipProduct(clip);
@@ -413,6 +425,23 @@ namespace Kans
                 Bounds bounds;
                 for (const auto& vertex : *vertices)
                     bounds.Expand(glm::vec3(vertex.Position[0], vertex.Position[1], vertex.Position[2]));
+                for (const auto& sourceTarget : input.MorphTargets)
+                {
+                    auto found = std::find_if(data.MorphTargets.begin(), data.MorphTargets.end(), [&](const auto& t) {
+                        return t.Name == sourceTarget.Name;
+                    });
+                    if (found == data.MorphTargets.end())
+                    {
+                        data.MorphTargets.push_back({sourceTarget.Name, sourceTarget.DefaultWeight, {}, {}});
+                        found = data.MorphTargets.end() - 1;
+                    }
+                    for (auto d : sourceTarget.Deltas)
+                    {
+                        d.Vertex += uint32_t(baseVertex);
+                        found->Deltas.push_back(d);
+                    }
+                    BuildMorphBounds(*found);
+                }
                 data.Vertices.insert(data.Vertices.end(), vertices->begin(), vertices->end());
                 if (skinned)
                 {

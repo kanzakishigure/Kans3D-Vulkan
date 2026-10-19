@@ -27,9 +27,21 @@ namespace Kans
         JointTransform RestLocal, BindLocal;
         glm::mat4      InverseBind {1}; // Model space -> joint bind space.
     };
+    struct ShapeKey
+    {
+        std::string Name;
+        float       DefaultWeight = 0;
+    };
+    struct ShapeKeyWeight
+    {
+        std::string Name;
+        float       Weight = 1;
+    };
     struct SkeletonData
     {
         std::vector<SkeletonJoint> Joints;
+        std::vector<ShapeKey>      ShapeKeys; // Model-wide logical names, shared by every mesh.
+        int32_t                    FindShapeKey(const std::string&) const;
         int32_t                    FindJoint(const std::string& nameOrPath) const;
     };
     enum class TrackInterpolation : uint8_t
@@ -61,11 +73,17 @@ namespace Kans
         double      Time = 0;
         std::string Name, Payload;
     };
+    struct MorphAnimationTrack
+    {
+        std::string           ShapeKey;
+        AnimationTrack<float> Weight;
+    };
     struct AnimationClipData
     {
         std::string                      Name, SourceName;
         double                           Duration = 0, FrameRate = 30;
         std::vector<JointAnimationTrack> Tracks;
+        std::vector<MorphAnimationTrack> MorphTracks;
         std::vector<AnimationEvent>      Events; // Sorted by time; duplicates are distinct events.
     };
     struct AnimationNameMapping
@@ -77,7 +95,7 @@ namespace Kans
     struct BoundAnimationClip
     {
         const AnimationClipData* Clip = nullptr;
-        std::vector<int32_t>     JointTracks;
+        std::vector<int32_t>     JointTracks, MorphTracks;
         std::vector<std::string> MissingJoints;
     };
     BoundAnimationClip
@@ -172,10 +190,18 @@ namespace Kans
         std::string                      Name;
         float                            Weight = 1;
         AnimationLayerMode               Mode   = AnimationLayerMode::Override;
-        std::vector<AvatarMaskEntry>     Mask; // Empty = all joints; unlisted joints otherwise have zero weight.
+        std::vector<ShapeKeyWeight>
+            ShapeKeyMask; // Nonempty masks jointly select channels; a face-only mask selects no joints.
+        std::vector<AvatarMaskEntry>
+            Mask; // Both masks empty = all channels; otherwise unlisted channels have zero weight.
         uint32_t                         EntryState = 0;
         std::vector<AnimationState>      States;
         std::vector<AnimationTransition> Transitions;
+    };
+    struct ExpressionPreset
+    {
+        std::string                 Name;
+        std::vector<ShapeKeyWeight> Weights;
     };
     struct AnimationControllerData
     {
@@ -183,6 +209,7 @@ namespace Kans
         std::vector<AnimationMotion>    Motions; // Index-based acyclic graph; nested blend trees allowed.
         std::vector<AnimationLayer>     Layers;
         std::string                     RootMotionJoint;
+        std::vector<ExpressionPreset>   Expressions;
     };
     using AnimationValidation = std::variant<std::monostate, AssetError>;
     AnimationValidation ValidateSkeleton(const SkeletonData&);

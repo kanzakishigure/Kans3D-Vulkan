@@ -509,14 +509,18 @@ namespace Kans
                                             std::optional<uint32_t>();
                 auto        world     = GetWorldTransform(entity);
                 Bounds      animated;
+                if (!mesh->GetData().MorphTargets.empty())
+                    animated = DeformedBounds(mesh->GetData());
                 const auto  root = GetPrefabInstanceRoot(entity);
-                if (!mesh->GetData().Skin.empty() && root && root.HasComponent<AnimatorComponent>())
+                if ((!mesh->GetData().Skin.empty() || !mesh->GetData().MorphTargets.empty()) && root &&
+                    root.HasComponent<AnimatorComponent>())
                 {
                     const auto& a = root.GetComponent<AnimatorComponent>();
                     if (a.SkinPose)
                     {
-                        animated = SkinnedBounds(mesh->GetData().JointBounds, *a.SkinPose);
-                        world    = GetWorldTransform(root);
+                        animated = DeformedBounds(mesh->GetData(), a.SkinPose.get());
+                        if (!mesh->GetData().Skin.empty())
+                            world = GetWorldTransform(root);
                     }
                 }
                 const auto& sections  = mesh->GetData().Sections;

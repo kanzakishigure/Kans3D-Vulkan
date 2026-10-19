@@ -3,9 +3,69 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 
 namespace Kans
 {
+    void BuildMorphBounds(MeshMorphTarget& target)
+    {
+        target.PositionBounds = {};
+        target.PositionBounds.Expand(glm::vec3(0));
+        for (const auto& d : target.Deltas)
+            target.PositionBounds.Expand(glm::vec3(d.Position[0], d.Position[1], d.Position[2]));
+    }
+    Bounds MorphedBounds(const MeshData& mesh, const std::vector<float>& weights)
+    {
+        Bounds result = mesh.LocalBounds;
+        for (size_t t = 0; t < mesh.MorphTargets.size() && t < weights.size(); ++t)
+        {
+            const auto& b      = mesh.MorphTargets[t].PositionBounds;
+            const auto  extent = glm::max(glm::abs(b.Min), glm::abs(b.Max)) * std::abs(weights[t]);
+            result.Min -= extent;
+            result.Max += extent;
+        }
+        return result;
+    }
+    void RecomputeMorphNormals(const std::vector<MeshVertexData>& vertices,
+                               const std::vector<uint32_t>&       indices,
+                               MeshMorphTarget&                   target)
+    {
+        std::vector<glm::vec3> base(vertices.size()), deformed(vertices.size()), a(vertices.size()), b(vertices.size());
+        for (size_t v = 0; v < vertices.size(); ++v)
+            base[v] = deformed[v] =
+                glm::vec3(vertices[v].Position[0], vertices[v].Position[1], vertices[v].Position[2]);
+        for (const auto& d : target.Deltas)
+            deformed.at(d.Vertex) += glm::vec3(d.Position[0], d.Position[1], d.Position[2]);
+        for (size_t i = 0; i + 2 < indices.size(); i += 3)
+        {
+            const auto x = indices[i], y = indices[i + 1], z = indices[i + 2];
+            const auto n = glm::cross(base[y] - base[x], base[z] - base[x]);
+            const auto m = glm::cross(deformed[y] - deformed[x], deformed[z] - deformed[x]);
+            for (auto v : {x, y, z})
+            {
+                a[v] += n;
+                b[v] += m;
+            }
+        }
+        std::vector<MorphVertexDelta> output;
+        size_t                        cursor = 0;
+        for (uint32_t v = 0; v < vertices.size(); ++v)
+        {
+            MorphVertexDelta d;
+            d.Vertex = v;
+            if (cursor < target.Deltas.size() && target.Deltas[cursor].Vertex == v)
+                d = target.Deltas[cursor++];
+            if (glm::dot(a[v], a[v]) > 1e-20f && glm::dot(b[v], b[v]) > 1e-20f)
+            {
+                const auto delta = glm::normalize(b[v]) - glm::normalize(a[v]);
+                d.Normal         = {delta.x, delta.y, delta.z};
+            }
+            if (d.Position != std::array<float, 3> {} || d.Normal != std::array<float, 3> {} ||
+                d.Tangent != std::array<float, 3> {})
+                output.push_back(d);
+        }
+        target.Deltas = std::move(output);
+    }
     void InsertSkinInfluence(MeshSkinVertex& vertex, uint32_t joint, float weight)
     {
         if (!std::isfinite(weight) || weight <= 0)
@@ -70,6 +130,30 @@ namespace Kans
                    std::isfinite(bounds.Min.z) && std::isfinite(bounds.Max.x) && std::isfinite(bounds.Max.y) &&
                    std::isfinite(bounds.Max.z);
         };
+        std::set<std::string> morphNames;
+        uint64_t              morphBytes = 0;
+        for (const auto& target : mesh.MorphTargets)
+        {
+            if (target.Name.empty() || target.Name.size() > 4096 || target.Name.find('\0') != std::string::npos ||
+                !morphNames.insert(target.Name).second || !std::isfinite(target.DefaultWeight) ||
+                !validBounds(target.PositionBounds))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid morph target metadata"};
+            int64_t previous = -1;
+            for (const auto& d : target.Deltas)
+            {
+                if (d.Vertex >= vertices || int64_t(d.Vertex) <= previous || !finite(d.Position) || !finite(d.Normal) ||
+                    !finite(d.Tangent) ||
+                    glm::any(glm::lessThan(glm::vec3(d.Position[0], d.Position[1], d.Position[2]),
+                                           target.PositionBounds.Min)) ||
+                    glm::any(glm::greaterThan(glm::vec3(d.Position[0], d.Position[1], d.Position[2]),
+                                              target.PositionBounds.Max)))
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid sparse morph delta"};
+                previous = d.Vertex;
+            }
+            morphBytes += 36 + target.Name.size() + target.Deltas.size() * 40ull;
+        }
+        if (mesh.MorphTargets.size() > 65536 || morphBytes + vertices * 64ull + indices * 4ull > 512ull * 1024 * 1024)
+            return AssetError {AssetErrorCode::InvalidData, "Morph Product exceeds size limit"};
         if (mesh.VertexFormat == MeshVertexFormat::Skinned)
         {
             if (!mesh.Skeleton.IsValid() || mesh.Skin.size() != vertices || mesh.JointBounds.empty() ||

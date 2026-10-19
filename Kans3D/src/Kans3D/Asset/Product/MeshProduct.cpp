@@ -121,7 +121,7 @@ namespace Kans
         std::vector<std::byte> bytes;
         bytes.reserve(size);
         Write(bytes, kMagic);
-        Write(bytes, mesh.VertexFormat == MeshVertexFormat::Skinned ? 5u : kVersion);
+        Write(bytes, !mesh.MorphTargets.empty() ? 6u : mesh.VertexFormat == MeshVertexFormat::Skinned ? 5u : kVersion);
         Write(bytes, static_cast<uint32_t>(AssetType::StaticMesh));
         Write(bytes, static_cast<uint32_t>(mesh.VertexFormat));
         Write(bytes, uint32_t(mesh.Vertices.size()));
@@ -173,6 +173,24 @@ namespace Kans
                     WriteBounds(bytes, b);
             }
         }
+        if (!mesh.MorphTargets.empty())
+        {
+            Write(bytes, uint32_t(mesh.MorphTargets.size()));
+            for (const auto& t : mesh.MorphTargets)
+            {
+                WriteString(bytes, t.Name);
+                WriteFloat(bytes, t.DefaultWeight);
+                WriteBounds(bytes, t.PositionBounds);
+                Write(bytes, uint32_t(t.Deltas.size()));
+                for (const auto& d : t.Deltas)
+                {
+                    Write(bytes, d.Vertex);
+                    WriteFloats(bytes, d.Position);
+                    WriteFloats(bytes, d.Normal);
+                    WriteFloats(bytes, d.Tangent);
+                }
+            }
+        }
         return bytes;
     }
 
@@ -186,7 +204,7 @@ namespace Kans
             if (reader.Read<uint32_t>() != kMagic)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product magic"};
             const auto version = reader.Read<uint32_t>();
-            if (version != kVersion && version != 5)
+            if (version != kVersion && version != 5 && version != 6)
                 return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Mesh Product version"};
             if (reader.Read<uint32_t>() != static_cast<uint32_t>(AssetType::StaticMesh))
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product type"};
@@ -226,7 +244,7 @@ namespace Kans
                 slot.DefaultMaterial  = reader.ID();
                 slot.AuthoredMaterial = reader.ID();
             }
-            if (version == 5)
+            if (version == 5 || (version == 6 && mesh.VertexFormat == MeshVertexFormat::Skinned))
             {
                 if (mesh.VertexFormat != MeshVertexFormat::Skinned)
                     throw std::runtime_error("Invalid skinned mesh format");
@@ -256,6 +274,30 @@ namespace Kans
             }
             else if (mesh.VertexFormat != MeshVertexFormat::PositionNormalUVColorTangent)
                 throw std::runtime_error("Invalid legacy mesh format");
+            if (version == 6)
+            {
+                const auto count = reader.Read<uint32_t>();
+                if (count > 65536 || count * 36ull > reader.Remaining)
+                    throw std::runtime_error("Invalid morph target count");
+                mesh.MorphTargets.resize(count);
+                for (auto& t : mesh.MorphTargets)
+                {
+                    t.Name            = reader.String();
+                    t.DefaultWeight   = reader.Float();
+                    t.PositionBounds  = reader.Box();
+                    const auto deltas = reader.Read<uint32_t>();
+                    if (deltas > vertices || deltas * 40ull > reader.Remaining)
+                        throw std::runtime_error("Invalid sparse morph count");
+                    t.Deltas.resize(deltas);
+                    for (auto& d : t.Deltas)
+                    {
+                        d.Vertex = reader.Read<uint32_t>();
+                        reader.Floats(d.Position);
+                        reader.Floats(d.Normal);
+                        reader.Floats(d.Tangent);
+                    }
+                }
+            }
             if (reader.Remaining)
                 return AssetError {AssetErrorCode::InvalidData, "Trailing Mesh Product bytes"};
             // Source compatibility for the editor's single-part API.

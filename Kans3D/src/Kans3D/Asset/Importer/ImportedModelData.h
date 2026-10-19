@@ -22,6 +22,7 @@ namespace Kans
         std::vector<ImportedVertex> Vertices;
         std::vector<uint32_t>       Indices;
         std::vector<MeshSkinVertex> Skin;
+        std::vector<MeshMorphTarget> MorphTargets;
         int32_t                     Node = -1;
         glm::mat4                   BindToModel {1};
     };
@@ -69,11 +70,14 @@ namespace Kans
     };
 
     // Owns all returned data. No Assimp or rendering objects escape this boundary.
-    // Embedded textures and morph targets are reported but not imported.
-    [[nodiscard]] std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path);
+    // Embedded textures are reported but not imported.
+    [[nodiscard]] std::variant<ImportedModelData, AssetError>
+    ParseModelCpu(const std::filesystem::path& path, std::optional<bool> recomputeMorphNormals = {});
     // Closed input IO: undeclared paths are rejected before opening them.
     [[nodiscard]] std::variant<ImportedModelData, AssetError>
-    ParseModelCpu(const std::filesystem::path& path, const std::vector<std::filesystem::path>& allowedFiles);
+    ParseModelCpu(const std::filesystem::path&              path,
+                  const std::vector<std::filesystem::path>& allowedFiles,
+                  std::optional<bool>                       recomputeMorphNormals = {});
     // Uniformly scales the model by scaling its root nodes.
     void ScaleModel(ImportedModelData& model, float scale);
     // Finds the file a model's texture reference points to. Accepts backslashes,

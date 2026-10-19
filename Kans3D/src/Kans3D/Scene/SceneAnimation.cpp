@@ -118,6 +118,8 @@ namespace Kans
         player->RebuildPose();
         a.SkinPose = CreateRef<SkinningPose>();
         a.SkinPose->Palette.resize(a.SkeletonSource->GetData().Joints.size());
+        a.SkinPose->ShapeKeys = a.SkeletonSource->GetData().ShapeKeys;
+        a.SkinPose->MorphWeights.resize(a.SkinPose->ShapeKeys.size());
         a.Player = std::move(player);
         a.Events.reserve(64);
         a.JointEntities.resize(a.SkeletonSource->GetData().Joints.size());
@@ -174,6 +176,7 @@ namespace Kans
         m_ReconcilingPrefab = old;
         ++a.PoseVersion;
         a.SkinPose->Palette = pose.Palette;
+        a.SkinPose->MorphWeights = pose.MorphWeights;
         a.SkinPose->Version = a.PoseVersion;
         // Pose changes preserve render topology. Refresh transforms and conservative bounds in place,
         // avoiding dirty-set nodes and complete proxy reconstruction for every bone every frame.
@@ -188,7 +191,7 @@ namespace Kans
                     r.MeshSource && !r.MeshSource->GetData().Skin.empty() && r.Sort.Root == root.GetUUID();
                 const auto geometryWorld = skin ? rootWorld : world;
                 const auto animated =
-                    skin ? SkinnedBounds(r.MeshSource->GetData().JointBounds, *a.SkinPose) : Bounds {};
+                    r.MeshSource ? DeformedBounds(r.MeshSource->GetData(), a.SkinPose.get()) : Bounds {};
                 if (r.Mesh)
                 {
                     r.Mesh->Transform = geometryWorld;
@@ -200,7 +203,7 @@ namespace Kans
                 for (auto& draw : r.Draws)
                 {
                     draw.Transform = geometryWorld;
-                    if (skin)
+                    if (r.MeshSource && (skin || !r.MeshSource->GetData().MorphTargets.empty()))
                     {
                         draw.SkinPose    = a.SkinPose;
                         draw.LocalBounds = animated.IsValid() ?
