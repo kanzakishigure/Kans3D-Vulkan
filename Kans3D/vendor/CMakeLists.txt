@@ -117,6 +117,18 @@ set_target_properties(stb_image PROPERTIES
 )
 
 # ============================================================
+# miniaudio — one C implementation including the Vorbis backend
+# ============================================================
+add_library(miniaudio STATIC ${CMAKE_CURRENT_SOURCE_DIR}/miniaudio/miniaudio_impl.c)
+target_include_directories(miniaudio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/miniaudio)
+kans_set_output_dirs(miniaudio)
+set_target_properties(miniaudio PROPERTIES FOLDER "Dependencies")
+if(UNIX)
+    set_target_properties(miniaudio PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(miniaudio PUBLIC ${CMAKE_DL_LIBS} pthread m)
+endif()
+
+# ============================================================
 # ImGuizmo — StaticLib (depends on ImGui)
 # ============================================================
 add_library(ImGuizmo STATIC

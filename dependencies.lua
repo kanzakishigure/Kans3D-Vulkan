@@ -6,6 +6,7 @@ IncludeDir ={}
 IncludeDir["GLFW"] = "Kans3D/vendor/GLFW/include"
 IncludeDir["ImGui"] = "Kans3D/vendor/imgui"
 IncludeDir["GLM"] = "Kans3D/vendor/glm"
+IncludeDir["miniaudio"] = "Kans3D/vendor/miniaudio"
 IncludeDir["stb_image"] = "kans3D/vendor/stb_image"
 IncludeDir["entt"] = "Kans3D/vendor/entt/include"
 IncludeDir["assimp"] = "Kans3D/vendor/assimp/include"

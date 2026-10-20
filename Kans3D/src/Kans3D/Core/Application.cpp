@@ -1,5 +1,6 @@
 #include "kspch.h"
 
+#include "Kans3D/Audio/AudioSystem.h"
 #include "Kans3D/Core/Application.h"
 #include "Kans3D/Core/Log/Log.h"
 #include "Kans3D/FileSystem/FileSystem.h"
@@ -8,6 +9,7 @@
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Script/ScriptEngine.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <GLFW/glfw3.h>
 namespace Kans
@@ -48,6 +50,19 @@ namespace Kans
 
         //-------------Init the Renderer----------------------------//
         Renderer::Init(m_Window);
+        AudioEngineConfig audioConfig;
+        const char* nullAudio = std::getenv("KANS_AUDIO_NULL");
+        const bool forceSilent = nullAudio && std::string_view(nullAudio) == "1";
+        audioConfig.UseNullDevice = forceSilent;
+        auto audioError = AudioSystem::Init(audioConfig);
+        if (audioError && !forceSilent)
+        {
+            CORE_WARN("Audio device unavailable: {}. Using silent audio.", *audioError);
+            audioConfig.UseNullDevice = true;
+            audioError = AudioSystem::Init(audioConfig);
+        }
+        if (audioError)
+            CORE_WARN("Audio initialization failed: {}", *audioError);
         //-------------Init The UI Layer------------------------//
         m_ImGuiLayer = new ImGuiLayer();
         PushOverlay(m_ImGuiLayer);
@@ -69,6 +84,7 @@ namespace Kans
         }
 
         KansFileSystem::ShutDown();
+        AudioSystem::Shutdown();
         Renderer::Shutdown();
         ScriptEngine::ShutDown();
     }
@@ -106,6 +122,8 @@ namespace Kans
                 }
                 m_Window->SwapBuffers();
             }
+            if (auto* audio = AudioSystem::Get())
+                audio->Update();
             ProcessEvents();
         }
     }
