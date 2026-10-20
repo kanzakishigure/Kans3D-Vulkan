@@ -24,6 +24,13 @@ namespace Kans
     class MaterialDataAsset;
     class TextureAsset;
     class ShaderDataAsset;
+    class AudioClipAsset;
+    template<>
+    class Loader<AudioClipAsset>
+    {
+    public:
+        [[nodiscard]] std::variant<Ref<AudioClipAsset>, AssetError> Load(const AssetLoadContext& context) const;
+    };
     template<>
     class Loader<ShaderDataAsset>
     {

@@ -24,5 +24,6 @@ namespace Kans
         Skeleton            = 10,
         AnimationClip       = 11,
         AnimationController = 12,
+        AudioClip           = 13,
     };
 } // namespace Kans

@@ -10,6 +10,7 @@
 
 namespace Kans
 {
+    class AudioClipRegistry;
     enum class AudioOutputMode { Device, Offline };
     struct AudioEngineConfig
     {
@@ -74,7 +75,11 @@ namespace Kans
         uint64_t Render(float* out, uint64_t frameCount);
         void Update();
 
-        std::optional<std::string> RegisterSound(AudioSoundID id, std::vector<std::byte> encodedBytes);
+        std::optional<std::string> RegisterSound(AudioSoundID id, std::shared_ptr<const std::vector<std::byte>> encodedBytes);
+        std::optional<std::string> RegisterSound(AudioSoundID id, std::vector<std::byte> encodedBytes)
+        {
+            return RegisterSound(id, std::make_shared<const std::vector<std::byte>>(std::move(encodedBytes)));
+        }
         std::optional<std::string> RegisterSoundPCM(AudioSoundID id, std::vector<float> interleaved,
                                                   uint32_t channels, uint32_t sampleRate);
         void UnregisterSound(AudioSoundID id);
@@ -106,6 +111,9 @@ namespace Kans
         void SetListener(uint32_t index, const AudioListenerState& state);
 
     private:
+        friend class AudioClipRegistry;
+        void AttachClipRegistry(AudioClipRegistry* registry);
+        void DetachClipRegistry(AudioClipRegistry* registry);
         struct Impl;
         std::unique_ptr<Impl> m_Impl;
     };

@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "Kans3D/Audio/AudioEngine.h"
+#include "Kans3D/Audio/AudioClipRegistry.h"
 #include "Kans3D/Core/Log/Log.h"
 
 #include <miniaudio.h>
@@ -204,6 +205,7 @@ namespace Kans
         AudioEngineConfig Config;
         std::unordered_map<AudioSoundID, Sound> Sounds;
         std::vector<Slot> Slots;
+        std::vector<AudioClipRegistry*> ClipRegistries;
 
         Voice* Find(AudioVoiceHandle handle) const
         {
@@ -311,6 +313,8 @@ namespace Kans
         auto& p = *m_Impl;
         if (p.Ready && p.Config.Mode == AudioOutputMode::Device)
             ma_engine_stop(&p.Engine);
+        while (!p.ClipRegistries.empty())
+            p.ClipRegistries.back()->Clear();
         for (uint32_t i = 0; i < p.Slots.size(); ++i)
             if (p.Slots[i].Value)
                 DestroyVoice({i, p.Slots[i].Generation});
@@ -374,17 +378,28 @@ namespace Kans
         }
     }
 
-    std::optional<std::string> AudioEngine::RegisterSound(AudioSoundID id, std::vector<std::byte> encodedBytes)
+    void AudioEngine::AttachClipRegistry(AudioClipRegistry* registry)
+    {
+        m_Impl->ClipRegistries.push_back(registry);
+    }
+
+    void AudioEngine::DetachClipRegistry(AudioClipRegistry* registry)
+    {
+        auto& registries = m_Impl->ClipRegistries;
+        registries.erase(std::remove(registries.begin(), registries.end(), registry), registries.end());
+    }
+
+    std::optional<std::string> AudioEngine::RegisterSound(AudioSoundID id, std::shared_ptr<const std::vector<std::byte>> encodedBytes)
     {
         if (!IsInitialized())
             return "Audio engine is not initialized";
         if (IsSoundRegistered(id))
             return "Audio sound ID is already registered";
-        if (encodedBytes.empty())
+        if (!encodedBytes || encodedBytes->empty())
             return "Audio sound data is empty";
         ma_decoder decoder;
         auto config = ma_decoder_config_init(ma_format_f32, 0, 0);
-        auto result = ma_decoder_init_memory(encodedBytes.data(), encodedBytes.size(), &config, &decoder);
+        auto result = ma_decoder_init_memory(encodedBytes->data(), encodedBytes->size(), &config, &decoder);
         if (result != MA_SUCCESS)
             return Error("Decoder init", result);
         Impl::Sound sound;
@@ -397,7 +412,7 @@ namespace Kans
             length > std::vector<float>().max_size() / sound.Info.Channels)
             return "Invalid or unknown audio sound length";
         sound.Info.LengthFrames = length;
-        sound.Encoded = std::make_shared<const std::vector<std::byte>>(std::move(encodedBytes));
+        sound.Encoded = std::move(encodedBytes);
         sound.EncodedName = "encoded/" + std::to_string(id);
         sound.DecodedName = "decoded/" + std::to_string(id);
         {
