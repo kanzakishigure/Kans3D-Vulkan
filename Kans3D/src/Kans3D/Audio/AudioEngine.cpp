@@ -349,6 +349,16 @@ namespace Kans
     {
         if (!IsInitialized() || GetMode() != AudioOutputMode::Offline || !out)
             return 0;
+        if (std::none_of(m_Impl->Slots.begin(), m_Impl->Slots.end(), [](const auto& slot) { return bool(slot.Value); }))
+        {
+            // An empty node graph has no input frames. Offline callers still need a full silent
+            // buffer and advancing engine time before the next voice is attached.
+            m_Impl->DrainJobs();
+            std::fill_n(out, frameCount * GetChannels(), 0.f);
+            ma_engine_set_time_in_pcm_frames(&m_Impl->Engine,
+                ma_engine_get_time_in_pcm_frames(&m_Impl->Engine) + frameCount);
+            return frameCount;
+        }
         uint64_t written = 0;
         while (written < frameCount)
         {

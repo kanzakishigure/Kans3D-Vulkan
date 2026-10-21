@@ -42,6 +42,7 @@ namespace Kans
 
     Scene::~Scene()
     {
+        StopAudio();
         m_SuppressNotifications = true;
         m_Registry.clear();
     }
@@ -232,14 +233,16 @@ namespace Kans
             });
         }
         // update Script
-        if (!ScriptEngine::IsInitialized())
-            return;
-        auto view = m_Registry.view<ScriptComponent>();
-        for (auto entity : view)
+        if (ScriptEngine::IsInitialized())
         {
-            Entity e = {entity, this};
-            ScriptEngine::OnUpdateEntity(e, ts);
+            auto view = m_Registry.view<ScriptComponent>();
+            for (auto entity : view)
+            {
+                Entity e = {entity, this};
+                ScriptEngine::OnUpdateEntity(e, ts);
+            }
         }
+        UpdateAudio(double(ts));
     }
 
     void Scene::OnViewportResize(uint32_t width, uint32_t height)
@@ -448,6 +451,8 @@ namespace Kans
         CopyComponent<MeshComponent>(source, copy);
         CopyComponent<EditableMeshComponent>(source, copy);
         CopyComponent<AnimatorComponent>(source, copy);
+        CopyComponent<AudioSourceComponent>(source, copy);
+        CopyComponent<AudioListenerComponent>(source, copy);
         if (source.HasComponent<PrefabInstanceComponent>())
         {
             auto instance     = source.GetComponent<PrefabInstanceComponent>();
@@ -498,6 +503,7 @@ namespace Kans
 
     void Scene::OnRuntimeStart()
     {
+        StartAudio();
 
         // Init
         if (!ScriptEngine::IsInitialized())
@@ -529,6 +535,7 @@ namespace Kans
 
     void Scene::OnRuntimeStop()
     {
+        StopAudio();
         DestroyNativeScriptInstances();
         ScriptEngine::OnRuntimeEnd();
     }
@@ -553,6 +560,13 @@ namespace Kans
     {
         static_assert(sizeof(T) == 0);
     }
+
+    template<>
+    void Scene::OnComponentAdd<AudioSourceComponent>(Entity, AudioSourceComponent&)
+    {}
+    template<>
+    void Scene::OnComponentAdd<AudioListenerComponent>(Entity, AudioListenerComponent&)
+    {}
 
     template<>
     void Scene::OnComponentAdd<AnimatorComponent>(Entity, AnimatorComponent&)

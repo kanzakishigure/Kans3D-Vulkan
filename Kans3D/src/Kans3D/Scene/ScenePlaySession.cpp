@@ -12,6 +12,7 @@ namespace Kans
             {
                 m_StepRequested = false;
                 m_State = State::Playing;
+                scene.OnRuntimeResume();
             }
             return;
         }
@@ -28,7 +29,10 @@ namespace Kans
     void ScenePlaySession::Pause()
     {
         if (m_State == State::Playing)
+        {
             m_State = State::Paused;
+            m_Scene->OnRuntimePause();
+        }
     }
 
     void ScenePlaySession::Step()
