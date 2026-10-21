@@ -12,8 +12,8 @@ namespace Kans
     class ShaderImporter final : public AssetImporterBase
     {
     public:
-        // Alpha.glsl adds the MSAA coverage mode; invalidate products using the old engine include.
-        uint32_t GetVersion() const override { return 14; }
+        // Dithered/MSAA alpha modes and per-draw pass dispatch.
+        uint32_t GetVersion() const override { return 15; }
         [[nodiscard]] std::variant<ImportInputs, AssetError>
         DiscoverInputs(const ImportContext& context) const override;
         [[nodiscard]] std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;

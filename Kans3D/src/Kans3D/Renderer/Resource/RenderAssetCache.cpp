@@ -394,12 +394,79 @@ namespace Kans
         GpuMaterialBindings bindings;
         bindings.Shader = material.Shader;
         bindings.Render = material.Render;
+        bindings.DisabledPasses = material.DisabledPasses;
         for (const auto& block : std::get<std::vector<MaterialUniformBlock>>(packed))
             bindings.Blocks.emplace_back(block.Binding,
                                          GpuUniformBuffer(block.Bytes.size(), block.Bytes.data(), device));
+        bindings.Defaults = std::move(std::get<std::vector<MaterialUniformBlock>>(packed));
+        const auto reflected =
+            MaterialShaderResources(std::get<std::vector<ShaderStageReflection>>(InspectShaderProgram(shader.Code)));
+        for (const auto& resource : reflected)
+            for (const auto& member : resource.Members)
+                if (member.Type == ShaderUniformType::Float && member.Columns == 1 && member.ArrayCount == 1 &&
+                    (member.Components == 3 || member.Components == 4))
+                    for (size_t i = 0; i < bindings.Defaults.size(); ++i)
+                        if (bindings.Defaults[i].Binding == resource.Binding)
+                            bindings.ParameterSlots.push_back(
+                                {member.Name, i, size_t(member.Offset), member.Components});
         for (const auto& texture : material.Bindings->Textures)
             bindings.Textures.emplace_back(texture.Binding, material.Textures[texture.TextureIndex].Texture);
         return bindings;
+    }
+
+    const GpuMaterialBindings*
+    RenderAssetCache::GetInstanceMaterialBindings(const GpuMaterialBindings&                   base,
+                                                  const Ref<const InstanceMaterialParameters>& parameters)
+    {
+        if (!parameters || base.Blocks.empty())
+            return &base;
+        bool any = false;
+        for (const auto& slot : base.ParameterSlots)
+            for (const auto& value : *parameters)
+                any |= value.Resolved && value.Parameter == slot.Name;
+        if (!any)
+            return &base;
+        const auto baseBuffer = base.Blocks.front().second.Resource();
+        auto&      entry      = m_InstanceBindings[{parameters.get(), baseBuffer.get()}];
+        if (entry.Source.lock() != parameters || entry.Base.lock() != baseBuffer)
+        {
+            entry         = {};
+            entry.Source  = parameters;
+            entry.Base    = baseBuffer;
+            entry.Scratch = base.Defaults;
+        }
+        entry.LastUsedFrame = m_Frame;
+        for (size_t i = 0; i < entry.Scratch.size(); ++i)
+            std::memcpy(entry.Scratch[i].Bytes.data(), base.Defaults[i].Bytes.data(), base.Defaults[i].Bytes.size());
+        for (const auto& slot : base.ParameterSlots)
+            for (const auto& value : *parameters)
+                if (value.Resolved && value.Parameter == slot.Name)
+                    std::memcpy(entry.Scratch[slot.Block].Bytes.data() + slot.Offset,
+                                value.Value.data(),
+                                slot.Components * sizeof(float));
+        GpuMaterialBindings* result = nullptr;
+        for (auto& candidate : entry.Pool)
+            if (!candidate->Group || candidate->Group.use_count() == 1)
+            {
+                result = candidate.get();
+                break;
+            }
+        if (!result)
+        {
+            auto instance            = CreateScope<GpuMaterialBindings>();
+            instance->Shader         = base.Shader;
+            instance->Render         = base.Render;
+            instance->DisabledPasses = base.DisabledPasses;
+            instance->Textures       = base.Textures;
+            for (const auto& block : base.Defaults)
+                instance->Blocks.emplace_back(block.Binding,
+                                              GpuUniformBuffer(block.Bytes.size(), nullptr, GetDevice()));
+            result = instance.get();
+            entry.Pool.push_back(std::move(instance));
+        }
+        for (size_t i = 0; i < entry.Scratch.size(); ++i)
+            result->Blocks[i].second.Update(entry.Scratch[i].Bytes.data(), entry.Scratch[i].Bytes.size());
+        return result;
     }
 
     template<typename T, typename Resource, typename Build>
@@ -703,6 +770,12 @@ namespace Kans
 
     void RenderAssetCache::BeginFrame(uint64_t unusedFrames)
     {
+        for (auto it = m_InstanceBindings.begin(); it != m_InstanceBindings.end();)
+            if (it->second.Source.expired() || it->second.Base.expired() ||
+                m_Frame - it->second.LastUsedFrame > unusedFrames)
+                it = m_InstanceBindings.erase(it);
+            else
+                ++it;
 
         if (m_Device)
             m_Device->WaitIdle();
@@ -736,6 +809,7 @@ namespace Kans
     void RenderAssetCache::Clear()
     {
         m_Palettes.clear();
+        m_InstanceBindings.clear();
 
         m_Models.clear();
         m_Meshes.clear();

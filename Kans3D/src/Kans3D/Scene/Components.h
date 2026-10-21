@@ -79,6 +79,38 @@ namespace Kans
         }
     };
 
+    enum class MaterialParameterQuantity : uint32_t
+    {
+        WorldPosition,
+        WorldForward,
+        WorldUp,
+        WorldRight
+    };
+    struct MaterialParameterBinding
+    {
+        std::string               Parameter;
+        UUID                      SourceEntity = 0;
+        MaterialParameterQuantity Quantity     = MaterialParameterQuantity::WorldPosition;
+    };
+    struct MaterialParameterDriversComponent
+    {
+        std::vector<MaterialParameterBinding> Bindings;
+        Ref<InstanceMaterialParameters>       Values;
+        MaterialParameterDriversComponent() = default;
+        MaterialParameterDriversComponent(const MaterialParameterDriversComponent& other) : Bindings(other.Bindings) {}
+        MaterialParameterDriversComponent& operator=(const MaterialParameterDriversComponent& other)
+        {
+            if (this != &other)
+            {
+                Bindings = other.Bindings;
+                Values.reset();
+            }
+            return *this;
+        }
+        MaterialParameterDriversComponent(MaterialParameterDriversComponent&&) noexcept            = default;
+        MaterialParameterDriversComponent& operator=(MaterialParameterDriversComponent&&) noexcept = default;
+    };
+
     struct MeshComponent
     {
         AssetID                 Mesh;
@@ -238,6 +270,7 @@ namespace Kans
                                          EditableMeshComponent,
                                          PrefabInstanceComponent,
                                          AnimatorComponent,
+                                         MaterialParameterDriversComponent,
                                          AudioSourceComponent,
                                          AudioListenerComponent,
                                          PrefabOwnedComponent,

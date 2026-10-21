@@ -488,15 +488,11 @@ namespace Kans
         auto activated = ActivateScene(std::get<Ref<Scene>>(std::move(candidate)), std::move(fullPath));
         if (!std::holds_alternative<std::monostate>(activated))
             return activated;
-        // The editor view starts with the scene camera's exposure and bloom, so it looks
-        // like the game; the viewport's camera menu still changes them independently.
+        // Post-processing comes from the scene settings; the editor view starts with the scene
+        // camera's anti-aliasing, which the viewport's camera menu can still change.
         if (Entity camera = m_ActiveScene->GetCameraEntity())
-        {
-            const auto& sceneCamera = camera.GetComponent<CameraComponent>().SceneCamera;
-            m_ViewportPanel.GetCamera().SetExposure(sceneCamera.GetExposure());
-            m_ViewportPanel.GetCamera().SetBloomSettings(sceneCamera.GetBloomSettings());
-            m_ViewportPanel.GetCamera().SetAntiAliasing(sceneCamera.GetAntiAliasing());
-        }
+            m_ViewportPanel.GetCamera().SetAntiAliasing(
+                camera.GetComponent<CameraComponent>().SceneCamera.GetAntiAliasing());
         QueueMissingSceneAssets();
         return activated;
     }

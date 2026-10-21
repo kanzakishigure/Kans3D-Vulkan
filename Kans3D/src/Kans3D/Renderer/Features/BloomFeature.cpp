@@ -24,28 +24,32 @@ namespace Kans
     void BloomFeature::Prepare(RenderView& view, RenderFrame& frame)
     {
         view.BloomMipCount     = 0;
-        const auto b           = view.Scene.sceneCamera.camera.GetBloomSettings().Validated();
+        const auto b           = view.GetPostProcessSettings().Bloom;
         frame.DeferToneMapping = b.Enabled && b.Intensity > 0;
     }
     void BloomFeature::AddPasses(RenderExtensionPoint, const RenderFeatureContext& context)
     {
         auto*      frame = context.Frame;
-        const auto b     = context.View.Scene.sceneCamera.camera.GetBloomSettings().Validated();
+        const auto b     = context.View.GetPostProcessSettings().Bloom;
         if (!frame || !b.Enabled || b.Intensity == 0)
             return;
         auto&       graph    = context.Graph;
-        const float exposure = context.View.Exposure.value_or(context.View.Scene.sceneCamera.camera.GetExposure());
+        const float exposure = context.View.GetPostProcessSettings().Exposure;
         const auto  hdr      = graph.ImportTexture("SceneHDR", frame->Output.GetHDR());
         if (!frame->PostProcessHDR)
         {
             const auto display = graph.ImportTexture("BloomDisplayInput", frame->Output.GetColors()[0]);
-            graph.AddPass(
-                "Bloom HDR prefill",
-                {{display, GraphAccess::SampledRead}, {hdr, GraphAccess::ColorWrite}},
-                [frame, exposure](auto& c) {
-                    frame->Services.GetToneMapping().Record(
-                        c.Device, c.Commands, frame->Output.GetColors()[0], {frame->Output.GetHDR()}, exposure, true);
-                });
+            graph.AddPass("Bloom HDR prefill",
+                          {{display, GraphAccess::SampledRead}, {hdr, GraphAccess::ColorWrite}},
+                          [frame, exposure](auto& c) {
+                              frame->Services.GetToneMapping().Record(c.Device,
+                                                                      c.Commands,
+                                                                      frame->Output.GetColors()[0],
+                                                                      {frame->Output.GetHDR()},
+                                                                      exposure,
+                                                                      true,
+                                                                      frame->View.GetPostProcessSettings().ToneMapping);
+                          });
         }
         auto dirt = b.DirtTexture.IsValid() && b.DirtIntensity > 0 && frame->Assets() ?
                         frame->Assets()->GetTextureResource(b.DirtTexture) :

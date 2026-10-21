@@ -8,7 +8,7 @@ namespace Kans
     {
     public:
         inline static constexpr const char*    RootObjectKey = "material:root";
-        uint32_t                               GetVersion() const override { return 8; }
+        uint32_t                               GetVersion() const override { return 9; }
         bool                                   RequiresProductBytes() const override { return true; }
         std::variant<ImportInputs, AssetError> DiscoverInputs(const ImportContext& context) const override;
         std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;

@@ -129,6 +129,11 @@ namespace Kans
         animator.Paste    = {};
         animator.Draw     = DrawAnimator;
 
+        auto& drivers = registry.Register<MaterialParameterDriversComponent>(
+            "Material Parameter Drivers", ICON_FA_SLIDERS, "Rendering");
+        drivers.IconRank = 9;
+        drivers.Draw     = DrawMaterialParameterDrivers;
+
         auto& sprite    = registry.Register<SpriteRendererComponent>("Sprite Renderer", ICON_FA_IMAGE, "Rendering");
         sprite.IconRank = 6;
         sprite.Add = [](Entity e) { e.AddComponent<SpriteRendererComponent>().Texture = Renderer::GetWhiteTexture(); };

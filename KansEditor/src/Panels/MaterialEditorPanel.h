@@ -49,6 +49,7 @@ namespace Kans
         void                  DrawTexture(const std::string& name);
         // Alpha mode, cutoff and double-sided: how the renderer draws the material.
         void DrawRenderState();
+        void DrawPasses(bool instance, const MaterialSource* parent);
         // Instances: a parent material whose values are inherited unless overridden.
         bool                  IsInstance() const { return m_Source.Parent.IsValid(); }
         void                  DrawParent();

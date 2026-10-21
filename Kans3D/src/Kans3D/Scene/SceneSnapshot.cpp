@@ -30,8 +30,9 @@ namespace Kans
                    x.GetPerspectiveFarClip() == y.GetPerspectiveFarClip() &&
                    x.GetOrthographicSize() == y.GetOrthographicSize() &&
                    x.GetOrthographicNearClip() == y.GetOrthographicNearClip() &&
-                   x.GetOrthographicFarClip() == y.GetOrthographicFarClip() && x.GetExposure() == y.GetExposure() &&
-                   x.GetBloomSettings() == y.GetBloomSettings() && x.GetAntiAliasing() == y.GetAntiAliasing() &&
+                   x.GetOrthographicFarClip() == y.GetOrthographicFarClip() &&
+                   x.GetPostProcessOverride() == y.GetPostProcessOverride() &&
+                   x.GetAntiAliasing() == y.GetAntiAliasing() &&
                    // A free aspect ratio follows the viewport; resizing it is not an edit.
                    (!a.FixedAspectRatio || x.GetAspectRatio() == y.GetAspectRatio());
         }
@@ -83,6 +84,15 @@ namespace Kans
         }
         bool Same(const AudioSourceComponent& a, const AudioSourceComponent& b) { return a == b; }
         bool Same(const AudioListenerComponent& a, const AudioListenerComponent& b) { return a == b; }
+        bool Same(const MaterialParameterDriversComponent& a, const MaterialParameterDriversComponent& b)
+        {
+            return a.Bindings.size() == b.Bindings.size() &&
+                   std::equal(
+                       a.Bindings.begin(), a.Bindings.end(), b.Bindings.begin(), [](const auto& x, const auto& y) {
+                           return x.Parameter == y.Parameter && x.SourceEntity == y.SourceEntity &&
+                                  x.Quantity == y.Quantity;
+                       });
+        }
         bool Same(const AnimatorComponent& a, const AnimatorComponent& b) { return a == b; }
         bool Same(const ScriptComponent& a, const ScriptComponent& b) { return a.ClassName == b.ClassName; }
 
@@ -119,15 +129,16 @@ namespace Kans
         return a.ID == b.ID && a.Tag == b.Tag && Same(a.Transform, b.Transform) &&
                Same(a.Relationship, b.Relationship) && Same(a.Camera, b.Camera) && Same(a.Sprite, b.Sprite) &&
                Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
-               Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) && Same(a.DirLight, b.DirLight) &&
-               Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) &&
-               Same(a.AudioSource, b.AudioSource) && Same(a.AudioListener, b.AudioListener);
+               Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) &&
+               Same(a.MaterialDrivers, b.MaterialDrivers) && Same(a.DirLight, b.DirLight) &&
+               Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) && Same(a.AudioSource, b.AudioSource) &&
+               Same(a.AudioListener, b.AudioListener);
     }
 
     bool operator==(const SceneSnapshot& a, const SceneSnapshot& b)
     {
-        return a.Name == b.Name && a.Environment == b.Environment && a.RootOrder == b.RootOrder &&
-               a.Entities == b.Entities;
+        return a.PostProcess == b.PostProcess && a.Name == b.Name && a.Environment == b.Environment &&
+               a.RootOrder == b.RootOrder && a.Entities == b.Entities;
     }
 
     SceneSnapshot Scene::Capture() const
@@ -135,6 +146,7 @@ namespace Kans
         const_cast<Scene*>(this)->UpdatePrefabs();
         SceneSnapshot snapshot;
         snapshot.Name      = m_Name;
+        snapshot.PostProcess = m_PostProcessSettings;
         if (m_HasEnvironmentSettings)
             snapshot.Environment = m_EnvironmentSettings;
         snapshot.RootOrder = m_RootOrder;
@@ -154,6 +166,7 @@ namespace Kans
             Kans::Capture(entity, item.Editable);
             Kans::Capture(entity, item.Prefab);
             Kans::Capture(entity, item.Animator);
+            Kans::Capture(entity, item.MaterialDrivers);
             Kans::Capture(entity, item.AudioSource);
             Kans::Capture(entity, item.AudioListener);
             Kans::Capture(entity, item.PrefabParent);
@@ -209,6 +222,7 @@ namespace Kans
         m_ChildBounds.clear();
         m_RootOrder.clear();
         m_Name = snapshot.Name;
+        SetPostProcessSettings(snapshot.PostProcess);
         if (snapshot.Environment)
             SetEnvironmentSettings(*snapshot.Environment);
         else
@@ -225,6 +239,7 @@ namespace Kans
             Kans::Restore(entity, item.Editable);
             Kans::Restore(entity, item.Prefab);
             Kans::Restore(entity, item.Animator);
+            Kans::Restore(entity, item.MaterialDrivers);
             Kans::Restore(entity, item.AudioSource);
             Kans::Restore(entity, item.AudioListener);
             Kans::Restore(entity, item.PrefabParent);

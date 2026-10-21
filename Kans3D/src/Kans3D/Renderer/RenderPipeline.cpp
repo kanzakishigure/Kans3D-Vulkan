@@ -202,9 +202,14 @@ namespace Kans
             uses.pop_back(); // The final resolve does not access depth/stencil.
             uses.push_back({graph.ImportTexture("SceneHDR", renderer.Output.GetHDR()), GraphAccess::SampledRead});
             append("Tone mapping (ACES fitted + sRGB)", std::move(uses), [&renderer, &view](auto& context) {
-                const float exposure = view.Exposure.value_or(view.Scene.sceneCamera.camera.GetExposure());
-                renderer.Services.GetToneMapping().Record(
-                    context.Device, context.Commands, renderer.Output.GetHDR(), renderer.Output.GetColors(), exposure);
+                const float exposure = view.GetPostProcessSettings().Exposure;
+                renderer.Services.GetToneMapping().Record(context.Device,
+                                                          context.Commands,
+                                                          renderer.Output.GetHDR(),
+                                                          renderer.Output.GetColors(),
+                                                          exposure,
+                                                          false,
+                                                          view.GetPostProcessSettings().ToneMapping);
             });
         }
         // Display-space overlays follow every post effect and the final tone mapping.
@@ -310,12 +315,13 @@ namespace Kans
                 append("Renderer2D sprites MSAA", uses, [&frame, immediate, end](auto& c) {
                     if (frame.PostProcessHDR)
                     {
-                        frame.Services.GetToneMapping().Record(
-                            c.Device,
-                            c.Commands,
-                            frame.HDR(),
-                            frame.Colors(),
-                            frame.View.Exposure.value_or(frame.View.Scene.sceneCamera.camera.GetExposure()));
+                        frame.Services.GetToneMapping().Record(c.Device,
+                                                               c.Commands,
+                                                               frame.HDR(),
+                                                               frame.Colors(),
+                                                               frame.View.GetPostProcessSettings().Exposure,
+                                                               false,
+                                                               frame.View.GetPostProcessSettings().ToneMapping);
                         frame.PostProcessHDR = false;
                     }
                     auto& sprites = frame.Services.GetSpriteBatch();
@@ -382,10 +388,15 @@ namespace Kans
         }
         resolveUses.push_back({hdr, GraphAccess::ColorWrite});
         append("MSAA Karis HDR + sample 0 depth/stencil resolve", resolveUses, [&frame](auto& c) {
-            const float exposure = frame.View.Exposure.value_or(frame.View.Scene.sceneCamera.camera.GetExposure());
+            const float exposure = frame.View.GetPostProcessSettings().Exposure;
             if (!frame.PostProcessHDR)
-                frame.Services.GetToneMapping().Record(
-                    c.Device, c.Commands, frame.Colors()[0], {frame.HDR()}, exposure, true);
+                frame.Services.GetToneMapping().Record(c.Device,
+                                                       c.Commands,
+                                                       frame.Colors()[0],
+                                                       {frame.HDR()},
+                                                       exposure,
+                                                       true,
+                                                       frame.View.GetPostProcessSettings().ToneMapping);
             frame.Services.GetAntiAliasing().Resolve(c.Device, c.Commands, frame.HDR(), frame.Output.GetHDR());
             // Compatibility color outputs and depth/stencil use attachment resolves.
             auto render = frame.SceneTarget(LoadOp::Load);
@@ -405,12 +416,13 @@ namespace Kans
         toneUses.pop_back();
         toneUses.push_back({hdr, GraphAccess::SampledRead});
         append("Tone mapping (ACES fitted + sRGB)", toneUses, [&frame](auto& c) {
-            frame.Services.GetToneMapping().Record(
-                c.Device,
-                c.Commands,
-                frame.Output.GetHDR(),
-                frame.Output.GetColors(),
-                frame.View.Exposure.value_or(frame.View.Scene.sceneCamera.camera.GetExposure()));
+            frame.Services.GetToneMapping().Record(c.Device,
+                                                   c.Commands,
+                                                   frame.Output.GetHDR(),
+                                                   frame.Output.GetColors(),
+                                                   frame.View.GetPostProcessSettings().Exposure,
+                                                   false,
+                                                   frame.View.GetPostProcessSettings().ToneMapping);
             frame.DeferToneMapping = frame.PostProcessHDR = false;
         });
         Inject(RenderExtensionPoint::Overlay, postFeatures);

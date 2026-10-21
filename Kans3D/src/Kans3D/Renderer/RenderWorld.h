@@ -21,6 +21,7 @@ namespace Kans
             UUID      EntityID = 0, InstanceRoot = 0;
             bool      CastShadows = true, ReceiveShadows = true;
             Ref<const SkinningPose> SkinPose;
+            Ref<const InstanceMaterialParameters> Parameters;
         };
         struct Stats
         {

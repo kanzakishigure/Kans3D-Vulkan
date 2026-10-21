@@ -76,12 +76,19 @@ void KansAlphaClip(float alpha)
 {
     if (u_Object.MaterialRender.x == 1.0 && alpha < u_Object.MaterialRender.y)
         discard;
+    if (u_Object.MaterialRender.x == 3.0)
+    {
+        // Fixed 4x4 Bayer pattern at pixel centres, independent of submission and time.
+        const int bayer[16] = int[](0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5);
+        ivec2 p = ivec2(floor(gl_FragCoord.xy)) & 3;
+        if (alpha <= (float(bayer[p.y*4+p.x])+0.5)/16.0) discard;
+    }
 }
 float KansOutputAlpha(float alpha)
 {
-    if (u_Object.MaterialRender.x == 3.0)
+    if (u_Object.MaterialRender.x == 4.0)
         return clamp((alpha-u_Object.MaterialRender.y)/max(fwidth(alpha), 1e-4)+0.5, 0.0, 1.0);
-    return u_Object.MaterialRender.x == 2.0 ? alpha : 1.0;
+    return (u_Object.MaterialRender.x == 2.0 || u_Object.MaterialRender.x == 5.0) ? alpha : 1.0;
 }
 #endif
 )"},
