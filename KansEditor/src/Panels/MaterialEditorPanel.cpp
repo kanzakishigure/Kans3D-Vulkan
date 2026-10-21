@@ -967,10 +967,16 @@ namespace Kans
             const char*       Help;
         } modes[] = {
             {MaterialAlphaMode::Opaque, "Opaque", "Alpha is ignored."},
-            {MaterialAlphaMode::Mask, "Cutout", "Pixels with alpha below the cutoff are discarded (foliage, hair cards)."},
+            {MaterialAlphaMode::Mask,
+             "Cutout",
+             "Pixels with alpha below the cutoff are discarded (foliage, hair cards)."},
             {MaterialAlphaMode::Blend,
              "Transparent",
              "Blended over what is behind, drawn after opaque parts from far to near (glass, fades)."},
+            {MaterialAlphaMode::Dithered,
+             "Dithered",
+             "Order-independent transparency: alpha becomes coverage (MSAA) or a fixed dither pattern, and "
+             "depth is written (overlapping hair and face parts; Blender Eevee's \"Dithered\")."},
         };
         const auto* current = &modes[0];
         for (const auto& mode : modes)
@@ -1017,6 +1023,43 @@ namespace Kans
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Draw back faces too, lit with the flipped normal (leaves, cloth, thin planes).");
+        DrawPasses(instance, parent);
+    }
+
+    void MaterialEditorPanel::DrawPasses(bool instance, const MaterialSource* parent)
+    {
+        // Additional passes declared by the shader (e.g. an outline hull); a material can switch
+        // them off. An instance can switch off more, not re-enable what its parent disabled.
+        if (!m_SchemaShader || m_SchemaShader->GetData().Passes.empty())
+            return;
+        const auto& passes = m_SchemaShader->GetData().Passes;
+        const auto  listed = [](const std::vector<std::string>& names, const std::string& name) {
+            return std::find(names.begin(), names.end(), name) != names.end();
+        };
+        ImGui::Spacing();
+        ImGui::TextDisabled("Shader passes");
+        for (const auto& pass : passes)
+        {
+            // The shadow pass follows Receive/Cast settings, not this list.
+            if (pass.Tag == "ShadowCaster")
+                continue;
+            const bool inherited = instance && parent && listed(parent->DisabledPasses, pass.Name);
+            bool       enabled   = !inherited && !listed(m_Source.DisabledPasses, pass.Name);
+            ImGui::BeginDisabled(inherited);
+            if (ImGui::Checkbox(pass.Name.c_str(), &enabled))
+            {
+                auto& disabled = m_Source.DisabledPasses;
+                if (enabled)
+                    disabled.erase(std::remove(disabled.begin(), disabled.end(), pass.Name), disabled.end());
+                else
+                    disabled.push_back(pass.Name);
+                m_Dirty = true;
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(inherited ? "Disabled by the parent material." : "Shader pass (tag %s).",
+                                  pass.Tag.c_str());
+        }
     }
 
     void MaterialEditorPanel::Draw()

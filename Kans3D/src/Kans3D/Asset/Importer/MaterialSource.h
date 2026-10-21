@@ -36,6 +36,7 @@ namespace Kans
         std::map<std::string, std::vector<double>> Parameters;
         std::map<std::string, AssetID>              Textures;
         MaterialRenderState                         Render;
+        std::vector<std::string>                    DisabledPasses;
         // Instances omit shader, store only overrides, and use RenderOverrides.
         // Textures[name] == AssetID{} explicitly clears an inherited texture
         // (YAML: `textures: {NormalMap: null}`). Missing entries inherit.

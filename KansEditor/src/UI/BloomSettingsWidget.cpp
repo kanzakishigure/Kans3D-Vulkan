@@ -31,6 +31,20 @@ namespace Kans
         }
         return changed;
     }
+    bool DrawPostProcessSettings(PostProcessSettings& settings, const std::function<bool(AssetID&)>& dirtPicker)
+    {
+        bool changed = PropertyGrid::Float("Exposure", settings.Exposure, 0.01f, 0.001f, 128.0f);
+        // Standard matches Blender's "Standard" view transform: exposure, then sRGB.
+        const char* toneMappings[] = {"ACES", "Standard (none)"};
+        int         toneMapping    = int(settings.ToneMapping);
+        if (PropertyGrid::Combo("Tone mapping", toneMappings, 2, toneMapping))
+        {
+            settings.ToneMapping = ToneMappingMode(toneMapping);
+            changed              = true;
+        }
+        changed |= DrawBloomSettings(settings.Bloom, dirtPicker);
+        return changed;
+    }
     bool DrawAntiAliasing(AntiAliasing& mode)
     {
         const char* names[] = {"Off", "FXAA (fast)", "MSAA 2x", "MSAA 4x", "MSAA 8x"};

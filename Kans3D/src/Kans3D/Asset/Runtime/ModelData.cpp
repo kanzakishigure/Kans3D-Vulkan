@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 namespace Kans
 {
     ModelAsset::ModelAsset(ModelData data) : m_Data(std::move(data)), m_EditorData(m_Data)
@@ -82,12 +83,19 @@ namespace Kans
 
     bool IsValidMaterialRenderState(const MaterialRenderState& state)
     {
-        return uint32_t(state.AlphaMode) <= uint32_t(MaterialAlphaMode::Blend) && std::isfinite(state.AlphaCutoff) &&
+        return uint32_t(state.AlphaMode) <= uint32_t(MaterialAlphaMode::Dithered) && std::isfinite(state.AlphaCutoff) &&
                state.AlphaCutoff >= 0;
     }
 
     std::variant<std::monostate, AssetError> ValidateMaterialData(const MaterialData& data)
     {
+        std::set<std::string> passNames;
+        if (data.DisabledPasses.size() > 32)
+            return AssetError {AssetErrorCode::InvalidData, "Too many disabled passes"};
+        for (const auto& name : data.DisabledPasses)
+            if (name.empty() || name.size() > 256 || name.find('\0') != std::string::npos ||
+                !passNames.insert(name).second)
+                return AssetError {AssetErrorCode::InvalidData, "Invalid disabled pass name"};
         if ((!data.Shader.IsValid() && data.Shader != AssetID {}) || data.Name.size() > 4096 ||
             data.Name.find('\0') != std::string::npos || data.Textures.size() > 1000000 ||
             !std::all_of(data.BaseColor.begin(), data.BaseColor.end(), [](float v) { return std::isfinite(v); }) ||

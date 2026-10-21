@@ -1,6 +1,7 @@
 #pragma once
 #include <map>
 #include "Kans3D/RHI/RHI.h"
+#include "Kans3D/Renderer/Resource/PostProcessSettings.h"
 namespace Kans
 {
     // ACES fitted (Narkowicz) + IEC sRGB. Inverse is used only at ordered
@@ -13,7 +14,8 @@ namespace Kans
                             const RenderHardware::Handle<RenderHardware::Texture>&              source,
                             const std::vector<RenderHardware::Handle<RenderHardware::Texture>>& targets,
                             float                                                               exposure,
-                            bool                                                                inverse = false);
+                            bool                                                                inverse = false,
+                            ToneMappingMode                                                     mode = ToneMappingMode::ACES);
         static float EffectiveExposure(float exposure);
 
     private:

@@ -74,6 +74,9 @@
 #define ICON_FA_PAUSE                  "\xef\x81\x8c" // U+F04C
 #define ICON_FA_STOP                   "\xef\x81\x8d" // U+F04D
 #define ICON_FA_FORWARD_STEP           "\xef\x81\x91" // U+F051
+#define ICON_FA_BACKWARD_STEP "\xef\x81\x88"          // U+F048
+#define ICON_FA_BACKWARD_FAST "\xef\x81\x89"          // U+F049
+#define ICON_FA_FORWARD_FAST "\xef\x81\x90"           // U+F050
 #define ICON_FA_CIRCLE                 "\xef\x84\x91" // U+F111
 #define ICON_FA_CIRCLE_DOT             "\xef\x86\x92" // U+F192
 // Modeling tools.

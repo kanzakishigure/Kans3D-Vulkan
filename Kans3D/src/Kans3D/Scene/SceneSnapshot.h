@@ -22,6 +22,7 @@ namespace Kans
         std::optional<EditableMeshComponent>     Editable;
         std::optional<PrefabInstanceComponent>   Prefab;
         std::optional<AnimatorComponent>         Animator;
+        std::optional<MaterialParameterDriversComponent> MaterialDrivers;
         std::optional<AudioSourceComponent>      AudioSource;
         std::optional<AudioListenerComponent>    AudioListener;
         std::optional<PrefabAttachmentComponent> PrefabParent;
@@ -32,6 +33,7 @@ namespace Kans
 
     struct SceneSnapshot
     {
+        PostProcessSettings                PostProcess;
         std::string                 Name;
         std::optional<EnvironmentSettings> Environment;
         std::vector<UUID>           RootOrder;

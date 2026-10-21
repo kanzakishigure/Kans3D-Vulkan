@@ -269,12 +269,19 @@ namespace Kans
                 if (!mesh || proxy.Section >= mesh->Sections.size() || !bindings || !shader)
                     continue;
                 const GpuShaderPass* caster = nullptr;
+                bool                 hasCaster = false;
                 for (const auto& pass : shader->Passes)
                     if (pass.Tag == "ShadowCaster")
                     {
-                        caster = &pass;
-                        break;
+                        hasCaster = true;
+                        if (bindings->PassEnabled(pass.Name))
+                        {
+                            caster = &pass;
+                            break;
+                        }
                     }
+                if (hasCaster && !caster)
+                    continue;
                 if (!caster)
                 {
                     // Built-in Standard depth path retains texture alpha, UV transforms and vertex colour.
@@ -309,6 +316,7 @@ namespace Kans
                 pass.ColorFormats.clear();
                 pass.Section      = proxy.Section;
                 pass.Render       = bindings->Render;
+                pass.Parameters   = proxy.Parameters;
                 pass.ConstantBias = settings.ConstantBias;
                 pass.SlopeBias    = settings.SlopeBias;
                 bool recorded     = false;

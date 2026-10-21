@@ -127,7 +127,8 @@ namespace Kans
             frame.DirectionalSpecular  = glm::vec4(light.Specular_Intensity, 0);
         }
         frame.DirectionalAmbient = glm::vec4(light.Ambient_Intensity, 0);
-        frame.LightingInfo       = {float(count), scene.sceneCamera.camera.GetExposure(), 0, 0};
+        frame.LightingInfo       = {
+            float(count), scene.sceneCamera.camera.ResolvePostProcess(scene.PostProcess).Exposure, 0, 0};
         return frame;
     }
 } // namespace Kans
@@ -141,6 +142,7 @@ namespace Kans
             return std::nullopt;
         const auto transform = scene.GetWorldTransform(entity);
         RenderView view;
+        view.Scene.PostProcess            = scene.GetPostProcessSettings();
         view.Viewport                     = viewport;
         view.Scene.sceneCamera.camera     = entity.GetComponent<CameraComponent>().SceneCamera;
         view.Scene.sceneCamera.Position   = glm::vec3(transform[3]);

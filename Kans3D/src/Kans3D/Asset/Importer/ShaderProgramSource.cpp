@@ -193,7 +193,26 @@ namespace Kans
                     {"never", "less", "equal", "less_equal", "greater", "not_equal", "greater_equal", "always"},
                     state.DepthCompare);
             else if (key == "blend")
-                valid = boolean(state.Blend);
+            {
+                if (value == "opaque")
+                    state.Blend = false;
+                else if (value == "alpha")
+                {
+                    state.Blend            = true;
+                    state.SourceColor      = ShaderBlendFactor::SourceAlpha;
+                    state.DestinationColor = ShaderBlendFactor::OneMinusSourceAlpha;
+                    state.SourceAlpha      = ShaderBlendFactor::Zero;
+                    state.DestinationAlpha = ShaderBlendFactor::One;
+                }
+                else
+                    valid = boolean(state.Blend);
+            }
+            else if (key == "order")
+            {
+                valid = value == "after_main" && (pass.Tag.empty() || pass.Tag == "AfterMain");
+                if (valid)
+                    pass.Tag = "AfterMain";
+            }
             else if (key == "src_color" || key == "dst_color" || key == "src_alpha" || key == "dst_alpha")
             {
                 auto& factor = key == "src_color" ? state.SourceColor :

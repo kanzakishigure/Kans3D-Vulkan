@@ -752,12 +752,39 @@ namespace Kans
                 b.DirtIntensity = Number(node["DirtIntensity"]);
             return b.Validated();
         }
+        YAML::Node EncodePostProcess(const PostProcessSettings& input)
+        {
+            const auto settings = input.Validated();
+            Require(std::isfinite(input.Exposure) && uint32_t(input.ToneMapping) <= 1, "Invalid post-process settings");
+            YAML::Node node;
+            node["Exposure"]    = settings.Exposure;
+            node["Bloom"]       = EncodeBloom(input.Bloom);
+            node["Tonemapping"] = settings.ToneMapping == ToneMappingMode::ACES ? "ACES" : "Standard";
+            return node;
+        }
+        PostProcessSettings DecodePostProcess(const YAML::Node& node)
+        {
+            Keys(node, {"Exposure", "Bloom", "Tonemapping"});
+            PostProcessSettings settings;
+            if (node["Exposure"])
+                settings.Exposure = Number(node["Exposure"]);
+            if (node["Bloom"])
+                settings.Bloom = DecodeBloom(node["Bloom"]);
+            if (node["Tonemapping"])
+            {
+                const auto mode = node["Tonemapping"].as<std::string>();
+                Require(mode == "ACES" || mode == "Standard", "Invalid tonemapping mode");
+                settings.ToneMapping = mode == "ACES" ? ToneMappingMode::ACES : ToneMappingMode::Standard;
+            }
+            return settings.Validated();
+        }
+
         void ValidateCamera(SceneCamera& camera)
         {
-            Require(std::isfinite(camera.GetExposure()) && std::isfinite(camera.GetAspectRatio()) &&
-                        camera.GetAspectRatio() > 0 && std::isfinite(camera.GetPerspectiveVerticalFOV()) &&
-                        camera.GetPerspectiveVerticalFOV() > 0 && camera.GetPerspectiveVerticalFOV() < 180 &&
-                        std::isfinite(camera.GetPerspectiveNearClip()) &&
+            Require(std::isfinite(static_cast<const Camera&>(camera).GetExposure()) &&
+                        std::isfinite(camera.GetAspectRatio()) && camera.GetAspectRatio() > 0 &&
+                        std::isfinite(camera.GetPerspectiveVerticalFOV()) && camera.GetPerspectiveVerticalFOV() > 0 &&
+                        camera.GetPerspectiveVerticalFOV() < 180 && std::isfinite(camera.GetPerspectiveNearClip()) &&
                         std::isfinite(camera.GetPerspectiveFarClip()) && camera.GetPerspectiveNearClip() > 0 &&
                         camera.GetPerspectiveFarClip() > camera.GetPerspectiveNearClip() &&
                         std::isfinite(camera.GetOrthographicSize()) && camera.GetOrthographicSize() > 0 &&
@@ -810,6 +837,21 @@ namespace Kans
             }
             if (entity.HasComponent<AudioListenerComponent>())
                 node["AudioListenerComponent"]["Active"] = entity.GetComponent<AudioListenerComponent>().Active;
+            if (entity.HasComponent<MaterialParameterDriversComponent>())
+            {
+                auto list = node["MaterialParameterDriversComponent"]["Bindings"];
+                list      = YAML::Node(YAML::NodeType::Sequence);
+                for (const auto& binding : entity.GetComponent<MaterialParameterDriversComponent>().Bindings)
+                {
+                    YAML::Node item;
+                    item["Parameter"]        = binding.Parameter;
+                    item["SourceEntity"]     = uint64_t(binding.SourceEntity);
+                    const char* quantities[] = {"WorldPosition", "WorldForward", "WorldUp", "WorldRight"};
+                    Require(uint32_t(binding.Quantity) < 4, "Invalid material driver quantity");
+                    item["Quantity"] = quantities[uint32_t(binding.Quantity)];
+                    list.push_back(item);
+                }
+            }
             if (entity.HasComponent<AnimatorComponent>())
             {
                 const auto& a        = entity.GetComponent<AnimatorComponent>();
@@ -849,8 +891,8 @@ namespace Kans
                 value["OrthographicNearClip"] = camera.GetOrthographicNearClip();
                 value["OrthographicFarClip"]  = camera.GetOrthographicFarClip();
                 value["AspectRatio"]          = camera.GetAspectRatio();
-                value["Exposure"]             = camera.GetExposure();
-                value["Bloom"]                = EncodeBloom(camera.GetBloomSettings());
+                if (camera.GetPostProcessOverride())
+                    value["PostProcessOverride"] = EncodePostProcess(*camera.GetPostProcessOverride());
                 if (camera.GetAntiAliasing() != AntiAliasing::None)
                     value["AntiAliasing"] = uint32_t(camera.GetAntiAliasing());
                 value["Primary"]              = component.Primary;
@@ -925,6 +967,7 @@ namespace Kans
             YAML::Node root;
             root["Version"]  = 1;
             root["Scene"]    = name;
+            root["PostProcess"] = EncodePostProcess(m_Scene->GetPostProcessSettings());
             if (m_Scene->HasEnvironmentSettings())
             {
                 const auto& settings    = m_Scene->GetEnvironmentSettings();
@@ -1029,7 +1072,7 @@ namespace Kans
             auto documents = YAML::LoadAll(text);
             Require(documents.size() == 1, "Scene requires one YAML document");
             auto root = documents.front();
-            Keys(root, {"Version", "Scene", "Entities", "Environment"});
+            Keys(root, {"Version", "Scene", "Entities", "Environment", "PostProcess"});
             Require(UInt(root["Version"]) == 1, "Unsupported Scene version");
             auto entities = root["Entities"];
             Require(entities.IsSequence() && entities.size() <= 65536, "Invalid Scene entities");
@@ -1068,6 +1111,7 @@ namespace Kans
                       "ProductModelComponent",
                       "PrefabInstanceComponent",
                       "AnimatorComponent",
+                      "MaterialParameterDriversComponent",
                       "AudioSourceComponent",
                       "AudioListenerComponent",
                       "MeshComponent",
@@ -1110,6 +1154,35 @@ namespace Kans
                     Keys(node["AudioListenerComponent"], {"Active"});
                     entity.AddComponent<AudioListenerComponent>().Active =
                         node["AudioListenerComponent"]["Active"].as<bool>();
+                }
+                if (const auto drivers = node["MaterialParameterDriversComponent"])
+                {
+                    Keys(drivers, {"Bindings"});
+                    const auto list = drivers["Bindings"];
+                    Require(list && list.IsSequence() && list.size() <= 4096, "Invalid material drivers");
+                    MaterialParameterDriversComponent component;
+                    for (const auto& item : list)
+                    {
+                        Keys(item, {"Parameter", "SourceEntity", "Quantity"});
+                        MaterialParameterBinding binding;
+                        binding.Parameter = item["Parameter"].as<std::string>();
+                        Require(!binding.Parameter.empty() && binding.Parameter.size() <= 4096,
+                                "Invalid parameter name");
+                        binding.SourceEntity = item["SourceEntity"].as<uint64_t>();
+                        const auto quantity  = item["Quantity"].as<std::string>();
+                        if (quantity == "WorldPosition")
+                            binding.Quantity = MaterialParameterQuantity::WorldPosition;
+                        else if (quantity == "WorldForward")
+                            binding.Quantity = MaterialParameterQuantity::WorldForward;
+                        else if (quantity == "WorldUp")
+                            binding.Quantity = MaterialParameterQuantity::WorldUp;
+                        else if (quantity == "WorldRight")
+                            binding.Quantity = MaterialParameterQuantity::WorldRight;
+                        else
+                            throw std::runtime_error("Invalid material driver quantity");
+                        component.Bindings.push_back(std::move(binding));
+                    }
+                    entity.AddComponent<MaterialParameterDriversComponent>(std::move(component));
                 }
                 if (node["AnimatorComponent"])
                 {
@@ -1170,6 +1243,7 @@ namespace Kans
                           "OrthographicNearClip",
                           "OrthographicFarClip",
                           "AspectRatio",
+                          "PostProcessOverride",
                           "Exposure",
                           "Bloom",
                           "AntiAliasing",
@@ -1180,6 +1254,8 @@ namespace Kans
                     auto& component = entity.AddComponent<CameraComponent>();
                     auto& camera    = component.SceneCamera;
                     camera.SetAspectRatio(Number(value["AspectRatio"]));
+                    if (value["PostProcessOverride"])
+                        camera.SetPostProcessOverride(DecodePostProcess(value["PostProcessOverride"]));
                     if (value["Exposure"])
                         camera.SetExposure(Number(value["Exposure"]));
                     if (value["Bloom"])
@@ -1236,6 +1312,29 @@ namespace Kans
                     sprite.Color        = Vec4(value["Color"]);
                     sprite.TilingFactor = Number(value["TilingFactor"]);
                     Require(sprite.TilingFactor >= 0, "Invalid Sprite tiling");
+                }
+            }
+            if (root["PostProcess"])
+                candidate->SetPostProcessSettings(DecodePostProcess(root["PostProcess"]));
+            else
+            {
+                PostProcessSettings migrated;
+                for (auto handle : candidate->m_Registry.view<CameraComponent>())
+                {
+                    const auto& component = candidate->m_Registry.get<CameraComponent>(handle);
+                    if (component.Primary)
+                    {
+                        migrated = component.SceneCamera.ResolvePostProcess(PostProcessSettings {});
+                        break;
+                    }
+                }
+                candidate->SetPostProcessSettings(migrated);
+                for (auto handle : candidate->m_Registry.view<CameraComponent>())
+                {
+                    auto&      camera   = candidate->m_Registry.get<CameraComponent>(handle).SceneCamera;
+                    const auto previous = camera.ResolvePostProcess(PostProcessSettings {});
+                    camera.SetPostProcessOverride(previous == migrated ? std::nullopt :
+                                                                         std::optional<PostProcessSettings>(previous));
                 }
             }
             candidate->m_ReconcilingPrefab = true;

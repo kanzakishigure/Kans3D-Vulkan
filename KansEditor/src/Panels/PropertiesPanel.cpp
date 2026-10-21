@@ -1,11 +1,12 @@
 #include "PropertiesPanel.h"
-#include <filesystem>
-#include "Components/ComponentEditors.h"
+#include <imgui.h>
 #include <algorithm>
 #include <cctype>
-#include <imgui.h>
+#include <filesystem>
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Renderer/Renderer.h"
+#include "Components/ComponentEditors.h"
+#include "UI/BloomSettingsWidget.h"
 #include "UI/EditorIcons.h"
 #include "UI/PropertyGrid.h"
 
@@ -44,7 +45,10 @@ namespace Kans
         if (!entity)
         {
             if (Scene* scene = GetScene())
+            {
                 DrawSceneSettings(*scene);
+                DrawPostProcess(*scene);
+            }
             ImGui::Spacing();
             ImGui::TextDisabled("Select an entity in the hierarchy to edit its components.");
             return;
@@ -116,6 +120,20 @@ namespace Kans
                 settings.Map = m_DefaultEnvironment;
             scene.SetEnvironmentSettings(settings);
         }
+        PropertyGrid::End();
+    }
+
+    void PropertiesPanel::DrawPostProcess(Scene& scene)
+    {
+        // Applies to every camera of the scene and to the editor view; a camera may override it.
+        if (!ImGui::CollapsingHeader(ICON_FA_SLIDERS "  Post Processing", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+        if (!PropertyGrid::Begin("##PostProcess"))
+            return;
+        auto settings = scene.GetPostProcessSettings();
+        if (DrawPostProcessSettings(settings,
+                                    [&](AssetID& dirt) { return AssetPicker("Lens dirt", AssetType::Texture, dirt); }))
+            scene.SetPostProcessSettings(settings);
         PropertyGrid::End();
     }
 

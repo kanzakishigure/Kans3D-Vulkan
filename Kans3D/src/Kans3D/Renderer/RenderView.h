@@ -47,6 +47,7 @@ namespace Kans
     using SceneRendererCamera = RenderCamera; // Editor facade compatibility.
     struct SceneInfo
     {
+        PostProcessSettings     PostProcess;
         DirLight            dirLight;
         PointLight          pointLight;
         RenderCamera            sceneCamera;
@@ -101,6 +102,7 @@ namespace Kans
         bool                HasWorldBounds = false;
         bool                CastShadows = true, ReceiveShadows = true;
         Ref<const SkinningPose> SkinPose;
+        Ref<const InstanceMaterialParameters> Parameters;
     };
     struct ViewGeometryDraw
     {
@@ -186,6 +188,13 @@ namespace Kans
     };
     struct RenderView
     {
+        PostProcessSettings GetPostProcessSettings() const
+        {
+            auto settings = Scene.sceneCamera.camera.ResolvePostProcess(Scene.PostProcess);
+            if (Exposure)
+                settings.Exposure = *Exposure;
+            return settings.Validated();
+        }
         SceneInfo                          Scene {};
         GraphCaptureSettings               Debug;
         CullingStatistics                  Culling;
