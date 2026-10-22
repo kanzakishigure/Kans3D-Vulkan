@@ -92,9 +92,13 @@ namespace Kans
         const auto&         ready    = view.MaterialOrder;
         auto*               commands = &commandList;
         EngineFrameUniforms frame    = View.LightingUniforms.value_or(MakeLightingUniforms(View.Scene));
-        frame.ViewProjection = View.Scene.sceneCamera.camera.GetProjectionMatrix() * View.Scene.sceneCamera.viewMatrix;
         const auto coordinates = Services.GetDevice()->GetCoordinateConventions();
-        frame.ViewProjection   = DeviceProjection(frame.ViewProjection, coordinates);
+        frame.View                      = View.Scene.sceneCamera.viewMatrix;
+        frame.Projection                = View.Scene.sceneCamera.camera.GetProjectionMatrix();
+        frame.ViewProjection            = DeviceProjection(frame.Projection * frame.View, coordinates);
+        frame.Projection                = DeviceProjection(frame.Projection, coordinates);
+        frame.InverseView               = glm::inverse(frame.View);
+        frame.InverseProjection         = glm::inverse(frame.Projection);
         frame.CameraPosition   = glm::vec4(View.Scene.sceneCamera.Position, 1.0f);
         frame.Time             = View.Time;
         const float rotation   = glm::radians(View.Environment.Rotation);

@@ -126,6 +126,7 @@ add_subdirectory(${VENDOR_DIR})
 # Core - Kans3D engine static library
 # ============================================================
 add_subdirectory(${KANS3D_DIR})
+add_subdirectory(Tools/SceneRender)
 
 # ============================================================
 # Core - KansScriptCore C# shared library

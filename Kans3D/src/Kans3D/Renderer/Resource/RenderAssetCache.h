@@ -49,6 +49,9 @@ namespace Kans
     {
         mutable RenderHardware::Handle<RenderHardware::BindGroup>            Group;
         mutable std::vector<RenderHardware::Handle<RenderHardware::Texture>> Images;
+        // Replaced descriptor snapshots may still belong to unsubmitted command lists.
+        mutable std::vector<std::weak_ptr<RenderHardware::BindGroup>> RetiredGroups;
+        uint64_t                                                      SnapshotFrame = UINT64_MAX;
         AssetID Shader; // Actual program, including Standard while a custom Shader is unavailable.
         MaterialRenderState Render;
         std::vector<std::string> DisabledPasses;
