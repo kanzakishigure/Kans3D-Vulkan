@@ -66,8 +66,13 @@ namespace Kans
         glm::vec4 ShadowPassPosition {0};
         glm::vec4 PointShadowSourceRadius {0};
         glm::vec4 EnvironmentInfo {1, 1, 1, 0}; // diffuse, specular, cos(rotation), sin(rotation).
+        glm::mat4 View {1.0f};                  // World to camera; right-handed, -Z forward, +Y up.
+        glm::mat4 Projection {1.0f};            // View to device clip, matching ViewProjection.
+        glm::mat4 InverseView {1.0f};
+        glm::mat4 InverseProjection {1.0f};
     };
-    static_assert(sizeof(EngineFrameUniforms) == 1776, "KansFrame std140 layout");
+    static_assert(offsetof(EngineFrameUniforms, View) == 1776, "Published environment prefix");
+    static_assert(sizeof(EngineFrameUniforms) == 2032, "KansFrame std140 layout");
     static_assert(offsetof(EngineFrameUniforms, EnvironmentInfo) == 1760, "Published shadow prefix");
     static_assert(offsetof(EngineFrameUniforms, CascadeViewProjection) == 1136, "Published lighting prefix");
     static_assert(offsetof(EngineFrameUniforms, DebugView) == 276, "KansFrame debug uses existing tail padding");

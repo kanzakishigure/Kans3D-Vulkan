@@ -444,28 +444,61 @@ namespace Kans
                     std::memcpy(entry.Scratch[slot.Block].Bytes.data() + slot.Offset,
                                 value.Value.data(),
                                 slot.Components * sizeof(float));
+        // Identical bytes are immutable and can be shared by all passes, even while in flight.
+        for (const auto& candidate : entry.Pool)
+            if (candidate->Defaults.size() == entry.Scratch.size() &&
+                std::equal(entry.Scratch.begin(),
+                           entry.Scratch.end(),
+                           candidate->Defaults.begin(),
+                           [](const auto& a, const auto& b) { return a.Bytes == b.Bytes; }))
+            {
+                candidate->SnapshotFrame = m_Frame;
+                return candidate.get();
+            }
         GpuMaterialBindings* result = nullptr;
         for (auto& candidate : entry.Pool)
-            if (!candidate->Group || candidate->Group.use_count() == 1)
+        {
+            auto& retired = candidate->RetiredGroups;
+            retired.erase(std::remove_if(retired.begin(), retired.end(), [](const auto& g) { return g.expired(); }),
+                          retired.end());
+            // A descriptor published this frame is never rewritten, including after synchronous
+            // command retirement. BeginFrame waits for GPU completion before advancing m_Frame;
+            // descriptor ownership also protects commands not submitted at that boundary.
+            if (retired.empty() &&
+                (!candidate->Group || (candidate->SnapshotFrame != m_Frame && candidate->Group.use_count() == 1)))
             {
                 result = candidate.get();
                 break;
             }
+        }
         if (!result)
         {
-            auto instance            = CreateScope<GpuMaterialBindings>();
-            instance->Shader         = base.Shader;
-            instance->Render         = base.Render;
-            instance->DisabledPasses = base.DisabledPasses;
-            instance->Textures       = base.Textures;
-            for (const auto& block : base.Defaults)
-                instance->Blocks.emplace_back(block.Binding,
-                                              GpuUniformBuffer(block.Bytes.size(), nullptr, GetDevice()));
-            result = instance.get();
-            entry.Pool.push_back(std::move(instance));
+            // Keep one unbound staging slot at first use. CPU-only parameter edits can then
+            // reuse it without allocating, while the published snapshot remains immutable.
+            const size_t count = entry.Pool.empty() ? 2 : 1;
+            for (size_t n = 0; n < count; ++n)
+            {
+                auto instance            = CreateScope<GpuMaterialBindings>();
+                instance->Shader         = base.Shader;
+                instance->Render         = base.Render;
+                instance->DisabledPasses = base.DisabledPasses;
+                instance->Textures       = base.Textures;
+                instance->Defaults       = base.Defaults;
+                for (const auto& block : base.Defaults)
+                    instance->Blocks.emplace_back(
+                        block.Binding, GpuUniformBuffer(block.Bytes.size(), block.Bytes.data(), GetDevice()));
+                if (!result)
+                    result = instance.get();
+                entry.Pool.push_back(std::move(instance));
+            }
         }
         for (size_t i = 0; i < entry.Scratch.size(); ++i)
-            result->Blocks[i].second.Update(entry.Scratch[i].Bytes.data(), entry.Scratch[i].Bytes.size());
+        {
+            const auto& bytes = entry.Scratch[i].Bytes;
+            result->Blocks[i].second.Update(bytes.data(), bytes.size());
+            std::memcpy(result->Defaults[i].Bytes.data(), bytes.data(), bytes.size());
+        }
+        result->SnapshotFrame = m_Frame;
         return result;
     }
 
@@ -762,6 +795,11 @@ namespace Kans
         }
         if (!bindings.Group || bindings.Images != images)
         {
+            auto& retired = bindings.RetiredGroups;
+            retired.erase(std::remove_if(retired.begin(), retired.end(), [](const auto& g) { return g.expired(); }),
+                          retired.end());
+            if (bindings.Group && bindings.Group.use_count() > 1)
+                retired.push_back(bindings.Group);
             bindings.Group  = GetDevice()->CreateBindGroup(group);
             bindings.Images = std::move(images);
         }
