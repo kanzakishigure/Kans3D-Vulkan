@@ -85,6 +85,9 @@ namespace
             errors.push_back(error.Message);
         for (const auto& source : project.GetSourceAssetDatabase().GetAllSources())
         {
+            // Deleted files keep their records (for ID recovery); a scene that needs one fails when it loads.
+            if (source.Missing)
+                continue;
             if (!importers.Supports(source.Path.GetPath()) && source.Import.Importer.empty())
                 continue;
             auto built = project.BuildAsset(source.sourceAssetID, options);
