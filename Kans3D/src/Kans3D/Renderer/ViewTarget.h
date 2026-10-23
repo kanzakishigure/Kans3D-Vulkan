@@ -2,6 +2,7 @@
 #include <glm/glm.hpp>
 #include "Graph/RenderGraph.h"
 #include "RenderFeature.h"
+#include "Resource/AntiAliasingPass.h"
 namespace Kans
 {
     // Per-viewport allocations. Resources and pool release before the device lease.
@@ -25,6 +26,7 @@ namespace Kans
         const RenderHardware::Handle<RenderHardware::Texture>&              GetDepth() const { return m_Depth; }
         std::shared_ptr<ShadowResources>&                                   GetShadowStorage() { return m_Shadows; }
         RenderFeatureSet& GetDefaultFeatures() { return m_DefaultFeatures; }
+        ReconstructionFilter& GetReconstructionFilter() { return m_ReconstructionFilter; }
         TransientTexturePool&                                               GetTransientPool() { return m_Pool; }
         const TransientTexturePool&                                         GetTransientPool() const { return m_Pool; }
         RenderHardware::RenderingDesc Target(RenderHardware::LoadOp load, bool hdr = false) const;
@@ -44,5 +46,6 @@ namespace Kans
         FrameProfiler                                                m_Profiler;
         std::shared_ptr<GraphCapture>                                m_Capture;
         RenderFeatureSet                                             m_DefaultFeatures;
+        ReconstructionFilter                                         m_ReconstructionFilter;
     };
 } // namespace Kans

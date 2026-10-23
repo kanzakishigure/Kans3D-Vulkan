@@ -42,6 +42,7 @@ namespace Kans
         m_Depth    = std::move(depth);
         m_Size     = size;
         m_Pool     = {};
+        m_ReconstructionFilter = {};
     }
     RenderHardware::RenderingDesc ViewTarget::Target(RenderHardware::LoadOp load, bool hdr) const
     {

@@ -118,7 +118,7 @@ namespace Kans
             Services.GetDevice()->CreateBuffer({frameStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
         auto objects = Services.GetDevice()->CreateBuffer(
             {objectStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
-        bool rendering = false, hdr = DeferToneMapping && PostProcessHDR;
+        bool rendering = false, hdr = (DeferToneMapping || HasBackgroundColor()) && PostProcessHDR;
         auto resolve = [&](RenderHardware::CommandList& output) {
             Services.GetToneMapping().Record(*Services.GetDevice(),
                                              output,
@@ -298,7 +298,8 @@ namespace Kans
                                                                     SceneShaders::StencilFragment;
         if (!vertex)
             return;
-        const bool  hdrGeometry    = Samples > 1 && !MSAAResolved && PostProcessHDR;
+        const bool  reconstruct    = View.GetPostProcessSettings().FilterSize >= 1;
+        const bool  hdrGeometry    = (Samples > 1 && !MSAAResolved && PostProcessHDR) || (Samples == 1 && reconstruct);
         std::string fragmentSource = fragment;
         if (hdrGeometry)
         {
@@ -312,14 +313,14 @@ void main() {
     vec3 c = OUTPUT.rgb;
     vec3 y = mix(c/12.92,pow((c+0.055)/1.055,vec3(2.4)),greaterThan(c,vec3(0.04045)));
     vec3 b=0.59*y-0.03, a=2.43*y-2.51;
-    OUTPUT.rgb=2*0.14*y/max(sqrt(b*b-4*a*0.14*y)-b,vec3(1e-8))/p.Settings.w;
+    OUTPUT.rgb=(p.Settings.z==1 ? y : 2*0.14*y/max(sqrt(b*b-4*a*0.14*y)-b,vec3(1e-8)))/p.Settings.w;
 })";
             size_t atOutput;
             while ((atOutput = fragmentSource.find("OUTPUT")) != std::string::npos)
                 fragmentSource.replace(atOutput, 6, output);
         }
         PipelineDesc desc = Services.ScenePipeline(draw.ShaderName.c_str(), vertex, fragmentSource.c_str(), false);
-        if (Samples > 1)
+        if (Samples > 1 || hdrGeometry)
         {
             desc.ColorFormats.clear();
             for (const auto& color : SceneTarget(LoadOp::Load, hdrGeometry).Colors)
@@ -372,7 +373,10 @@ void main() {
         data.ViewProjection = View.Scene.sceneCamera.camera.GetProjectionMatrix() * View.Scene.sceneCamera.viewMatrix;
         data.ViewPos        = glm::vec4(View.Scene.sceneCamera.Position, 1);
         if (hdrGeometry)
+        {
             data.Settings.w = ToneMappingPass::EffectiveExposure(View.GetPostProcessSettings().Exposure);
+            data.Settings.z = reconstruct ? float(View.GetPostProcessSettings().ToneMapping) : 0;
+        }
         if (const GpuMesh* mesh = GetMesh(draw.Mesh))
             ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
                 data.Transform = draw.Transform;
@@ -442,7 +446,7 @@ void main() {
         using namespace RenderHardware;
         if (!skybox || !View.Environment.ShowSkybox)
             return;
-        const bool hdrSkybox = Samples > 1 && !MSAAResolved;
+        const bool hdrSkybox = (Samples > 1 && !MSAAResolved) || View.GetPostProcessSettings().FilterSize >= 1;
         if (hdrSkybox && !PostProcessHDR)
         {
             Services.GetToneMapping().Record(*GetDevice(),

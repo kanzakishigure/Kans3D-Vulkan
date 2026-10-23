@@ -3,6 +3,104 @@
 #include "InternalShader.h"
 namespace Kans
 {
+    void ReconstructionFilter::Record(RenderHardware::Device&                                device,
+                                      RenderHardware::CommandList&                           commands,
+                                      const RenderHardware::Handle<RenderHardware::Texture>& source,
+                                      const RenderHardware::Handle<RenderHardware::Texture>& target,
+                                      float                                                  radius)
+    {
+        using namespace RenderHardware;
+        if (!std::isfinite(radius) || radius < 1)
+            return; // Integer pixel centres leave only the centre tap below radius one.
+        radius = std::min(radius, 4.f);
+        if (!m_Pipeline)
+        {
+            auto built = CreateInternalShader(device,
+                                              "Radial Blackman-Harris reconstruction",
+                                              R"(#version 450
+void main() {
+    vec2 p=vec2((gl_VertexIndex<<1)&2,gl_VertexIndex&2);
+    gl_Position=vec4(p*2-1,0,1);
+})",
+                                              R"(#version 450
+layout(set=0,binding=0,std140) uniform Kernel { vec4 Info; vec4 Taps[81]; } k;
+layout(set=0,binding=1) uniform sampler2D InputColor;
+layout(location=0) out vec4 Color;
+void main() {
+    ivec2 p=ivec2(gl_FragCoord.xy), last=textureSize(InputColor,0)-1;
+    vec4 center=texelFetch(InputColor,p,0);
+    vec3 sum=center.rgb*k.Taps[0].z;
+    for(int i=1;i<int(k.Info.x);++i) {
+        ivec2 at=clamp(p+ivec2(k.Taps[i].xy),ivec2(0),last);
+        sum+=texelFetch(InputColor,at,0).rgb*k.Taps[i].z;
+    }
+    Color=vec4(sum,center.a);
+})");
+            if (auto* error = std::get_if<AssetError>(&built))
+                throw std::runtime_error(error->Message);
+            m_Layout = device.CreateBindGroupLayout(
+                {0, {{0, BindingType::UniformBuffer}, {1, BindingType::CombinedTextureSampler}}});
+            SamplerDesc sampling;
+            sampling.U = sampling.V = sampling.W = AddressMode::ClampToEdge;
+            m_Sampler                            = device.CreateSampler(sampling);
+            PipelineDesc desc;
+            desc.Program         = std::get<Handle<RenderHardware::Shader>>(std::move(built));
+            desc.GroupLayouts    = {m_Layout};
+            desc.ColorFormats    = {Format::RGBA16Float};
+            desc.Rasterizer.Cull = CullMode::None;
+            desc.Blends.resize(1);
+            m_Pipeline = device.CreatePipeline(desc);
+        }
+        if (m_Radius != radius)
+        {
+            struct Kernel
+            {
+                glm::vec4                 Info {0};
+                std::array<glm::vec4, 81> Taps {};
+            } kernel;
+            size_t count    = 1;
+            kernel.Taps[0]  = {0, 0, 1, 0};
+            double    total = 1;
+            const int bound = int(std::floor(radius));
+            for (int y = -bound; y <= bound; ++y)
+                for (int x = -bound; x <= bound; ++x)
+                {
+                    const double distance = std::sqrt(double(x * x + y * y));
+                    if ((!x && !y) || distance > radius)
+                        continue;
+                    const double a = 3.14159265358979323846 * distance / radius;
+                    const double weight =
+                        .35875 + .48829 * std::cos(a) + .14128 * std::cos(2 * a) + .01168 * std::cos(3 * a);
+                    kernel.Taps[count++] = {float(x), float(y), float(weight), 0};
+                    total += weight;
+                }
+            for (size_t i = 0; i < count; ++i)
+                kernel.Taps[i].z /= float(total);
+            kernel.Info.x = float(count);
+            // Replace rather than overwrite: previous commands may still reference the old kernel.
+            m_Kernel = device.CreateBuffer({sizeof(kernel), BufferUsage::Uniform, MemoryUsage::Upload});
+            m_Kernel->Write(0, &kernel, sizeof(kernel));
+            m_Group.reset();
+            m_Radius = radius;
+        }
+        if (!m_Group || m_Source != source)
+        {
+            m_Group  = device.CreateBindGroup({m_Layout, {{0, m_Kernel}, {1, {}, 0, 0, source, m_Sampler}}});
+            m_Source = source;
+        }
+        if (m_Render.Colors.empty())
+            m_Render.Colors.resize(1);
+        m_Render.Colors[0].Target = target;
+        m_Render.Colors[0].Load   = LoadOp::Discard;
+        commands.BeginRendering(m_Render);
+        commands.SetViewport({0, 0, float(target->GetDesc().Width), float(target->GetDesc().Height)});
+        commands.SetScissor({0, 0, target->GetDesc().Width, target->GetDesc().Height});
+        commands.BindPipeline(m_Pipeline);
+        commands.BindGroup(m_Group);
+        commands.Draw(3);
+        commands.EndRendering();
+    }
+
     namespace
     {
         constexpr const char* Vertex          = R"(#version 450
