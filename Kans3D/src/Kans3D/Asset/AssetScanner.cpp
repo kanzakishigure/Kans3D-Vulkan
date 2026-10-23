@@ -1,4 +1,5 @@
 #include "AssetScanner.h"
+#include "Importer/ImporterRegistry.h"
 #include "SourceAssetMetaSerializer.h"
 
 #include <algorithm>
@@ -65,6 +66,13 @@ namespace Kans
                     return *error;
                 metadata.Path          = logicalPath;
                 metadata.sourceAssetID = SourceAssetID::Generate();
+                static const auto registry = CreateDefaultImporterRegistry();
+                if (const auto* error = std::get_if<AssetError>(&registry))
+                    return *error;
+                auto importer = std::get<ImporterRegistry>(registry).Resolve(file);
+                if (const auto* model = std::get_if<RegisteredImporter>(&importer);
+                    model && model->Name == "ModelImporter")
+                    metadata.Import.Settings["animation.compression"] = "optimal";
                 auto saved             = SourceAssetMetaSerializer::Save(metaPath, metadata);
                 if (const auto* saveError = std::get_if<AssetError>(&saved))
                     return *saveError;

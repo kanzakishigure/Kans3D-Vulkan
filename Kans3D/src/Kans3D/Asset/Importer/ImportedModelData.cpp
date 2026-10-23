@@ -829,11 +829,11 @@ namespace Kans
                             clip.MorphTracks.push_back(std::move(track));
                         else
                         {
-                            if (found->Weight.Keys.size() != track.Weight.Keys.size())
+                            if (found->Weight.KeyCount() != track.Weight.KeyCount())
                                 return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
-                            for (size_t k = 0; k < track.Weight.Keys.size(); ++k)
-                                if (found->Weight.Keys[k].Time != track.Weight.Keys[k].Time ||
-                                    std::abs(found->Weight.Keys[k].Value - track.Weight.Keys[k].Value) > 1e-6f)
+                            for (size_t k = 0; k < track.Weight.KeyCount(); ++k)
+                                if (found->Weight.KeyTime(k) != track.Weight.KeyTime(k) ||
+                                    std::abs(found->Weight.KeyValue(k) - track.Weight.KeyValue(k)) > 1e-6f)
                                     return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
                         }
                     }
@@ -911,8 +911,8 @@ namespace Kans
                     }
                     double interval = std::numeric_limits<double>::max();
                     auto   rate     = [&](const auto& track) {
-                        for (size_t k = 1; k < track.Keys.size(); ++k)
-                            interval = std::min(interval, track.Keys[k].Time - track.Keys[k - 1].Time);
+                        for (size_t k = 1; k < track.KeyCount(); ++k)
+                            interval = std::min(interval, track.KeyTime(k) - track.KeyTime(k - 1));
                     };
                     for (const auto& track : clip.Tracks)
                     {

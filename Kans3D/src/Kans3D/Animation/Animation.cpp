@@ -9,46 +9,6 @@ namespace Kans
 {
     namespace
     {
-        glm::quat RotationBlend(glm::quat a, glm::quat b, float w, bool spherical)
-        {
-            if (glm::dot(a, b) < 0)
-                b = -b;
-            return glm::normalize(spherical ? glm::slerp(a, b, w) : a * (1 - w) + b * w);
-        }
-        template<class T>
-        T Interpolate(const T& a, const T& b, float w, TrackInterpolation)
-        {
-            return glm::mix(a, b, w);
-        }
-        template<>
-        glm::quat Interpolate(const glm::quat& a, const glm::quat& b, float w, TrackInterpolation mode)
-        {
-            return RotationBlend(a, b, w, mode == TrackInterpolation::Spherical);
-        }
-        template<class T>
-        T Sample(const AnimationTrack<T>& track, double time, const T& rest)
-        {
-            const auto& keys = track.Keys;
-            if (keys.empty())
-                return rest;
-            if (time <= keys.front().Time)
-                return keys.front().Value;
-            if (time >= keys.back().Time)
-                return keys.back().Value;
-            const auto upper = std::upper_bound(
-                keys.begin(), keys.end(), time, [](double t, const auto& key) { return t < key.Time; });
-            const auto& a = *(upper - 1);
-            const auto& b = *upper;
-            if (track.Interpolation == TrackInterpolation::Step)
-                return a.Value;
-            return Interpolate(a.Value, b.Value, float((time - a.Time) / (b.Time - a.Time)), track.Interpolation);
-        }
-        JointTransform SampleJoint(const JointTransform& rest, const JointAnimationTrack& track, double time)
-        {
-            return {Sample(track.Translation, time, rest.Translation),
-                    Sample(track.Rotation, time, rest.Rotation),
-                    Sample(track.Scale, time, rest.Scale)};
-        }
         JointTransform PlanarRoot(JointTransform transform)
         {
             // Imported ancestor axes/units are already converted to instance model space (Y-up).
@@ -125,11 +85,12 @@ namespace Kans
         time = AnimationSampleTime(time, binding.Clip->Duration, loop);
         for (size_t j = 0; j < pose.Local.size(); ++j)
             if (binding.JointTracks.at(j) >= 0)
-                pose.Local[j] = SampleJoint(pose.Local[j], binding.Clip->Tracks.at(binding.JointTracks[j]), time);
+                pose.Local[j] =
+                    SampleAnimationJoint(pose.Local[j], binding.Clip->Tracks.at(binding.JointTracks[j]), time);
         for (size_t k = 0; k < pose.MorphWeights.size(); ++k)
             if (binding.MorphTracks.at(k) >= 0)
-                pose.MorphWeights[k] =
-                    Sample(binding.Clip->MorphTracks.at(binding.MorphTracks[k]).Weight, time, pose.MorphWeights[k]);
+                pose.MorphWeights[k] = SampleAnimationTrack(
+                    binding.Clip->MorphTracks.at(binding.MorphTracks[k]).Weight, time, pose.MorphWeights[k]);
     }
     void BuildModelPose(const SkeletonData& skeleton, AnimationPose& pose)
     {
@@ -146,7 +107,7 @@ namespace Kans
     {
         weight = std::clamp(weight, 0.f, 1.f);
         return {glm::mix(a.Translation, b.Translation, weight),
-                RotationBlend(a.Rotation, b.Rotation, weight, true),
+                BlendAnimationRotations(a.Rotation, b.Rotation, weight, true),
                 glm::mix(a.Scale, b.Scale, weight)};
     }
     void BlendAnimationPoses(const AnimationPose&      a,
@@ -194,8 +155,9 @@ namespace Kans
             const auto& r = reference.Local[j];
             auto&       p = pose.Local[j];
             p.Translation += (a.Translation - r.Translation) * w;
-            p.Rotation = glm::normalize(
-                p.Rotation * RotationBlend(glm::quat(1, 0, 0, 0), glm::inverse(r.Rotation) * a.Rotation, w, true));
+            p.Rotation =
+                glm::normalize(p.Rotation * BlendAnimationRotations(
+                                                glm::quat(1, 0, 0, 0), glm::inverse(r.Rotation) * a.Rotation, w, true));
             p.Scale *= glm::mix(glm::vec3(1), a.Scale / r.Scale, w);
         }
     }
@@ -593,7 +555,9 @@ namespace Kans
             if (!binding.Clip)
                 return rest;
             const auto track = binding.JointTracks[m_Root];
-            return track >= 0 ? SampleJoint(rest, binding.Clip->Tracks[track], 0) : rest;
+            return track >= 0 ?
+                       SampleAnimationJoint(rest, binding.Clip->Tracks[track], 0, AnimationSampleEndpoint::First) :
+                       rest;
         }
         AnimationBlendWeights(m, {float(Value(m.ParameterX)), float(Value(m.ParameterY))}, m_Weights[motion]);
         JointTransform result = m_Rest.Local[m_Root];
@@ -636,14 +600,19 @@ namespace Kans
             const auto parentModel      = parent < 0 ? glm::mat4(1) : m_Rest.Model[parent];
             auto       reference =
                 m_Controller->RootMotionKeepInitialOffset ?
-                    JointTransform::FromMatrix(parentModel * SampleJoint(rest, clip.Tracks[t], 0).Matrix()) :
+                    JointTransform::FromMatrix(
+                        parentModel *
+                        SampleAnimationJoint(rest, clip.Tracks[t], 0, AnimationSampleEndpoint::First).Matrix()) :
                     JointTransform::FromMatrix(m_Rest.Model[m_Root]);
             reference.Scale = glm::vec3(1);
             if (m_Controller->RootMotionPlanar)
                 reference = PlanarRoot(reference);
             const auto inverseReference = glm::inverse(reference.Matrix());
             auto       sample           = [&](double at) {
-                auto local  = SampleJoint(rest, clip.Tracks[t], at);
+                const auto endpoint = at <= 0             ? AnimationSampleEndpoint::First :
+                                      at >= clip.Duration ? AnimationSampleEndpoint::Last :
+                                                            AnimationSampleEndpoint::Interpolated;
+                auto       local    = SampleAnimationJoint(rest, clip.Tracks[t], at, endpoint);
                 auto model  = JointTransform::FromMatrix(parentModel * local.Matrix());
                 model.Scale = glm::vec3(1);
                 if (m_Controller->RootMotionPlanar)
@@ -836,7 +805,7 @@ namespace Kans
                     const float weight      = .5f * (before + after);
                     const auto  targetDelta = StateRootDelta(l, s.Target, previousTarget, s.TargetTime);
                     delta.Translation       = glm::mix(delta.Translation, targetDelta.Translation, weight);
-                    delta.Rotation          = RotationBlend(delta.Rotation, targetDelta.Rotation, weight, true);
+                    delta.Rotation = BlendAnimationRotations(delta.Rotation, targetDelta.Rotation, weight, true);
                     if (sink)
                     {
                         // Dominant stream policy. Split at the exact half-fade crossing so changing
@@ -866,8 +835,9 @@ namespace Kans
                 {
                     const float weight = work.Weight * (m_Root >= 0 ? work.Mask[m_Root] : 0);
                     m_RootDelta.Translation += m_RootDelta.Rotation * (delta.Translation * weight);
-                    m_RootDelta.Rotation = glm::normalize(
-                        m_RootDelta.Rotation * RotationBlend(glm::quat(1, 0, 0, 0), delta.Rotation, weight, true));
+                    m_RootDelta.Rotation =
+                        glm::normalize(m_RootDelta.Rotation *
+                                       BlendAnimationRotations(glm::quat(1, 0, 0, 0), delta.Rotation, weight, true));
                 }
             };
             auto advance = [&](double frameSeconds) {
@@ -1192,9 +1162,10 @@ namespace Kans
                 middle = glm::vec3(m_IKModel[b.Middle][3]);
                 end    = glm::vec3(m_IKModel[b.End][3]);
                 RotateIK(pose, b.Middle, IKBetween(end - middle, desiredEnd - middle) * m_IKRotations[b.Middle]);
-                pose.Local[b.Root].Rotation = RotationBlend(oldRoot, pose.Local[b.Root].Rotation, ik.Weight, true);
+                pose.Local[b.Root].Rotation =
+                    BlendAnimationRotations(oldRoot, pose.Local[b.Root].Rotation, ik.Weight, true);
                 pose.Local[b.Middle].Rotation =
-                    RotationBlend(oldMiddle, pose.Local[b.Middle].Rotation, ik.Weight, true);
+                    BlendAnimationRotations(oldMiddle, pose.Local[b.Middle].Rotation, ik.Weight, true);
                 pose.Local[b.Middle].Translation = glm::mix(oldMiddleT, pose.Local[b.Middle].Translation, ik.Weight);
                 pose.Local[b.End].Translation    = glm::mix(oldEndT, pose.Local[b.End].Translation, ik.Weight);
                 m_IKDirty[b.Root] = m_IKDirty[b.Middle] = m_IKDirty[b.End] = 1;
@@ -1202,7 +1173,7 @@ namespace Kans
             if (ik.RotationWeight > 0)
             {
                 RefreshIK(pose, b.End);
-                RotateIK(pose, b.End, RotationBlend(m_IKRotations[b.End], rotation, ik.RotationWeight, true));
+                RotateIK(pose, b.End, BlendAnimationRotations(m_IKRotations[b.End], rotation, ik.RotationWeight, true));
             }
         }
         for (const auto& b : m_LookAt)
@@ -1230,12 +1201,13 @@ namespace Kans
                 const auto  swing   = IKBetween(forward, desired);
                 const float angle   = std::acos(std::clamp(glm::dot(forward, desired), -1.f, 1.f));
                 const auto  clampedForward =
-                    (angle > ik.AngleLimit ? RotationBlend(glm::quat(1, 0, 0, 0), swing, ik.AngleLimit / angle, true) :
-                                             swing) *
+                    (angle > ik.AngleLimit ?
+                         BlendAnimationRotations(glm::quat(1, 0, 0, 0), swing, ik.AngleLimit / angle, true) :
+                         swing) *
                     forward;
                 const auto solved = IKFrame(clampedForward, glm::mat3(m_IKInverse) * ik.WorldUp) *
                                     glm::inverse(IKFrame(bone.Forward, bone.Up));
-                RotateIK(pose, j, RotationBlend(current, solved, ik.Weight * bone.Weight, true));
+                RotateIK(pose, j, BlendAnimationRotations(current, solved, ik.Weight * bone.Weight, true));
             }
         }
     }
@@ -1261,7 +1233,7 @@ namespace Kans
                     rootReference.Translation += (initial.Translation - rest.Translation) * weight;
                     rootReference.Rotation = glm::normalize(
                         rootReference.Rotation *
-                        RotationBlend(
+                        BlendAnimationRotations(
                             glm::quat(1, 0, 0, 0), glm::inverse(rest.Rotation) * initial.Rotation, weight, true));
                 }
                 else
