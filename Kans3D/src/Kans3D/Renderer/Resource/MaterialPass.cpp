@@ -19,7 +19,10 @@ namespace Kans
         using namespace RenderHardware;
         auto       device      = cache.GetDevice();
         const bool skinned     = bool(mesh.Skin && data.Palette);
-        if (skinned && !shader.PrepareSkinning())
+        const bool smoothNormals  = extraPass ? extraPass->UsesSmoothNormals : shader.UsesSmoothNormals;
+        const bool smoothStream   = smoothNormals && bool(mesh.SmoothNormals);
+        const bool smoothFallback = smoothNormals && !smoothStream;
+        if (skinned && !shader.PrepareSkinning(smoothFallback))
             return false;
         const bool coverage    = data.Samples > 1 && (data.Render.AlphaMode == MaterialAlphaMode::Mask ||
                                                       data.Render.AlphaMode == MaterialAlphaMode::Dithered);
@@ -36,6 +39,7 @@ namespace Kans
                        (uint32_t(coverage) << 6);
         for (size_t i = 0; i < data.ColorFormats.size(); ++i)
             key |= uint32_t(data.ColorFormats[i]) << (12 + i * 6);
+        key |= uint32_t(smoothStream) << 31;
         Handle<Pipeline> shadowPipeline;
         auto&            pipeline = data.ShadowDepth ? shadowPipeline :
                                     extraPass        ? extraPass->Pipelines[key] :
@@ -47,7 +51,9 @@ namespace Kans
             desc.AlphaToCoverage = coverage;
             desc.Program = data.DepthProgram ? data.DepthProgram : extraPass ? extraPass->Program : shader.Program;
             if (skinned && !data.DepthProgram)
-                desc.Program = extraPass ? extraPass->SkinnedProgram : shader.SkinnedProgram;
+                desc.Program = smoothFallback ? (extraPass ? extraPass->SkinnedNormalFallbackProgram :
+                                                             shader.SkinnedNormalFallbackProgram) :
+                                                (extraPass ? extraPass->SkinnedProgram : shader.SkinnedProgram);
             desc.GroupLayouts                 = {shader.EngineLayout, shader.MaterialLayout};
             if (skinned)
                 desc.GroupLayouts.push_back(shader.SkinLayout);
@@ -60,6 +66,17 @@ namespace Kans
                                                      desc.Attributes.end(),
                                                      [](const auto& a) { return a.BufferSlot == 1; }),
                                       desc.Attributes.end());
+            }
+            if (smoothNormals)
+            {
+                if (smoothStream)
+                {
+                    desc.VertexBindings.push_back({2, 12, false});
+                    desc.Attributes.push_back({7, 2, 0, VertexFormat::Float3});
+                }
+                else
+                    // Alias the existing normal: no allocation, upload, or retained CPU copy.
+                    desc.Attributes.push_back({7, 0, 12, VertexFormat::Float3});
             }
             desc.ColorFormats                 = data.ColorFormats;
             desc.HasDepthStencil              = true;
@@ -170,6 +187,9 @@ namespace Kans
         }
         else
             commands.BindVertexBuffers({{0, mesh.BindVertices ? mesh.BindVertices : mesh.Vertices, 0}});
+        if (smoothStream)
+            commands.BindVertexBuffers(
+                {{2, !skinned && mesh.BindSmoothNormals ? mesh.BindSmoothNormals : mesh.SmoothNormals, 0}});
         commands.BindIndexBuffer(mesh.Indices, IndexType::Uint32);
         const auto& section = mesh.Sections.at(data.Section);
         commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);

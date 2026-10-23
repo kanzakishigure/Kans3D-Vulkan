@@ -4,12 +4,12 @@
 #include <spirv_cross/spirv_glsl.hpp>
 namespace Kans
 {
-    std::variant<ShaderData, AssetError> MakeSkinnedShader(const ShaderData& data)
+    std::variant<ShaderData, AssetError> MakeSkinnedShader(const ShaderData& data, bool smoothNormalFallback)
     {
         try
         {
             ShaderData result  = data;
-            auto       convert = [](ShaderProgramCode& code) {
+            auto       convert = [smoothNormalFallback](ShaderProgramCode& code) {
                 for (auto& module : code.Modules)
                     if (module.Stage == ShaderProductStage::Vertex)
                     {
@@ -18,7 +18,8 @@ namespace Kans
                         options.version                   = 450;
                         options.vulkan_semantics          = true;
                         compiler.set_common_options(options);
-                        bool position = false, normal = false, tangent = false, normalLines = false;
+                        bool position = false, normal = false, tangent = false, normalLines = false,
+                             smoothNormal = false;
                         for (const auto& input : compiler.get_shader_resources().stage_inputs)
                         {
                             const auto location = compiler.get_decoration(input.id, spv::DecorationLocation);
@@ -36,6 +37,11 @@ namespace Kans
                             {
                                 compiler.set_name(input.id, "kans_Normal");
                                 normal = true;
+                            }
+                            if (location == 7)
+                            {
+                                compiler.set_name(input.id, "kans_SmoothNormal");
+                                smoothNormal = true;
                             }
                             if (location == 4)
                             {
@@ -58,6 +64,8 @@ namespace Kans
                         input("vec3", "kans_Position", "kans_RawPosition");
                         if (normal)
                             input("vec3", "kans_Normal", "kans_RawNormal");
+                        if (smoothNormal)
+                            input("vec3", "kans_SmoothNormal", "kans_RawSmoothNormal");
                         if (tangent)
                             input("vec4", "kans_Tangent", "kans_RawTangent");
                         // SPIRV-Cross lowers the vertex include's private initializer into main.
@@ -81,6 +89,8 @@ vec3 kans_MorphVector(uint offset) {
 void main() {
     vec3 p=kans_RawPosition;
 )";
+                        if (smoothNormal)
+                            source += "vec3 sn=kans_RawSmoothNormal;\n";
                         if (normal)
                             source += "vec3 n=kans_RawNormal;\n";
                         if (tangent)
@@ -109,6 +119,11 @@ void main() {
             uint base=lo*3;
             p+=kans_Active.x*kans_MorphVector(kans_Deltas[key+2]+base);
 )";
+                        // An absent stream aliases the ordinary normal, including its morph deltas.
+                        // Authored welded streams deliberately retain their bind-pose direction.
+                        if (smoothNormal && smoothNormalFallback)
+                            source += "if(kans_Deltas[key+3]!=0) "
+                                      "sn+=kans_Active.x*kans_MorphVector(kans_Deltas[key+3]+base);\n";
                         if (normal)
                             source += "if(kans_Deltas[key+3]!=0) "
                                       "n+=kans_Active.x*kans_MorphVector(kans_Deltas[key+3]+base);\n";
@@ -124,6 +139,8 @@ void main() {
              kans_Palette[kans_Joints.z]*kans_Weights.z+kans_Palette[kans_Joints.w]*kans_Weights.w;
     kans_Position=(skin*vec4(p,1)).xyz;
 )";
+                        if (smoothNormal)
+                            source += "kans_SmoothNormal=normalize(transpose(inverse(mat3(skin)))*sn);\n";
                         if (normal)
                             source += "kans_Normal=normalize(transpose(inverse(mat3(skin)))*n);\n";
                         if (tangent)

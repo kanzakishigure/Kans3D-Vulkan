@@ -12,7 +12,7 @@ namespace Kans
     namespace
     {
         constexpr uint32_t kMagic        = 0x48534d4b; // KMSH, little endian
-        constexpr uint32_t kVersion      = 3;
+        constexpr uint32_t kVersion      = 7;
         constexpr size_t   kMaximumBytes = 512 * 1024 * 1024;
         static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559,
                       "Mesh Products require IEEE 754 binary32");
@@ -121,7 +121,11 @@ namespace Kans
         std::vector<std::byte> bytes;
         bytes.reserve(size);
         Write(bytes, kMagic);
-        Write(bytes, !mesh.MorphTargets.empty() ? 6u : mesh.VertexFormat == MeshVertexFormat::Skinned ? 5u : kVersion);
+        Write(bytes,
+              mesh.HasSmoothNormals()                        ? kVersion :
+              !mesh.MorphTargets.empty()                     ? 6u :
+              mesh.VertexFormat == MeshVertexFormat::Skinned ? 5u :
+                                                               3u);
         Write(bytes, static_cast<uint32_t>(AssetType::StaticMesh));
         Write(bytes, static_cast<uint32_t>(mesh.VertexFormat));
         Write(bytes, uint32_t(mesh.Vertices.size()));
@@ -173,7 +177,7 @@ namespace Kans
                     WriteBounds(bytes, b);
             }
         }
-        if (!mesh.MorphTargets.empty())
+        if (!mesh.MorphTargets.empty() || mesh.HasSmoothNormals())
         {
             Write(bytes, uint32_t(mesh.MorphTargets.size()));
             for (const auto& t : mesh.MorphTargets)
@@ -191,6 +195,12 @@ namespace Kans
                 }
             }
         }
+        if (mesh.HasSmoothNormals())
+        {
+            Write(bytes, uint32_t(mesh.SmoothNormals.size()));
+            for (const auto& n : mesh.SmoothNormals)
+                WriteFloats(bytes, n);
+        }
         return bytes;
     }
 
@@ -204,7 +214,7 @@ namespace Kans
             if (reader.Read<uint32_t>() != kMagic)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product magic"};
             const auto version = reader.Read<uint32_t>();
-            if (version != kVersion && version != 5 && version != 6)
+            if (version != kVersion && version != 3 && version != 5 && version != 6)
                 return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Mesh Product version"};
             if (reader.Read<uint32_t>() != static_cast<uint32_t>(AssetType::StaticMesh))
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product type"};
@@ -244,7 +254,7 @@ namespace Kans
                 slot.DefaultMaterial  = reader.ID();
                 slot.AuthoredMaterial = reader.ID();
             }
-            if (version == 5 || (version == 6 && mesh.VertexFormat == MeshVertexFormat::Skinned))
+            if (version == 5 || (version >= 6 && mesh.VertexFormat == MeshVertexFormat::Skinned))
             {
                 if (mesh.VertexFormat != MeshVertexFormat::Skinned)
                     throw std::runtime_error("Invalid skinned mesh format");
@@ -274,7 +284,7 @@ namespace Kans
             }
             else if (mesh.VertexFormat != MeshVertexFormat::PositionNormalUVColorTangent)
                 throw std::runtime_error("Invalid legacy mesh format");
-            if (version == 6)
+            if (version >= 6)
             {
                 const auto count = reader.Read<uint32_t>();
                 if (count > 65536 || count * 36ull > reader.Remaining)
@@ -297,6 +307,15 @@ namespace Kans
                         reader.Floats(d.Tangent);
                     }
                 }
+            }
+            if (version >= 7)
+            {
+                const auto count = reader.Read<uint32_t>();
+                if ((count && count != vertices) || count * 12ull > reader.Remaining)
+                    throw std::runtime_error("Invalid smooth normal stream count");
+                mesh.SmoothNormals.resize(count);
+                for (auto& n : mesh.SmoothNormals)
+                    reader.Floats(n);
             }
             if (reader.Remaining)
                 return AssetError {AssetErrorCode::InvalidData, "Trailing Mesh Product bytes"};

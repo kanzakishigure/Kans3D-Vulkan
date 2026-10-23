@@ -65,6 +65,9 @@ namespace Kans
     {
         std::vector<MeshVertexData> Vertices;
         std::vector<uint32_t>       Indices;
+        // Optional welded, angle-weighted unit normals in the same space as Vertices.Normal.
+        std::vector<std::array<float, 3>> SmoothNormals;
+        bool                              HasSmoothNormals() const { return !SmoothNormals.empty(); }
         // Editor compatibility: first slot (or the selected legacy part view).
         // Invalid ID explicitly means no material binding.
         AssetID Material;
@@ -85,6 +88,7 @@ namespace Kans
     // Explicit construction helper for procedural single-material meshes. Importers
     // build their sections and bounds in source mesh space instead.
     void                                                   BuildSingleSection(MeshData& mesh);
+    void                                                   GenerateSmoothNormals(MeshData& mesh);
     void                                                   BuildMorphBounds(MeshMorphTarget&);
     Bounds MorphedBounds(const MeshData&, const std::vector<float>& weights);
     // Import-only fallback, preserving the base mesh's authored normal offset.
