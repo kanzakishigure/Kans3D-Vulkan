@@ -113,6 +113,8 @@ namespace Kans
         changed |= PropertyGrid::Checkbox("Show sky", settings.ShowSkybox);
         if (settings.ShowSkybox)
             changed |= PropertyGrid::Float("Sky brightness", settings.SkyboxIntensity, 0.01f, 0.0f, 16.0f);
+        // Scene-linear, like Blender's world colour; shown wherever no sky is drawn.
+        changed |= PropertyGrid::Color3("Background", settings.BackgroundColor);
         if (changed)
         {
             // The first edit of a scene without settings keeps the map it was showing.

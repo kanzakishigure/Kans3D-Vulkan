@@ -3,6 +3,7 @@
 #include <cmath>
 #include <filesystem>
 #include <stdexcept>
+#include <glm/vec3.hpp>
 
 namespace Kans
 {
@@ -14,6 +15,7 @@ namespace Kans
         float Rotation        = 0; // Degrees around +Y; positive rotation moves the environment in world space.
         float SkyboxIntensity = 1;
         bool  ShowSkybox      = true;
+        glm::vec3 BackgroundColor {0, 0, 0}; // Scene-linear radiance behind geometry when no skybox is drawn.
 
         // One normalization boundary for scene edits and deserialization.
         void Validate()
@@ -22,6 +24,9 @@ namespace Kans
             DiffuseIntensity  = intensity(DiffuseIntensity);
             SpecularIntensity = intensity(SpecularIntensity);
             SkyboxIntensity   = intensity(SkyboxIntensity);
+            for (int i = 0; i < 3; ++i)
+                if (!std::isfinite(BackgroundColor[i]) || BackgroundColor[i] < 0)
+                    BackgroundColor[i] = 0;
             Rotation          = std::isfinite(Rotation) ? std::fmod(Rotation, 360.0f) : 0.0f;
             if (Rotation < 0)
                 Rotation += 360;
@@ -38,7 +43,8 @@ namespace Kans
     {
         return a.Map == b.Map && a.DiffuseIntensity == b.DiffuseIntensity &&
                a.SpecularIntensity == b.SpecularIntensity && a.Rotation == b.Rotation &&
-               a.SkyboxIntensity == b.SkyboxIntensity && a.ShowSkybox == b.ShowSkybox;
+               a.SkyboxIntensity == b.SkyboxIntensity && a.ShowSkybox == b.ShowSkybox &&
+               a.BackgroundColor == b.BackgroundColor;
     }
     inline bool operator!=(const EnvironmentSettings& a, const EnvironmentSettings& b) { return !(a == b); }
 } // namespace Kans

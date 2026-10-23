@@ -755,21 +755,27 @@ namespace Kans
         YAML::Node EncodePostProcess(const PostProcessSettings& input)
         {
             const auto settings = input.Validated();
-            Require(std::isfinite(input.Exposure) && uint32_t(input.ToneMapping) <= 1, "Invalid post-process settings");
+            Require(std::isfinite(input.Exposure) && std::isfinite(input.FilterSize) &&
+                        uint32_t(input.ToneMapping) <= 1,
+                    "Invalid post-process settings");
             YAML::Node node;
             node["Exposure"]    = settings.Exposure;
             node["Bloom"]       = EncodeBloom(input.Bloom);
             node["Tonemapping"] = settings.ToneMapping == ToneMappingMode::ACES ? "ACES" : "Standard";
+            if (settings.FilterSize != 0)
+                node["FilterSize"] = settings.FilterSize;
             return node;
         }
         PostProcessSettings DecodePostProcess(const YAML::Node& node)
         {
-            Keys(node, {"Exposure", "Bloom", "Tonemapping"});
+            Keys(node, {"Exposure", "Bloom", "Tonemapping", "FilterSize"});
             PostProcessSettings settings;
             if (node["Exposure"])
                 settings.Exposure = Number(node["Exposure"]);
             if (node["Bloom"])
                 settings.Bloom = DecodeBloom(node["Bloom"]);
+            if (node["FilterSize"])
+                settings.FilterSize = Number(node["FilterSize"]);
             if (node["Tonemapping"])
             {
                 const auto mode = node["Tonemapping"].as<std::string>();
@@ -983,6 +989,8 @@ namespace Kans
                     environment["SkyboxIntensity"] = settings.SkyboxIntensity;
                 if (!settings.ShowSkybox)
                     environment["ShowSkybox"] = false;
+                if (settings.BackgroundColor != glm::vec3(0))
+                    environment["BackgroundColor"] = Vector(settings.BackgroundColor, 3);
             }
             root["Entities"] = YAML::Node(YAML::NodeType::Sequence);
             std::map<uint64_t, Entity> entities;
@@ -1080,7 +1088,13 @@ namespace Kans
             if (auto environment = root["Environment"])
             {
                 Keys(environment,
-                     {"Map", "DiffuseIntensity", "SpecularIntensity", "Rotation", "SkyboxIntensity", "ShowSkybox"});
+                     {"Map",
+                      "DiffuseIntensity",
+                      "SpecularIntensity",
+                      "Rotation",
+                      "SkyboxIntensity",
+                      "ShowSkybox",
+                      "BackgroundColor"});
                 EnvironmentSettings settings;
                 if (environment["Map"])
                     settings.Map = Text(environment["Map"]);
@@ -1094,6 +1108,8 @@ namespace Kans
                     settings.SkyboxIntensity = environment["SkyboxIntensity"].as<float>();
                 if (environment["ShowSkybox"])
                     settings.ShowSkybox = environment["ShowSkybox"].as<bool>();
+                if (environment["BackgroundColor"])
+                    settings.BackgroundColor = Vec3(environment["BackgroundColor"]);
                 candidate->SetEnvironmentSettings(std::move(settings));
             }
             std::set<uint64_t>    seen;

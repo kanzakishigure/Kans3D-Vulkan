@@ -23,6 +23,28 @@ namespace Kans
         std::vector<GraphTexture>                       MSColors;
         GraphTexture                                    MSHDR = 0, MSDepth = 0;
         bool                                            MSAAResolved = false;
+        bool                                            HasBackgroundColor() const
+        {
+            return View.DrawEnvironment && View.Environment.BackgroundColor != glm::vec3(0);
+        }
+        void ClearBackground(RenderHardware::CommandList& commands)
+        {
+            using namespace RenderHardware;
+            const auto    c = View.Environment.BackgroundColor;
+            RenderingDesc background;
+            background.Colors.push_back({HDR(), {}, LoadOp::Clear, StoreOp::Store, {c.r, c.g, c.b, 1}});
+            commands.BeginRendering(background);
+            commands.EndRendering();
+            // Immediate display-space submissions need the same background. Keep the raw
+            // HDR image for materials/bloom until an immediate submission replaces it.
+            Services.GetToneMapping().Record(*GetDevice(),
+                                             commands,
+                                             HDR(),
+                                             Colors(),
+                                             View.GetPostProcessSettings().Exposure,
+                                             false,
+                                             View.GetPostProcessSettings().ToneMapping);
+        }
         RenderHardware::Handle<RenderHardware::Texture> HDR() const
         {
             return Samples > 1 && !MSAAResolved ? SceneGraph->Texture(MSHDR) : Output.GetHDR();

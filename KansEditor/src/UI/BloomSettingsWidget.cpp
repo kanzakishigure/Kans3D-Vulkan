@@ -42,6 +42,8 @@ namespace Kans
             settings.ToneMapping = ToneMappingMode(toneMapping);
             changed              = true;
         }
+        // Blackman-Harris reconstruction radius (Blender Film > Filter Size); 0 keeps the sharp resolve.
+        changed |= PropertyGrid::Float("Pixel filter", settings.FilterSize, 0.05f, 0.0f, 4.0f, "%.2f px");
         changed |= DrawBloomSettings(settings.Bloom, dirtPicker);
         return changed;
     }
