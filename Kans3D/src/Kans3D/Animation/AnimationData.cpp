@@ -8,6 +8,42 @@
 
 namespace Kans
 {
+    JointTransform SampleAnimationJoint(const JointTransform&      rest,
+                                        const JointAnimationTrack& track,
+                                        double                     time,
+                                        AnimationSampleEndpoint    endpoint)
+    {
+        if (endpoint == AnimationSampleEndpoint::Interpolated)
+            return {SampleAnimationTrack(track.Translation, time, rest.Translation),
+                    SampleAnimationTrack(track.Rotation, time, rest.Rotation),
+                    SampleAnimationTrack(track.Scale, time, rest.Scale)};
+        auto sample = [&](const auto& channel, const auto& value) {
+            if (channel.RootEndpoints)
+                return (*channel.RootEndpoints)[endpoint == AnimationSampleEndpoint::First ? 0 : 1];
+            return SampleAnimationTrack(channel, time, value);
+        };
+        return {sample(track.Translation, rest.Translation),
+                sample(track.Rotation, rest.Rotation),
+                sample(track.Scale, rest.Scale)};
+    }
+    size_t AnimationClipData::ResidentBytes() const
+    {
+        size_t bytes = sizeof(*this) + Name.capacity() + SourceName.capacity() + Compression.Joint.capacity() +
+                       Compression.ShapeKey.capacity() + Tracks.capacity() * sizeof(JointAnimationTrack) +
+                       MorphTracks.capacity() * sizeof(MorphAnimationTrack) +
+                       Events.capacity() * sizeof(AnimationEvent);
+        bytes += TimeTables.capacity() * sizeof(TimeTables[0]);
+        for (const auto& table : TimeTables)
+            bytes += sizeof(*table) + table->capacity() * sizeof(double) + 2 * sizeof(void*);
+        for (const auto& t : Tracks)
+            bytes += t.Joint.capacity() + t.Translation.ResidentBytes() + t.Rotation.ResidentBytes() +
+                     t.Scale.ResidentBytes();
+        for (const auto& t : MorphTracks)
+            bytes += t.ShapeKey.capacity() + t.Weight.ResidentBytes();
+        for (const auto& e : Events)
+            bytes += e.Name.capacity() + e.Payload.capacity();
+        return bytes;
+    }
     glm::mat4 JointTransform::Matrix() const
     {
         return glm::translate(glm::mat4(1), Translation) * glm::mat4_cast(Rotation) * glm::scale(glm::mat4(1), Scale);
@@ -15,6 +51,66 @@ namespace Kans
     JointTransform JointTransform::FromMatrix(const glm::mat4& matrix)
     {
         JointTransform result;
+        if (matrix[0][3] == 0 && matrix[1][3] == 0 && matrix[2][3] == 0 && matrix[3][3] == 1)
+        {
+            // The affine branch of GLM's decompose, with identical arithmetic order.
+            // Skip perspective isolation and division of all 16 entries by 1;
+            // reuse each computed column length instead of computing it twice.
+            auto perspective = matrix;
+            for (int i = 0; i < 3; ++i)
+                perspective[i][3] = 0;
+            if (glm::epsilonEqual(glm::determinant(perspective), 0.f, glm::epsilon<float>()))
+                throw std::invalid_argument("Singular joint transform");
+            result.Translation = glm::vec3(matrix[3]);
+            glm::vec3 row[]    = {glm::vec3(matrix[0]), glm::vec3(matrix[1]), glm::vec3(matrix[2])};
+            result.Scale.x     = glm::length(row[0]);
+            row[0]             = row[0] * 1.f / result.Scale.x;
+            row[1]             = row[1] * 1.f + row[0] * (-glm::dot(row[0], row[1]));
+            result.Scale.y     = glm::length(row[1]);
+            row[1]             = row[1] * 1.f / result.Scale.y;
+            row[2]             = row[2] * 1.f + row[0] * (-glm::dot(row[0], row[2]));
+            row[2]             = row[2] * 1.f + row[1] * (-glm::dot(row[1], row[2]));
+            result.Scale.z     = glm::length(row[2]);
+            row[2]             = row[2] * 1.f / result.Scale.z;
+            if (glm::dot(row[0], glm::cross(row[1], row[2])) < 0)
+                for (int i = 0; i < 3; ++i)
+                {
+                    result.Scale[i] *= -1.f;
+                    row[i] *= -1.f;
+                }
+            const float trace = row[0].x + row[1].y + row[2].z;
+            if (trace > 0)
+            {
+                float root        = std::sqrt(trace + 1.f);
+                result.Rotation.w = .5f * root;
+                root              = .5f / root;
+                result.Rotation.x = root * (row[1].z - row[2].y);
+                result.Rotation.y = root * (row[2].x - row[0].z);
+                result.Rotation.z = root * (row[0].y - row[1].x);
+            }
+            else
+            {
+                constexpr int next[] = {1, 2, 0};
+                int           i      = 0;
+                if (row[1].y > row[0].x)
+                    i = 1;
+                if (row[2].z > row[i][i])
+                    i = 2;
+                const int j = next[i], k = next[j];
+                float     root = std::sqrt(row[i][i] - row[j][j] - row[k][k] + 1.f);
+                float     xyz[3];
+                xyz[i]            = .5f * root;
+                root              = .5f / root;
+                xyz[j]            = root * (row[i][j] + row[j][i]);
+                xyz[k]            = root * (row[i][k] + row[k][i]);
+                result.Rotation.x = xyz[0];
+                result.Rotation.y = xyz[1];
+                result.Rotation.z = xyz[2];
+                result.Rotation.w = root * (row[j][k] - row[k][j]);
+            }
+            result.Rotation = glm::normalize(result.Rotation);
+            return result;
+        }
         glm::vec3      skew;
         glm::vec4      perspective;
         if (!glm::decompose(matrix, result.Scale, result.Rotation, result.Translation, skew, perspective))
@@ -102,11 +198,54 @@ namespace Kans
         template<class T>
         bool Track(const AnimationTrack<T>& track, double duration)
         {
-            if (track.Interpolation > TrackInterpolation::Spherical || track.Keys.size() > 1000000)
+            if (track.Interpolation > TrackInterpolation::Spherical || track.KeyCount() > 1000000)
+                return false;
+            if (track.RootEndpoints &&
+                (!track.KeyCount() || !Finite((*track.RootEndpoints)[0]) || !Finite((*track.RootEndpoints)[1])))
                 return false;
             double previous = -1;
-            for (const auto& key : track.Keys)
+            if (track.PackedCount)
             {
+                if (!track.Keys.empty() || track.TimeEncoding > 5 ||
+                    (track.TimeEncoding == 0 && track.Times.size() != track.PackedCount) ||
+                    ((track.TimeEncoding == 1 || track.TimeEncoding == 2) &&
+                     (!std::isfinite(track.Start) || !std::isfinite(track.Interval) || track.Interval <= 0)) ||
+                    (track.RunEnds.empty() ?
+                         track.Values.size() != track.PackedCount :
+                         track.RunEnds.size() != track.Values.size() || track.RunEnds.back() != track.PackedCount))
+                    return false;
+                if ((track.TimeEncoding != 0 && !track.Times.empty()) ||
+                    (track.TimeEncoding < 3 &&
+                     (track.TimeTable || !track.TimeIndices16.empty() || !track.TimeIndices32.empty())) ||
+                    (track.TimeEncoding != 4 && !track.TimeIndices16.empty()) ||
+                    (track.TimeEncoding != 5 && !track.TimeIndices32.empty()))
+                    return false;
+                if (track.TimeEncoding >= 3)
+                {
+                    if (!track.TimeTable || track.TimeTable->empty() || !track.Times.empty() ||
+                        (track.TimeEncoding == 3 && track.TimeTable->size() != track.PackedCount) ||
+                        (track.TimeEncoding == 4 &&
+                         (track.TimeTable->size() > 65536 || track.TimeIndices16.size() != track.PackedCount)) ||
+                        (track.TimeEncoding == 5 && track.TimeIndices32.size() != track.PackedCount))
+                        return false;
+                    for (auto index : track.TimeIndices16)
+                        if (index >= track.TimeTable->size())
+                            return false;
+                    for (auto index : track.TimeIndices32)
+                        if (index >= track.TimeTable->size())
+                            return false;
+                }
+                uint32_t end = 0;
+                for (auto next : track.RunEnds)
+                {
+                    if (next <= end || next > track.PackedCount)
+                        return false;
+                    end = next;
+                }
+            }
+            for (size_t i = 0; i < track.KeyCount(); ++i)
+            {
+                const auto key = track.KeyAt(i);
                 if (!std::isfinite(key.Time) || key.Time <= previous || key.Time < 0 || key.Time > duration ||
                     !Finite(key.Value))
                     return false;

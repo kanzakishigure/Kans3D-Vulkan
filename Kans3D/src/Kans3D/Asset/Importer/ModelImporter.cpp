@@ -85,6 +85,9 @@ namespace Kans
 
         std::variant<ModelSettings, AssetError> ParseModelSettings(const std::map<std::string, std::string>& settings)
         {
+            auto compression = ParseAnimationCompressionSettings(settings);
+            if (auto* error = std::get_if<AssetError>(&compression))
+                return *error;
             ModelSettings parsed;
             for (const auto& [key, value] : settings)
             {
@@ -96,6 +99,11 @@ namespace Kans
                     parsed.Materials.emplace(key.substr(9), id);
                     continue;
                 }
+                if (key == "animation.compression" || key.compare(0, 22, "animation.compression.") == 0 ||
+                    key == "animation.error.position" || key.compare(0, 25, "animation.error.position.") == 0 ||
+                    key == "animation.error.shell" || key.compare(0, 22, "animation.error.shell.") == 0 ||
+                    key == "animation.error.morph" || key.compare(0, 22, "animation.error.morph.") == 0)
+                    continue;
                 if (key == "animation.strip_prefix")
                 {
                     parsed.Mapping.StripPrefix = value;
@@ -359,6 +367,15 @@ namespace Kans
                                {}},
                               std::get<std::vector<std::byte>>(std::move(encoded))});
         }
+        // The runtime names may be remapped; the compression metric still evaluates the
+        // original import hierarchy and rest transforms, with those same names applied.
+        auto compressionSkeleton = source.Skeleton;
+        if (compressionSkeleton)
+            for (auto& joint : compressionSkeleton->Joints)
+            {
+                joint.Name = std::get<ModelSettings>(scale).Mapping.Map(joint.Name);
+                joint.Path = std::get<ModelSettings>(scale).Mapping.Map(joint.Path);
+            }
         for (size_t i = 0; i < source.Clips.size(); ++i)
         {
             auto& clip = source.Clips[i];
@@ -368,7 +385,16 @@ namespace Kans
                 track.ShapeKey = std::get<ModelSettings>(scale).Mapping.Map(track.ShapeKey);
             const auto id = idFor(clipKeys[i]);
             model.AnimationClips.push_back(id);
-            auto encoded = EncodeAnimationClipProduct(clip);
+            auto compression = ParseAnimationCompressionSettings(context.Settings, clipKeys[i]);
+            if (auto* error = std::get_if<AssetError>(&compression))
+                return *error;
+            const auto& options = std::get<AnimationCompressionSettings>(compression);
+            auto encoded = options.Mode == AnimationCompressionMode::Off ?
+                               EncodeAnimationClipProduct(clip) :
+                           compressionSkeleton ?
+                               EncodeAnimationClipProduct(clip, *compressionSkeleton, options) :
+                               AnimationProductBytes(AssetError {AssetErrorCode::InvalidData,
+                                                                 "Compressed clip requires its import skeleton"});
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return *error;
             staged.push_back(

@@ -1,5 +1,7 @@
 #pragma once
 #include <array>
+#include <future>
+#include "Kans3D/Animation/AnimationData.h"
 #include "Kans3D/Editor/EditorAssetImportService.h"
 
 namespace Kans
@@ -23,6 +25,10 @@ namespace Kans
         void                                   LoadSlots();
         // Model-wide mesh import options; a change is persisted and rebuilt immediately.
         void                                   DrawModelMeshOptions(bool busy);
+        // Clip compression mode (model-wide and per clip) with the statistics of the built clips.
+        void                                   DrawModelAnimationOptions(bool busy);
+        // Persists one import setting (empty value removes it), then rebuilds.
+        void                                   SetSetting(const std::string& key, const std::string& value);
         // Persists a slot change, then rebuilds the model so the change shows.
         void                                   Rebuild();
         void                                   Record(const std::variant<std::monostate, AssetError>& result);
@@ -44,5 +50,15 @@ namespace Kans
         bool                                          m_WasBusy    = false;
         std::string                                   m_ExtractDirectory;
         std::vector<std::string>                      m_ExtractReport;
+
+        // Built clips of the selected model, decoded on a worker after LoadSlots.
+        struct ClipSummary
+        {
+            std::string                    Name;
+            AnimationCompressionStatistics Statistics;
+            std::string                    Error;
+        };
+        std::vector<ClipSummary>                           m_Clips;
+        std::optional<std::future<std::vector<ClipSummary>>> m_ClipsLoading;
     };
 } // namespace Kans
