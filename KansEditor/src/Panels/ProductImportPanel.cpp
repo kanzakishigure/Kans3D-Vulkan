@@ -244,6 +244,35 @@ namespace Kans
         ImGui::TreePop();
     }
 
+    void ProductImportPanel::DrawModelMeshOptions(bool busy)
+    {
+        if (!m_Slots || !ImGui::TreeNodeEx("Mesh", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+        ImGui::BeginDisabled(busy);
+        constexpr const char* key     = "mesh.smooth_normals";
+        const auto            current = m_Configuration.Settings.find(key);
+        bool smooth = current != m_Configuration.Settings.end() && current->second == "true";
+        if (ImGui::Checkbox("Smooth normals", &smooth))
+        {
+            auto candidate = m_Configuration;
+            if (smooth)
+                candidate.Settings[key] = "true";
+            else
+                candidate.Settings.erase(key);
+            Record(m_Service->SetSourceImportConfiguration(m_Selected, candidate));
+            if (m_Error.empty())
+            {
+                m_Configuration.Swap(candidate);
+                Rebuild();
+            }
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Stores a welded normal per position (Kans3D/SmoothNormal.glsl).\n"
+                              "Inverted-hull outlines extruded along it stay closed at hard edges.");
+        ImGui::EndDisabled();
+        ImGui::TreePop();
+    }
+
     void ProductImportPanel::OpenWithFile(const std::filesystem::path& path)
     {
         if (!m_Service)
@@ -390,6 +419,7 @@ namespace Kans
         ImGui::Checkbox("Force rebuild", &m_Force);
         ImGui::EndDisabled();
         DrawModelMaterials(busy);
+        DrawModelMeshOptions(busy);
         ImGui::BeginDisabled(busy);
         if (m_Selected.IsValid() && ImGui::TreeNode("Source import configuration"))
         {

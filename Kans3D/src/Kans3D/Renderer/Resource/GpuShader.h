@@ -39,6 +39,8 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::Shader>                               Program;
         mutable RenderHardware::Handle<RenderHardware::Shader>                       SkinnedProgram;
         mutable std::map<uint32_t, RenderHardware::Handle<RenderHardware::Pipeline>> Pipelines;
+        mutable RenderHardware::Handle<RenderHardware::Shader>                       SkinnedNormalFallbackProgram;
+        bool                                                                         UsesSmoothNormals = false;
     };
     // Validated material product backed by an RHI Shader and cached state pipelines.
     class GpuShader
@@ -52,7 +54,7 @@ namespace Kans
         Create(const ShaderData& data, std::shared_ptr<RenderHardware::Device> device = {});
 
         GpuShader Snapshot() const;
-        bool      PrepareSkinning() const;
+        bool      PrepareSkinning(bool smoothNormalFallback = false) const;
         ~GpuShader();
         GpuShader(GpuShader&& other) noexcept;
         GpuShader& operator=(GpuShader&& other) noexcept;
@@ -67,6 +69,8 @@ namespace Kans
         mutable RenderHardware::Handle<RenderHardware::Shader>          SkinnedProgram;
         mutable RenderHardware::Handle<RenderHardware::BindGroupLayout> SkinLayout;
         std::vector<GpuShaderPass> Passes;
+        mutable RenderHardware::Handle<RenderHardware::Shader>          SkinnedNormalFallbackProgram;
+        bool                                                            UsesSmoothNormals = false;
         ShaderOutputSpace          OutputSpace = ShaderOutputSpace::Display;
 
         const std::map<uint32_t, ShaderTextureFallback>& MaterialSamplerFallbacks() const { return m_SamplerFallbacks; }

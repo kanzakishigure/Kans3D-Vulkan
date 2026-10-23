@@ -21,6 +21,8 @@ namespace Kans
         // Material slots of a model source: remap each to a project material or extract them.
         void                                   DrawModelMaterials(bool busy);
         void                                   LoadSlots();
+        // Model-wide mesh import options; a change is persisted and rebuilt immediately.
+        void                                   DrawModelMeshOptions(bool busy);
         // Persists a slot change, then rebuilds the model so the change shows.
         void                                   Rebuild();
         void                                   Record(const std::variant<std::monostate, AssetError>& result);

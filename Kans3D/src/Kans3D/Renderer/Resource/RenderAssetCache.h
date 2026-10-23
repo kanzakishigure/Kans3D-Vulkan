@@ -19,6 +19,7 @@ namespace Kans
     {
         std::shared_ptr<RenderHardware::Device> Device;
         RenderHardware::Handle<RenderHardware::Buffer> Vertices, Indices, NormalLines, Skin, NormalSkin, BindPalette;
+        RenderHardware::Handle<RenderHardware::Buffer> SmoothNormals, BindSmoothNormals;
         // Original mesh-local streams for submissions without an animator palette.
         RenderHardware::Handle<RenderHardware::Buffer> BindVertices, BindNormalLines;
         std::vector<RenderHardware::VertexBinding>     VertexBindings {{0, 64, false}};

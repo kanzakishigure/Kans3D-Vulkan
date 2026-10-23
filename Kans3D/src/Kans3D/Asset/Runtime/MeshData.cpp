@@ -2,11 +2,62 @@
 #include "MeshData.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
+#include <map>
 #include <set>
 
 namespace Kans
 {
+    void GenerateSmoothNormals(MeshData& mesh)
+    {
+        // Bit keys preserve the imported representation (including signed zero). Map lookup never
+        // determines summation order: triangles and corners are accumulated in source index order.
+        std::map<std::array<uint32_t, 3>, size_t> groups;
+        std::vector<size_t>                       membership;
+        std::vector<glm::dvec3>                   sums;
+        for (const auto& vertex : mesh.Vertices)
+        {
+            std::array<uint32_t, 3> key;
+            std::memcpy(key.data(), vertex.Position.data(), sizeof(key));
+            const auto [at, inserted] = groups.emplace(key, sums.size());
+            if (inserted)
+                sums.emplace_back(0);
+            membership.push_back(at->second);
+        }
+        for (size_t i = 0; i + 2 < mesh.Indices.size(); i += 3)
+        {
+            std::array<glm::dvec3, 3> p;
+            for (size_t c = 0; c < 3; ++c)
+            {
+                const auto& v = mesh.Vertices.at(mesh.Indices[i + c]).Position;
+                p[c]          = {v[0], v[1], v[2]};
+            }
+            const auto   cross  = glm::cross(p[1] - p[0], p[2] - p[0]);
+            const double length = glm::length(cross);
+            if (!(length > 0))
+                continue;
+            const auto normal = cross / length;
+            for (size_t c = 0; c < 3; ++c)
+            {
+                const auto   a = p[(c + 1) % 3] - p[c], b = p[(c + 2) % 3] - p[c];
+                const double angle = std::atan2(glm::length(glm::cross(a, b)), glm::dot(a, b));
+                sums[membership[mesh.Indices[i + c]]] += normal * angle;
+            }
+        }
+        mesh.SmoothNormals.resize(mesh.Vertices.size());
+        for (size_t v = 0; v < mesh.Vertices.size(); ++v)
+        {
+            const auto sum = sums[membership[v]];
+            if (glm::dot(sum, sum) <= 1e-20)
+                mesh.SmoothNormals[v] = mesh.Vertices[v].Normal;
+            else
+            {
+                const auto n          = glm::normalize(sum);
+                mesh.SmoothNormals[v] = {float(n.x), float(n.y), float(n.z)};
+            }
+        }
+    }
     void BuildMorphBounds(MeshMorphTarget& target)
     {
         target.PositionBounds = {};
@@ -122,6 +173,17 @@ namespace Kans
             if (!finite(vertex.Position) || !finite(vertex.Normal) || !finite(vertex.UV) || !finite(vertex.Color) ||
                 !finite(vertex.Tangent))
                 return AssetError {AssetErrorCode::InvalidData, "Non-finite Mesh Product vertex"};
+        if (mesh.HasSmoothNormals())
+        {
+            if (mesh.SmoothNormals.size() != vertices)
+                return AssetError {AssetErrorCode::InvalidData, "Invalid smooth normal stream size"};
+            for (const auto& n : mesh.SmoothNormals)
+            {
+                const double lengthSquared = double(n[0]) * n[0] + double(n[1]) * n[1] + double(n[2]) * n[2];
+                if (!finite(n) || std::abs(lengthSquared - 1) > 1e-5)
+                    return AssetError {AssetErrorCode::InvalidData, "Smooth normals must be finite unit vectors"};
+            }
+        }
         for (const auto index : mesh.Indices)
             if (index >= vertices)
                 return AssetError {AssetErrorCode::InvalidData, "Mesh Product index out of range"};
@@ -152,7 +214,8 @@ namespace Kans
             }
             morphBytes += 36 + target.Name.size() + target.Deltas.size() * 40ull;
         }
-        if (mesh.MorphTargets.size() > 65536 || morphBytes + vertices * 64ull + indices * 4ull > 512ull * 1024 * 1024)
+        if (mesh.MorphTargets.size() > 65536 ||
+            morphBytes + mesh.SmoothNormals.size() * 12ull + vertices * 64ull + indices * 4ull > 512ull * 1024 * 1024)
             return AssetError {AssetErrorCode::InvalidData, "Morph Product exceeds size limit"};
         if (mesh.VertexFormat == MeshVertexFormat::Skinned)
         {
@@ -189,7 +252,8 @@ namespace Kans
             mesh.Sections.empty() || mesh.MaterialSlots.empty() || !validBounds(mesh.LocalBounds) ||
             mesh.Sections.size() > 1000000 || mesh.MaterialSlots.size() > 1000000)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product format, sections or bounds"};
-        uint64_t size = 56ull + vertices * 64ull + indices * 4ull + mesh.Sections.size() * 36ull;
+        uint64_t size = 56ull + mesh.SmoothNormals.size() * 12ull + vertices * 64ull + indices * 4ull +
+                        mesh.Sections.size() * 36ull;
         for (const auto& slot : mesh.MaterialSlots)
         {
             if (slot.Name.size() > 4096 || slot.ObjectKey.size() > 4096 || slot.Name.find('\0') != std::string::npos ||

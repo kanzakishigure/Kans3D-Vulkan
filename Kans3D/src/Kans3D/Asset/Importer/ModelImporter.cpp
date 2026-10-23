@@ -78,6 +78,7 @@ namespace Kans
         {
             AnimationNameMapping           Mapping;
             float                          Scale = 1;
+            bool                           SmoothNormals = false;
             std::optional<bool>            RecomputeMorphNormals;
             std::map<std::string, AssetID> Materials;
         };
@@ -103,6 +104,14 @@ namespace Kans
                 if (key.compare(0, 14, "animation.map.") == 0)
                 {
                     parsed.Mapping.Names[key.substr(14)] = value;
+                    continue;
+                }
+                if (key == "mesh.smooth_normals")
+                {
+                    if (value != "true" && value != "false")
+                        return AssetError {AssetErrorCode::InvalidArgument,
+                                           "mesh.smooth_normals must be true or false"};
+                    parsed.SmoothNormals = value == "true";
                     continue;
                 }
                 if (key == "morph.recompute_normals")
@@ -482,6 +491,8 @@ namespace Kans
             }
             data.Material         = data.MaterialSlots.front().DefaultMaterial;
             data.AuthoredMaterial = data.MaterialSlots.front().AuthoredMaterial;
+            if (std::get<ModelSettings>(scale).SmoothNormals)
+                GenerateSmoothNormals(data);
             auto encoded          = EncodeMeshProduct(data);
             if (const auto* error = std::get_if<AssetError>(&encoded))
                 return *error;
