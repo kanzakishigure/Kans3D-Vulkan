@@ -23,6 +23,12 @@ namespace Kans
         std::vector<uint32_t>       Indices;
         std::vector<MeshSkinVertex> Skin;
         std::vector<MeshMorphTarget> MorphTargets;
+        // Import-only FBX identity. Never serialized into a mesh product.
+        int32_t                           SourceGeometry = -1;
+        std::vector<uint32_t>             SourceControlPoints;
+        std::vector<std::array<float, 3>> SmoothNormals;
+        uint32_t                          UVChannels    = 0;
+        uint32_t                          ColorChannels = 0;
         int32_t                     Node = -1;
         glm::mat4                   BindToModel {1};
     };
@@ -72,12 +78,15 @@ namespace Kans
     // Owns all returned data. No Assimp or rendering objects escape this boundary.
     // Embedded textures are reported but not imported.
     [[nodiscard]] std::variant<ImportedModelData, AssetError>
-    ParseModelCpu(const std::filesystem::path& path, std::optional<bool> recomputeMorphNormals = {});
+    ParseModelCpu(const std::filesystem::path& path,
+                  std::optional<bool>          recomputeMorphNormals = {},
+                  bool                         sourceNormals         = false);
     // Closed input IO: undeclared paths are rejected before opening them.
     [[nodiscard]] std::variant<ImportedModelData, AssetError>
     ParseModelCpu(const std::filesystem::path&              path,
                   const std::vector<std::filesystem::path>& allowedFiles,
-                  std::optional<bool>                       recomputeMorphNormals = {});
+                  std::optional<bool>                       recomputeMorphNormals = {},
+                  bool                                      sourceNormals         = false);
     // Uniformly scales the model by scaling its root nodes.
     void ScaleModel(ImportedModelData& model, float scale);
     // Finds the file a model's texture reference points to. Accepts backslashes,

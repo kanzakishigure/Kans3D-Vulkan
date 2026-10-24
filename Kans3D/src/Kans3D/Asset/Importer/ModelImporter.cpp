@@ -74,11 +74,17 @@ namespace Kans
     namespace
     {
         // Settings: "scale" (positive number, default 1) multiplies the model size.
+        enum class SmoothNormalMode
+        {
+            Off,
+            Weld,
+            Source
+        };
         struct ModelSettings
         {
             AnimationNameMapping           Mapping;
             float                          Scale = 1;
-            bool                           SmoothNormals = false;
+            SmoothNormalMode               SmoothNormals = SmoothNormalMode::Off;
             std::optional<bool>            RecomputeMorphNormals;
             std::map<std::string, AssetID> Materials;
         };
@@ -116,10 +122,12 @@ namespace Kans
                 }
                 if (key == "mesh.smooth_normals")
                 {
-                    if (value != "true" && value != "false")
+                    if (value != "true" && value != "false" && value != "weld" && value != "source")
                         return AssetError {AssetErrorCode::InvalidArgument,
-                                           "mesh.smooth_normals must be true or false"};
-                    parsed.SmoothNormals = value == "true";
+                                           "mesh.smooth_normals must be false, weld, source, or true"};
+                    parsed.SmoothNormals = value == "source" ? SmoothNormalMode::Source :
+                                           value == "false"  ? SmoothNormalMode::Off :
+                                                               SmoothNormalMode::Weld;
                     continue;
                 }
                 if (key == "morph.recompute_normals")
@@ -229,8 +237,10 @@ namespace Kans
         std::vector<std::filesystem::path> allowedFiles {context.SourceFile};
         for (const auto& input : context.SourceInputs)
             allowedFiles.push_back(input.first);
-        auto parsed =
-            ParseModelCpu(context.SourceFile, allowedFiles, std::get<ModelSettings>(scale).RecomputeMorphNormals);
+        auto parsed = ParseModelCpu(context.SourceFile,
+                                    allowedFiles,
+                                    std::get<ModelSettings>(scale).RecomputeMorphNormals,
+                                    std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Source);
         if (const auto* error = std::get_if<AssetError>(&parsed))
             return *error;
         auto& source = std::get<ImportedModelData>(parsed);
@@ -478,6 +488,9 @@ namespace Kans
                     BuildMorphBounds(*found);
                 }
                 data.Vertices.insert(data.Vertices.end(), vertices->begin(), vertices->end());
+                if (std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Source)
+                    data.SmoothNormals.insert(
+                        data.SmoothNormals.end(), input.SmoothNormals.begin(), input.SmoothNormals.end());
                 if (skinned)
                 {
                     if (input.Skin.empty())
@@ -517,7 +530,9 @@ namespace Kans
             }
             data.Material         = data.MaterialSlots.front().DefaultMaterial;
             data.AuthoredMaterial = data.MaterialSlots.front().AuthoredMaterial;
-            if (std::get<ModelSettings>(scale).SmoothNormals)
+            if (std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Weld ||
+                (std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Source &&
+                 data.SmoothNormals.size() != data.Vertices.size()))
                 GenerateSmoothNormals(data);
             auto encoded          = EncodeMeshProduct(data);
             if (const auto* error = std::get_if<AssetError>(&encoded))
