@@ -1,0 +1,9 @@
+<Project>
+  <!-- Applies to Core, Generators and Aot only. Build outputs stay out of the source tree.
+       Base paths must be set here: the SDK reads them before a project file is evaluated. -->
+  <PropertyGroup>
+    <KansDotnetBuildDir>$(MSBuildThisFileDirectory)../build/dotnet/</KansDotnetBuildDir>
+    <BaseIntermediateOutputPath>$(KansDotnetBuildDir)obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(KansDotnetBuildDir)bin/$(MSBuildProjectName)/</BaseOutputPath>
+  </PropertyGroup>
+</Project>

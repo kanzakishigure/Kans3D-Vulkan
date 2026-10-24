@@ -212,7 +212,7 @@ if(DOTNET)
             message(FATAL_ERROR "KANS_SCRIPTS_AOT needs KANS_SCRIPT_PROJECT=<user.csproj>")
         endif()
         add_custom_target(KansScriptsAot
-            COMMAND "${DOTNET}" publish "${PROJECT_SOURCE_DIR}/KansScriptAot/KansScriptAot.csproj"
+            COMMAND "${DOTNET}" publish "${PROJECT_SOURCE_DIR}/KansScriptCore/Aot/KansScriptAot.csproj"
                 -c Release -r "${KANS_AOT_RID}"
                 "-p:KansScriptProject=${KANS_SCRIPT_PROJECT}" -m:1 -nr:false
                 -p:UseSharedCompilation=false --output "${CMAKE_BINARY_DIR}/scripts-aot"
