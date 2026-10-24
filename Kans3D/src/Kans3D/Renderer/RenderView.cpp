@@ -34,7 +34,11 @@ namespace Kans
                                   {},
                                   false,
                                   component.CastShadows,
-                                  component.ReceiveShadows});
+                                  component.ReceiveShadows,
+                                  {},
+                                  {},
+                                  component.RenderCustomDepth,
+                                  component.CustomStencil});
         }
     }
     Frustum::Frustum(const glm::mat4& matrix)

@@ -11,7 +11,8 @@ namespace Kans
     PackMaterialUniforms(const MaterialData&          data,
                          const ShaderProgramCode&     code,
                          const MaterialBindingRecipe& recipe,
-                         uint64_t                     maximumUniformBytes)
+                         uint64_t                     maximumUniformBytes,
+                         ShaderDomain                 domain)
     {
         if (!maximumUniformBytes || maximumUniformBytes > 512ull * 1024 * 1024 || recipe.Uniforms.size() > 4096 ||
             recipe.Textures.size() > 4096 - recipe.Uniforms.size())
@@ -26,7 +27,7 @@ namespace Kans
             if (const auto* error = std::get_if<AssetError>(&inspected))
                 return *error;
             const auto& reflection = std::get<std::vector<ShaderStageReflection>>(inspected);
-            auto        contract   = ValidateMaterialShaderInterface(reflection);
+            auto        contract   = ValidateMaterialShaderInterface(reflection, domain);
             if (const auto* error = std::get_if<AssetError>(&contract))
                 return *error;
             std::map<std::pair<uint32_t, uint32_t>, ShaderResourceBinding> resources;

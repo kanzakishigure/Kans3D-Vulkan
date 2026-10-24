@@ -1,5 +1,6 @@
 #pragma once
 #include <unordered_map>
+#include <unordered_set>
 #include <glm/glm.hpp>
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Asset/Runtime/MaterialBindings.h"
@@ -149,6 +150,7 @@ namespace Kans
         };
         const EditableMeshStatistics& GetEditableMeshStatistics() const { return m_EditableStats; }
         size_t                        GetEditableMeshCount() const { return m_EditableMeshes.size(); }
+        void                          WarnMaterialDomain(AssetID id, bool postList);
         AssetManager& GetAssetManager() { return m_Assets; }
 
     private:
@@ -163,6 +165,7 @@ namespace Kans
         template<typename T, typename Resource, typename Build>
         Resource* Resolve(std::unordered_map<AssetID, Entry<T, Resource>>& entries, AssetID id, Build&& build);
 
+        std::unordered_set<AssetID> m_WarnedPost, m_WarnedMesh;
         struct BindingsEntry
         {
             Ref<const MaterialDataAsset>  Material;

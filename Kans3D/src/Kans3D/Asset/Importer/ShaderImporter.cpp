@@ -163,6 +163,18 @@ namespace Kans
             ShaderData                                              shader;
             if (extension == ".shaderprog")
             {
+                auto domain = ParseShaderProgramDomain(*primary);
+                if (auto* error = std::get_if<AssetError>(&domain))
+                    return *error;
+                shader.Domain    = std::get<ShaderDomainSource>(domain).Domain;
+                shader.PostStage = std::get<ShaderDomainSource>(domain).Stage;
+                if (shader.Domain == ShaderDomain::PostProcess)
+                {
+                    inputs.Add("__KansPost.vert", R"(#version 450
+void main() { vec2 p=vec2((gl_VertexIndex<<1)&2, gl_VertexIndex&2); gl_Position=vec4(p*2.0-1.0,0,1); }
+)");
+                    modules.push_back({ShaderProductStage::Vertex, "__KansPost.vert", &shader.Code});
+                }
                 auto space = ParseShaderOutputSpace(*primary);
                 if (auto* error = std::get_if<AssetError>(&space))
                     return *error;
@@ -222,6 +234,8 @@ namespace Kans
                 shaderc::CompileOptions options;
                 options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
                 options.SetWarningsAsErrors();
+                if (stage == ShaderProductStage::Fragment)
+                    options.AddMacroDefinition("KANS_FRAGMENT_STAGE");
                 options.SetIncluder(std::make_unique<Includer>(inputs));
                 const auto kind     = stage == ShaderProductStage::Vertex   ? shaderc_vertex_shader :
                                       stage == ShaderProductStage::Fragment ? shaderc_fragment_shader :
@@ -270,7 +284,9 @@ namespace Kans
                                                   shader.TextureFallbacks,
                                                   shader.Groups,
                                                   shader.Passes,
-                                                  shader.OutputSpace);
+                                                  shader.OutputSpace,
+                                                  shader.Domain,
+                                                  shader.PostStage);
         if (auto* error = std::get_if<AssetError>(&encoded))
             return *error;
         const auto& bytes = std::get<std::vector<std::byte>>(encoded);
@@ -309,7 +325,9 @@ namespace Kans
                                                       shader.TextureFallbacks,
                                                       shader.Groups,
                                                       shader.Passes,
-                                                      shader.OutputSpace);
+                                                      shader.OutputSpace,
+                                                      shader.Domain,
+                                                      shader.PostStage);
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return std::move(*error);
             auto allocated = AllocateLocalIDs(context.PreviousLocalIDs, {"shader:root"});

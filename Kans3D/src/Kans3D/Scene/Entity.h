@@ -103,11 +103,7 @@ namespace Kans
         {
             return a.GetTransform() == b.GetTransform();
         }
-        static bool SameRenderValue(const MeshComponent& a, const MeshComponent& b)
-        {
-            return a.Mesh == b.Mesh && a.Section == b.Section && a.Materials == b.Materials &&
-                   a.CastShadows == b.CastShadows && a.ReceiveShadows == b.ReceiveShadows;
-        }
+        static bool SameRenderValue(const MeshComponent& a, const MeshComponent& b) { return a == b; }
         static bool SameRenderValue(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
         static bool SameRenderValue(const SpriteRendererComponent& a, const SpriteRendererComponent& b)
         {

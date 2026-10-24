@@ -71,6 +71,8 @@ namespace Kans
         std::vector<GpuShaderPass> Passes;
         mutable RenderHardware::Handle<RenderHardware::Shader>          SkinnedNormalFallbackProgram;
         bool                                                            UsesSmoothNormals = false;
+        ShaderDomain                                                    Domain            = ShaderDomain::Surface;
+        PostProcessStage                                                PostStage   = PostProcessStage::BeforeToneMap;
         ShaderOutputSpace          OutputSpace = ShaderOutputSpace::Display;
 
         const std::map<uint32_t, ShaderTextureFallback>& MaterialSamplerFallbacks() const { return m_SamplerFallbacks; }

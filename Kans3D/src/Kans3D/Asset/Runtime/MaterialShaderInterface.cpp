@@ -60,6 +60,7 @@ vec3 KansPointLightSpecular(int i) { return u_Frame.PointSpecular[i].rgb; }
 vec3 KansDirectionalToLight() { return -u_Frame.DirectionalDirection.xyz; }
 vec3 KansDirectionalRadiance() { return u_Frame.DirectionalRadiance.rgb; }
 vec3 KansDirectionalAmbient() { return u_Frame.DirectionalAmbient.rgb; }
+
 layout(set = 0, binding = 1, std140) uniform KansObject
 {
     mat4 Transform;
@@ -70,6 +71,54 @@ layout(set = 0, binding = 2) uniform samplerCube u_IrradianceMap;
 layout(set = 0, binding = 3) uniform samplerCube u_PrefilterMap;
 layout(set = 0, binding = 4) uniform sampler2D   u_BrdfLUT;
 
+#endif
+)"},
+                {"Kans3D/PostProcess.glsl", R"(#ifndef KANS3D_POST_PROCESS_GLSL
+#define KANS3D_POST_PROCESS_GLSL
+#ifndef KANS_FRAGMENT_STAGE
+#error PostProcess.glsl is fragment only
+#endif
+#include <Kans3D/Frame.glsl>
+// Set 0: shared KansFrame=0, linear-clamp colour=11, point-clamp device depth=12,
+// custom device depth=13, unsigned custom stencil=14. Set 1 is material-owned.
+layout(set=0, binding=11) uniform sampler2D kans_PostColor;
+layout(set=0, binding=12) uniform sampler2D kans_PostDepth;
+layout(set=0, binding=13) uniform sampler2D kans_CustomDepth;
+layout(set=0, binding=14) uniform usampler2D kans_CustomStencil;
+vec2 KansViewportSize() { return vec2(textureSize(kans_PostColor, 0)); }
+vec2 KansTexelSize() { return 1.0 / KansViewportSize(); }
+vec2 KansPostUV() { return gl_FragCoord.xy * KansTexelSize(); }
+vec4 KansSceneColor(vec2 uv) { return texture(kans_PostColor, uv); }
+float KansSceneDepth(vec2 uv) { return texture(kans_PostDepth, uv).r; }
+vec3 KansViewPosition(vec2 uv)
+{
+    vec4 p = u_Frame.InverseProjection * vec4(uv * 2.0 - 1.0, KansSceneDepth(uv), 1.0);
+    return p.xyz / p.w;
+}
+float KansLinearDepth(vec2 uv) { return -KansViewPosition(uv).z; }
+vec3 KansWorldPosition(vec2 uv) { return (u_Frame.InverseView * vec4(KansViewPosition(uv), 1)).xyz; }
+vec3 KansSceneNormal(vec2 uv)
+{
+    // Geometric world normal reconstructed from depth; normal maps are not included.
+    vec2 t = KansTexelSize();
+    vec2 lo = t * 0.5, hi = vec2(1) - lo;
+    vec3 p = KansViewPosition(uv);
+    vec3 l = KansViewPosition(clamp(uv - vec2(t.x,0), lo, hi));
+    vec3 r = KansViewPosition(clamp(uv + vec2(t.x,0), lo, hi));
+    vec3 u = KansViewPosition(clamp(uv - vec2(0,t.y), lo, hi));
+    vec3 d = KansViewPosition(clamp(uv + vec2(0,t.y), lo, hi));
+    vec3 dx = abs(p.z-l.z) < abs(r.z-p.z) ? p-l : r-p;
+    vec3 dy = abs(p.z-u.z) < abs(d.z-p.z) ? p-u : d-p;
+    vec3 n = cross(dy, dx);
+    if (dot(n,n) < 1e-20) n = vec3(0,0,1);
+    if (dot(n,-p) < 0.0) n = -n;
+    return normalize(transpose(mat3(u_Frame.View)) * normalize(n));
+}
+float KansCustomDepth(vec2 uv) { return texture(kans_CustomDepth, uv).r; }
+uint KansCustomStencil(ivec2 pixel)
+{
+    return texelFetch(kans_CustomStencil, clamp(pixel, ivec2(0), textureSize(kans_CustomStencil,0)-1), 0).r;
+}
 #endif
 )"},
                 {"Kans3D/Alpha.glsl", R"(#ifndef KANS3D_ALPHA_GLSL
@@ -516,12 +565,27 @@ vec4 KansToneMap(vec3 color)
 
     const std::string* FindEngineShaderInclude(const std::string& name)
     {
+        if (name == "Kans3D/Frame.glsl")
+        {
+            // Keep the published Engine.glsl text inline, and derive the exact same
+            // guarded frame block for fragment-only post shaders without surface bindings.
+            static const std::string frame = [] {
+                const auto& engine = EngineIncludes().at("Kans3D/Engine.glsl");
+                const auto  begin  = engine.find("#define KANS_LIGHT_COUNT");
+                const auto  end    = engine.find("layout(set = 0, binding = 1, std140)");
+                return "#ifndef KANS3D_FRAME_GLSL\n#define KANS3D_FRAME_GLSL\n" + engine.substr(begin, end - begin) +
+                       "#endif\n";
+            }();
+            return &frame;
+        }
         const auto found = EngineIncludes().find(name);
         return found == EngineIncludes().end() ? nullptr : &found->second;
     }
 
     static std::variant<std::monostate, AssetError>
-    ValidateMaterialInterface(const std::vector<ShaderStageReflection>& reflection, bool depthOnly)
+    ValidateMaterialInterface(const std::vector<ShaderStageReflection>& reflection,
+                              bool                                      depthOnly,
+                              ShaderDomain                              domain = ShaderDomain::Surface)
     {
         const ShaderStageReflection* vertex   = nullptr;
         const ShaderStageReflection* fragment = nullptr;
@@ -535,6 +599,8 @@ vec4 KansToneMap(vec3 color)
         if (!vertex || !fragment || reflection.size() != 2)
             return Contract("a vertex and a fragment stage are required");
 
+        if (domain == ShaderDomain::PostProcess && !vertex->Inputs.empty())
+            return Contract("post-process vertex stage must have no inputs");
         // Engine mesh layout: position, normal, uv, color, tangent.
         constexpr uint32_t vertexComponents[] = {3, 3, 2, 4, 4};
         for (const auto& input : vertex->Inputs)
@@ -553,7 +619,14 @@ vec4 KansToneMap(vec3 color)
             {
                 if (binding.Set == EngineDescriptorSet)
                 {
-                    if (auto error = CheckEngineBinding(binding))
+                    if (domain == ShaderDomain::PostProcess && binding.Binding != 0)
+                    {
+                        if (stage.Stage != ShaderProductStage::Fragment || binding.Binding < 11 ||
+                            binding.Binding > 14 || binding.Kind != ShaderBindingKind::CombinedImageSampler ||
+                            binding.Count != 1 || binding.Dimension != ShaderImageDimension::Texture2D)
+                            return Contract("invalid post-process engine binding");
+                    }
+                    else if (auto error = CheckEngineBinding(binding))
                         return *error;
                 }
                 else if (binding.Set == MaterialDescriptorSet)
@@ -570,9 +643,9 @@ vec4 KansToneMap(vec3 color)
     }
 
     std::variant<std::monostate, AssetError>
-    ValidateMaterialShaderInterface(const std::vector<ShaderStageReflection>& reflection)
+    ValidateMaterialShaderInterface(const std::vector<ShaderStageReflection>& reflection, ShaderDomain domain)
     {
-        return ValidateMaterialInterface(reflection, false);
+        return ValidateMaterialInterface(reflection, false, domain);
     }
 
     namespace
@@ -653,7 +726,7 @@ vec4 KansToneMap(vec3 color)
             if (auto* error = std::get_if<AssetError>(&extra))
                 return fail(error->Message);
             const auto& stages   = std::get<std::vector<ShaderStageReflection>>(extra);
-            auto        contract = ValidateMaterialInterface(stages, pass.Tag == "ShadowCaster");
+            auto contract = ValidateMaterialInterface(stages, pass.Tag == "ShadowCaster" || pass.Tag == "DepthOnly");
             if (auto* error = std::get_if<AssetError>(&contract))
                 return fail(error->Message);
             std::set<uint32_t> engine;

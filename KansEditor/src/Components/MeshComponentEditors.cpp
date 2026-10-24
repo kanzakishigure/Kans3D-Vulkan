@@ -134,6 +134,16 @@ namespace Kans::ComponentEditors
                         m.ReceiveShadows = receive;
                     });
             }
+            // Read by post-process materials. Unlike the shadow flags, a prefab part keeps
+            // these as a prefab override, so they are editable on parts too.
+            bool custom  = mesh.RenderCustomDepth;
+            int  stencil = mesh.CustomStencil;
+            if (PropertyGrid::Checkbox("Custom depth", custom) |
+                (custom && PropertyGrid::Int("Custom stencil", stencil, 0, 255)))
+                entity.PatchComponent<MeshComponent>([&](MeshComponent& m) {
+                    m.RenderCustomDepth = custom;
+                    m.CustomStencil     = uint8_t(std::clamp(stencil, 0, 255));
+                });
             PropertyGrid::End();
         }
         if (!mesh.Mesh.IsValid() || !scene)

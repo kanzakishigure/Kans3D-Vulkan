@@ -409,7 +409,7 @@ namespace Kans
     {
         if (!material.Bindings)
             return AssetError {AssetErrorCode::InvalidArgument, "Material has no Shader bindings"};
-        auto packed = PackMaterialUniforms(material, shader.Code, *material.Bindings);
+        auto packed = PackMaterialUniforms(material, shader.Code, *material.Bindings, 64 * 1024 * 1024, shader.Domain);
         if (auto* error = std::get_if<AssetError>(&packed))
             return std::move(*error);
         GpuMaterialBindings bindings;
@@ -592,6 +592,14 @@ namespace Kans
         return entry.Value.get();
     }
 
+    void RenderAssetCache::WarnMaterialDomain(AssetID id, bool postList)
+    {
+        auto& warned = postList ? m_WarnedPost : m_WarnedMesh;
+        if (warned.insert(id).second)
+            CORE_WARN("Material {} ignored: incompatible shader domain for {}",
+                      id.ToString(),
+                      postList ? "post-process list" : "mesh");
+    }
     const GpuMaterial* RenderAssetCache::GetMaterial(AssetID id)
     {
         return Resolve(m_Materials, id, [](const MaterialDataAsset& asset) {

@@ -17,6 +17,16 @@ namespace Kans
             m_Capture = std::make_shared<GraphCapture>(m_Device);
         return m_Capture;
     }
+    void ViewTarget::EnsureSampledDepth()
+    {
+        using namespace RenderHardware;
+        auto desc = m_Depth->GetDesc();
+        if ((uint32_t(desc.Usage) & uint32_t(RenderHardware::TextureUsage::Sampled)) == 0)
+        {
+            desc.Usage = desc.Usage | RenderHardware::TextureUsage::Sampled;
+            m_Depth    = m_Device->CreateTexture(desc);
+        }
+    }
     void ViewTarget::Resize(glm::uvec2 size)
     {
         if (size == m_Size && m_HDR)

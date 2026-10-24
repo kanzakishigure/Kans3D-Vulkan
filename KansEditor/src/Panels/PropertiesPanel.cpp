@@ -133,8 +133,10 @@ namespace Kans
         if (!PropertyGrid::Begin("##PostProcess"))
             return;
         auto settings = scene.GetPostProcessSettings();
-        if (DrawPostProcessSettings(settings,
-                                    [&](AssetID& dirt) { return AssetPicker("Lens dirt", AssetType::Texture, dirt); }))
+        if (DrawPostProcessSettings(
+                settings,
+                [&](AssetID& dirt) { return AssetPicker("Lens dirt", AssetType::Texture, dirt); },
+                [&](const char* label, AssetID& id) { return AssetPicker(label, AssetType::Material, id); }))
             scene.SetPostProcessSettings(settings);
         PropertyGrid::End();
     }

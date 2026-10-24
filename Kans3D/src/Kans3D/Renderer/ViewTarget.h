@@ -16,6 +16,7 @@ namespace Kans
         ViewTarget(const ViewTarget&)                                                                    = delete;
         ViewTarget&                                                         operator=(const ViewTarget&) = delete;
         void                                                                Resize(glm::uvec2 size);
+        void                                                                EnsureSampledDepth();
         uint64_t                      NextFrameNumber() { return ++m_FrameNumber; }
         FrameProfiler&                GetFrameProfiler() { return m_Profiler; }
         std::shared_ptr<GraphCapture> GetGraphCapture(); // Lazy; only allocated on request.

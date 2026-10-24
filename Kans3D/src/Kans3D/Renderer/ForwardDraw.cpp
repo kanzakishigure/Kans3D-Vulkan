@@ -1,4 +1,5 @@
 #include "kspch.h"
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "RenderFrame.h"
 #include "RenderPipeline.h"
 #include "Resource/InternalShader.h"
@@ -51,7 +52,24 @@ namespace Kans
         {
             const auto* mesh     = GetMesh(draw.Mesh);
             const auto* bindings = GetBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
-            draw.Ready           = mesh && draw.Section < mesh->Sections.size() && bindings;
+            bool        post     = false;
+            if (const auto assigned = View.MaterialResources.find(draw.Material);
+                assigned != View.MaterialResources.end())
+                post = assigned->second.Shader && assigned->second.Shader->Domain == ShaderDomain::PostProcess;
+            else if (Assets() && draw.Material.IsValid())
+            {
+                // Domain checks must not upload custom surface shaders just for a debug view.
+                auto material = Assets()->GetAssetManager().Request<MaterialDataAsset>(draw.Material);
+                if (material.IsReady() && !IsStandardShader(material.Asset->GetData().Shader))
+                {
+                    auto shader =
+                        Assets()->GetAssetManager().Request<ShaderDataAsset>(material.Asset->GetData().Shader);
+                    post = shader.IsReady() && shader.Asset->GetData().Domain == ShaderDomain::PostProcess;
+                }
+            }
+            if (post && Assets())
+                Assets()->WarnMaterialDomain(draw.Material, false);
+            draw.Ready = !post && mesh && draw.Section < mesh->Sections.size() && bindings;
             if (draw.Ready)
             {
                 draw.LocalBounds = mesh->Sections[draw.Section].LocalBounds;
@@ -161,7 +179,8 @@ namespace Kans
             const auto* mesh     = GetMesh(draw.Mesh);
             const auto* bindings = GetBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
             const auto* shader   = bindings ? GetShader(draw.Material, bindings->Shader) : nullptr;
-            if (!mesh || draw.Section >= mesh->Sections.size() || !bindings || !shader)
+            if (!mesh || draw.Section >= mesh->Sections.size() || !bindings || !shader ||
+                shader->Domain == ShaderDomain::PostProcess)
                 continue;
             if (!tag.empty() &&
                 (!draw.Ready || std::none_of(shader->Passes.begin(), shader->Passes.end(), [&](const auto& pass) {
