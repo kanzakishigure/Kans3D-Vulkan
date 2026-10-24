@@ -1,7 +1,37 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.21)
 project(Kans3D LANGUAGES C CXX)
 
+if(POLICY CMP0112)
+    cmake_policy(SET CMP0112 NEW)
+endif()
+
 include(CTest)
+
+find_program(DOTNET dotnet)
+option(KANS_SCRIPTS_AOT "Publish a NativeAOT shared script library" OFF)
+set(KANS_SCRIPT_PROJECT "" CACHE FILEPATH "User script csproj for NativeAOT packaging")
+if(DOTNET)
+    get_filename_component(KANS_DOTNET_REAL "${DOTNET}" REALPATH)
+    get_filename_component(KANS_DOTNET_ROOT "${KANS_DOTNET_REAL}" DIRECTORY)
+    execute_process(COMMAND "${DOTNET}" --info OUTPUT_VARIABLE KANS_DOTNET_INFO)
+    string(REGEX MATCH "RID:[ \t]+([^ \r\n]+)" _ "${KANS_DOTNET_INFO}")
+    set(KANS_HOST_RID "${CMAKE_MATCH_1}")
+    file(GLOB KANS_HOST_PACKS "${KANS_DOTNET_ROOT}/packs/Microsoft.NETCore.App.Host.${KANS_HOST_RID}/*/runtimes/${KANS_HOST_RID}/native")
+    list(SORT KANS_HOST_PACKS COMPARE NATURAL ORDER DESCENDING)
+    foreach(KANS_HOST_PACK IN LISTS KANS_HOST_PACKS)
+        if(EXISTS "${KANS_HOST_PACK}/nethost.h")
+            set(KANS_NETHOST_DIR "${KANS_HOST_PACK}")
+            break()
+        endif()
+    endforeach()
+    if(NOT KANS_NETHOST_DIR)
+        message(FATAL_ERROR "dotnet was found but its ${KANS_HOST_RID} nethost SDK pack is missing")
+    endif()
+    message(STATUS "Kans scripting: ${DOTNET}, host pack ${KANS_NETHOST_DIR}")
+else()
+    message(WARNING "dotnet not found: scripting is disabled")
+endif()
+
 
 # ============================================================
 # Enable CMP0091 so CMAKE_MSVC_RUNTIME_LIBRARY takes effect
@@ -130,8 +160,7 @@ add_subdirectory(${KANS3D_DIR})
 # ============================================================
 # Core - KansScriptCore C# shared library
 # ============================================================
-if(DEFINED CMAKE_VS_MSBUILD_COMMAND)
-    message("-- build c# script by MSBuild")
+if(DOTNET)
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/KansScriptCore)
 endif()
 # ============================================================
@@ -152,5 +181,41 @@ if(BUILD_TESTING AND KANS_BUILD_TESTS)
         else()
             message(WARNING "Kans3D: GoogleTest not found, skipping tests")
         endif()
+    endif()
+endif()
+
+# Stage the full managed output even when only a consumer target is requested.
+# A separate copy target avoids relying on a native relink when C# alone changed.
+if(DOTNET)
+    foreach(consumer KansEditor SceneRender Kans3DTests RenderFeatureTests GpuTests
+            RHIConformanceTests WindowPresentationTests AnimationPerformanceTests ScriptingTests)
+        if(TARGET ${consumer})
+            add_custom_target(${consumer}Scripts
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${consumer}>/Resources/Scripts"
+                COMMAND ${CMAKE_COMMAND} -E copy_directory "${KANS_MANAGED_OUTPUT}" "$<TARGET_FILE_DIR:${consumer}>/Resources/Scripts"
+                DEPENDS KansScriptCore VERBATIM)
+            add_dependencies(${consumer} ${consumer}Scripts)
+        endif()
+    endforeach()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|ARM64|arm64)$")
+        set(KANS_AOT_ARCH arm64)
+    else()
+        set(KANS_AOT_ARCH x64)
+    endif()
+    if(WIN32)
+        set(KANS_AOT_RID "win-${KANS_AOT_ARCH}")
+    else()
+        set(KANS_AOT_RID "linux-${KANS_AOT_ARCH}")
+    endif()
+    if(KANS_SCRIPTS_AOT)
+        if(NOT EXISTS "${KANS_SCRIPT_PROJECT}")
+            message(FATAL_ERROR "KANS_SCRIPTS_AOT needs KANS_SCRIPT_PROJECT=<user.csproj>")
+        endif()
+        add_custom_target(KansScriptsAot
+            COMMAND "${DOTNET}" publish "${PROJECT_SOURCE_DIR}/KansScriptAot/KansScriptAot.csproj"
+                -c Release -r "${KANS_AOT_RID}"
+                "-p:KansScriptProject=${KANS_SCRIPT_PROJECT}" -m:1 -nr:false
+                -p:UseSharedCompilation=false --output "${CMAKE_BINARY_DIR}/scripts-aot"
+            DEPENDS KansScriptCore VERBATIM)
     endif()
 endif()

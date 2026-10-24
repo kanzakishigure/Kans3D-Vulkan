@@ -1,12 +1,1 @@
-using System;
-using System.Diagnostics.PerformanceData;
-using System.Runtime.CompilerServices;
-using static Kans.Input;
-using static System.Runtime.CompilerServices.RuntimeHelpers;
-
-namespace Kans
-{
-    
-   
-    
-}
+// The public engine API is implemented in Scene/, Math/ and Core/Input.cs.

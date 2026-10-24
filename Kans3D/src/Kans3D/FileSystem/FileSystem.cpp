@@ -3,6 +3,9 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#if defined(_WIN32)
+#include <Windows.h>
+#endif
 #include "Kans3D/Core/Hash.h"
 namespace Kans
 {
@@ -121,6 +124,22 @@ namespace Kans
         stream.read(result.data(), filesize);
         stream.close();
         return result;
+    }
+
+    std::filesystem::path KansFileSystem::GetScriptAssemblyPath()
+    {
+        auto assembly = s_Specification && !s_Specification->m_ScriptAssemblyPath.empty() ?
+                            s_Specification->m_ScriptAssemblyPath :
+                            std::filesystem::path("Resources/Scripts/ScriptCore.dll");
+        if (assembly.is_absolute())
+            return assembly;
+#if defined(_WIN32)
+        std::vector<wchar_t> executable(32768);
+        auto                 length = GetModuleFileNameW(nullptr, executable.data(), DWORD(executable.size()));
+        return std::filesystem::path(std::wstring(executable.data(), length)).parent_path() / assembly;
+#else
+        return std::filesystem::canonical("/proc/self/exe").parent_path() / assembly;
+#endif
     }
 
     void KansFileSystem::ShutDown() { delete s_Specification; }

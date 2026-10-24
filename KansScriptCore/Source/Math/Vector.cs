@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 namespace Kans
 {
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     public struct Vector3
     {
 

@@ -70,7 +70,6 @@ target_link_libraries(Kans3D PUBLIC
     EnTT
     ImGuizmo
     assimp
-    mono
     VulkanMemoryAllocator
 )
 
@@ -88,3 +87,17 @@ set_target_properties(Kans3D PROPERTIES
     CXX_STANDARD 17
     MSVC_RUNTIME_LIBRARY "MultiThreadedDLL"
 )
+
+if(DOTNET)
+    target_compile_definitions(Kans3D PRIVATE KANS_HAS_DOTNET=1 KANS_DOTNET_EXECUTABLE="${DOTNET}")
+    target_include_directories(Kans3D PRIVATE "${KANS_NETHOST_DIR}")
+    if(WIN32)
+        target_link_libraries(Kans3D PRIVATE "${KANS_NETHOST_DIR}/libnethost.lib" advapi32)
+        target_compile_definitions(Kans3D PRIVATE NETHOST_USE_AS_STATIC)
+    else()
+        target_link_libraries(Kans3D PRIVATE "${KANS_NETHOST_DIR}/libnethost.a" ${CMAKE_DL_LIBS})
+    endif()
+else()
+    target_compile_definitions(Kans3D PRIVATE KANS_HAS_DOTNET=0)
+    target_link_libraries(Kans3D PRIVATE ${CMAKE_DL_LIBS})
+endif()
