@@ -18,7 +18,7 @@ The **Kans3D** is a Engine for personal learning
 
 ## Requirements
 
-- Git, CMake 3.21 or newer, Python 3.9 or newer (for the setup script)
+- Git, CMake 3.21 or newer, Python 3.10 or newer for the setup menu (3.7 or newer for its plain mode)
 - **Windows 10/11:** Visual Studio 2022 with the C++ desktop workload, Vulkan SDK
 - **Linux:** GCC, Ninja, and the Vulkan, shaderc, glslang, SPIRV-Cross, SPIRV-Tools, Assimp and X11/Wayland development packages
 - **.NET SDK 10** (optional): enables C# scripting; without it the engine builds with scripting disabled
@@ -35,11 +35,11 @@ cd Kans3D-Vulkan
 python script/Setup.py          # Windows: script\Setup.bat   Linux: ./script/Setup.sh
 ```
 
-In a terminal the script opens an interactive screen: it lists every dependency, lets you choose which missing ones to install (Space toggles), installs them (winget on Windows; pacman, apt or dnf on Linux), initializes the submodules and configures CMake. It uses [Textual](https://textual.textualize.io/) from the pure-Python wheels in `script/third_party`, so nothing has to be installed with pip first.
+In a terminal the script lists every dependency and shows a menu: choose which missing ones to install, install them (winget on Windows; pacman, apt or dnf on Linux), switch the preset or test/build options, then configure CMake. Move with Tab, Shift+Tab or the arrow keys, toggle with Space, confirm with Enter, press a number to pick an option, or click with the mouse. The menu uses [prompt_toolkit](https://github.com/prompt-toolkit/python-prompt-toolkit) from the pure-Python wheels in `script/third_party`, so nothing has to be installed with pip first.
 
 | Option | Effect |
 | :----- | :----- |
-| `--no-tui` | Plain text mode instead of the interactive screen |
+| `--non-interactive` | No menu: check, ask once, install everything missing, configure |
 | `--check` | Only report; exit code 1 if a required dependency is missing |
 | `--tests` | Also check test dependencies (GoogleTest, software Vulkan) |
 | `--build` | Build KansEditor (Debug) after configuring |
