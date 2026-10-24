@@ -14,26 +14,45 @@ The **Kans3D** is a Engine for personal learning
 | Target platform |               Status               |
 | :-------------: | :--------------------------------: |
 |     Windows     | <font color=#45b787>passing</font> |
+|      Linux      | <font color=#45b787>passing</font> |
 
-[requirement]()
+## Requirements
 
-To build Kans3D, you must first install the following tools.
+- Git, CMake 3.21 or newer, Python 3.9 or newer (for the setup script)
+- **Windows 10/11:** Visual Studio 2022 with the C++ desktop workload, Vulkan SDK
+- **Linux:** GCC, Ninja, and the Vulkan, shaderc, glslang, SPIRV-Cross, SPIRV-Tools, Assimp and X11/Wayland development packages
+- **.NET SDK 10** (optional): enables C# scripting; without it the engine builds with scripting disabled
 
-### Windows 10/11
-
-- Visual Studio 2022 (or more recent)
-- python>=3.7
-- Git 2.1 (or more recent)
+The setup script checks all of these and installs what is missing.
 
 ## Build Kans3D
 
-### Build on Windows
+Clone with submodules, then run the setup script from the repository root:
 
-You may execute the **Setup.bat**. This batch file will download the requirement and generate the projects of **Kans3D** automatically. After successful build, you can find the Kan3D.sln at the **Root** directory.
+```
+git clone --recursive https://github.com/kanzakishigure/Kans3D-Vulkan.git
+cd Kans3D-Vulkan
+python script/Setup.py          # Windows: script\Setup.bat   Linux: ./script/Setup.sh
+```
 
-Kans3D require VulkanSDK to  pre-process  and compile Shader file ,please check Install option
+In a terminal the script opens an interactive screen: it lists every dependency, lets you choose which missing ones to install (Space toggles), installs them (winget on Windows; pacman, apt or dnf on Linux), initializes the submodules and configures CMake. It uses [Textual](https://textual.textualize.io/) from the pure-Python wheels in `script/third_party`, so nothing has to be installed with pip first.
 
+| Option | Effect |
+| :----- | :----- |
+| `--no-tui` | Plain text mode instead of the interactive screen |
+| `--check` | Only report; exit code 1 if a required dependency is missing |
+| `--tests` | Also check test dependencies (GoogleTest, software Vulkan) |
+| `--build` | Build KansEditor (Debug) after configuring |
+| `--yes` | Install without asking (plain text mode, for automation) |
+| `--preset <name>` | CMake configure preset (default `windows-msvc` / `linux-gcc`) |
 
+To build manually after configuring:
+
+```
+cmake --build build/windows-msvc --config Debug --target KansEditor   # or build/linux-gcc
+```
+
+On Windows, the Vulkan SDK installer must include the shader toolchain components below. Open a new terminal after installing so `VULKAN_SDK` is set.
 
 <p align="center">
   <a href="https://vulkan.lunarg.com/doc/sdk">
