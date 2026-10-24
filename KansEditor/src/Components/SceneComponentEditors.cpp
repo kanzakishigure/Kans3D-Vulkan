@@ -89,7 +89,7 @@ namespace Kans::ComponentEditors
         entity.PatchComponent<SpriteRendererComponent>([](SpriteRendererComponent& c) {
             PropertyGrid::Color4("Color", c.Color);
             PropertyGrid::Float("Tiling", c.TilingFactor, 0.01f, 0.0f, 100.0f);
-            const std::string texture = c.Texture && !c.Texture->GetPath().empty() ? c.Texture->GetPath() : "(white)";
+            const std::string texture = c.Texture && !c.Texture->GetPath().empty() ? c.Texture->GetPath().u8string() : "(white)";
             PropertyGrid::Text("Texture", texture, true);
         });
         PropertyGrid::End();

@@ -92,8 +92,13 @@ if(DOTNET)
     target_compile_definitions(Kans3D PRIVATE KANS_HAS_DOTNET=1 KANS_DOTNET_EXECUTABLE="${DOTNET}")
     target_include_directories(Kans3D PRIVATE "${KANS_NETHOST_DIR}")
     if(WIN32)
-        target_link_libraries(Kans3D PRIVATE "${KANS_NETHOST_DIR}/libnethost.lib" advapi32)
-        target_compile_definitions(Kans3D PRIVATE NETHOST_USE_AS_STATIC)
+        # The SDK's static libnethost.lib is built /MT; the engine uses /MD (LNK2038). Use nethost.dll
+        # through its import library; the root CMakeLists copies the DLL next to each consumer.
+        add_library(kans_nethost SHARED IMPORTED)
+        set_target_properties(kans_nethost PROPERTIES
+            IMPORTED_IMPLIB "${KANS_NETHOST_DIR}/nethost.lib"
+            IMPORTED_LOCATION "${KANS_NETHOST_DIR}/nethost.dll")
+        target_link_libraries(Kans3D PRIVATE kans_nethost)
     else()
         target_link_libraries(Kans3D PRIVATE "${KANS_NETHOST_DIR}/libnethost.a" ${CMAKE_DL_LIBS})
     endif()
