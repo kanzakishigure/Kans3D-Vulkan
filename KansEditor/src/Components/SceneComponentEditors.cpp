@@ -133,7 +133,20 @@ namespace Kans::ComponentEditors
             return;
         entity.PatchComponent<ScriptComponent>([](ScriptComponent& c) {
             const bool exists = ScriptEngine::EntityClassExists(c.ClassName);
-            PropertyGrid::Row("Class", "Name of a C# entity class");
+            // Classes come from the generated registry of the loaded script assemblies.
+            const auto classes = ScriptEngine::GetEntityClasses();
+            if (!classes.empty())
+            {
+                PropertyGrid::Row("Class", "C# entity class (Scripts > Build & Reload Scripts)");
+                if (ImGui::BeginCombo("##ClassList", c.ClassName.empty() ? "Select..." : c.ClassName.c_str()))
+                {
+                    for (const auto& name : classes)
+                        if (ImGui::Selectable(name.c_str(), name == c.ClassName))
+                            c.ClassName = name;
+                    ImGui::EndCombo();
+                }
+            }
+            PropertyGrid::Row(classes.empty() ? "Class" : "Name", "Name of a C# entity class");
             char buffer[256] = {};
             c.ClassName.copy(buffer, sizeof(buffer) - 1);
             if (!exists)

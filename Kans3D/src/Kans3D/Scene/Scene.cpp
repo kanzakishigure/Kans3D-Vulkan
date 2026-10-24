@@ -42,6 +42,8 @@ namespace Kans
 
     Scene::~Scene()
     {
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnRuntimeEnd();
         StopAudio();
         m_SuppressNotifications = true;
         m_Registry.clear();
@@ -232,16 +234,8 @@ namespace Kans
                 nsc.DestoryInstanceFunction(&nsc);
             });
         }
-        // update Script
-        if (ScriptEngine::IsInitialized())
-        {
-            auto view = m_Registry.view<ScriptComponent>();
-            for (auto entity : view)
-            {
-                Entity e = {entity, this};
-                ScriptEngine::OnUpdateEntity(e, ts);
-            }
-        }
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnUpdate(ts);
         UpdateAudio(double(ts));
     }
 
@@ -303,6 +297,8 @@ namespace Kans
         for (UUID child : children)
             if (Entity value = GetEntityByUUID(child))
                 DestroyEntity(value);
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnDestroyEntity(entity);
         DirtyBounds(entity);
         m_RenderWorld->Dirty(entity);
         m_DirtyPrefabs.erase(entity);
@@ -577,18 +573,8 @@ namespace Kans
 
         // Init
         if (!ScriptEngine::IsInitialized())
-        {
-            if (!m_Registry.view<ScriptComponent>().empty())
-                CORE_ERROR("Scene scripts require an initialized ScriptEngine");
             return;
-        }
         ScriptEngine::OnRuntimeStart(this);
-        auto view = m_Registry.view<ScriptComponent>();
-        for (auto entity : view)
-        {
-            Entity e = {entity, this};
-            ScriptEngine::OnCreateEntity(e);
-        }
     }
 
     void Scene::DestroyNativeScriptInstances()
@@ -607,7 +593,8 @@ namespace Kans
     {
         StopAudio();
         DestroyNativeScriptInstances();
-        ScriptEngine::OnRuntimeEnd();
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnRuntimeEnd();
     }
 
     Kans::Entity Scene::GetCameraEntity()

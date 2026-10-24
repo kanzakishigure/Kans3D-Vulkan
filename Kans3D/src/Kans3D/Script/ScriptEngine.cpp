@@ -4,310 +4,314 @@
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Scene.h"
-#include "Kans3D/Script/ScriptAgent.h"
+#include "ScriptAgent.h"
+#if defined(_WIN32)
+#include <Windows.h>
+#else
+#include <dlfcn.h>
+#include <unistd.h>
+#endif
+#if KANS_HAS_DOTNET
+#include <coreclr_delegates.h>
+#include <hostfxr.h>
+#include <nethost.h>
+#endif
 
-#include <mono/jit/jit.h>
-#include <mono/metadata/assembly.h>
-#include <mono/metadata/object.h>
 namespace Kans
 {
-
-    namespace Utils
+    namespace
     {
-        static MonoAssembly* LoadMonoAssemby(const std::filesystem::path& path)
+        Scripting::ManagedApi                  s_Api;
+        Scripting::NativeApi                   s_Native;
+        Scripting::InitializeFn                s_Initialize  = nullptr;
+        Scene*                                 s_Scene       = nullptr;
+        bool                                   s_Initialized = false;
+        ScriptBackend                          s_Backend     = ScriptBackend::Disabled;
+        std::unordered_map<uint64_t, uint64_t> s_Instances;
+        std::vector<uint64_t>                  s_UpdateOrder;
+        std::string                            s_Error;
+        uint64_t                               s_UpdateTransitions = 0;
+        std::filesystem::path                  ExecutableDirectory()
         {
-            Buffer              data = KansFileSystem::ReadBytes(path);
-            MonoImageOpenStatus status;
-            MonoImage* image = mono_image_open_from_data_full(data.As<char>(), data.Size, true, &status, false);
-
-            if (status != MonoImageOpenStatus::MONO_IMAGE_OK)
-            {
-                std::string message = mono_image_strerror(status);
-                CORE_ERROR("load core Assembly fail:{0}", message);
-            }
-            data.Release();
-            std::string   pathString   = path.string();
-            MonoAssembly* monoAssembly = mono_assembly_load_from_full(image, pathString.c_str(), &status, false);
-
-            return monoAssembly;
-        }
-    } // namespace Utils
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Script Engine
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    struct ScrtiptEngineContext
-    {
-        MonoDomain*   RootDomain;
-        MonoDomain*   AppDomain;
-        MonoAssembly* CoreAssembly;
-        MonoImage*    CoreAssemblyImage;
-        ScriptClass   EntityClass;
-        Scene*        SceneContext;
-
-        std::unordered_map<std::string, Ref<ScriptClass>> EntityClasses;
-        std::unordered_map<UUID, Ref<ScriptInstance>>     EntityInstances;
-    };
-    static ScrtiptEngineContext* s_Context;
-
-    void ScriptEngine::Init()
-    {
-        if (s_Context != nullptr)
-        {
-            CORE_WARN("ScriptEinge arlley Init");
-            return;
-        }
-        s_Context = new ScrtiptEngineContext();
-
-        // Check if script assembly exists; skip scripting if not (e.g. on Linux without MSBuild)
-        const auto& assemblyPath = KansFileSystem::GetScriptAssemblyPath();
-        if (!std::filesystem::exists(assemblyPath))
-        {
-            CORE_WARN("Script assembly not found at '{}', skipping script engine init", assemblyPath.string());
-            return;
-        }
-
-        InitMono();
-        // load Metadata from class
-        LoadAssembly(assemblyPath);
-        s_Context->EntityClass = ScriptClass("Kans", "Entity");
-        LoadAssemblyClasses(s_Context->CoreAssembly);
-
-        // reg Component
-        ScriptAgent::RegisterComponents();
-        // reg Internal call
-        ScriptAgent::RegisterFunctions();
-#if 0
-		s_Context->CoreAssemblyImage = mono_assembly_get_image(s_Context->CoreAssembly);
-		s_Context->EntityClass = ScriptClass("Kans","Entity");
-
-		//create the instance of class
-		MonoObject* instance = s_Context->EntityClass.Instantiate(); //allocate memory 	
-		//call the function of the Instance;
-		{
-			MonoMethod* printstringmethod = s_Context->EntityClass.GetMethod("Printstring", 2);
-			MonoString* string1 = mono_string_new(s_Context->AppDomain, "Kanzaki");
-			MonoString* string2 = mono_string_new(s_Context->AppDomain, "200");
-			void* args[] =
-			{
-				string1,
-				string2
-			};
-			s_Context->EntityClass.InvokeMethod(instance, printstringmethod, args);
-		}
-
-		{
-			MonoMethod* printFloatVarmethod = s_Context->EntityClass.GetMethod("PrintFloatVar", 0);
-			s_Context->EntityClass.InvokeMethod(instance, printFloatVarmethod);
-		}
+#if defined(_WIN32)
+            std::vector<wchar_t> path(32768);
+            auto                 length = GetModuleFileNameW(nullptr, path.data(), DWORD(path.size()));
+            return std::filesystem::path(std::wstring(path.data(), length)).parent_path();
+#else
+            return std::filesystem::canonical("/proc/self/exe").parent_path();
 #endif
-    }
-
-    void ScriptEngine::ShutDown()
-    {
-        ShutDownMono();
-
-        delete s_Context;
-        s_Context = nullptr;
-    }
-
-    void ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
-    {
-
-        s_Context->AppDomain = mono_domain_create_appdomain("Script-Core", nullptr);
-        mono_domain_set(s_Context->AppDomain, true);
-
-        // loadmonoAssembly to AppDomain
-        s_Context->CoreAssembly      = Utils::LoadMonoAssemby(filepath);
-        s_Context->CoreAssemblyImage = mono_assembly_get_image(s_Context->CoreAssembly);
-    }
-
-    bool ScriptEngine::EntityClassExists(const std::string& className)
-    {
-        return s_Context->EntityClasses.find(className) != s_Context->EntityClasses.end();
-    }
-
-    bool ScriptEngine::IsInitialized() { return s_Context && s_Context->AppDomain && s_Context->CoreAssemblyImage; }
-    void ScriptEngine::OnRuntimeStart(Scene* scene)
-    {
-        if (IsInitialized())
-            s_Context->SceneContext = scene;
-    }
-
-    void ScriptEngine::OnRuntimeEnd()
-    {
-        if (!s_Context)
-            return;
-        s_Context->SceneContext = nullptr;
-        s_Context->EntityInstances.clear();
-    }
-
-    void ScriptEngine::OnCreateEntity(Entity entity)
-    {
-        auto& scriptCMP = entity.GetComponent<ScriptComponent>();
-        if (EntityClassExists(scriptCMP.ClassName))
-        {
-            auto                id         = entity.GetUUID();
-            auto                klass      = s_Context->EntityClasses[scriptCMP.ClassName];
-            Ref<ScriptInstance> instance   = CreateRef<ScriptInstance>(klass, entity);
-            s_Context->EntityInstances[id] = instance;
-            instance->InvekeOnCreate();
         }
-    }
-
-    void ScriptEngine::OnUpdateEntity(Entity entity, TimeStep ts)
-    {
-        auto& scriptCMP = entity.GetComponent<ScriptComponent>();
-        auto  id        = entity.GetUUID();
-        if (EntityClassExists(scriptCMP.ClassName))
+        void* OpenLibrary(const std::filesystem::path& path)
         {
-
-            Ref<ScriptInstance> instance = s_Context->EntityInstances.at(id);
-            instance->InvokeOnUpdate((float)ts);
+#if defined(_WIN32)
+            return reinterpret_cast<void*>(LoadLibraryW(path.c_str()));
+#else
+            return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+#endif
         }
-        else
+        void* Symbol(void* library, const char* name)
         {
-            CORE_ERROR("Could not find ScriptInstance for entity {}", id);
+#if defined(_WIN32)
+            return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(library), name));
+#else
+            return dlsym(library, name);
+#endif
         }
-    }
-
-    Kans::Scene* ScriptEngine::GetSceneContext() { return s_Context->SceneContext; }
-
-    void ScriptEngine::InitMono()
-    {
-        mono_set_assemblies_path("mono/lib");
-
-        MonoDomain* rootDomain = mono_jit_init("ScripteCore");
-        CORE_ASSERT(rootDomain, "mono_jit_init fail");
-        s_Context->RootDomain = rootDomain;
-    }
-
-    void ScriptEngine::ShutDownMono()
-    {
-        // todo mono can't release correctly
-
-        if (s_Context->CoreAssemblyImage)
+        bool Fail(const std::string& message)
         {
-            mono_image_close(s_Context->CoreAssemblyImage);
-            s_Context->CoreAssemblyImage = nullptr;
+            s_Error = message;
+            CORE_WARN("Scripting disabled/error: {}", message);
+            return false;
         }
-
-        if (s_Context->CoreAssembly)
+#if KANS_HAS_DOTNET
+        Scripting::InitializeFn HostedInitialize(const std::filesystem::path& assembly)
         {
-            mono_assembly_close(s_Context->CoreAssembly);
-            s_Context->CoreAssembly = nullptr;
-        }
-
-        // mono_domain_set(mono_get_root_domain(), false);
-
-        // mono_domain_free(s_Context->AppDomain,false);
-        // s_Context->AppDomain = nullptr;
-
-        if (s_Context->RootDomain)
-        {
-            mono_jit_cleanup(s_Context->RootDomain);
-            s_Context->RootDomain = nullptr;
-        }
-    }
-
-    void ScriptEngine::LoadAssemblyClasses(MonoAssembly* assembly)
-    {
-        MonoImage*           image                = mono_assembly_get_image(assembly);
-        const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
-        int32_t              numTypes             = mono_table_info_get_rows(typeDefinitionsTable);
-        CORE_WARN("**************************************************************");
-        CORE_WARN("Load Assembly Class:");
-        for (int32_t i = 0; i < numTypes; i++)
-        {
-            uint32_t cols[MONO_TYPEDEF_SIZE];
-            mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
-
-            const char* nameSpace   = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
-            const char* name        = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
-            MonoClass*  klass       = mono_class_from_name(image, nameSpace, name);
-            MonoClass*  entityklass = mono_class_from_name(image, "Kans", "Entity");
-            std::string fullname;
-            if (strlen(nameSpace) != 0)
+            // Keep hostfxr and runtime delegates alive across engine shutdown/re-init.
+            static Scripting::InitializeFn cached = nullptr;
+            if (cached)
+                return cached;
+            std::filesystem::path  root = ExecutableDirectory() / "dotnet";
+            std::vector<char_t>    hostPath(32768);
+            size_t                 size = hostPath.size();
+            get_hostfxr_parameters parameters {sizeof(get_hostfxr_parameters), nullptr, root.c_str()};
+            int                    status = -1;
+            if (std::filesystem::is_directory(root))
+                status = get_hostfxr_path(hostPath.data(), &size, &parameters);
+            if (status != 0)
             {
-                fullname = fmt::format("{0}.{1}", nameSpace, name);
+                root.clear();
+                size   = hostPath.size();
+                status = get_hostfxr_path(hostPath.data(), &size, nullptr);
+            }
+            if (status != 0)
+                return nullptr;
+            void* library = OpenLibrary(hostPath.data());
+            if (!library)
+                return nullptr;
+            auto initialize = reinterpret_cast<hostfxr_initialize_for_runtime_config_fn>(
+                Symbol(library, "hostfxr_initialize_for_runtime_config"));
+            auto getDelegate =
+                reinterpret_cast<hostfxr_get_runtime_delegate_fn>(Symbol(library, "hostfxr_get_runtime_delegate"));
+            auto close = reinterpret_cast<hostfxr_close_fn>(Symbol(library, "hostfxr_close"));
+            if (!initialize || !getDelegate || !close)
+                return nullptr;
+            auto config = assembly;
+            config.replace_extension(".runtimeconfig.json");
+            hostfxr_initialize_parameters initParameters {
+                sizeof(hostfxr_initialize_parameters), nullptr, root.empty() ? nullptr : root.c_str()};
+            hostfxr_handle context = nullptr;
+            status                 = initialize(config.c_str(), &initParameters, &context);
+            if (status < 0 || !context)
+                return nullptr;
+            load_assembly_fn        load = nullptr;
+            get_function_pointer_fn get  = nullptr;
+            status                       = getDelegate(context, hdt_load_assembly, reinterpret_cast<void**>(&load));
+            if (status == 0)
+                status = getDelegate(context, hdt_get_function_pointer, reinterpret_cast<void**>(&get));
+            close(context);
+            // .NET 8+ load_assembly loads into the default ALC. The older combined
+            // load_assembly_and_get_function_pointer would create an isolated component ALC.
+            if (status != 0 || !load || !get || load(assembly.c_str(), nullptr, nullptr) != 0)
+                return nullptr;
+#if defined(_WIN32)
+            const char_t* type   = L"Kans.Interop.Host, ScriptCore";
+            const char_t* method = L"Initialize";
+#else
+            const char_t* type   = "Kans.Interop.Host, ScriptCore";
+            const char_t* method = "Initialize";
+#endif
+            status =
+                get(type, method, UNMANAGEDCALLERSONLY_METHOD, nullptr, nullptr, reinterpret_cast<void**>(&cached));
+            return status == 0 ? cached : nullptr;
+        }
+#endif
+        void CollectUpdateTree(Scene* scene, Entity entity)
+        {
+            auto instance = s_Instances.find(entity.GetUUID());
+            if (instance != s_Instances.end())
+                s_UpdateOrder.push_back(instance->second);
+            for (auto child : scene->GetChildren(entity))
+                CollectUpdateTree(scene, child);
+        }
+        void CreateTree(Scene* scene, Entity entity)
+        {
+            if (entity.HasComponent<ScriptComponent>())
+                ScriptEngine::OnCreateEntity(entity);
+            for (auto child : scene->GetChildren(entity))
+                CreateTree(scene, child);
+        }
+    } // namespace
+
+    bool ScriptEngine::Init(const ScriptInitOptions& options)
+    {
+        if (s_Initialized)
+            return true;
+        s_Error.clear();
+        s_Backend = options.Backend;
+        if (s_Backend == ScriptBackend::Disabled)
+            return Fail("backend unavailable (disabled by init option)");
+        try
+        {
+            if (s_Backend == ScriptBackend::CoreCLR)
+            {
+#if KANS_HAS_DOTNET
+                auto assembly =
+                    options.CoreAssembly.empty() ? KansFileSystem::GetScriptAssemblyPath() : options.CoreAssembly;
+                if (assembly.empty() || !std::filesystem::exists(assembly))
+                    return Fail("core assembly missing: " + assembly.string());
+                s_Initialize = HostedInitialize(std::filesystem::absolute(assembly));
+#else
+                return Fail("dotnet was not available at configure time");
+#endif
             }
             else
             {
-                fullname = name;
+                // NativeAOT runtime libraries cannot safely be unloaded. Keep each loaded
+                // library mapped for process lifetime, just as we retain hosted CoreCLR.
+                static std::unordered_map<std::string, void*> libraries;
+                auto  path    = std::filesystem::absolute(options.AotLibrary).string();
+                auto& library = libraries[path];
+                if (!library)
+                    library = OpenLibrary(path);
+                if (!library)
+                    return Fail("cannot load NativeAOT library: " + path);
+                s_Initialize = reinterpret_cast<Scripting::InitializeFn>(Symbol(library, "kans_scripts_initialize"));
             }
-
-            bool isEntityClass = mono_class_is_subclass_of(klass, entityklass, false);
-            if (isEntityClass)
-            {
-
-                s_Context->EntityClasses[fullname] = CreateRef<ScriptClass>(nameSpace, name);
-            }
-
-            std::string logstr = fmt::format("Assembly class: {:<32}  cacheed: {:>8}", fullname, isEntityClass);
-            CORE_TRACE("{}", logstr);
-            // CORE_TRACE("Assembly class: {0}  cached: {1}", fullname, isEntityClass);
-            // spdlog::info(spdlog::fmt_lib::format(std::locale("en_US.UTF-8"), "Multi threaded: {:L} threads, {:L}
-            // messages", threads, iters))
+            if (!s_Initialize)
+                return Fail("runtime/bootstrap lookup failed");
+            s_Native = ScriptAgent::CreateApi();
+            if (options.Logger)
+                s_Native.Log = options.Logger;
+            if (options.KeyPressed)
+                s_Native.IsKeyPressed = options.KeyPressed;
+            s_Api = {};
+            if (s_Initialize(&s_Native, sizeof(s_Native), &s_Api, sizeof(s_Api)) != 0 ||
+                s_Api.Version != Scripting::ApiVersion || s_Api.Size != sizeof(s_Api))
+                return Fail("function table ABI mismatch");
+            s_Initialized = true;
+            return true;
         }
-        CORE_WARN("**************************************************************");
+        catch (const std::exception& error)
+        {
+            return Fail(error.what());
+        }
     }
-
-    MonoObject* ScriptEngine::InstantiateClass(MonoClass* monoclass)
+    void ScriptEngine::ShutDown()
     {
-        MonoObject* instance = mono_object_new(s_Context->AppDomain, monoclass);
-        mono_runtime_object_init(instance); // Call the parameterless (default) constructor
-        return instance;
+        if (s_Initialized)
+        {
+            OnRuntimeEnd();
+            s_Api.Shutdown();
+        }
+        s_Initialized = false;
+        s_Api         = {};
+        s_Initialize  = nullptr;
     }
-
-    MonoImage* ScriptEngine::GetCoreAssemblyImage()
+    bool ScriptEngine::IsInitialized() { return s_Initialized; }
+    bool ScriptEngine::LoadAppAssembly(const std::filesystem::path& path)
     {
-        CORE_ASSERT(s_Context->CoreAssemblyImage, "Script Engine is not Inited");
-        return s_Context->CoreAssemblyImage;
+        if (!s_Initialized)
+            return Fail("backend is not initialized");
+        if (s_Backend == ScriptBackend::NativeAot)
+            return Fail("NativeAOT uses linked scripts; assembly loading is unsupported");
+        if (s_Scene)
+            return Fail("assembly loading is forbidden during Play");
+        return s_Api.LoadAssembly(std::filesystem::absolute(path).u8string().c_str()) == 0 ||
+               Fail("user assembly load failed; previous registry retained");
     }
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Script Class
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    ScriptClass::ScriptClass(const std::string& classNamespace, const std::string& className) :
-        m_ClassNamespace(classNamespace), m_ClassName(className)
+    bool ScriptEngine::ReloadAppAssembly()
     {
-        m_MonoClass = mono_class_from_name(s_Context->CoreAssemblyImage, m_ClassNamespace.c_str(), m_ClassName.c_str());
+        if (!s_Initialized)
+            return Fail("backend is not initialized");
+        if (s_Backend == ScriptBackend::NativeAot)
+            return Fail("NativeAOT reload is unsupported");
+        if (s_Scene)
+            return Fail("reload is forbidden during Play");
+        return s_Api.ReloadAssembly() == 0 || Fail("reload failed; previous assembly retained");
     }
-
-    MonoObject* ScriptClass::Instantiate() { return ScriptEngine::InstantiateClass(m_MonoClass); }
-
-    MonoMethod* ScriptClass::GetMethod(const std::string& name, uint32_t paramCount)
+    bool ScriptEngine::EntityClassExists(const std::string& name)
     {
-        return mono_class_get_method_from_name(m_MonoClass, name.c_str(), paramCount);
+        return s_Initialized && s_Api.ClassExists(name.c_str()) != 0;
     }
-
-    MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** parameter /*=nullptr*/)
+    std::vector<std::string> ScriptEngine::GetEntityClasses()
     {
-        return mono_runtime_invoke(method, instance, parameter, nullptr);
+        std::vector<std::string> result;
+        if (!s_Initialized)
+            return result;
+        int count = s_Api.ClassCount();
+        for (int i = 0; i < count; ++i)
+        {
+            int size = s_Api.ClassName(i, nullptr, 0);
+            if (size <= 0)
+                continue;
+            std::string name(size, '\0');
+            if (s_Api.ClassName(i, name.data(), size) == size)
+            {
+                name.pop_back();
+                result.push_back(std::move(name));
+            }
+        }
+        return result;
     }
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Script Instance
-    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    ScriptInstance::ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity) : m_ScriptClass(scriptClass)
+    void ScriptEngine::OnRuntimeStart(Scene* scene)
     {
-        m_Instance = m_ScriptClass->Instantiate();
-
-        m_Constructor   = s_Context->EntityClass.GetMethod(".ctor", 1);
-        m_OnCreateMehod = m_ScriptClass->GetMethod("OnCreate", 0);
-        m_OnUpdateMehod = m_ScriptClass->GetMethod("OnUpdate", 1);
-
-        uint64_t uuid  = entity.GetUUID();
-        void*    param = &uuid;
-        m_ScriptClass->InvokeMethod(m_Instance, m_Constructor, &param);
+        if (!s_Initialized || s_Scene)
+            return;
+        s_Scene = scene;
+        s_Api.SetPlaying(1);
+        for (auto entity : scene->GetRootEntities())
+            CreateTree(scene, entity);
     }
-
-    void ScriptInstance::InvokeOnUpdate(float ts)
+    void ScriptEngine::OnRuntimeEnd()
     {
-        void* param = &ts;
-        m_ScriptClass->InvokeMethod(m_Instance, m_OnUpdateMehod, &param);
+        if (s_Initialized)
+            s_Api.SetPlaying(0);
+        s_Instances.clear();
+        s_Scene = nullptr;
     }
-
-    void ScriptInstance::InvekeOnCreate() { m_ScriptClass->InvokeMethod(m_Instance, m_OnCreateMehod, nullptr); }
-
+    void ScriptEngine::OnCreateEntity(Entity entity)
+    {
+        if (!s_Initialized || !s_Scene || s_Instances.count(entity.GetUUID()))
+            return;
+        auto handle = s_Api.Create(entity.GetUUID(), entity.GetComponent<ScriptComponent>().ClassName.c_str());
+        if (handle)
+            s_Instances.emplace(entity.GetUUID(), handle);
+    }
+    void ScriptEngine::OnDestroyEntity(Entity entity)
+    {
+        if (!s_Initialized || !s_Scene)
+            return;
+        auto found = s_Instances.find(entity.GetUUID());
+        if (found != s_Instances.end())
+        {
+            s_Api.Destroy(found->second);
+            s_Instances.erase(found);
+        }
+    }
+    void ScriptEngine::OnUpdate(TimeStep ts)
+    {
+        if (s_Initialized && s_Scene)
+        {
+            ++s_UpdateTransitions;
+            s_UpdateOrder.clear();
+            s_UpdateOrder.reserve(s_Instances.size());
+            for (auto entity : s_Scene->GetRootEntities())
+                CollectUpdateTree(s_Scene, entity);
+            s_Api.Update(s_UpdateOrder.data(), int32_t(s_UpdateOrder.size()), float(ts));
+        }
+    }
+    Scene*             ScriptEngine::GetSceneContext() { return s_Scene; }
+    uint64_t           ScriptEngine::GetUpdateTransitionCount() { return s_UpdateTransitions; }
+    int64_t            ScriptEngine::GetManagedAllocatedBytes() { return s_Initialized ? s_Api.AllocatedBytes() : -1; }
+    int                ScriptEngine::LastUnloadCollected() { return s_Initialized ? s_Api.LastUnloadCollected() : -1; }
+    const std::string& ScriptEngine::GetLastError() { return s_Error; }
+    bool               ScriptEngine::CheckApiCompatibility(uint32_t version, int nativeSize, int managedSize)
+    {
+        if (!s_Initialize)
+            return false;
+        auto native    = s_Native;
+        native.Version = version;
+        Scripting::ManagedApi managed;
+        return s_Initialize(&native, nativeSize, &managed, managedSize) == 0;
+    }
 } // namespace Kans

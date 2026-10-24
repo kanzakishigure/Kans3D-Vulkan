@@ -34,6 +34,7 @@ namespace Kans
         m_ContentBrowserPanel.InstallSettingsHandler();
 
         OpenProject();
+        LoadProjectScripts();
 
         // Resource Init
         EditorResources::Init();
@@ -208,6 +209,7 @@ namespace Kans
     void EditorLayer::OnUpdate(TimeStep ts)
     {
         PROFILE_FUCTION();
+        PollScriptBuild();
         if (m_AssetImports)
         {
             // Consume source operations before Poll: a just-completed build may

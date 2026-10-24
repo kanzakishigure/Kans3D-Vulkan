@@ -378,6 +378,7 @@ namespace Kans
                 Record(RefreshProductAssets());
             ImGui::EndMenu();
         }
+        DrawScriptsMenu();
         if (ImGui::BeginMenu("Window"))
         {
             m_Panels.DrawWindowMenu();

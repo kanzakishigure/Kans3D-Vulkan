@@ -1,79 +1,56 @@
 #pragma once
 #include <filesystem>
-#include "Kans3D/Scene/Scene.h"
-
-extern "C"
-{
-
-    typedef struct _MonoObject   MonoObject;
-    typedef struct _MonoClass    MonoClass;
-    typedef struct _MonoMethod   MonoMethod;
-    typedef struct _MonoAssembly MonoAssembly;
-    typedef struct _MonoImage    MonoImage;
-}
+#include <string>
+#include <vector>
+#include "Kans3D/Core/TimeStep.h"
+#include "ScriptInterop.h"
 
 namespace Kans
 {
-
+    class Entity;
     class Scene;
+    enum class ScriptBackend
+    {
+        CoreCLR,
+        NativeAot,
+        Disabled
+    };
+    struct ScriptInitOptions
+    {
+        ScriptBackend         Backend = ScriptBackend::CoreCLR;
+        std::filesystem::path CoreAssembly;
+        std::filesystem::path AotLibrary;
+        // Optional logger/input adapters for headless consumers. Native callbacks must not throw.
+        void(KANS_SCRIPT_CALL* Logger)(int32_t, const char*) = nullptr;
+        int32_t(KANS_SCRIPT_CALL* KeyPressed)(int32_t)       = nullptr;
+    };
+
+    // Runtime lookup: first <executable directory>/dotnet (nethost hostfxr path lookup
+    // AND hostfxr_initialize_parameters.dotnet_root), then nethost's system installation.
+    // CoreCLR and the default-context API assembly live for the process lifetime. Shutdown
+    // releases script instances and collectible user contexts; re-init reuses CoreCLR.
+    // API calls, scene callbacks and reload run on the engine's main thread.
     class ScriptEngine
     {
     public:
-        static void Init();
+        static bool                     Init(const ScriptInitOptions& options = {});
         static void ShutDown();
         static bool IsInitialized();
-
-        static void LoadAssembly(const std::filesystem::path& filepath);
-        static bool EntityClassExists(const std::string& className);
+        static bool                     LoadAppAssembly(const std::filesystem::path& path);
+        static bool                     ReloadAppAssembly();
+        static bool                     EntityClassExists(const std::string& name);
+        static std::vector<std::string> GetEntityClasses();
         static void OnRuntimeStart(Scene* scene);
         static void OnRuntimeEnd();
-
         static void OnCreateEntity(Entity entity);
-        static void OnUpdateEntity(Entity entity, TimeStep ts);
-
-        static Scene*     GetSceneContext();
-        static MonoImage* GetCoreAssemblyImage();
-
-    private:
-        static void InitMono();
-        static void ShutDownMono();
-        static void LoadAssemblyClasses(MonoAssembly* assembly);
-
-        static MonoObject* InstantiateClass(MonoClass* monoclass);
-
-        friend class ScriptClass;
-    };
-
-    class ScriptClass
-    {
-    public:
-        ScriptClass() = default;
-        ScriptClass(const std::string& classNamespace, const std::string& className);
-
-        MonoObject* Instantiate();
-        MonoMethod* GetMethod(const std::string& name, uint32_t paramCount);
-        MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** parameter = nullptr);
-
-    private:
-        std::string m_ClassNamespace;
-        std::string m_ClassName;
-
-        MonoClass* m_MonoClass = nullptr;
-        ;
-    };
-    class ScriptInstance
-    {
-    public:
-        ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity);
-        void InvokeOnUpdate(float ts);
-        void InvekeOnCreate();
-
-    private:
-        Ref<ScriptClass> m_ScriptClass;
-
-        MonoObject* m_Instance      = nullptr;
-        MonoMethod* m_OnCreateMehod = nullptr;
-        MonoMethod* m_OnUpdateMehod = nullptr;
-        MonoMethod* m_Constructor   = nullptr;
+        static void                     OnDestroyEntity(Entity entity);
+        static void                     OnUpdate(TimeStep ts);
+        static Scene*                   GetSceneContext();
+        static uint64_t                 GetUpdateTransitionCount();
+        static int64_t                  GetManagedAllocatedBytes();
+        static int                      LastUnloadCollected();
+        static const std::string&       GetLastError();
+        // Exercises the actual bootstrap validator without replacing the active API table.
+        static bool CheckApiCompatibility(uint32_t version, int nativeSize, int managedSize);
     };
 } // namespace Kans

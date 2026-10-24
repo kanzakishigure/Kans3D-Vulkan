@@ -35,3 +35,8 @@ build_clangd/
 # Rebuildable local source asset snapshots
 SourceAssetDatabase.cache.yaml
 SourceAssetDatabase.cache.yaml.tmp-*/
+# SDK-style managed projects and intermediates
+!KansScriptCore/*.csproj
+!KansScriptCore.Generators/*.csproj
+!KansScriptAot/*.csproj
+**/obj/
