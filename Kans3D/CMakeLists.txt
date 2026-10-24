@@ -1,6 +1,5 @@
 # ============================================================
-# Kans3D 鈥? StaticLib (C++17, PCH: kspch.h)
-# premake: project "Kans3D", location "Kans3D"
+# Kans3D — StaticLib (C++17, PCH: kspch.h)
 # ============================================================
 set(KANS3D_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(KANS3D_VENDOR ${CMAKE_CURRENT_SOURCE_DIR}/vendor)

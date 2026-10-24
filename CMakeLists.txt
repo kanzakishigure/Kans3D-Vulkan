@@ -82,9 +82,7 @@ else()
 endif()
 
 # ============================================================
-# Output & intermediate directories (matching premake layout)
-#   premake: bin/<cfg>-<system>-<arch>/<prj>
-#   premake: bin-int/<cfg>-<system>-<arch>/<prj>
+# Output & intermediate directories
 # ============================================================
 foreach(CONFIG ${CMAKE_CONFIGURATION_TYPES})
     set(OUTDIR_BASE_${CONFIG} "${CMAKE_BINARY_DIR}/bin/${CONFIG}-${SYSTEM_NAME}-${ARCH}" CACHE INTERNAL "")
