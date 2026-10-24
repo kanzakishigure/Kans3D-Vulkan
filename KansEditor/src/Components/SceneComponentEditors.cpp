@@ -73,7 +73,9 @@ namespace Kans::ComponentEditors
             {
                 auto settings = *camera.GetPostProcessOverride();
                 if (DrawPostProcessSettings(
-                        settings, [&](AssetID& dirt) { return ui.AssetPicker("Lens dirt", AssetType::Texture, dirt); }))
+                        settings,
+                        [&](AssetID& dirt) { return ui.AssetPicker("Lens dirt", AssetType::Texture, dirt); },
+                        [&](const char* label, AssetID& id) { return ui.AssetPicker(label, AssetType::Material, id); }))
                     camera.SetPostProcessOverride(settings);
             }
         });

@@ -43,11 +43,14 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, "Shader upload requires a current context"};
             }
         }
+        if (uint32_t(data.Domain) > 1 || uint32_t(data.PostStage) > 1 ||
+            (data.Domain == ShaderDomain::PostProcess && !data.Passes.empty()))
+            return Failure("invalid domain/stage or post-process passes");
         auto inspected = InspectShaderProgram(data.Code);
         if (auto* error = std::get_if<AssetError>(&inspected))
             return *error;
         const auto& reflection = std::get<std::vector<ShaderStageReflection>>(inspected);
-        auto        contract   = ValidateMaterialShaderInterface(reflection);
+        auto        contract   = ValidateMaterialShaderInterface(reflection, data.Domain);
         if (auto* error = std::get_if<AssetError>(&contract))
             return *error;
         auto validPasses = ValidateMaterialShaderPasses(data.Code, data.Passes);
@@ -62,6 +65,8 @@ namespace Kans
         GpuShader shader;
         shader.UsesSmoothNormals = ReadsSmoothNormals(reflection);
         shader.OutputSpace = data.OutputSpace;
+        shader.Domain            = data.Domain;
+        shader.PostStage         = data.PostStage;
         shader.m_Source    = std::make_shared<const ShaderData>(data);
         shader.m_Device = std::move(device);
         try
@@ -179,6 +184,8 @@ namespace Kans
         copy.Passes             = Passes;
         copy.UsesSmoothNormals            = UsesSmoothNormals;
         copy.OutputSpace        = OutputSpace;
+        copy.Domain                       = Domain;
+        copy.PostStage                    = PostStage;
         copy.m_SamplerFallbacks = m_SamplerFallbacks;
         return copy;
     }

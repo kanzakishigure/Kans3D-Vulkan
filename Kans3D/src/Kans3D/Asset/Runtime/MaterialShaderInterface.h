@@ -95,7 +95,8 @@ namespace Kans
 
     // Checks a reflected program against the material contract.
     [[nodiscard]] std::variant<std::monostate, AssetError>
-    ValidateMaterialShaderInterface(const std::vector<ShaderStageReflection>& reflection);
+    ValidateMaterialShaderInterface(const std::vector<ShaderStageReflection>& reflection,
+                                    ShaderDomain                              domain = ShaderDomain::Surface);
 
     [[nodiscard]] std::variant<std::monostate, AssetError>
     ValidateMaterialParameterGroups(const std::vector<MaterialParameterGroup>& groups,

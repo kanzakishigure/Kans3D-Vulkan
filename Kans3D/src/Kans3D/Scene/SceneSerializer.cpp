@@ -308,6 +308,10 @@ namespace Kans
             YAML::Node value;
             value["Mesh"]      = IdentityText(mesh.Mesh);
             value["CastShadows"]    = mesh.CastShadows;
+            if (mesh.RenderCustomDepth)
+                value["RenderCustomDepth"] = true;
+            if (mesh.CustomStencil)
+                value["CustomStencil"] = uint32_t(mesh.CustomStencil);
             value["ReceiveShadows"] = mesh.ReceiveShadows;
             value["Materials"] = YAML::Node(YAML::NodeType::Sequence);
             Require(mesh.Materials.size() <= 65536, "Too many mesh materials");
@@ -319,9 +323,24 @@ namespace Kans
         }
         MeshComponent DecodeMesh(const YAML::Node& value)
         {
-            Keys(value, {"Mesh", "Materials", "Section", "CastShadows", "ReceiveShadows"});
+            Keys(value,
+                 {"Mesh",
+                  "Materials",
+                  "Section",
+                  "CastShadows",
+                  "ReceiveShadows",
+                  "RenderCustomDepth",
+                  "CustomStencil"});
             MeshComponent mesh;
             mesh.Mesh = Identity(value["Mesh"]);
+            if (value["RenderCustomDepth"])
+                mesh.RenderCustomDepth = value["RenderCustomDepth"].as<bool>();
+            if (value["CustomStencil"])
+            {
+                const auto stencil = value["CustomStencil"].as<uint32_t>();
+                Require(stencil <= 255, "Invalid custom stencil");
+                mesh.CustomStencil = uint8_t(stencil);
+            }
             if (value["CastShadows"])
                 mesh.CastShadows = value["CastShadows"].as<bool>();
             if (value["ReceiveShadows"])
@@ -536,6 +555,10 @@ namespace Kans
             for (auto material : c.Materials)
                 node["Materials"].push_back(IdentityText(material));
             node["Materials"].SetStyle(YAML::EmitterStyle::Flow);
+            if (c.RenderCustomDepth)
+                node["RenderCustomDepth"] = true;
+            if (c.CustomStencil)
+                node["CustomStencil"] = uint32_t(c.CustomStencil);
             if (!c.CastShadows)
                 node["CastShadows"] = false;
             if (!c.ReceiveShadows)
@@ -552,6 +575,8 @@ namespace Kans
                   "Shape",
                   "Materials",
                   "CastShadows",
+                  "RenderCustomDepth",
+                  "CustomStencil",
                   "ReceiveShadows"});
             const auto positions = node["Positions"], sizes = node["FaceSizes"], indices = node["Indices"],
                        attributes = node["FaceAttributes"], materials = node["Materials"];
@@ -614,6 +639,14 @@ namespace Kans
                 c.Shape = DecodeShape(node["Shape"]);
             for (const auto& material : materials)
                 c.Materials.push_back(Identity(material));
+            if (node["RenderCustomDepth"])
+                c.RenderCustomDepth = node["RenderCustomDepth"].as<bool>();
+            if (node["CustomStencil"])
+            {
+                const auto stencil = node["CustomStencil"].as<uint32_t>();
+                Require(stencil <= 255, "Invalid custom stencil");
+                c.CustomStencil = uint8_t(stencil);
+            }
             if (node["CastShadows"])
                 c.CastShadows = node["CastShadows"].as<bool>();
             if (node["ReceiveShadows"])
@@ -632,11 +665,15 @@ namespace Kans
             for (const auto& [key, change] : prefab.Overrides)
             {
                 Require(!key.empty() && key.size() <= 4096, "Invalid prefab node key");
-                if (!change.LocalTransform && change.Materials.empty() && !change.Removed)
+                if (change.Empty())
                     continue;
                 YAML::Node item;
                 item["Node"]    = key;
                 item["Removed"] = change.Removed;
+                if (change.RenderCustomDepth)
+                    item["RenderCustomDepth"] = *change.RenderCustomDepth;
+                if (change.CustomStencil)
+                    item["CustomStencil"] = uint32_t(*change.CustomStencil);
                 if (change.LocalTransform)
                     item["Transform"] = EncodeTransform(*change.LocalTransform);
                 item["Materials"] = YAML::Node(YAML::NodeType::Sequence);
@@ -665,11 +702,19 @@ namespace Kans
             Require(overrides.IsSequence() && overrides.size() <= 65536, "Invalid prefab overrides");
             for (const auto& item : overrides)
             {
-                Keys(item, {"Node", "Removed", "Transform", "Materials"});
+                Keys(item, {"Node", "Removed", "Transform", "Materials", "RenderCustomDepth", "CustomStencil"});
                 const auto key = Text(item["Node"]);
                 Require(!key.empty() && !prefab.Overrides.count(key), "Duplicate/empty prefab override key");
                 auto& change   = prefab.Overrides[key];
                 change.Removed = item["Removed"].as<bool>();
+                if (item["RenderCustomDepth"])
+                    change.RenderCustomDepth = item["RenderCustomDepth"].as<bool>();
+                if (item["CustomStencil"])
+                {
+                    const auto stencil = item["CustomStencil"].as<uint32_t>();
+                    Require(stencil <= 255, "Invalid prefab custom stencil");
+                    change.CustomStencil = uint8_t(stencil);
+                }
                 if (item["Transform"])
                     change.LocalTransform = DecodeTransform(item["Transform"]);
                 Require(item["Materials"].IsSequence() && item["Materials"].size() <= 65536,
@@ -760,6 +805,14 @@ namespace Kans
                     "Invalid post-process settings");
             YAML::Node node;
             node["Exposure"]    = settings.Exposure;
+            for (const auto& entry : settings.Materials)
+            {
+                YAML::Node material;
+                material["Material"] = IdentityText(entry.Material);
+                if (!entry.Enabled)
+                    material["Enabled"] = false;
+                node["Materials"].push_back(material);
+            }
             node["Bloom"]       = EncodeBloom(input.Bloom);
             node["Tonemapping"] = settings.ToneMapping == ToneMappingMode::ACES ? "ACES" : "Standard";
             if (settings.FilterSize != 0)
@@ -768,8 +821,20 @@ namespace Kans
         }
         PostProcessSettings DecodePostProcess(const YAML::Node& node)
         {
-            Keys(node, {"Exposure", "Bloom", "Tonemapping", "FilterSize"});
+            Keys(node, {"Exposure", "Bloom", "Tonemapping", "FilterSize", "Materials"});
             PostProcessSettings settings;
+            if (node["Materials"])
+            {
+                const auto entries = node["Materials"];
+                Require(entries.IsSequence() && entries.size() <= 65536, "Invalid post materials");
+                for (const auto& entry : entries)
+                {
+                    Keys(entry, {"Material", "Enabled"});
+                    const auto id = Identity(entry["Material"]);
+                    Require(id.IsValid(), "Invalid post material identity");
+                    settings.Materials.push_back({id, entry["Enabled"] ? entry["Enabled"].as<bool>() : true});
+                }
+            }
             if (node["Exposure"])
                 settings.Exposure = Number(node["Exposure"]);
             if (node["Bloom"])

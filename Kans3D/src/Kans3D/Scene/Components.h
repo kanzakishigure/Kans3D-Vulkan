@@ -117,7 +117,16 @@ namespace Kans
         std::vector<AssetID>    Materials;
         std::optional<uint32_t> Section; // Empty renders all sections, in mesh order.
         bool                    CastShadows = true, ReceiveShadows = true;
+        bool                    RenderCustomDepth = false;
+        uint8_t                 CustomStencil     = 0;
     };
+
+    inline bool operator==(const MeshComponent& a, const MeshComponent& b)
+    {
+        return a.Mesh == b.Mesh && a.Materials == b.Materials && a.Section == b.Section &&
+               a.CastShadows == b.CastShadows && a.ReceiveShadows == b.ReceiveShadows &&
+               a.RenderCustomDepth == b.RenderCustomDepth && a.CustomStencil == b.CustomStencil;
+    }
 
     // Mutually exclusive with MeshComponent. Callers must remove the previous
     // component explicitly; Entity::AddComponent asserts/rejects a conflict.
@@ -127,6 +136,8 @@ namespace Kans
         std::optional<ShapeDesc> Shape;
         std::vector<AssetID>     Materials;
         bool                     CastShadows = true, ReceiveShadows = true;
+        bool                     RenderCustomDepth = false;
+        uint8_t                  CustomStencil     = 0;
     };
     bool operator==(const EditableMeshComponent& a, const EditableMeshComponent& b);
     // Explicit regeneration only. PatchComponent never interprets Shape changes.
@@ -153,6 +164,12 @@ namespace Kans
         std::optional<TransformComponent> LocalTransform;
         std::map<uint32_t, AssetID>       Materials;
         bool                              Removed = false;
+        std::optional<bool>               RenderCustomDepth;
+        std::optional<uint8_t>            CustomStencil;
+        bool                              Empty() const
+        {
+            return !LocalTransform && Materials.empty() && !Removed && !RenderCustomDepth && !CustomStencil;
+        }
     };
     struct PrefabNodeState
     {

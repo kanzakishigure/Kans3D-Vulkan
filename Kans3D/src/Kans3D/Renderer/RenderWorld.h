@@ -22,6 +22,8 @@ namespace Kans
             bool      CastShadows = true, ReceiveShadows = true;
             Ref<const SkinningPose> SkinPose;
             Ref<const InstanceMaterialParameters> Parameters;
+            bool                                  RenderCustomDepth = false;
+            uint8_t                               CustomStencil     = 0;
         };
         struct Stats
         {

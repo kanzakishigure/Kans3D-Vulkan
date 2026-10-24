@@ -5,8 +5,9 @@ namespace Kans
 {
     bool operator==(const EditableMeshComponent& a, const EditableMeshComponent& b)
     {
-        return a.Mesh == b.Mesh && a.Shape == b.Shape && a.Materials == b.Materials && a.CastShadows == b.CastShadows &&
-               a.ReceiveShadows == b.ReceiveShadows;
+        return a.Mesh == b.Mesh && a.Shape == b.Shape && a.Materials == b.Materials &&
+               a.RenderCustomDepth == b.RenderCustomDepth && a.CustomStencil == b.CustomStencil &&
+               a.CastShadows == b.CastShadows && a.ReceiveShadows == b.ReceiveShadows;
     }
     void RegenerateShape(EditableMeshComponent& component)
     {

@@ -29,6 +29,19 @@ namespace Kans
         void Build(RenderGraph& graph, RenderFrame& frame) override;
 
     private:
+        struct PostDraw
+        {
+            std::shared_ptr<GpuShader>                                   Shader;
+            RenderHardware::Handle<RenderHardware::BindGroup>            Material;
+            std::vector<RenderHardware::Handle<RenderHardware::Texture>> Images;
+            AssetID                                                      ID;
+        };
+        std::vector<PostDraw> m_PostDraws;
+        GraphTexture          m_CustomDepth = 0;
+        // Reused by every post-material pass; the pipeline is owned by one device.
+        RenderHardware::Handle<RenderHardware::Sampler> m_PostLinearSampler, m_PostPointSampler;
+        void                  PreparePostMaterials(RenderFrame& frame);
+        void                  AddPostMaterials(RenderGraph& graph, RenderFrame& frame, PostProcessStage stage);
         void BuildMSAA(RenderGraph& graph, RenderFrame& frame);
         void AddFXAA(RenderGraph& graph, RenderFrame& frame);
         void AddReconstructionFilter(RenderGraph& graph, RenderFrame& frame);

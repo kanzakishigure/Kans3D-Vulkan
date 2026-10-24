@@ -9,6 +9,8 @@ namespace Kans
                         const ShaderTextureFallbacks&              fallbacks   = {},
                         const std::vector<MaterialParameterGroup>& groups      = {},
                         const std::vector<ShaderPass>&             passes      = {},
-                        ShaderOutputSpace                          outputSpace = ShaderOutputSpace::Display);
+                        ShaderOutputSpace                          outputSpace = ShaderOutputSpace::Display,
+                        ShaderDomain                               domain      = ShaderDomain::Surface,
+                        PostProcessStage                           postStage   = PostProcessStage::BeforeToneMap);
     std::variant<ShaderData, AssetError>             DecodeShaderProduct(const std::byte* bytes, size_t size);
 } // namespace Kans

@@ -17,5 +17,6 @@ namespace Kans
     PackMaterialUniforms(const MaterialData&          data,
                          const ShaderProgramCode&     code,
                          const MaterialBindingRecipe& recipe,
-                         uint64_t                     maximumUniformBytes = 64 * 1024 * 1024);
+                         uint64_t                     maximumUniformBytes = 64 * 1024 * 1024,
+                         ShaderDomain                 domain              = ShaderDomain::Surface);
 } // namespace Kans

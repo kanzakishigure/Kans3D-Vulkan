@@ -48,6 +48,7 @@
 #define ICON_FA_ARROW_LEFT             "\xef\x81\xa0" // U+F060
 #define ICON_FA_ARROW_RIGHT            "\xef\x81\xa1" // U+F061
 #define ICON_FA_ARROW_UP               "\xef\x81\xa2" // U+F062
+#define ICON_FA_ARROW_DOWN             "\xef\x81\xa3" // U+F063
 #define ICON_FA_FILTER                 "\xef\x82\xb0" // U+F0B0
 #define ICON_FA_ARROW_DOWN_A_Z         "\xef\x85\x9d" // U+F15D
 #define ICON_FA_TABLE_CELLS_LARGE      "\xef\x80\x89" // U+F009

@@ -19,6 +19,7 @@ namespace Kans::PropertyGrid
     void Text(const char* label, const std::string& value, bool disabled = false);
     bool Float(const char* label, float& value, float speed = 0.1f, float min = 0.0f, float max = 0.0f,
                const char* format = "%.3f");
+    bool Int(const char* label, int& value, int min, int max);
     bool Checkbox(const char* label, bool& value);
     bool Color3(const char* label, glm::vec3& value);
     bool Color4(const char* label, glm::vec4& value);

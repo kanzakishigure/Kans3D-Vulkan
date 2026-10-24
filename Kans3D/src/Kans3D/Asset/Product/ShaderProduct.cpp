@@ -7,8 +7,9 @@ namespace Kans
 {
     namespace
     {
-        // v2 defaults, v3 hints, v4 sampler fallbacks, v5 ordered groups, v6 material passes. Readers retain v1-v5.
-        constexpr uint32_t Magic = 0x4448534b, Version = 7, TargetVulkan12 = 1;
+        // v2 defaults, v3 hints, v4 fallbacks, v5 groups, v6 passes, v7 output space.
+        // Surface products retain v7 layout; v8 appends post-process domain/stage. Readers retain v1-v7.
+        constexpr uint32_t Magic = 0x4448534b, Version = 8, TargetVulkan12 = 1;
         constexpr size_t   MaximumDefaults = 4096, MaximumDefaultValues = 4096;
         constexpr size_t   MaximumBytes = 16 * 1024 * 1024;
         void               Write(std::vector<std::byte>& bytes, uint32_t word)
@@ -58,8 +59,12 @@ namespace Kans
                         const ShaderTextureFallbacks&              fallbacks,
                         const std::vector<MaterialParameterGroup>& groups,
                         const std::vector<ShaderPass>&             passes,
-                        ShaderOutputSpace                          outputSpace)
+                        ShaderOutputSpace                          outputSpace,
+                        ShaderDomain                               domain,
+                        PostProcessStage                           postStage)
     {
+        if (uint32_t(domain) > 1 || uint32_t(postStage) > 1 || (domain == ShaderDomain::PostProcess && !passes.empty()))
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid Shader domain/stage"};
         if (uint32_t(outputSpace) > 1)
             return AssetError {AssetErrorCode::InvalidArgument, "Invalid Shader output space"};
         auto validPasses = ValidateMaterialShaderPasses(code, passes);
@@ -73,6 +78,13 @@ namespace Kans
         auto inspected = InspectShaderProgram(code);
         if (auto* error = std::get_if<AssetError>(&inspected))
             return *error;
+        if (domain == ShaderDomain::PostProcess)
+        {
+            auto valid =
+                ValidateMaterialShaderInterface(std::get<std::vector<ShaderStageReflection>>(inspected), domain);
+            if (auto* error = std::get_if<AssetError>(&valid))
+                return *error;
+        }
         if (defaults.size() > MaximumDefaults)
             return AssetError {AssetErrorCode::InvalidArgument, "Too many Shader parameter defaults"};
         for (const auto& [name, values] : defaults)
@@ -80,7 +92,7 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, "Invalid Shader parameter default '" + name + "'"};
         std::vector<std::byte> bytes;
         Write(bytes, Magic);
-        Write(bytes, Version);
+        Write(bytes, domain == ShaderDomain::PostProcess ? Version : 7);
         Write(bytes, uint32_t(AssetType::Shader));
         Write(bytes, TargetVulkan12);
         Write(bytes, uint32_t(code.Modules.size()));
@@ -174,6 +186,11 @@ namespace Kans
             bytes.insert(bytes.end(), payload.begin(), payload.end());
         }
         Write(bytes, uint32_t(outputSpace));
+        if (domain == ShaderDomain::PostProcess)
+        {
+            Write(bytes, uint32_t(domain));
+            Write(bytes, uint32_t(postStage));
+        }
         if (bytes.size() > MaximumBytes)
             return AssetError {AssetErrorCode::InvalidArgument, "Shader Product exceeds byte budget"};
         return bytes;
@@ -384,12 +401,28 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Shader output space"};
             result.OutputSpace = ShaderOutputSpace(space);
         }
+        if (version >= 8)
+        {
+            if (size - size_t(cursor - bytes) < 8)
+                return AssetError {AssetErrorCode::InvalidData, "Truncated Shader domain/stage"};
+            const auto domain = Read(cursor), stage = Read(cursor);
+            if (domain > 1 || stage > 1 || (domain == 1 && !result.Passes.empty()))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid Shader domain/stage"};
+            result.Domain    = ShaderDomain(domain);
+            result.PostStage = PostProcessStage(stage);
+        }
         if (size_t(cursor - bytes) != size)
             return AssetError {AssetErrorCode::InvalidData, "Trailing Shader Product bytes"};
         auto reflected = InspectShaderProgram(result.Code);
         if (auto* error = std::get_if<AssetError>(&reflected))
             return *error;
         result.Reflection = std::get<std::vector<ShaderStageReflection>>(std::move(reflected));
+        if (result.Domain == ShaderDomain::PostProcess)
+        {
+            auto valid = ValidateMaterialShaderInterface(result.Reflection, result.Domain);
+            if (auto* error = std::get_if<AssetError>(&valid))
+                return *error;
+        }
         auto validGroups  = ValidateMaterialParameterGroups(result.Groups, result.Reflection);
         if (auto* error = std::get_if<AssetError>(&validGroups))
             return *error;

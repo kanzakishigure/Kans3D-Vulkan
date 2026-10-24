@@ -3,6 +3,12 @@
 namespace Kans
 {
     std::variant<ShaderOutputSpace, AssetError> ParseShaderOutputSpace(const std::string& text);
+    struct ShaderDomainSource
+    {
+        ShaderDomain     Domain = ShaderDomain::Surface;
+        PostProcessStage Stage  = PostProcessStage::BeforeToneMap;
+    };
+    std::variant<ShaderDomainSource, AssetError> ParseShaderProgramDomain(const std::string& text);
     struct ShaderStageSource
     {
         ShaderProductStage Stage;

@@ -50,6 +50,15 @@ namespace Kans::PropertyGrid
         ImGui::PopTextWrapPos();
     }
 
+    bool Int(const char* label, int& value, int min, int max)
+    {
+        Row(label);
+        ImGui::PushID(label);
+        const bool changed = ImGui::DragInt("##value", &value, 0.2f, min, max);
+        ImGui::PopID();
+        return changed;
+    }
+
     bool Float(const char* label, float& value, float speed, float min, float max, const char* format)
     {
         Row(label);

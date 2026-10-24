@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "ShadowMaps.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "Kans3D/Renderer/RenderFrame.h"
 #include "InternalShader.h"
 #include "MaterialPass.h"
@@ -179,6 +180,161 @@ void main() {
 
 namespace Kans
 {
+    GraphTexture BuildCustomDepthPass(RenderGraph& graph, RenderFrame& frame)
+    {
+        using namespace RenderHardware;
+        auto        device = frame.GetDevice();
+        TextureDesc desc;
+        desc.Width        = frame.View.Viewport.x;
+        desc.Height       = frame.View.Viewport.y;
+        desc.PixelFormat  = Format::Depth24Stencil8;
+        desc.Usage        = RenderHardware::TextureUsage::DepthStencil | RenderHardware::TextureUsage::Sampled;
+        const auto target = graph.CreateTexture("CustomDepthStencil", desc);
+        struct Draw
+        {
+            std::shared_ptr<GpuShader>           Shader;
+            std::shared_ptr<GpuMaterialBindings> Bindings;
+            const GpuMesh*                       Mesh;
+            MaterialPassData                     Data;
+            size_t                               Pass = SIZE_MAX;
+        };
+        std::vector<Draw>     draws;
+        std::vector<GraphUse> uses {{target, GraphAccess::DepthWrite}};
+        auto                  sampled = [&](const auto& texture) {
+            if (!texture)
+                return;
+            const auto id = graph.ImportTexture("CustomDepth material input", texture);
+            if (std::none_of(uses.begin(), uses.end(), [&](auto u) { return u.Texture == id; }))
+                uses.push_back({id, GraphAccess::SampledRead});
+        };
+        auto uniforms              = frame.View.LightingUniforms.value_or(MakeLightingUniforms(frame.View.Scene));
+        uniforms.View              = frame.View.Scene.sceneCamera.viewMatrix;
+        uniforms.Projection        = DeviceProjection(frame.View.Scene.sceneCamera.camera.GetProjectionMatrix(),
+                                                      device->GetCoordinateConventions());
+        uniforms.ViewProjection    = uniforms.Projection * uniforms.View;
+        uniforms.InverseView       = glm::inverse(uniforms.View);
+        uniforms.InverseProjection = glm::inverse(uniforms.Projection);
+        uniforms.Time              = frame.View.Time;
+        uniforms.ShadowPass        = glm::vec4(0);
+        auto buffer = device->CreateBuffer({sizeof(uniforms), BufferUsage::Uniform, MemoryUsage::Upload});
+        buffer->Write(0, &uniforms, sizeof(uniforms));
+        // MaterialOrder has the main camera's frustum culling, independent of depth visibility.
+        for (const auto& item : frame.View.MaterialOrder)
+        {
+            const auto& draw = frame.View.Draws[item.DrawIndex];
+            if (!draw.RenderCustomDepth)
+                continue;
+            const auto* mesh     = frame.GetMesh(draw.Mesh);
+            const auto* bindings = frame.GetBindings(draw.Material, false);
+            const auto* shader   = bindings ? frame.GetShader(draw.Material, bindings->Shader) : nullptr;
+            if (!mesh || !bindings || !shader || shader->Domain != ShaderDomain::Surface)
+                continue;
+            size_t selected = SIZE_MAX;
+            for (const auto* tag : {"DepthOnly", "ShadowCaster"})
+            {
+                for (size_t i = 0; i < shader->Passes.size(); ++i)
+                    if (shader->Passes[i].Tag == tag && bindings->PassEnabled(shader->Passes[i].Name))
+                    {
+                        selected = i;
+                        break;
+                    }
+                if (selected != SIZE_MAX)
+                    break;
+            }
+            if (selected == SIZE_MAX)
+            {
+                if (!IsStandardShader(bindings->Shader))
+                {
+                    bindings = frame.Assets()->GetMaterialBindings(draw.Material, true);
+                    shader   = bindings ? frame.Assets()->GetShader(bindings->Shader) : nullptr;
+                }
+                if (!bindings || !shader)
+                    continue;
+            }
+            EngineObjectUniforms object;
+            object.Transform      = draw.Transform;
+            object.NormalMatrix   = glm::transpose(glm::inverse(draw.Transform));
+            object.MaterialRender = {float(bindings->Render.AlphaMode),
+                                     bindings->Render.AlphaCutoff,
+                                     bindings->Render.DoubleSided ? 1.0f : 0.0f,
+                                     0};
+            auto ob               = device->CreateBuffer({sizeof(object), BufferUsage::Uniform, MemoryUsage::Upload});
+            ob->Write(0, &object, sizeof(object));
+            MaterialPassData data;
+            data.Frame         = buffer;
+            data.Object        = ob;
+            data.CustomDepth   = true;
+            data.CustomStencil = draw.CustomStencil;
+            data.ColorFormats.clear();
+            data.Section            = draw.Section;
+            data.Render             = bindings->Render;
+            data.Parameters         = draw.Parameters;
+            data.Environment        = frame.GetMaterialEnvironment();
+            data.EnvironmentSampler = frame.Services.GetMaterialEnvironmentSampler();
+            data.Shadows            = frame.View.Shadows ? frame.View.Shadows : frame.Assets()->GetShadowFallback();
+            data.Palette =
+                mesh->Skin ? frame.Assets()->GetSkinningPalette(draw.SkinPose, mesh) : Handle<RenderHardware::Buffer>();
+            if (selected == SIZE_MAX)
+                data.DepthProgram = data.Palette ?
+                                        GetSkinnedInternalProgram(*device, "ShadowDepth", DepthVertex, DepthFragment) :
+                                        frame.Services.GetInternalProgram("ShadowDepth", DepthVertex, DepthFragment);
+            const bool smooth =
+                selected == SIZE_MAX ? shader->UsesSmoothNormals : shader->Passes[selected].UsesSmoothNormals;
+            // Warm the owning shader before snapshotting; MSAA records its main draws later.
+            if (data.Palette && !shader->PrepareSkinning(smooth && !mesh->SmoothNormals))
+            {
+                frame.Complete = false;
+                continue;
+            }
+            const auto* instance = frame.Assets()->GetInstanceMaterialBindings(*bindings, draw.Parameters);
+            bool        complete = true;
+            data.MaterialGroup   = frame.Assets()->GetMaterialGroup(*shader, *instance, &complete);
+            frame.Complete &= complete;
+            if (!data.MaterialGroup)
+                continue;
+            for (const auto& image : instance->Images)
+                sampled(image);
+            for (const auto& image : data.Environment)
+                sampled(image);
+            if (data.Shadows)
+            {
+                sampled(data.Shadows->Directional);
+                for (const auto& image : data.Shadows->Points)
+                    sampled(image);
+            }
+            draws.push_back({std::make_shared<GpuShader>(shader->Snapshot()),
+                             std::make_shared<GpuMaterialBindings>(instance->Snapshot()),
+                             mesh,
+                             data,
+                             selected});
+        }
+        const auto pass =
+            graph.AddPass("Custom depth/stencil", std::move(uses), [&frame, target, draws = std::move(draws)](auto& c) {
+                RenderingDesc rendering;
+                rendering.Depth.Target = c.Texture(target);
+                rendering.Depth.Load   = LoadOp::Clear; // Device depth=1, stencil=0.
+                c.Commands.BeginRendering(rendering);
+                c.Commands.SetViewport({0, 0, float(frame.View.Viewport.x), float(frame.View.Viewport.y)});
+                c.Commands.SetScissor({0, 0, frame.View.Viewport.x, frame.View.Viewport.y});
+                for (const auto& draw : draws)
+                {
+                    frame.Complete &=
+                        RecordMaterialDraw(*frame.Assets(),
+                                           c.Commands,
+                                           *draw.Shader,
+                                           *draw.Bindings,
+                                           *draw.Mesh,
+                                           draw.Data,
+                                           draw.Pass == SIZE_MAX ? nullptr : &draw.Shader->Passes[draw.Pass]);
+                    ++frame.Stats.DrawCalls;
+                    frame.Stats.Triangles += draw.Mesh->Sections[draw.Data.Section].IndexCount / 3;
+                }
+                c.Commands.EndRendering();
+            });
+        if (pass)
+            graph.OrderAfter(pass, pass - 1);
+        return target;
+    }
     void BuildShadowPasses(RenderGraph& graph, RenderFrame& frame)
     {
         auto& view = frame.View;
@@ -266,7 +422,8 @@ namespace Kans
                 const auto* mesh     = frame.GetMesh(proxy.Mesh);
                 const auto* bindings = frame.GetBindings(proxy.Material, false);
                 const auto* shader   = bindings ? frame.GetShader(proxy.Material, bindings->Shader) : nullptr;
-                if (!mesh || proxy.Section >= mesh->Sections.size() || !bindings || !shader)
+                if (!mesh || proxy.Section >= mesh->Sections.size() || !bindings || !shader ||
+                    shader->Domain == ShaderDomain::PostProcess)
                     continue;
                 const GpuShaderPass* caster = nullptr;
                 bool                 hasCaster = false;
