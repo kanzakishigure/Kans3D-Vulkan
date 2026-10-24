@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Checks and installs the Kans3D build dependencies, then configures CMake.
 
-    python script/Setup.py            interactive (Textual) in a terminal, plain text otherwise
-    python script/Setup.py --no-tui   plain text: check, offer to install what is missing, configure
-    python script/Setup.py --check    report only; exit code 1 if anything required is missing
-    python script/Setup.py --yes      install without asking (plain text)
-    python script/Setup.py --build    also build the editor (Debug)
-    python script/Setup.py --tests    include test dependencies (GoogleTest, software Vulkan)
+    python script/Setup.py                    interactive menu in a terminal (Tab/arrows/mouse, Python 3.10+)
+    python script/Setup.py --non-interactive  check, ask once, install everything missing, configure
+    python script/Setup.py --check            report only; exit code 1 if anything required is missing
+    python script/Setup.py --yes              install everything missing without asking, configure
+    python script/Setup.py --build            also build the editor (Debug)
+    python script/Setup.py --tests            include test dependencies (GoogleTest, software Vulkan)
 
 Linux: Arch (pacman), Debian/Ubuntu (apt), Fedora (dnf). Windows: winget.
-Needs only the standard library; the interactive mode imports Textual from the pure-Python wheels
-committed in script/third_party (no pip, no network, no virtual environment).
+The menu uses prompt_toolkit from the pure-Python wheels in script/third_party (no pip, no network);
+everything else is the standard library, so it runs on a fresh machine.
 """
 import argparse
 import os
@@ -226,41 +226,201 @@ def ask(question, assume_yes):
         return False
 
 
-# ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- shared steps
 
-def load_tui():
-    """Imports the Textual front end from the vendored wheels, or returns None (plain mode)."""
-    if sys.version_info < (3, 9):
-        return None
-    sys.path[:0] = [str(wheel) for wheel in sorted(THIRD_PARTY.glob("*.whl"))]
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+class Style:
+    """ANSI colours, only when writing to a terminal that supports them (NO_COLOR disables)."""
+    enabled = False
+
+    @classmethod
+    def setup(cls):
+        if os.environ.get("NO_COLOR") or not sys.stdout.isatty():
+            return
+        if platform.system() == "Windows":
+            os.system("")  # Enables virtual-terminal processing on Windows 10+ consoles.
+        cls.enabled = True
+
+    @classmethod
+    def paint(cls, text, code):
+        return f"\033[{code}m{text}\033[0m" if cls.enabled else text
+
+
+def green(text): return Style.paint(text, "32")
+def red(text): return Style.paint(text, "31")
+def yellow(text): return Style.paint(text, "33")
+def dim(text): return Style.paint(text, "2")
+def bold(text): return Style.paint(text, "1")
+
+
+def status_label(dependency, ok):
+    if ok:
+        return green("OK      ")
+    return red("MISSING ") if dependency.required else yellow("optional")
+
+
+def packages_for(manager, dependencies):
+    packages = []
+    for dependency in dependencies:
+        package = dependency.packages.get(manager)
+        for item in ([package] if manager == "winget" else package.split()) if package else []:
+            if item not in packages:
+                packages.append(item)
+    return packages
+
+
+def run_install(commands, windows):
+    for command in commands:
+        print(bold(f"$ {command}"))
+        if subprocess.call(command, shell=True) != 0:
+            print(red(f"Failed: {command}"))
+            return False
+    if windows:
+        print(yellow("Open a new terminal so PATH and VULKAN_SDK changes take effect, then run Setup again."))
+    return True
+
+
+def configure(preset, build):
+    if not check_submodules()[0]:
+        print(bold("$ git submodule update --init --recursive"))
+        if subprocess.call(["git", "submodule", "update", "--init", "--recursive"], cwd=ROOT) != 0:
+            return False
+    print(bold(f"$ cmake --preset {preset}"))
+    if subprocess.call(["cmake", "--preset", preset], cwd=ROOT) != 0:
+        return False
+    if build:
+        jobs = str(os.cpu_count() or 2)
+        print(bold(f"$ cmake --build build/{preset} --config Debug --target KansEditor --parallel {jobs}"))
+        if subprocess.call(["cmake", "--build", f"build/{preset}", "--config", "Debug", "--target", "KansEditor",
+                            "--parallel", jobs], cwd=ROOT) != 0:
+            return False
+    return True
+
+
+# ---------------------------------------------------------------- interactive menu
+
+def pause():
     try:
-        import SetupTui
-        return SetupTui
-    except ImportError as error:
-        print(f"Interactive mode unavailable ({error}); using plain mode.\n")
+        input(dim("\nPress Enter to return to the menu..."))
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def load_prompts():
+    """Imports SetupPrompt with the vendored prompt_toolkit wheels, or returns None."""
+    if sys.version_info < (3, 10):
+        return None
+    sys.path[:0] = [str(wheel) for wheel in sorted(THIRD_PARTY.glob("*.whl"))] + [str(Path(__file__).resolve().parent)]
+    try:
+        import SetupPrompt
+        return SetupPrompt
+    except ImportError:
         return None
 
+
+def print_status(rows, manager):
+    print(bold("Kans3D setup") + dim(f"  {platform.system()} {platform.machine()} · "
+                                     f"package manager: {manager or 'none found'} · "
+                                     f"submodules: {check_submodules()[1]}"))
+    print()
+    for dependency, ok, detail in rows:
+        note = dim(f" — {dependency.note}") if not ok and dependency.note else ""
+        print(f"  {status_label(dependency, ok)} {dependency.name:<28} {dim(detail)}{note}")
+    print()
+
+
+def interactive(prompts, preset, tests, build):
+    windows = platform.system() == "Windows"
+    manager = package_manager()
+    presets = ["windows-msvc", "windows-clangd"] if windows else ["linux-gcc", "linux-clang"]
+    Option = prompts.Option
+    selected = None
+    while True:
+        dependencies = windows_dependencies() if windows else linux_dependencies()
+        dependencies = [d for d in dependencies if tests or not d.tests_only]
+        rows = sorted(((d,) + tuple(d.check()) for d in dependencies), key=lambda r: (r[1], not r[0].required))
+        missing = [d for d, ok, _ in rows if not ok]
+        if selected is None:
+            selected = {d.name for d in missing}
+        selected &= {d.name for d in missing}
+        required = [d for d in missing if d.required]
+        chosen = [d for d in missing if d.name in selected]
+        commands = install_commands(manager, packages_for(manager, chosen)) if manager and chosen else []
+
+        if Style.enabled:
+            print("\033[2J\033[H", end="")
+        print_status(rows, manager)
+
+        configure_text = f"cmake --preset {preset}" + (" and build KansEditor" if build else "")
+        options = []
+        if missing:
+            options.append(Option(f"Choose what to install ({len(chosen)} of {len(missing)} selected)",
+                                  ", ".join(d.name for d in chosen) or "nothing selected", True, "choose"))
+            options.append(Option("Install selected", " && ".join(commands) if commands else
+                                  ("no supported package manager" if manager is None else "nothing selected"),
+                                  bool(commands), "install"))
+        options.append(Option("Configure", configure_text if not required else
+                              "install the missing required dependencies first", not required, "configure"))
+        options.append(Option(f"Preset: {preset}", "switch to " + ", ".join(p for p in presets if p != preset),
+                              True, "preset"))
+        options.append(Option(f"Test dependencies: {'on' if tests else 'off'}", "GoogleTest, software Vulkan",
+                              True, "tests"))
+        options.append(Option(f"Build after configure: {'on' if build else 'off'}", "KansEditor, Debug",
+                              True, "build"))
+        options.append(Option("Re-check", "", True, "recheck"))
+        options.append(Option("Quit", "", True, "quit"))
+
+        action = prompts.choose("What do you want to do?", options)
+        if action in (None, "quit"):
+            return 0
+        if action == "choose":
+            picked = prompts.choose("Install which missing dependencies?",
+                                    [Option(d.name, ("required" if d.required else "optional") +
+                                            (f" — {d.note}" if d.note else ""), True, d.name) for d in missing],
+                                    multi=True, checked=selected)
+            if picked is not None:
+                selected = set(picked)
+        elif action == "install":
+            print()
+            ok = run_install(commands, windows)
+            if ok and windows:
+                return 0
+            print(green("Install finished.") if ok else red("Install failed; see the output above."))
+            pause()
+        elif action == "configure":
+            print()
+            ok = configure(preset, build)
+            print(green("\nDone.") if ok else red("\nStopped."))
+            return 0 if ok else 1
+        elif action == "preset":
+            preset = presets[(presets.index(preset) + 1) % len(presets)] if preset in presets else presets[0]
+        elif action == "tests":
+            tests, selected = not tests, None
+        elif action == "build":
+            build = not build
+
+
+# ---------------------------------------------------------------- non-interactive
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="report only, install nothing")
-    parser.add_argument("--yes", action="store_true", help="install without asking")
+    parser.add_argument("--yes", action="store_true", help="install everything missing without asking")
     parser.add_argument("--tests", action="store_true", help="include test dependencies")
     parser.add_argument("--build", action="store_true", help="build KansEditor (Debug) after configuring")
     parser.add_argument("--preset", help="CMake configure preset (default: linux-gcc / windows-msvc)")
-    parser.add_argument("--no-tui", action="store_true", help="plain text mode even in a terminal")
+    parser.add_argument("--non-interactive", action="store_true", help="no menu, even in a terminal")
     args = parser.parse_args()
-
-    interactive = sys.stdin.isatty() and sys.stdout.isatty()
-    if interactive and not (args.check or args.yes or args.no_tui):
-        tui = load_tui()
-        if tui:
-            tui.run(tests=args.tests, build=args.build, preset=args.preset)
-            return
+    Style.setup()
 
     windows = platform.system() == "Windows"
     preset = args.preset or ("windows-msvc" if windows else "linux-gcc")
+    terminal = sys.stdin.isatty() and sys.stdout.isatty()
+    if terminal and not (args.check or args.yes or args.non_interactive):
+        prompts = load_prompts()
+        if prompts:
+            sys.exit(interactive(prompts, preset, args.tests, args.build))
+        print(yellow("Interactive menu needs Python 3.10+; using the plain mode.\n"))
+
     dependencies = windows_dependencies() if windows else linux_dependencies()
     dependencies = [d for d in dependencies if args.tests or not d.tests_only]
     manager = package_manager()
@@ -269,15 +429,13 @@ def main():
     missing = []
     for dependency in dependencies:
         ok, detail = dependency.check()
-        mark = "OK  " if ok else ("MISS" if dependency.required else "opt ")
-        print(f"  [{mark}] {dependency.name:<30} {detail}")
+        print(f"  {status_label(dependency, ok)} {dependency.name:<30} {detail}")
         if not ok:
             missing.append(dependency)
             if dependency.note:
-                print(f"         {dependency.note}")
-
+                print(f"           {dim(dependency.note)}")
     submodules_ok, detail = check_submodules()
-    print(f"  [{'OK  ' if submodules_ok else 'MISS'}] {'Git submodules':<30} {detail}")
+    print(f"  {green('OK      ') if submodules_ok else red('MISSING ')} {'Git submodules':<30} {detail}")
 
     if args.check:
         required_missing = [d for d in missing if d.required] or ([] if submodules_ok else ["submodules"])
@@ -287,43 +445,22 @@ def main():
         if manager is None:
             print("\nNo supported package manager found; install the packages above manually.")
         else:
-            packages = []
-            for dependency in missing:
-                package = dependency.packages.get(manager)
-                if package and package not in packages:
-                    packages.extend([package] if manager == "winget" else package.split())
-            commands = install_commands(manager, packages)
+            commands = install_commands(manager, packages_for(manager, missing))
             print("\nInstall commands:")
             for command in commands:
                 print(f"  {command}")
             if ask("Run them now?", args.yes):
-                for command in commands:
-                    if subprocess.call(command, shell=True) != 0:
-                        print(f"Failed: {command}")
-                        sys.exit(1)
+                if not run_install(commands, windows):
+                    sys.exit(1)
                 if windows:
-                    print("\nOpen a new terminal so PATH and VULKAN_SDK changes take effect, then run Setup again.")
                     sys.exit(0)
 
     still_missing = [d.name for d in dependencies if d.required and not d.check()[0]]
     if still_missing:
         print("\nStill missing: " + ", ".join(still_missing) + ". Configure skipped.")
         sys.exit(1)
-
-    if not submodules_ok:
-        print("\nInitializing git submodules...")
-        if subprocess.call(["git", "submodule", "update", "--init", "--recursive"], cwd=ROOT) != 0:
-            sys.exit(1)
-
-    print(f"\nConfiguring: cmake --preset {preset}")
-    if subprocess.call(["cmake", "--preset", preset], cwd=ROOT) != 0:
+    if not configure(preset, args.build):
         sys.exit(1)
-    if args.build:
-        jobs = os.cpu_count() or 2
-        print(f"\nBuilding KansEditor (Debug, {jobs} jobs)")
-        if subprocess.call(["cmake", "--build", f"build/{preset}", "--config", "Debug", "--target", "KansEditor",
-                            "--parallel", str(jobs)], cwd=ROOT) != 0:
-            sys.exit(1)
     print("\nDone.")
 
 
