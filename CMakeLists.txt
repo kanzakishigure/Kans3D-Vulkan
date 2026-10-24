@@ -195,6 +195,12 @@ if(DOTNET)
                 COMMAND ${CMAKE_COMMAND} -E copy_directory "${KANS_MANAGED_OUTPUT}" "$<TARGET_FILE_DIR:${consumer}>/Resources/Scripts"
                 DEPENDS KansScriptCore VERBATIM)
             add_dependencies(${consumer} ${consumer}Scripts)
+            if(WIN32)
+                add_custom_command(TARGET ${consumer}Scripts POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${KANS_NETHOST_DIR}/nethost.dll" "$<TARGET_FILE_DIR:${consumer}>"
+                    VERBATIM)
+            endif()
         endif()
     endforeach()
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|ARM64|arm64)$")
