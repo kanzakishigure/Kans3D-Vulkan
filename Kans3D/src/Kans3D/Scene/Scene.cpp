@@ -417,35 +417,69 @@ namespace Kans
     void Scene::UpdateMaterialParameterDrivers()
     {
         for (auto handle : m_Registry.view<MaterialParameterDriversComponent>())
+            UpdateMaterialParameterDrivers(Entity {handle, this});
+    }
+
+    void Scene::UpdateMaterialParameterDrivers(Entity entity)
+    {
+        if (!entity || !entity.HasComponent<MaterialParameterDriversComponent>())
+            return;
+        auto& drivers = entity.GetComponent<MaterialParameterDriversComponent>();
+        if (!drivers.Values)
+            drivers.Values = CreateRef<InstanceMaterialParameters>();
+        auto&  values = *drivers.Values;
+        size_t count  = drivers.Bindings.size();
+        for (const auto& entry : drivers.Overrides)
+            if (std::none_of(drivers.Bindings.begin(), drivers.Bindings.end(), [&](const auto& binding) {
+                    return binding.Parameter == entry.first;
+                }))
+                ++count;
+        values.resize(count);
+        for (size_t i = 0; i < drivers.Bindings.size(); ++i)
         {
-            auto& drivers = m_Registry.get<MaterialParameterDriversComponent>(handle);
-            if (!drivers.Values)
-                drivers.Values = CreateRef<InstanceMaterialParameters>();
-            auto& values = *drivers.Values;
-            values.resize(drivers.Bindings.size());
-            for (size_t i = 0; i < values.size(); ++i)
+            const auto& binding = drivers.Bindings[i];
+            auto&       value   = values[i];
+            if (value.Parameter != binding.Parameter)
+                value.Parameter = binding.Parameter;
+            const auto source     = GetEntityByUUID(binding.SourceEntity);
+            value.RuntimeOverride = false;
+            value.Resolved        = bool(source);
+            if (!source)
+                continue;
+            const auto world = GetWorldTransform(source);
+            if (binding.Quantity == MaterialParameterQuantity::WorldPosition)
+                value.Value = {world[3].x, world[3].y, world[3].z, 1};
+            else
             {
-                const auto& binding = drivers.Bindings[i];
-                auto&       value   = values[i];
-                if (value.Parameter != binding.Parameter)
-                    value.Parameter = binding.Parameter;
-                const auto source = GetEntityByUUID(binding.SourceEntity);
-                value.Resolved    = bool(source);
-                if (!source)
-                    continue;
-                const auto world = GetWorldTransform(source);
-                if (binding.Quantity == MaterialParameterQuantity::WorldPosition)
-                    value.Value = {world[3].x, world[3].y, world[3].z, 1};
-                else
+                const int   axis = binding.Quantity == MaterialParameterQuantity::WorldForward ? 2 :
+                                   binding.Quantity == MaterialParameterQuantity::WorldUp      ? 1 :
+                                                                                                 0;
+                glm::vec3   direction(world[axis]);
+                const float length = glm::length(direction);
+                direction          = length > 1e-20f ? direction / length : glm::vec3(0);
+                value.Value        = {direction.x, direction.y, direction.z, 0};
+            }
+        }
+        size_t next = drivers.Bindings.size();
+        for (const auto& [name, overrideValue] : drivers.Overrides)
+        {
+            bool found = false;
+            for (size_t i = 0; i < drivers.Bindings.size(); ++i)
+                if (auto& value = values[i]; value.Parameter == name)
                 {
-                    const int   axis = binding.Quantity == MaterialParameterQuantity::WorldForward ? 2 :
-                                       binding.Quantity == MaterialParameterQuantity::WorldUp      ? 1 :
-                                                                                                     0;
-                    glm::vec3   direction(world[axis]);
-                    const float length = glm::length(direction);
-                    direction          = length > 1e-20f ? direction / length : glm::vec3(0);
-                    value.Value        = {direction.x, direction.y, direction.z, 0};
+                    value.Value           = overrideValue;
+                    value.Resolved        = true;
+                    value.RuntimeOverride = true;
+                    found                 = true;
                 }
+            if (!found)
+            {
+                auto& value = values[next++];
+                if (value.Parameter != name)
+                    value.Parameter = name;
+                value.Value           = overrideValue;
+                value.Resolved        = true;
+                value.RuntimeOverride = true;
             }
         }
     }

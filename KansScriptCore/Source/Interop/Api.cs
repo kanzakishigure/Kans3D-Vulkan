@@ -6,6 +6,7 @@ namespace Kans.Interop
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct NativeApi
     {
+        public const uint ApiVersion = 2;
         public uint Version, Size;
         public delegate* unmanaged[Cdecl]<int, byte*, void> Log;
         public delegate* unmanaged[Cdecl]<ulong, uint, int> HasComponent;
@@ -14,6 +15,9 @@ namespace Kans.Interop
         public delegate* unmanaged[Cdecl]<ulong, Vector3*, void> GetRotation;
         public delegate* unmanaged[Cdecl]<ulong, Vector3*, void> SetRotation;
         public delegate* unmanaged[Cdecl]<int, int> IsKeyPressed;
+        public delegate* unmanaged[Cdecl]<ulong, byte*, float*, void> SetMaterialParameter;
+        public delegate* unmanaged[Cdecl]<ulong, byte*, void> ClearMaterialParameter;
+        public delegate* unmanaged[Cdecl]<ulong, byte*, float*, int> GetMaterialParameter;
     }
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct ManagedApi

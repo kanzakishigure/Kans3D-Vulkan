@@ -106,6 +106,68 @@ namespace Kans
             catch (...)
             {}
         }
+        void KANS_SCRIPT_CALL SetMaterialParameter(uint64_t id, const char* name, const float* value) noexcept
+        {
+            try
+            {
+                auto entity = Resolve(id);
+                if (!entity || !name || !value)
+                    return;
+                auto&                      drivers = entity.HasComponent<MaterialParameterDriversComponent>() ?
+                                                         entity.GetComponent<MaterialParameterDriversComponent>() :
+                                                         entity.AddComponent<MaterialParameterDriversComponent>();
+                const std::array<float, 4> v {value[0], value[1], value[2], value[3]};
+                for (auto& entry : drivers.Overrides)
+                    if (entry.first == name)
+                    {
+                        entry.second = v;
+                        return;
+                    }
+                drivers.Overrides.emplace_back(name, v);
+            }
+            catch (...)
+            {}
+        }
+        void KANS_SCRIPT_CALL ClearMaterialParameter(uint64_t id, const char* name) noexcept
+        {
+            try
+            {
+                auto entity = Resolve(id);
+                if (!entity || !name || !entity.HasComponent<MaterialParameterDriversComponent>())
+                    return;
+                auto& overrides = entity.GetComponent<MaterialParameterDriversComponent>().Overrides;
+                overrides.erase(std::remove_if(overrides.begin(),
+                                               overrides.end(),
+                                               [&](const auto& entry) { return entry.first == name; }),
+                                overrides.end());
+            }
+            catch (...)
+            {}
+        }
+        int32_t KANS_SCRIPT_CALL GetMaterialParameter(uint64_t id, const char* name, float* out) noexcept
+        {
+            if (!out)
+                return 0;
+            std::fill_n(out, 4, 0.0f);
+            try
+            {
+                auto entity = Resolve(id);
+                if (!entity || !name || !entity.HasComponent<MaterialParameterDriversComponent>())
+                    return 0;
+                ScriptEngine::GetSceneContext()->UpdateMaterialParameterDrivers(entity);
+                const auto& values = *entity.GetComponent<MaterialParameterDriversComponent>().Values;
+                // Match the renderer: the last resolved binding with this name wins.
+                for (auto value = values.rbegin(); value != values.rend(); ++value)
+                    if (value->Resolved && value->Parameter == name)
+                    {
+                        std::copy(value->Value.begin(), value->Value.end(), out);
+                        return 1;
+                    }
+            }
+            catch (...)
+            {}
+            return 0;
+        }
         int32_t KANS_SCRIPT_CALL KeyPressed(int32_t key) noexcept
         {
             try
@@ -136,6 +198,9 @@ namespace Kans
                 &NativeSetTranslation,
                 &NativeGetRotation,
                 &NativeSetRotation,
-                &KeyPressed};
+                &KeyPressed,
+                &SetMaterialParameter,
+                &ClearMaterialParameter,
+                &GetMaterialParameter};
     }
 } // namespace Kans

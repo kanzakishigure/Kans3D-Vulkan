@@ -1,3 +1,6 @@
+using System;
+using System.Text;
+
 namespace Kans
 {
     public class Entity
@@ -26,6 +29,51 @@ namespace Kans
         internal void Create() => OnCreate();
         internal void Update(float ts) => OnUpdate(ts);
         internal void Destroy() => OnDestroy();
+
+        /// <summary>Sets a runtime shader parameter on this rendered instance. Set it on the model root;
+        /// it applies to all draws of that instance root, without changing the shared material.
+        /// Scalar values use (value, 0, 0, 0). Names must fit in 255 UTF-8 bytes.</summary>
+        public void SetMaterialParameter(string name, float value) => SetMaterialParameter(name, new Vector4(value, 0, 0, 0));
+
+        /// <summary>Sets a runtime parameter on the model root's draws. Vector3 uses w = 0.</summary>
+        public void SetMaterialParameter(string name, Vector3 value) => SetMaterialParameter(name, new Vector4(value.X, value.Y, value.Z, 0));
+
+        /// <summary>Sets a runtime parameter on the model root's draws. Undeclared material names are ignored.</summary>
+        public unsafe void SetMaterialParameter(string name, Vector4 value)
+        {
+            byte* bytes = stackalloc byte[256];
+            EncodeParameterName(name, bytes);
+            InternalCalls.Api.SetMaterialParameter(ID, bytes, &value.X);
+        }
+
+        /// <summary>Removes a runtime override, restoring its binding or removing the instance parameter.</summary>
+        public unsafe void ClearMaterialParameter(string name)
+        {
+            byte* bytes = stackalloc byte[256];
+            EncodeParameterName(name, bytes);
+            InternalCalls.Api.ClearMaterialParameter(ID, bytes);
+        }
+
+        /// <summary>Reads the current effective binding or override on this model root. Returns false and a zero vector when absent.</summary>
+        public unsafe bool TryGetMaterialParameter(string name, out Vector4 value)
+        {
+            byte* bytes = stackalloc byte[256];
+            EncodeParameterName(name, bytes);
+            Vector4 result = default;
+            bool found = InternalCalls.Api.GetMaterialParameter(ID, bytes, &result.X) != 0;
+            value = result;
+            return found;
+        }
+
+        private static unsafe void EncodeParameterName(string name, byte* bytes)
+        {
+            ArgumentNullException.ThrowIfNull(name);
+            int length = Encoding.UTF8.GetByteCount(name);
+            if (length > 255 || name.AsSpan().IndexOf('\0') >= 0)
+                throw new ArgumentException("Parameter names must fit in 255 UTF-8 bytes and contain no NUL.", nameof(name));
+            Encoding.UTF8.GetBytes(name.AsSpan(), new Span<byte>(bytes, length));
+            bytes[length] = 0;
+        }
 
         public bool HasComponent<T>() => InternalCalls.HasComponent(ID, ComponentType<T>.ID);
         public T? GetComponent<T>() where T : Component, new()
