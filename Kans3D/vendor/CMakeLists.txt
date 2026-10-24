@@ -170,30 +170,6 @@ set_target_properties(assimp PROPERTIES
     FOLDER "Dependencies"
     CXX_STANDARD 17
 )
-# ============================================================
-# mono — Pre-built IMPORTED library (Windows) / system (Linux)
-# ============================================================
-if(WIN32)
-    add_library(mono INTERFACE)                                                                                                                                                                                                
-    target_include_directories(mono INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/mono/include)                                                                                                                                        
-    target_link_libraries(mono INTERFACE                                                                                                                                                                                       
-        "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/mono-2.0-sgen.lib>"                                                                                                                                      
-        "$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/mono-2.0-sgen.lib>"                                                                                                             
-    )
-else()
-    find_library(MONO_LIBRARY mono-2.0)
-    find_path(MONO_INCLUDE_DIR mono/jit/jit.h
-        PATHS /usr/include/mono-2.0
-    )
-    if(MONO_LIBRARY AND MONO_INCLUDE_DIR)
-        add_library(mono INTERFACE)
-        target_include_directories(mono INTERFACE ${MONO_INCLUDE_DIR})
-        target_link_libraries(mono INTERFACE ${MONO_LIBRARY})
-    else()
-        message(WARNING "mono not found. Install: sudo pacman -S mono")
-        add_library(mono INTERFACE)
-    endif()
-endif()       
 
 # ============================================================
 # Vulkan SDK — INTERFACE library bundling shaderc, spirv-cross, vulkan
