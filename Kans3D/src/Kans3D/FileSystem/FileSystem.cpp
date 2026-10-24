@@ -151,7 +151,6 @@ namespace Kans
     {
         std::set<std::string> whiteList;
         whiteList.emplace("assets");
-        whiteList.emplace("mono");
         whiteList.emplace("Resources");
         whiteList.emplace("Project.ini");
 
@@ -172,7 +171,7 @@ namespace Kans
 
         std::string HashValue = Hash::GenerateMD5Hash(hashString);
 
-        std::string Secretkey = "Project.iniResourcesassetsmono";
+        std::string Secretkey = "Project.iniResourcesassets";
 
         return HashValue == Hash::GenerateMD5Hash(Secretkey);
     }
