@@ -96,6 +96,8 @@ namespace Kans
     {
         std::vector<MaterialParameterBinding> Bindings;
         Ref<InstanceMaterialParameters>       Values;
+        // Runtime only, ordered by first set. Copies/snapshots retain bindings alone.
+        std::vector<std::pair<std::string, std::array<float, 4>>> Overrides;
         MaterialParameterDriversComponent() = default;
         MaterialParameterDriversComponent(const MaterialParameterDriversComponent& other) : Bindings(other.Bindings) {}
         MaterialParameterDriversComponent& operator=(const MaterialParameterDriversComponent& other)
@@ -104,6 +106,7 @@ namespace Kans
             {
                 Bindings = other.Bindings;
                 Values.reset();
+                Overrides.clear();
             }
             return *this;
         }

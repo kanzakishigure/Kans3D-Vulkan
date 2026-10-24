@@ -38,13 +38,14 @@ namespace Kans.Interop
         public static int InitializeTables(NativeApi* native, int nativeSize, ManagedApi* managed, int managedSize)
         {
             if (native == null || managed == null || nativeSize != sizeof(NativeApi) || managedSize != sizeof(ManagedApi) ||
-                native->Version != 1 || native->Size != sizeof(NativeApi) ||
-                managed->Version != 1 || managed->Size != sizeof(ManagedApi)) return -1;
+                native->Version != NativeApi.ApiVersion || native->Size != sizeof(NativeApi) ||
+                managed->Version != NativeApi.ApiVersion || managed->Size != sizeof(ManagedApi)) return -1;
             if (native->Log == null || native->HasComponent == null || native->GetTranslation == null ||
-                native->SetTranslation == null || native->GetRotation == null || native->SetRotation == null || native->IsKeyPressed == null) return -1;
+                native->SetTranslation == null || native->GetRotation == null || native->SetRotation == null || native->IsKeyPressed == null ||
+                native->SetMaterialParameter == null || native->ClearMaterialParameter == null || native->GetMaterialParameter == null) return -1;
             InternalCalls.Api = *native;
             *managed = new ManagedApi {
-                Version = 1, Size = (uint)sizeof(ManagedApi), Shutdown = &Shutdown, LoadAssembly = &LoadAssembly,
+                Version = NativeApi.ApiVersion, Size = (uint)sizeof(ManagedApi), Shutdown = &Shutdown, LoadAssembly = &LoadAssembly,
                 ReloadAssembly = &ReloadAssembly, ClassCount = &ClassCount, ClassName = &ClassName,
                 ClassExists = &ClassExists, Create = &Create, Destroy = &Destroy, Update = &Update,
                 SetPlaying = &SetPlaying, AllocatedBytes = &AllocatedBytes, LastUnloadCollected = &LastUnloadCollected

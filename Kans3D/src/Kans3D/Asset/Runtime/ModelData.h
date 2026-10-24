@@ -70,6 +70,8 @@ namespace Kans
         std::string          Parameter;
         std::array<float, 4> Value {};
         bool                 Resolved = false;
+        // Runtime overrides also accept scalar/vec2 float declarations; drivers remain vec3/vec4.
+        bool RuntimeOverride = false;
     };
     using InstanceMaterialParameters = std::vector<InstanceMaterialParameter>;
 

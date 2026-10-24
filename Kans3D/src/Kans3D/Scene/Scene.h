@@ -82,6 +82,7 @@ namespace Kans
         bool PrepareAnimator(Entity root);
         void UpdateAnimations(double seconds);
         void UpdateMaterialParameterDrivers();
+        void UpdateMaterialParameterDrivers(Entity entity);
         bool PreviewAnimation(Entity root, size_t layer, uint32_t state, double time);
         void ApplyAnimatorPose(Entity root, const struct AnimationPose& pose);
         void ResetAnimator(Entity root);
