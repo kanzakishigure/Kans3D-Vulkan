@@ -3,17 +3,17 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <PublishAot>true</PublishAot>
-    <NativeLib>Shared</NativeLib>
-    <AssemblyName>KansScripts</AssemblyName>
+    <IsAotCompatible>true</IsAotCompatible>
     <ILLinkTreatWarningsAsErrors>true</ILLinkTreatWarningsAsErrors>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- An offline restore cannot fetch vulnerability data; reported vulnerabilities (NU1901-NU1904) stay errors. -->
     <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1900</WarningsNotAsErrors>
     <WarningsAsErrors>$(WarningsAsErrors);IL2*;IL3*</WarningsAsErrors>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <AssemblyName>ScriptCore</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="$(KansScriptProject)" />
-    <ProjectReference Include="../KansScriptCore/KansScriptCore.csproj" />
+    <ProjectReference Include="../Generators/KansScriptCore.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;PublishTrimmed;RuntimeIdentifier;SelfContained" />
+    <AdditionalFiles Include="../../Kans3D/src/Kans3D/Script/ComponentTypes.def" />
   </ItemGroup>
 </Project>

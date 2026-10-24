@@ -1,18 +1,17 @@
 file(GLOB_RECURSE KANS_MANAGED_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cs"
-    "${PROJECT_SOURCE_DIR}/KansScriptCore.Generators/*.cs")
-list(FILTER KANS_MANAGED_SOURCES EXCLUDE REGEX "/(obj|bin)/")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/Source/*.cs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Generators/*.cs")
 set(KANS_MANAGED_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
 set(KANS_MANAGED_FILES
     "${KANS_MANAGED_OUTPUT}/ScriptCore.dll"
     "${KANS_MANAGED_OUTPUT}/ScriptCore.runtimeconfig.json"
     "${KANS_MANAGED_OUTPUT}/ScriptCore.deps.json")
 add_custom_command(OUTPUT ${KANS_MANAGED_FILES}
-    COMMAND "${DOTNET}" build "${CMAKE_CURRENT_SOURCE_DIR}/KansScriptCore.csproj"
+    COMMAND "${DOTNET}" build "${CMAKE_CURRENT_SOURCE_DIR}/Core/KansScriptCore.csproj"
         -c "$<IF:$<CONFIG:Debug>,Debug,Release>" -m:1 -nr:false --nologo
         -p:UseSharedCompilation=false --output "${KANS_MANAGED_OUTPUT}"
     DEPENDS ${KANS_MANAGED_SOURCES}
-        KansScriptCore.csproj "${PROJECT_SOURCE_DIR}/KansScriptCore.Generators/KansScriptCore.Generators.csproj"
+        Core/KansScriptCore.csproj Generators/KansScriptCore.Generators.csproj Directory.Build.props
         "${KANS3D_DIR}/src/Kans3D/Script/ComponentTypes.def"
     VERBATIM)
 add_custom_target(KansScriptCore ALL DEPENDS ${KANS_MANAGED_FILES})

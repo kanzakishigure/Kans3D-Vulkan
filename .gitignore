@@ -36,7 +36,5 @@ build_clangd/
 SourceAssetDatabase.cache.yaml
 SourceAssetDatabase.cache.yaml.tmp-*/
 # SDK-style managed projects and intermediates
-!KansScriptCore/*.csproj
-!KansScriptCore.Generators/*.csproj
-!KansScriptAot/*.csproj
+!KansScriptCore/**/*.csproj
 **/obj/
