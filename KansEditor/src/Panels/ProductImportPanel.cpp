@@ -312,12 +312,17 @@ namespace Kans
         ImGui::BeginDisabled(busy);
         constexpr const char* key     = "mesh.smooth_normals";
         const auto            current = m_Configuration.Settings.find(key);
-        bool smooth = current != m_Configuration.Settings.end() && current->second == "true";
-        if (ImGui::Checkbox("Smooth normals", &smooth))
-            SetSetting(key, smooth ? "true" : "");
+        // "true" is the legacy spelling of weld.
+        const std::string value = current == m_Configuration.Settings.end() ? "" : current->second;
+        const char*       modes[] = {"Off", "Weld positions", "Source vertices"};
+        int               mode    = value == "source" ? 2 : (value == "weld" || value == "true") ? 1 : 0;
+        if (ImGui::Combo("Smooth normals", &mode, modes, 3))
+            SetSetting(key, mode == 2 ? "source" : mode == 1 ? "weld" : "");
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Stores a welded normal per position (Kans3D/SmoothNormal.glsl).\n"
-                              "Inverted-hull outlines extruded along it stay closed at hard edges.");
+            ImGui::SetTooltip("Stores a smooth normal per vertex (Kans3D/SmoothNormal.glsl), e.g. for inverted-hull "
+                              "outlines.\nWeld: one normal per position, closes cracks at hard edges.\n"
+                              "Source: one normal per FBX control point, like Blender point normals; keeps "
+                              "overlapping\nlayers and UV-seam shells apart. Other formats fall back to Weld.");
         ImGui::EndDisabled();
         ImGui::TreePop();
     }
