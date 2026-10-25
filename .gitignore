@@ -37,3 +37,6 @@ SourceAssetDatabase.cache.yaml.tmp-*/
 # SDK-style managed projects and intermediates
 !KansScriptCore/**/*.csproj
 **/obj/
+# ImGui runtime layout and log files
+imgui.ini
+imgui_log.txt

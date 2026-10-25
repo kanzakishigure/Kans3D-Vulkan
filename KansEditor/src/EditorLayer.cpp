@@ -11,7 +11,6 @@
 #include <Kans3D/Core/Hash.h>
 #include <Kans3D/Core/UUID.h>
 #include <Kans3D/ImGui/Colors.h>
-#define NativeScript false
 
 namespace Kans
 {
@@ -44,7 +43,7 @@ namespace Kans
 
             // Create Scene
             {
-                m_ActiveScene = CreateRef<Scene>("TestDemo");
+                m_ActiveScene = CreateRef<Scene>("Untitled");
                 m_ActiveScene->OnViewportResize((uint32_t)Application::Get().GetWindow().GetWidth(),
                                                 (uint32_t)Application::Get().GetWindow().GetHeight());
                 auto pointlight = m_ActiveScene->CreateEntity("PointLight");
@@ -69,43 +68,6 @@ namespace Kans
                 auto& cmp             = m_CameraEntity.AddComponent<CameraComponent>();
                 cmp.SceneCamera.SetViewportSize(1920, 1080);
             }
-            // Native Script
-#if NativeScript
-
-            {
-                class CameracontorlScript : public ScriptableEntity
-                {
-                public:
-                    void OnCreate() override {}
-
-                    void OnUpdate(TimeStep ts) override
-                    {
-
-                        auto& transformCMP = GetComponent<TransformComponent>();
-                        if (Input::IsKeyPressed(Key::W))
-                        {
-                            transformCMP.Position.y += ts * 5.0f;
-                        }
-                        if (Input::IsKeyPressed(Key::S))
-                        {
-                            transformCMP.Position.y -= ts * 5.0f;
-                        }
-                        if (Input::IsKeyPressed(Key::A))
-                        {
-                            transformCMP.Position.x -= ts * 5.0f;
-                        }
-                        if (Input::IsKeyPressed(Key::D))
-                        {
-                            transformCMP.Position.x += ts * 5.0f;
-                        }
-                    }
-
-                    void OnDestory() override {}
-                };
-
-                m_CameraEntity.AddComponent<NativeScriptComponent>().Bind<CameracontorlScript>();
-            }
-#endif
 
             // InitPanel
             {
