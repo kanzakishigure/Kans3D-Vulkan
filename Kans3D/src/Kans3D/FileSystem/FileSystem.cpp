@@ -1,18 +1,12 @@
 #include "kspch.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 #include <mutex>
-#include <set>
 #include <thread>
 #if defined(_WIN32)
 #include <Windows.h>
 #endif
-#include "Kans3D/Core/Hash.h"
 namespace Kans
 {
-
-#define DESERIALIZE_FILESYSTEMSPEC_PROPERTY(valueName, value, ostream) \
-    if (!value.empty()) \
-    (ostream << #valueName << "=" << value << "\n")
 
     int SkipBOM(std::istream& in)
     {
@@ -40,42 +34,34 @@ namespace Kans
 
         CORE_ASSERT(!configPath.empty(), "FileSystm init fail");
         s_Specification = new FileSystemSpecification(configPath);
-        s_Specification->Serialize();
+        s_Specification->ReadConfig();
+    }
 
-        if (!s_Specification->m_WorkSpace.empty())
+    bool KansFileSystem::IsWorkspace(const std::filesystem::path& dir)
+    {
+        if (dir.empty())
+            return false;
+
+        std::error_code error;
+        return std::filesystem::is_directory(dir / "assets", error) &&
+               std::filesystem::is_directory(dir / "Resources", error) &&
+               std::filesystem::is_regular_file(dir / "Project.ini", error);
+    }
+
+    std::optional<std::filesystem::path> KansFileSystem::FindWorkspace(const std::filesystem::path& executableDir,
+                                                                    const std::filesystem::path& currentDir)
+    {
+        if (IsWorkspace(executableDir))
+            return executableDir;
+
+        for (auto dir = currentDir; !dir.empty(); dir = dir.parent_path())
         {
-            std::filesystem::path tempPath = std::filesystem::current_path();
-            std::filesystem::path parentPath;
-            while (tempPath.has_parent_path())
-            {
-
-                // we should use some value like hash value to check is the path is legal
-                if (s_Specification->IsLegalWorkSpace(tempPath))
-                {
-                    parentPath = tempPath.parent_path();
-                    CORE_TRACE_TAG("Filesystem", "Kans3D run in the root directory:[{0}]", parentPath);
-                    break;
-                }
-                if (tempPath == tempPath.parent_path())
-                {
-
-                    CORE_ASSERT(false, "Kans3D unable to retrieval a legal root directory");
-                    break;
-                }
-                tempPath = tempPath.parent_path();
-            }
-            if (!parentPath.empty())
-            {
-                std::filesystem::path workPath = parentPath / s_Specification->m_WorkSpace;
-                std::filesystem::current_path(workPath);
-                if (s_Specification->m_RootPathHashValue.empty())
-                {
-                    s_Specification->GenRootPathHash(parentPath);
-                    s_Specification->Deserialize();
-                }
-            }
-            CORE_TRACE_TAG("Filesystem", "Curent workspace :[{0}]", std::filesystem::current_path());
+            if (IsWorkspace(dir))
+                return dir;
+            if (dir == dir.parent_path())
+                break;
         }
+        return std::nullopt;
     }
 
     bool KansFileSystem::Exists(const std::string& filepath) { return std::filesystem::exists(filepath); }
@@ -133,66 +119,34 @@ namespace Kans
                             std::filesystem::path("Resources/Scripts/ScriptCore.dll");
         if (assembly.is_absolute())
             return assembly;
+        return GetExecutableDirectory() / assembly;
+    }
+
+    std::filesystem::path KansFileSystem::GetExecutableDirectory()
+    {
 #if defined(_WIN32)
         std::vector<wchar_t> executable(32768);
-        auto                 length = GetModuleFileNameW(nullptr, executable.data(), DWORD(executable.size()));
-        return std::filesystem::path(std::wstring(executable.data(), length)).parent_path() / assembly;
+        const auto length = GetModuleFileNameW(nullptr, executable.data(), DWORD(executable.size()));
+        if (length == 0)
+            throw std::system_error(GetLastError(), std::system_category(), "GetModuleFileNameW failed");
+        if (length >= executable.size())
+            throw std::system_error(ERROR_INSUFFICIENT_BUFFER, std::system_category(), "Executable path is too long");
+        return std::filesystem::path(std::wstring(executable.data(), length)).parent_path();
 #else
-        return std::filesystem::canonical("/proc/self/exe").parent_path() / assembly;
+        return std::filesystem::read_symlink("/proc/self/exe").parent_path();
 #endif
     }
 
-    void KansFileSystem::ShutDown() { delete s_Specification; }
+    void KansFileSystem::ShutDown()
+    {
+        delete s_Specification;
+        s_Specification = nullptr;
+    }
 
     FileSystemSpecification::FileSystemSpecification(const std::filesystem::path& configPath) : m_ConfigPath(configPath)
     {}
 
-    bool FileSystemSpecification::IsLegalWorkSpace(std::filesystem::path path)
-    {
-        std::set<std::string> whiteList;
-        whiteList.emplace("assets");
-        whiteList.emplace("Resources");
-        whiteList.emplace("Project.ini");
-
-        std::set<std::string>               foundNames;
-        std::filesystem::directory_iterator it(path);
-        for (const auto& filepath : it)
-        {
-            std::string filename = filepath.path().filename().string();
-            if (whiteList.find(filename) != whiteList.end())
-            {
-                foundNames.insert(filename);
-            }
-        }
-
-        std::string hashString;
-        for (const auto& name : foundNames)
-            hashString += name;
-
-        std::string HashValue = Hash::GenerateMD5Hash(hashString);
-
-        std::string Secretkey = "Project.iniResourcesassets";
-
-        return HashValue == Hash::GenerateMD5Hash(Secretkey);
-    }
-
-    void FileSystemSpecification::GenRootPathHash(std::filesystem::path rootpath)
-    {
-        std::set<std::string> whiteList;
-        whiteList.emplace(".git");
-        std::filesystem::directory_iterator it(rootpath);
-        std::string                         hashString;
-        for (const auto& filepath : it)
-        {
-            std::string filename = filepath.path().filename().string();
-            if (whiteList.find(filename) == whiteList.end())
-            {
-                hashString += filename;
-            }
-        }
-        m_RootPathHashValue = Hash::GenerateMD5Hash(hashString);
-    }
-    void FileSystemSpecification::Serialize()
+    void FileSystemSpecification::ReadConfig()
     {
         std::ifstream config_file(m_ConfigPath);
         std::string   config_line;
@@ -212,17 +166,9 @@ namespace Kans
                     renderKey = renderKey.substr(first, renderKey.find_last_not_of(" \t") - first + 1);
                 if ("RenderBackend" == renderKey)
                     m_RenderBackend = value;
-                else if ("WorkSpace" == key)
-                {
-                    m_WorkSpace = value;
-                }
                 else if ("ResoucesDir" == key)
                 {
                     m_ResoucesDir = value;
-                }
-                else if ("ShaderDir" == key)
-                {
-                    m_ShaderPath = value;
                 }
                 else if ("FontsDir" == key)
                 {
@@ -236,48 +182,12 @@ namespace Kans
                 {
                     m_AssetsRoot = value;
                 }
-                else if ("ProfileSpecicationDir" == key)
-                {
-                    m_ProfileSpecicationPath = value;
-                }
                 else if ("ShaderCacheDir" == key)
                 {
                     m_ShaderCachePath = value;
                 }
-                else if ("CacheDir" == key)
-                {
-                    m_CachePath = value;
-                }
-                else if ("RootPathHashValue" == key)
-                {
-                    m_RootPathHashValue = value;
-                }
             }
         }
-    }
-
-    void FileSystemSpecification::Deserialize()
-    {
-        std::ofstream out_config_file(m_ConfigPath, std::ios::out | std::ios::trunc);
-        if (!out_config_file.good())
-        {
-            CORE_TRACE_TAG("[Filesystem]", "deserialize fileSystemSpecification fail");
-            return;
-        }
-
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(RenderBackend, m_RenderBackend, out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(WorkSpace, m_WorkSpace.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ResoucesDir, m_ResoucesDir.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(FontsDir, m_FontsPath.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ScriptAssemblyPath, m_ScriptAssemblyPath.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(AssetsDir, m_AssetsRoot.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ProfileSpecicationDir, m_ProfileSpecicationPath.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ShaderDir, m_ShaderPath.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(CacheDir, m_CachePath.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(ShaderCacheDir, m_ShaderCachePath.string(), out_config_file);
-        DESERIALIZE_FILESYSTEMSPEC_PROPERTY(RootPathHashValue, m_RootPathHashValue, out_config_file);
-
-        out_config_file.close();
     }
 
 } // namespace Kans

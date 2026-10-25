@@ -1,5 +1,8 @@
 #include <Kans3D.h>
 #include <Kans3D/Core/EntryPoint.h>
+#include <Kans3D/FileSystem/FileSystem.h>
+
+#include <cstdlib>
 
 #include <imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -20,12 +23,21 @@ public:
 };
 Kans::Application* Kans::createApplication(int argc, char** argv)
 {
-    std::filesystem::path executable_path(argv[0]);
-    std::filesystem::path config_file_path = std::filesystem::current_path() / "KansEditor.ini";
+    const auto executableDir = KansFileSystem::GetExecutableDirectory();
+    const auto currentDir    = std::filesystem::current_path();
+    const auto workspace     = KansFileSystem::FindWorkspace(executableDir, currentDir);
+    if (!workspace)
+    {
+        CORE_ERROR("Editor workspace not found: required assets/, Resources/, and Project.ini. "
+                   "Searched executable directory '{}' and current directory '{}' and its parents.",
+                   executableDir.string(), currentDir.string());
+        std::exit(EXIT_FAILURE);
+    }
+    std::filesystem::current_path(*workspace);
 
     ApplicationSpecification spec;
     spec.Name         = "Kans3D-Editor";
-    spec.ConfigPath   = config_file_path.string();
+    spec.ConfigPath   = (*workspace / "KansEditor.ini").string();
     spec.Height       = 1080;
     spec.Width        = 1920;
     spec.Fullscreen   = false;

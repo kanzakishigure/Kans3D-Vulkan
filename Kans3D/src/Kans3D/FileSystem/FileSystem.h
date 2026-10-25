@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include "Kans3D/Core/ByteBuffer.h"
 
 namespace Kans
@@ -12,23 +13,14 @@ namespace Kans
         FileSystemSpecification(const std::filesystem::path& configPath);
 
     private:
-        void Serialize();
-        void Deserialize();
-
-        bool IsLegalWorkSpace(std::filesystem::path path);
-        void GenRootPathHash(std::filesystem::path path);
+        void ReadConfig();
 
     private:
-        std::filesystem::path m_WorkSpace;
         std::filesystem::path m_ResoucesDir;
         std::filesystem::path m_FontsPath;
         std::filesystem::path m_ScriptAssemblyPath;
         std::filesystem::path m_AssetsRoot;
-        std::filesystem::path m_ProfileSpecicationPath;
-        std::filesystem::path m_ShaderPath;
         std::filesystem::path m_ShaderCachePath;
-        std::filesystem::path m_CachePath;
-        std::string           m_RootPathHashValue;
         std::string           m_RenderBackend;
 
         std::filesystem::path m_ConfigPath;
@@ -41,6 +33,11 @@ namespace Kans
     public:
         static void Init(const std::filesystem::path& configPath);
         static void ShutDown();
+
+        static std::filesystem::path GetExecutableDirectory();
+        static bool IsWorkspace(const std::filesystem::path& dir);
+        static std::optional<std::filesystem::path> FindWorkspace(const std::filesystem::path& executableDir,
+                                                                 const std::filesystem::path& currentDir);
 
         // scope cache
         static void BenginCacheFile() { InitFileCache(); }
@@ -56,8 +53,6 @@ namespace Kans
         static std::string ReadFileSkipBOM(const std::filesystem::path& path);
 
     public:
-        static const std::filesystem::path& GetShaderFolder() { return s_Specification->m_ShaderPath; }
-
         static const std::filesystem::path& GetShaderCacheFolder() { return s_Specification->m_ShaderCachePath; }
 
         static const std::filesystem::path& GetAssetFolder() { return s_Specification->m_AssetsRoot; }
