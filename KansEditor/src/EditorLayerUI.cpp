@@ -118,10 +118,12 @@ namespace Kans
                                            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                                            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-        // The host's tone is what shows in the gaps between docked panels.
+        // The host's tone is what shows in the gaps between docked panels. In play mode the
+        // band turns orange-brown, so it is obvious that edits will not be kept.
         ImGui::PushStyleColor(ImGuiCol_WindowBg, EditorTheme::Colors().App);
+        ImGui::PushStyleColor(ImGuiCol_MenuBarBg, m_Play.IsActive() ? ImVec4 {0.24f, 0.15f, 0.07f, 1.0f} : EditorTheme::Colors().App);
         ImGui::Begin("##EditorDockHost", nullptr, hostFlags);
-        ImGui::PopStyleColor();
+        ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(4);
         DrawMenuBar();
         const ImGuiID dockspace = ImGui::GetID("EditorDockSpace");
@@ -271,23 +273,27 @@ namespace Kans
 
     float EditorLayer::DrawPlayControls(ImVec2 position)
     {
-        using State       = ScenePlaySession::State;
+        using State = ScenePlaySession::State;
         const State state = m_Play.GetState();
-        return Widgets::Pill(position, [&] {
-            if (state == State::Edit)
-            {
-                if (ToolButton(ICON_FA_PLAY, "Play (Ctrl+P)"))
+        float       right = position.x;
+        switch (Widgets::TransportControls(position, state != State::Edit, state == State::Paused, &right))
+        {
+            case Widgets::Transport::PlayStop:
+                if (state == State::Edit)
                     StartPlay();
-            }
-            else if (ToolButton(ICON_FA_STOP, "Stop and restore the scene (Ctrl+P)", true))
-                StopPlay();
-            ImGui::SameLine();
-            if (ToolButton(ICON_FA_PAUSE, "Pause (Ctrl+Shift+P)", state == State::Paused, state != State::Edit))
+                else
+                    StopPlay();
+                break;
+            case Widgets::Transport::Pause:
                 TogglePause();
-            ImGui::SameLine();
-            if (ToolButton(ICON_FA_FORWARD_STEP, "Advance one frame", false, state == State::Paused))
+                break;
+            case Widgets::Transport::Step:
                 m_Play.Step();
-        });
+                break;
+            case Widgets::Transport::None:
+                break;
+        }
+        return right;
     }
 
     // ------------------------------------------------------------------ menu bar and main toolbar
@@ -496,17 +502,21 @@ namespace Kans
         const float  gap     = EditorTheme::Px(EditorTheme::Space2);
         float        x       = ImGui::GetCursorScreenPos().x + EditorTheme::Px(EditorTheme::Space3);
 
+        // The project name opens the project commands (new, open, recent).
         x = Widgets::Pill({x, y}, [&] {
-                if (ToolButton(ICON_FA_FILE, "New scene (Ctrl+N)"))
-                    ConfirmDiscard("creating a new scene", [this] { Record(NewScene()); });
-                ImGui::SameLine();
-                if (ToolButton(ICON_FA_FOLDER_OPEN, "Open scene (Ctrl+O)"))
-                    ConfirmDiscard("opening another scene", [this] { m_SceneDialog = SceneDialog::Open; });
-                ImGui::SameLine();
+                if (Widgets::TextButton(ICON_FA_CUBES, m_ProjectName.c_str(), "Projects", false, true))
+                    ImGui::OpenPopup("##ProjectMenu");
+                if (ImGui::BeginPopup("##ProjectMenu"))
+                {
+                    DrawProjectMenu();
+                    ImGui::EndPopup();
+                }
+            }) + gap;
+        // Only the actions used all the time; the rest live in the menus and shortcuts.
+        x = Widgets::Pill({x, y}, [&] {
                 if (ToolButton(ICON_FA_FLOPPY_DISK, "Save scene (Ctrl+S)", false, !m_Play.IsActive()))
                     SaveCurrentScene();
-            }) + gap;
-        x = Widgets::Pill({x, y}, [&] {
+                ImGui::SameLine();
                 const auto undo    = m_History.UndoLabels();
                 const auto redo    = m_History.RedoLabels();
                 const auto undoTip = undo.empty() ? std::string("Nothing to undo") : "Undo " + undo.front() + " (Ctrl+Z)";
@@ -518,44 +528,14 @@ namespace Kans
                 if (ToolButton(ICON_FA_REDO, redoTip.c_str(), false, editing && !redo.empty()))
                     RedoScene();
             }) + gap;
-        x = Widgets::Pill({x, y}, [&] {
-                if (ToolButton(ICON_FA_FILE_IMPORT, "Asset importer", m_Panels.IsOpen(PanelID::AssetImporter)))
-                    m_Panels.Toggle(PanelID::AssetImporter);
-                ImGui::SameLine();
-                if (ToolButton(ICON_FA_PALETTE, "Create a material in the content browser's folder"))
-                    CreateMaterial(m_ContentBrowserPanel.GetCurrentFolder());
-                ImGui::SameLine();
-                if (ToolButton(ICON_FA_ROTATE_RIGHT, "Refresh published products"))
-                    Record(RefreshProductAssets());
-            }) + gap;
-        x = Widgets::Pill({x, y}, [&] {
-                if (ToolButton(ICON_FA_FOLDER_TREE, "Content browser (Ctrl+Space)", m_Panels.IsOpen(PanelID::ContentBrowser)))
-                    m_Panels.Toggle(PanelID::ContentBrowser);
-                ImGui::SameLine();
-                const size_t errors = m_Console.ErrorCount();
-                if (ToolButton(ICON_FA_TERMINAL, "Console", m_Panels.IsOpen(PanelID::Console)))
-                    m_Panels.Toggle(PanelID::Console);
-                if (errors)
-                {
-                    // Error badge on the console button's top-right corner.
-                    const ImVec2 corner {ImGui::GetItemRectMax().x - EditorTheme::Px(3.0f),
-                                         ImGui::GetItemRectMin().y + EditorTheme::Px(3.0f)};
-                    const auto   text = std::to_string(std::min<size_t>(errors, 99));
-                    const float  size = ImGui::GetFontSize() * 0.7f;
-                    auto*        draw = ImGui::GetForegroundDrawList();
-                    draw->AddCircleFilled(corner, EditorTheme::Px(7.0f), ImGui::GetColorU32(EditorTheme::Colors().Danger));
-                    const ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
-                    draw->AddText(ImGui::GetFont(), size, {corner.x - extent.x * 0.5f, corner.y - extent.y * 0.5f},
-                                  IM_COL32_WHITE, text.c_str());
-                }
-                ImGui::SameLine();
-                if (ToolButton(ICON_FA_CHART_LINE, "Stats and render settings", m_Panels.IsOpen(PanelID::Stats)))
-                    m_Panels.Toggle(PanelID::Stats);
-            }) + gap;
 
-        // Play controls sit in the middle of the band unless the groups reach past it.
-        const float playWidth = 3.0f * EditorTheme::Px(28.0f) + 2.0f * EditorTheme::Px(2.0f) + 2.0f * EditorTheme::Px(3.0f);
-        x = DrawPlayControls({std::max(x + gap, (bar.Min.x + bar.Max.x - playWidth) * 0.5f), y}) + gap;
+        // Play controls in the middle of the band unless the left side reaches past it.
+        const float playTop = bar.Min.y + (bar.GetHeight() - EditorTheme::Px(28.0f)) * 0.5f;
+        x = DrawPlayControls({std::max(x + gap, (bar.Min.x + bar.Max.x - Widgets::TransportWidth()) * 0.5f), playTop}) + gap;
+        // Play mode: an accent line under the band (the band itself is tinted by the host).
+        if (m_Play.IsActive())
+            ImGui::GetWindowDrawList()->AddRectFilled({bar.Min.x, bar.Max.y - EditorTheme::Px(2.0f)}, bar.Max,
+                                                      ImGui::GetColorU32(EditorTheme::Colors().TypeModel));
 
         // Right side: the last error, import progress and the scene name.
         std::string status = ICON_FA_CUBE "  " + (m_ScenePath.empty() ? std::string("Untitled scene") :
@@ -567,10 +547,10 @@ namespace Kans
             char clock[64];
             std::snprintf(clock,
                           sizeof(clock),
-                          "  |  %s %.1f s",
+                          "%s %.1f s   ",
                           m_Play.GetState() == ScenePlaySession::State::Paused ? "Paused" : "Playing",
                           m_Play.GetPlayTime());
-            status += clock;
+            status = clock + status;
         }
         bool importing = false;
         if (m_AssetImports)
@@ -620,7 +600,7 @@ namespace Kans
             ImGui::TextColored(AccentColor, "%s", importText.c_str());
             ImGui::SameLine(0, spacing);
         }
-        ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextDim);
+        ImGui::PushStyleColor(ImGuiCol_Text, m_Play.IsActive() ? EditorTheme::Colors().TypeModel : EditorTheme::Colors().TextDim);
         ImGui::TextUnformatted(status.c_str());
         ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
