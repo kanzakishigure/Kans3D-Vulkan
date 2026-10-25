@@ -8,7 +8,8 @@ namespace Kans
 {
     struct TextureImportSettings
     {
-        TextureUsage                     Usage = TextureUsage::Color;
+        // Qualified: Kans::RenderHardware also declares TextureUsage (MSVC C2872 in some translation units).
+        ::Kans::TextureUsage             Usage = ::Kans::TextureUsage::Color;
         std::optional<TextureColorSpace> ColorSpace;
         std::optional<TextureAlphaMode>  AlphaMode;
         bool                             GenerateMips = true;

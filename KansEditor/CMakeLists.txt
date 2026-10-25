@@ -1,6 +1,5 @@
 # ============================================================
 # KansEditor — ConsoleApp (C++17)
-# premake: project "KansEditor", location "KansEditor"
 # ============================================================
 
 file(GLOB_RECURSE EDITOR_SOURCES
@@ -40,8 +39,6 @@ set_target_properties(KansEditor PROPERTIES
 )
 
 # ---- Post-build: copy assimp DLL to output (Windows only) ----
-# premake postbuildcommands:
-#   {COPY} "%{Binaries.Assimp_Debug}" "%{cfg.targetdir}"
 if(WIN32)
     add_custom_command(TARGET KansEditor POST_BUILD 
         # assimp DLL
