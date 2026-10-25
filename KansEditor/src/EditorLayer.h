@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <deque>
+#include <future>
 #include <set>
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Project/Project.h"
@@ -20,6 +21,7 @@
 #include "UI/SceneFileDialog.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Scene/ScenePlaySession.h"
+#include "Kans3D/Script/ScriptBuild.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
 #include "ViewportClient.h"
@@ -133,6 +135,15 @@ namespace Kans
         void OpenMaterial(const std::filesystem::path& file);
         void CreateMaterial(const std::filesystem::path& directory);
 
+        // Project C# scripts: <project root>/Scripts/GameScripts.csproj, built with the SDK.
+        std::filesystem::path ScriptProjectPath() const;
+        std::filesystem::path ScriptAssemblyPath() const;
+        void                  CreateScriptProject();
+        void                  BuildScripts();
+        void                  PollScriptBuild();
+        void                  LoadProjectScripts();
+        void                  DrawScriptsMenu();
+
         enum class SceneDialog
         {
             None,
@@ -147,6 +158,10 @@ namespace Kans
 
         SceneHistory     m_History;
         ScenePlaySession m_Play;
+        // The script build runs on a worker thread; loading happens on the main thread.
+        std::future<ScriptBuild::Result> m_ScriptBuild;
+        bool                             m_ScriptsLoaded = false;
+        std::string                      m_ScriptStatus;
         bool         m_EditPending = false;
 
         Scope<EditorAssetImportService> m_AssetImports;

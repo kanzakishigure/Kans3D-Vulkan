@@ -1,0 +1,64 @@
+using System;
+using System.Collections.Immutable;
+using System.Linq;
+using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
+
+namespace Kans.Generators
+{
+    [Generator]
+    public sealed class ScriptGenerator : IIncrementalGenerator
+    {
+        public void Initialize(IncrementalGeneratorInitializationContext context)
+        {
+            var components = context.AdditionalTextsProvider.Where(f => f.Path.EndsWith("ComponentTypes.def"));
+            context.RegisterSourceOutput(components, (output, file) =>
+            {
+                var text = new StringBuilder("namespace Kans { internal static class ComponentIds {\n");
+                foreach (string line in file.GetText()!.ToString().Split('\n'))
+                {
+                    if (!line.StartsWith("KANS_COMPONENT(")) continue;
+                    string[] parts = line.Substring(15).TrimEnd('\r', ')').Split(',');
+                    text.Append("internal const uint ").Append(parts[1].Trim()).Append(" = ")
+                        .Append(parts[0].Trim()).Append(";\n");
+                }
+                output.AddSource("ComponentIds.g.cs", SourceText.From(text.Append("} }").ToString(), Encoding.UTF8));
+            });
+            var classes = context.SyntaxProvider.CreateSyntaxProvider(
+                (node, _) => node is ClassDeclarationSyntax c && c.BaseList != null,
+                (syntax, _) => syntax.SemanticModel.GetDeclaredSymbol((ClassDeclarationSyntax)syntax.Node) as INamedTypeSymbol)
+                .Where(type => type != null && !type.IsAbstract && InheritsEntity(type)).Collect();
+            var isScriptProject = context.CompilationProvider.Select((compilation, _) =>
+            {
+                var entity = compilation.GetTypeByMetadataName("Kans.Entity");
+                return entity != null && !SymbolEqualityComparer.Default.Equals(entity.ContainingAssembly, compilation.Assembly);
+            });
+            context.RegisterSourceOutput(classes.Combine(isScriptProject), (output, value) =>
+            {
+                if (value.Right) EmitRegistry(output, value.Left);
+            });
+        }
+
+        private static bool InheritsEntity(INamedTypeSymbol? type)
+        {
+            for (var parent = type?.BaseType; parent != null; parent = parent.BaseType)
+                if (parent.ToDisplayString() == "Kans.Entity") return true;
+            return false;
+        }
+
+        private static void EmitRegistry(SourceProductionContext output, ImmutableArray<INamedTypeSymbol?> classes)
+        {
+            var names = classes.Select(c => c!.ToDisplayString()).Distinct().OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            var source = new StringBuilder("#nullable enable\nnamespace Kans.Generated { public sealed class ScriptRegistry : global::Kans.Interop.IScriptRegistry {\n");
+            source.Append("public string[] Names { get; } = new string[] { ");
+            foreach (string name in names) source.Append('"').Append(name).Append("\",");
+            source.Append("};\npublic global::Kans.Entity? Create(string name) => name switch {\n");
+            foreach (string name in names)
+                source.Append('"').Append(name).Append("\" => new global::").Append(name).Append("(),\n");
+            source.Append("_ => null };\n[global::System.Runtime.CompilerServices.ModuleInitializer] public static void Register() => global::Kans.Interop.ScriptRegistry.Register(new ScriptRegistry());\n} }\n");
+            output.AddSource("ScriptRegistry.g.cs", SourceText.From(source.ToString(), Encoding.UTF8));
+        }
+    }
+}

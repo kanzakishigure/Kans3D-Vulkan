@@ -425,7 +425,7 @@ namespace Kans
         for (const auto& resource : reflected)
             for (const auto& member : resource.Members)
                 if (member.Type == ShaderUniformType::Float && member.Columns == 1 && member.ArrayCount == 1 &&
-                    (member.Components == 3 || member.Components == 4))
+                    (member.Components >= 1 && member.Components <= 4))
                     for (size_t i = 0; i < bindings.Defaults.size(); ++i)
                         if (bindings.Defaults[i].Binding == resource.Binding)
                             bindings.ParameterSlots.push_back(
@@ -444,7 +444,8 @@ namespace Kans
         bool any = false;
         for (const auto& slot : base.ParameterSlots)
             for (const auto& value : *parameters)
-                any |= value.Resolved && value.Parameter == slot.Name;
+                any |=
+                    value.Resolved && (value.RuntimeOverride || slot.Components >= 3) && value.Parameter == slot.Name;
         if (!any)
             return &base;
         const auto baseBuffer = base.Blocks.front().second.Resource();
@@ -461,7 +462,7 @@ namespace Kans
             std::memcpy(entry.Scratch[i].Bytes.data(), base.Defaults[i].Bytes.data(), base.Defaults[i].Bytes.size());
         for (const auto& slot : base.ParameterSlots)
             for (const auto& value : *parameters)
-                if (value.Resolved && value.Parameter == slot.Name)
+                if (value.Resolved && (value.RuntimeOverride || slot.Components >= 3) && value.Parameter == slot.Name)
                     std::memcpy(entry.Scratch[slot.Block].Bytes.data() + slot.Offset,
                                 value.Value.data(),
                                 slot.Components * sizeof(float));

@@ -42,6 +42,8 @@ namespace Kans
 
     Scene::~Scene()
     {
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnRuntimeEnd();
         StopAudio();
         m_SuppressNotifications = true;
         m_Registry.clear();
@@ -232,16 +234,8 @@ namespace Kans
                 nsc.DestoryInstanceFunction(&nsc);
             });
         }
-        // update Script
-        if (ScriptEngine::IsInitialized())
-        {
-            auto view = m_Registry.view<ScriptComponent>();
-            for (auto entity : view)
-            {
-                Entity e = {entity, this};
-                ScriptEngine::OnUpdateEntity(e, ts);
-            }
-        }
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnUpdate(ts);
         UpdateAudio(double(ts));
     }
 
@@ -303,6 +297,8 @@ namespace Kans
         for (UUID child : children)
             if (Entity value = GetEntityByUUID(child))
                 DestroyEntity(value);
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnDestroyEntity(entity);
         DirtyBounds(entity);
         m_RenderWorld->Dirty(entity);
         m_DirtyPrefabs.erase(entity);
@@ -421,35 +417,69 @@ namespace Kans
     void Scene::UpdateMaterialParameterDrivers()
     {
         for (auto handle : m_Registry.view<MaterialParameterDriversComponent>())
+            UpdateMaterialParameterDrivers(Entity {handle, this});
+    }
+
+    void Scene::UpdateMaterialParameterDrivers(Entity entity)
+    {
+        if (!entity || !entity.HasComponent<MaterialParameterDriversComponent>())
+            return;
+        auto& drivers = entity.GetComponent<MaterialParameterDriversComponent>();
+        if (!drivers.Values)
+            drivers.Values = CreateRef<InstanceMaterialParameters>();
+        auto&  values = *drivers.Values;
+        size_t count  = drivers.Bindings.size();
+        for (const auto& entry : drivers.Overrides)
+            if (std::none_of(drivers.Bindings.begin(), drivers.Bindings.end(), [&](const auto& binding) {
+                    return binding.Parameter == entry.first;
+                }))
+                ++count;
+        values.resize(count);
+        for (size_t i = 0; i < drivers.Bindings.size(); ++i)
         {
-            auto& drivers = m_Registry.get<MaterialParameterDriversComponent>(handle);
-            if (!drivers.Values)
-                drivers.Values = CreateRef<InstanceMaterialParameters>();
-            auto& values = *drivers.Values;
-            values.resize(drivers.Bindings.size());
-            for (size_t i = 0; i < values.size(); ++i)
+            const auto& binding = drivers.Bindings[i];
+            auto&       value   = values[i];
+            if (value.Parameter != binding.Parameter)
+                value.Parameter = binding.Parameter;
+            const auto source     = GetEntityByUUID(binding.SourceEntity);
+            value.RuntimeOverride = false;
+            value.Resolved        = bool(source);
+            if (!source)
+                continue;
+            const auto world = GetWorldTransform(source);
+            if (binding.Quantity == MaterialParameterQuantity::WorldPosition)
+                value.Value = {world[3].x, world[3].y, world[3].z, 1};
+            else
             {
-                const auto& binding = drivers.Bindings[i];
-                auto&       value   = values[i];
-                if (value.Parameter != binding.Parameter)
-                    value.Parameter = binding.Parameter;
-                const auto source = GetEntityByUUID(binding.SourceEntity);
-                value.Resolved    = bool(source);
-                if (!source)
-                    continue;
-                const auto world = GetWorldTransform(source);
-                if (binding.Quantity == MaterialParameterQuantity::WorldPosition)
-                    value.Value = {world[3].x, world[3].y, world[3].z, 1};
-                else
+                const int   axis = binding.Quantity == MaterialParameterQuantity::WorldForward ? 2 :
+                                   binding.Quantity == MaterialParameterQuantity::WorldUp      ? 1 :
+                                                                                                 0;
+                glm::vec3   direction(world[axis]);
+                const float length = glm::length(direction);
+                direction          = length > 1e-20f ? direction / length : glm::vec3(0);
+                value.Value        = {direction.x, direction.y, direction.z, 0};
+            }
+        }
+        size_t next = drivers.Bindings.size();
+        for (const auto& [name, overrideValue] : drivers.Overrides)
+        {
+            bool found = false;
+            for (size_t i = 0; i < drivers.Bindings.size(); ++i)
+                if (auto& value = values[i]; value.Parameter == name)
                 {
-                    const int   axis = binding.Quantity == MaterialParameterQuantity::WorldForward ? 2 :
-                                       binding.Quantity == MaterialParameterQuantity::WorldUp      ? 1 :
-                                                                                                     0;
-                    glm::vec3   direction(world[axis]);
-                    const float length = glm::length(direction);
-                    direction          = length > 1e-20f ? direction / length : glm::vec3(0);
-                    value.Value        = {direction.x, direction.y, direction.z, 0};
+                    value.Value           = overrideValue;
+                    value.Resolved        = true;
+                    value.RuntimeOverride = true;
+                    found                 = true;
                 }
+            if (!found)
+            {
+                auto& value = values[next++];
+                if (value.Parameter != name)
+                    value.Parameter = name;
+                value.Value           = overrideValue;
+                value.Resolved        = true;
+                value.RuntimeOverride = true;
             }
         }
     }
@@ -577,18 +607,8 @@ namespace Kans
 
         // Init
         if (!ScriptEngine::IsInitialized())
-        {
-            if (!m_Registry.view<ScriptComponent>().empty())
-                CORE_ERROR("Scene scripts require an initialized ScriptEngine");
             return;
-        }
         ScriptEngine::OnRuntimeStart(this);
-        auto view = m_Registry.view<ScriptComponent>();
-        for (auto entity : view)
-        {
-            Entity e = {entity, this};
-            ScriptEngine::OnCreateEntity(e);
-        }
     }
 
     void Scene::DestroyNativeScriptInstances()
@@ -607,7 +627,8 @@ namespace Kans
     {
         StopAudio();
         DestroyNativeScriptInstances();
-        ScriptEngine::OnRuntimeEnd();
+        if (ScriptEngine::GetSceneContext() == this)
+            ScriptEngine::OnRuntimeEnd();
     }
 
     Kans::Entity Scene::GetCameraEntity()

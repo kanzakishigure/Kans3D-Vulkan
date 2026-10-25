@@ -1,0 +1,5 @@
+// Stable ABI IDs. Retired IDs must never be reused. MaterialComponent is a legacy API with no native component.
+KANS_COMPONENT(1, TransformComponent)
+KANS_COMPONENT(2, MaterialComponent)
+KANS_COMPONENT(3, CameraComponent)
+KANS_COMPONENT(4, ScriptComponent)

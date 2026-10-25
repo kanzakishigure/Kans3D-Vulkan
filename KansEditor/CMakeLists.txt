@@ -39,10 +39,9 @@ set_target_properties(KansEditor PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${OUTDIR_BASE_Debug}/KansEditor"
 )
 
-# ---- Post-build: copy assimp DLL + mono DLL to output (Windows only) ----
+# ---- Post-build: copy assimp DLL to output (Windows only) ----
 # premake postbuildcommands:
 #   {COPY} "%{Binaries.Assimp_Debug}" "%{cfg.targetdir}"
-#   {COPY} "../kans3D/vendor/mono/bin/Debug/mono-2.0-sgen.dll" "%{cfg.targetdir}"
 if(WIN32)
     add_custom_command(TARGET KansEditor POST_BUILD 
         # assimp DLL
@@ -50,14 +49,10 @@ if(WIN32)
             $<$<CONFIG:Debug>:${VENDOR_DIR}/assimp/bin/Debug/assimp-vc142-mtd.dll>
             $<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:${VENDOR_DIR}/assimp/bin/Release/assimp-vc142-mt.dll>
             "$<TARGET_FILE_DIR:KansEditor>"
-        # mono DLL
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${VENDOR_DIR}/mono/bin/$<$<CONFIG:Debug>:Debug>$<$<OR:$<CONFIG:Release>,$<CONFIG:Dist>>:Release>/mono-2.0-sgen.dll
-            "$<TARGET_FILE_DIR:KansEditor>"
     )
 endif()   
 # project Resource
-set(DIRS_TO_COPY assets mono Resources)
+set(DIRS_TO_COPY assets Resources)
 
 foreach(DIR ${DIRS_TO_COPY})                                                                                                       
     add_custom_command(TARGET KansEditor POST_BUILD                                                                                
@@ -79,16 +74,4 @@ add_custom_command(TARGET KansEditor POST_BUILD
         "$<TARGET_FILE_DIR:KansEditor>"
     COMMAND ${CMAKE_COMMAND} -E echo "Copying Editor resources to $<TARGET_FILE_DIR:KansEditor>/"
 )
-#Script Core
-
-if(DEFINED CMAKE_VS_MSBUILD_COMMAND)
-    add_dependencies(KansEditor ScriptCore) 
-
-    add_custom_command(TARGET KansEditor POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:ScriptCore>"
-            "$<TARGET_FILE_DIR:KansEditor>/Resources/Scripts/ScriptCore.dll"
-            
-        COMMAND ${CMAKE_COMMAND} -E echo "Copying ScriptCore to $<TARGET_FILE_DIR:KansEditor>/Resources/Scripts"
-    )
-endif()
+# ScriptCore is staged into Resources/Scripts by the root CMakeLists (KansEditorScripts).

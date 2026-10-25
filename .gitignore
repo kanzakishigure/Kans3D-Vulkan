@@ -2,7 +2,6 @@
 **/bin/
 !vendor/bin
 !Kans3D/vendor/assimp/bin
-!Kans3D/vendor/mono/bin
 #build bin-int
 bin-int/
 #vs file
@@ -35,3 +34,6 @@ build_clangd/
 # Rebuildable local source asset snapshots
 SourceAssetDatabase.cache.yaml
 SourceAssetDatabase.cache.yaml.tmp-*/
+# SDK-style managed projects and intermediates
+!KansScriptCore/**/*.csproj
+**/obj/
