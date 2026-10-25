@@ -79,8 +79,9 @@ namespace Kans::EditorTheme
         c[ImGuiCol_Header]                = p.Selection;
         c[ImGuiCol_HeaderHovered]         = p.Hover;
         c[ImGuiCol_HeaderActive]          = Rgb(44, 76, 124);
-        // Separators double as the dock gaps, so they take the app tone; dragging lights them up.
-        c[ImGuiCol_Separator]             = p.App;
+        // Lines between menu sections and in panels; visible on both panel and popup tones.
+        // (Dock gaps are drawn in the border colour, above.)
+        c[ImGuiCol_Separator]             = Rgb(62, 62, 67);
         c[ImGuiCol_SeparatorHovered]      = WithAlpha(p.Accent, 0.6f);
         c[ImGuiCol_SeparatorActive]       = p.Accent;
         c[ImGuiCol_ResizeGrip]            = {0, 0, 0, 0};
@@ -143,6 +144,7 @@ namespace Kans::EditorTheme
         style.TabRounding          = 4.0f;
         style.WindowTitleAlign     = {0.0f, 0.5f};
         style.SeparatorTextBorderSize = 1.0f;
+        style.SeparatorTextPadding    = {0.0f, 4.0f}; // Section headings start at the left edge.
         // The dock node's window-menu triangle clutters every tab strip.
         style.WindowMenuButtonPosition = ImGuiDir_None;
 

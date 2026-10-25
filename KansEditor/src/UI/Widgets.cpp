@@ -6,18 +6,50 @@
 
 namespace Kans::Widgets
 {
+    void CenterGlyph(const char* icon, ImVec2 min, ImVec2 max, ImU32 color)
+    {
+        // Centre the glyph's drawn pixels, not the font's line box: icon glyphs sit at
+        // different heights within the line, so box-centred icons look misaligned.
+        unsigned int codepoint = 0;
+        ImTextCharFromUtf8(&codepoint, icon, nullptr);
+        ImFontBaked*       baked = ImGui::GetFontBaked();
+        const ImFontGlyph* glyph = baked ? baked->FindGlyphNoFallback(ImWchar(codepoint)) : nullptr;
+        const ImVec2       center {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
+        ImVec2             at;
+        if (glyph)
+            at = {center.x - (glyph->X0 + glyph->X1) * 0.5f, center.y - (glyph->Y0 + glyph->Y1) * 0.5f};
+        else
+        {
+            const ImVec2 size = ImGui::CalcTextSize(icon);
+            at                = {center.x - size.x * 0.5f, center.y - size.y * 0.5f};
+        }
+        ImGui::GetWindowDrawList()->AddText({IM_ROUND(at.x), IM_ROUND(at.y)}, color, icon);
+    }
+
     bool ToolButton(const char* icon, const char* tooltip, bool active, bool enabled)
     {
         ImGui::PushStyleColor(ImGuiCol_Button, active ? EditorTheme::Colors().Selection : ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().Hover);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
         ImGui::BeginDisabled(!enabled);
-        const bool clicked = ImGui::Button(icon, {EditorTheme::Px(28.0f), EditorTheme::Px(26.0f)});
+        ImGui::PushID(icon);
+        const bool clicked = ImGui::Button("##tool", {EditorTheme::Px(28.0f), EditorTheme::Px(26.0f)});
+        ImGui::PopID();
+        CenterGlyph(icon, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetColorU32(ImGuiCol_Text));
         ImGui::EndDisabled();
         ImGui::PopStyleColor(3);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", tooltip);
         return clicked;
+    }
+
+    void MenuSection(const char* title)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextDim);
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
+        ImGui::SeparatorText(title);
+        ImGui::PopFont();
+        ImGui::PopStyleColor();
     }
 
     void ToolSeparator()
@@ -35,8 +67,13 @@ namespace Kans::Widgets
         const float pad  = EditorTheme::Px(3.0f);
         ImDrawList* draw = ImGui::GetWindowDrawList();
         ImGui::SetCursorScreenPos({position.x + pad, position.y});
-        // In a menu bar the line's text baseline would push the buttons down; `position` is exact.
-        ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset = 0.0f;
+        // Start a fresh line at `position`. In a menu bar the items before are still on the
+        // current line: its text baseline would push the buttons down, and SameLine() inside
+        // the pill would snap the following buttons back to that line's top.
+        ImGuiWindow* window                 = ImGui::GetCurrentWindow();
+        window->DC.CurrLineTextBaseOffset   = 0.0f;
+        window->DC.IsSameLine               = false;
+        window->DC.CurrLineSize.y           = 0.0f;
         draw->ChannelsSplit(2);
         draw->ChannelsSetCurrent(1);
         ImGui::BeginGroup();
@@ -105,12 +142,15 @@ namespace Kans::Widgets
     } // namespace
 
     float TransportWidth() { return 3.0f * EditorTheme::Px(36.0f) + 2.0f * EditorTheme::Px(1.0f); }
+    // Tool buttons (26 px) plus the pill's padding on both sides: every group in a toolbar
+    // band has this height, so their edges line up.
+    float BandGroupHeight() { return EditorTheme::Px(26.0f) + 2.0f * EditorTheme::Px(3.0f); }
 
     Transport TransportControls(ImVec2 position, bool playing, bool paused, float* right)
     {
         using EditorTheme::Px;
         const auto&  p       = EditorTheme::Colors();
-        const float  segment = Px(36.0f), height = Px(28.0f), gap = Px(1.0f);
+        const float  segment = Px(36.0f), height = BandGroupHeight(), gap = Px(1.0f);
         auto*        draw    = ImGui::GetWindowDrawList();
         Transport    clicked = Transport::None;
         const struct

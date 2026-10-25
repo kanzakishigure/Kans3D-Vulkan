@@ -1,4 +1,5 @@
 #include "HierarchyPanel.h"
+#include "UI/Widgets.h"
 #include "Kans3D/Scene/SceneClipboard.h"
 #include "Components/ComponentRegistry.h"
 #include <algorithm>
@@ -431,16 +432,29 @@ namespace Kans
     {
         if (ImGui::MenuItem(Label(ICON_FA_VECTOR_SQUARE, "Empty Entity").c_str()))
             Create("Entity", parent);
-        ImGui::Separator();
-        // Components offered by the registry, each creating a named entity with it.
+        // Components offered by the registry, each creating a named entity with it, in sections:
+        // objects, lights, cameras.
+        const auto section = [](const ComponentEntry& c) {
+            if (c.Category == "Lighting")
+                return 1;
+            return c.Name == "Camera" ? 2 : 0;
+        };
         std::vector<const ComponentEntry*> creatable;
         for (const auto& component : ComponentRegistry::Get().Entries())
             if ((!component.CreateName.empty() && component.Create) || !component.CreateItems.empty())
                 creatable.push_back(&component);
-        std::stable_sort(creatable.begin(), creatable.end(),
-                         [](const auto* a, const auto* b) { return a->CreateOrder < b->CreateOrder; });
+        std::stable_sort(creatable.begin(), creatable.end(), [&](const auto* a, const auto* b) {
+            return std::make_pair(section(*a), a->CreateOrder) < std::make_pair(section(*b), b->CreateOrder);
+        });
+        const char* sections[] = {"Objects", "Lights", "Camera"};
+        int         current    = -1;
         for (const auto* component : creatable)
         {
+            if (section(*component) != current)
+            {
+                current = section(*component);
+                Widgets::MenuSection(sections[current]);
+            }
             if (component->CreateItems.empty())
             {
                 if (ImGui::MenuItem(Label(component->Icon, component->CreateName.c_str()).c_str()))

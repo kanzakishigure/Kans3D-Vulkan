@@ -394,8 +394,9 @@ namespace Kans
             return;
         if (ImGui::BeginMenu("File"))
         {
+            Widgets::MenuSection("Project");
             DrawProjectMenu();
-            ImGui::Separator();
+            Widgets::MenuSection("Scene");
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FILE, "New Scene").c_str(), "Ctrl+N"))
                 ConfirmDiscard("creating a new scene", [this] { Record(NewScene()); });
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FOLDER_OPEN, "Open Scene...").c_str(), "Ctrl+O"))
@@ -530,7 +531,8 @@ namespace Kans
             }) + gap;
 
         // Play controls in the middle of the band unless the left side reaches past it.
-        const float playTop = bar.Min.y + (bar.GetHeight() - EditorTheme::Px(28.0f)) * 0.5f;
+        // Same height and centre as the pills, so the groups' edges line up.
+        const float playTop = bar.Min.y + (bar.GetHeight() - Widgets::BandGroupHeight()) * 0.5f;
         x = DrawPlayControls({std::max(x + gap, (bar.Min.x + bar.Max.x - Widgets::TransportWidth()) * 0.5f), playTop}) + gap;
         // Play mode: an accent line under the band (the band itself is tinted by the host).
         if (m_Play.IsActive())

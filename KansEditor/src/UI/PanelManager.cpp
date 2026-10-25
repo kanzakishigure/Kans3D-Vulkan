@@ -1,4 +1,5 @@
 #include "PanelManager.h"
+#include "Widgets.h"
 #include <cstring>
 #include <imgui_internal.h>
 
@@ -132,13 +133,9 @@ namespace Kans
     {
         const std::pair<PanelCategory, const char*> categories[] = {
             {PanelCategory::Scene, "Scene"}, {PanelCategory::Assets, "Assets"}, {PanelCategory::Debug, "Debug"}};
-        bool first = true;
         for (const auto& [category, name] : categories)
         {
-            if (!first)
-                ImGui::Separator();
-            first = false;
-            ImGui::TextDisabled("%s", name);
+            Widgets::MenuSection(name);
             for (auto& panel : m_Panels)
             {
                 if (panel.Spec.Category != category)
