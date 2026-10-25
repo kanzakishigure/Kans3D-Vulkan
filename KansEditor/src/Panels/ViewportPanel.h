@@ -31,6 +31,12 @@ namespace Kans
         void SetContext(Ref<Scene> scene, ViewportClient* client);
         void SetFileDropCallback(FileDrop callback) { m_FileDrop = std::move(callback); }
         void SetModelResolver(ModelResolver resolver) { m_ResolveModel = std::move(resolver); }
+        // Adds highlights other panels ask for (material slot rows) to the selection outline.
+        using HighlightSource = std::function<void(ViewHighlights&)>;
+        void SetHighlightSource(HighlightSource source) { m_HighlightSource = std::move(source); }
+        // A material file dropped on a model part: assign it to the part's slot under the cursor.
+        using MaterialDrop = std::function<void(Entity part, uint32_t slot, const std::filesystem::path& material)>;
+        void SetMaterialDropCallback(MaterialDrop callback) { m_MaterialDrop = std::move(callback); }
         // While playing, the scene renders through its primary camera unless the
         // editor camera is chosen in the toolbar.
         void SetPlaying(bool playing) { m_Playing = playing; }
@@ -73,10 +79,18 @@ namespace Kans
         void DrawToolbar();
         void DrawGizmo();
         void AcceptDrop();
+        // The surface under `mouse` (screen position), with its entity and material slot.
+        ScenePickHit SurfaceAt(ImVec2 mouse);
+        // A dragged material: lights up the part slot under the cursor, assigns it on drop.
+        void DragMaterial(const std::filesystem::path& file, bool delivered);
         // Where a model dragged to `mouse` lands (resting on the surface under it).
         glm::vec3 DropPosition(ImVec2 mouse, AssetID model);
 
         HierarchyPanel&    m_Hierarchy;
+        HighlightSource    m_HighlightSource;
+        MaterialDrop       m_MaterialDrop;
+        // The part slot a dragged material would go to, lit up in the next frame.
+        std::optional<std::pair<UUID, uint32_t>> m_DropSlot;
         // Vertex/edge/face editing of editable meshes.
         MeshEditTool       m_MeshTool;
         Ref<Scene>         m_Scene;

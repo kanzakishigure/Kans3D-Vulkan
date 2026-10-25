@@ -49,6 +49,11 @@ namespace Kans
         void SetErrorCallback(std::function<void(const std::string&)> callback) { m_ReportError = std::move(callback); }
 
         const std::filesystem::path& GetCurrentFolder() const { return m_Current; }
+        // The selected files and folders (absolute paths).
+        std::vector<std::filesystem::path> GetSelectedFiles() const
+        {
+            return {m_Selection.Items().begin(), m_Selection.Items().end()};
+        }
         // Re-reads folders and sources on the next frame.
         void Refresh();
 

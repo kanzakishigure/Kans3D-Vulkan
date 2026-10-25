@@ -3,6 +3,7 @@
 #include <functional>
 #include <string>
 #include <typeindex>
+#include <utility>
 #include <vector>
 #include "Kans3D/Asset/Asset.h"
 #include "Kans3D/Asset/AssetType.h"
@@ -12,6 +13,10 @@ namespace Kans
 {
     class AssetManager;
     class Scene;
+    class Texture2D;
+
+    // The parts a material slot row stands for: each entity's subtree sections using that slot.
+    using SlotParts = std::vector<std::pair<UUID, uint32_t>>;
 
     // Services a component editor draws with; implemented by the Properties panel.
     class ComponentUI
@@ -27,6 +32,20 @@ namespace Kans
         // Picks a replacement material; true with an invalid ID to restore the imported one.
         virtual bool        MaterialPicker(const char* label, AssetID imported, AssetID current, AssetID& chosen) = 0;
         virtual std::string MaterialName(AssetID material) = 0;
+        // The combo of MaterialPicker without its row label.
+        virtual bool MaterialCombo(AssetID imported, AssetID current, AssetID& chosen) = 0;
+        // Rendered preview of a material; null while it renders or when it has no source.
+        virtual Ref<Texture2D> MaterialThumbnail(AssetID material) = 0;
+        // The material file selected in the Content Browser, or invalid.
+        virtual AssetID BrowserMaterial() = 0;
+        // A material file dropped on the last item this frame, or invalid.
+        virtual AssetID AcceptMaterialDrop() = 0;
+        // Viewport feedback for a slot row: hovered this frame, pinned highlight, isolated.
+        virtual void HoverSlot(const SlotParts& parts)           = 0;
+        virtual bool IsSlotHighlighted(const SlotParts& parts)   = 0;
+        virtual void ToggleSlotHighlight(const SlotParts& parts) = 0;
+        virtual bool IsSlotIsolated(const SlotParts& parts)      = 0;
+        virtual void ToggleSlotIsolate(const SlotParts& parts)   = 0;
     };
 
     // Everything the editor knows about one component type: how it is named, shown,

@@ -1,16 +1,17 @@
 #include "PropertiesPanel.h"
-#include "Kans3D/ImGui/EditorTheme.h"
 #include <imgui.h>
-#include <misc/cpp/imgui_stdlib.h>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <misc/cpp/imgui_stdlib.h>
 #include "Kans3D/Asset/Runtime/MeshData.h"
-#include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/FileSystem/FileSystem.h"
+#include "Kans3D/ImGui/EditorTheme.h"
+#include "Kans3D/Renderer/Renderer.h"
 #include "Components/ComponentEditors.h"
 #include "UI/BloomSettingsWidget.h"
 #include "UI/EditorIcons.h"
+#include "UI/MaterialSlotRow.h"
 #include "UI/PropertyGrid.h"
 
 namespace Kans
@@ -72,6 +73,16 @@ namespace Kans
 
     void PropertiesPanel::Draw()
     {
+        // Rows set the hover again while drawn; pinned and isolated rows belong to one entity.
+        m_HoveredSlot.clear();
+        const Entity selected = m_Hierarchy.GetSelected();
+        const UUID   owner    = selected ? selected.GetUUID() : UUID(0);
+        if (owner != m_SlotsOwner)
+        {
+            m_SlotsOwner = owner;
+            m_HighlightedSlots.clear();
+            m_IsolatedSlot.clear();
+        }
         DrawSearch();
         PropertyGrid::SetFilter(m_Search, m_ModifiedOnly);
         if (ImGui::BeginChild("##Cards", {0, 0}, ImGuiChildFlags_None))
@@ -402,19 +413,14 @@ namespace Kans
         if (ImGui::BeginDragDropTarget())
         {
             if (const auto* payload = ImGui::AcceptDragDropPayload("asset_payload"))
-            {
-                std::error_code error;
-                const auto      dropped = std::filesystem::weakly_canonical(
-                    std::filesystem::u8path(std::string(static_cast<const char*>(payload->Data), payload->DataSize)),
-                    error);
-                for (const auto& choice : m_AssetChoices)
-                    if (choice.Type == type && !error && choice.SourcePath == dropped)
-                    {
-                        changed = choice.ID != id;
-                        id      = choice.ID;
-                        break;
-                    }
-            }
+                if (const AssetID dropped = ChoiceFor(std::filesystem::u8path(std::string(
+                                                          static_cast<const char*>(payload->Data), payload->DataSize)),
+                                                      type);
+                    dropped.IsValid())
+                {
+                    changed = dropped != id;
+                    id      = dropped;
+                }
             ImGui::EndDragDropTarget();
         }
         ImGui::PopID();
@@ -440,10 +446,25 @@ namespace Kans
         return name;
     }
 
+    AssetID PropertiesPanel::ChoiceFor(const std::filesystem::path& file, AssetType type) const
+    {
+        std::error_code error;
+        const auto      path = std::filesystem::weakly_canonical(file, error);
+        if (error)
+            return {};
+        for (const auto& choice : m_AssetChoices)
+            if (choice.Type == type && choice.SourcePath == path)
+                return choice.ID;
+        return {};
+    }
+
     bool PropertiesPanel::MaterialPicker(const char* label, AssetID imported, AssetID current, AssetID& chosen)
     {
-        if (!PropertyGrid::Row(label))
-            return false;
+        return PropertyGrid::Row(label) && MaterialCombo(imported, current, chosen);
+    }
+
+    bool PropertiesPanel::MaterialCombo(AssetID imported, AssetID current, AssetID& chosen)
+    {
         bool       picked     = false;
         const bool overridden = current != imported;
         if (overridden)
@@ -480,5 +501,80 @@ namespace Kans
         }
         ImGui::EndCombo();
         return picked;
+    }
+
+    Ref<Texture2D> PropertiesPanel::MaterialThumbnail(AssetID material)
+    {
+        if (!m_Thumbnail || !material.IsValid())
+            return nullptr;
+        for (const auto& choice : m_AssetChoices)
+            if (choice.ID == material && choice.Type == AssetType::Material)
+                return m_Thumbnail(choice.SourcePath, 128);
+        return nullptr;
+    }
+
+    AssetID PropertiesPanel::BrowserMaterial()
+    {
+        if (!m_BrowserSelection)
+            return {};
+        // The single selected material; several leave the choice open.
+        AssetID found;
+        for (const auto& file : m_BrowserSelection())
+            if (file.extension() == ".material")
+            {
+                if (found.IsValid())
+                    return {};
+                found = ChoiceFor(file, AssetType::Material);
+            }
+        return found;
+    }
+
+    AssetID PropertiesPanel::AcceptMaterialDrop()
+    {
+        AssetID dropped;
+        if (!ImGui::BeginDragDropTarget())
+            return dropped;
+        // Only materials light the row up; other files are left to the targets that take them.
+        const auto* dragged = ImGui::GetDragDropPayload();
+        if (dragged && dragged->IsDataType("asset_payload"))
+        {
+            const auto file =
+                std::filesystem::u8path(std::string(static_cast<const char*>(dragged->Data), dragged->DataSize));
+            if (file.extension() == ".material" && ImGui::AcceptDragDropPayload("asset_payload"))
+                dropped = ChoiceFor(file, AssetType::Material);
+        }
+        ImGui::EndDragDropTarget();
+        return dropped;
+    }
+
+    bool PropertiesPanel::IsSlotHighlighted(const SlotParts& parts)
+    {
+        return std::find(m_HighlightedSlots.begin(), m_HighlightedSlots.end(), parts) != m_HighlightedSlots.end();
+    }
+
+    void PropertiesPanel::ToggleSlotHighlight(const SlotParts& parts)
+    {
+        const auto found = std::find(m_HighlightedSlots.begin(), m_HighlightedSlots.end(), parts);
+        if (found != m_HighlightedSlots.end())
+            m_HighlightedSlots.erase(found);
+        else if (!parts.empty())
+            m_HighlightedSlots.push_back(parts);
+    }
+
+    void PropertiesPanel::ToggleSlotIsolate(const SlotParts& parts)
+    {
+        m_IsolatedSlot = IsSlotIsolated(parts) ? SlotParts {} : parts;
+    }
+
+    void PropertiesPanel::AppendSlotHighlights(ViewHighlights& highlights) const
+    {
+        const auto add = [&](const SlotParts& parts, glm::vec4 color) {
+            for (const auto& [entity, slot] : parts)
+                highlights.Highlights.push_back({entity, slot, color});
+        };
+        for (const auto& parts : m_HighlightedSlots)
+            add(parts, Widgets::SlotPinnedColor);
+        add(m_HoveredSlot, Widgets::SlotHoverColor);
+        highlights.Isolate = m_IsolatedSlot;
     }
 } // namespace Kans

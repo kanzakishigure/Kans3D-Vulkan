@@ -1,18 +1,19 @@
 #include "ViewportPanel.h"
-#include "Kans3D/ImGui/EditorTheme.h"
-#include "Kans3D/Editor/DropPlacement.h"
-#include "Kans3D/Renderer/RenderWorld.h"
+#include <imgui_internal.h>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <imgui_internal.h>
-#include "ImGuizmo.h"
-#include "Kans3D/Core/Math/Math.h"
-#include "Kans3D/Input/Input.h"
-#include "Kans3D/Scene/Components.h"
 #include "Kans3D/Animation/AnimatorComponent.h"
+#include "Kans3D/Core/Math/Math.h"
+#include "Kans3D/Editor/DropPlacement.h"
+#include "Kans3D/ImGui/EditorTheme.h"
+#include "Kans3D/Input/Input.h"
+#include "Kans3D/Renderer/RenderWorld.h"
+#include "Kans3D/Scene/Components.h"
+#include "ImGuizmo.h"
 #include "UI/BloomSettingsWidget.h"
 #include "UI/EditorIcons.h"
+#include "UI/MaterialSlotRow.h"
 #include "UI/PropertyGrid.h"
 #include "UI/Widgets.h"
 
@@ -55,6 +56,10 @@ namespace Kans
                 if (entity != selected)
                     highlights.Selected.push_back(entity.GetUUID());
         }
+        if (m_HighlightSource && !UsesSceneCamera() && !editing)
+            m_HighlightSource(highlights);
+        if (m_DropSlot)
+            highlights.Highlights.push_back({m_DropSlot->first, m_DropSlot->second, Widgets::SlotHoverColor});
         m_Client->SetHighlights(std::move(highlights));
         Render();
 
@@ -166,6 +171,7 @@ namespace Kans
         if (!ImGui::BeginDragDropTarget())
         {
             m_DragFile.clear();
+            m_DropSlot.reset();
             return;
         }
         // Accepted every frame of the hover, so the model can be previewed where it would land.
@@ -175,6 +181,12 @@ namespace Kans
         if (data)
         {
             const auto file = std::filesystem::u8path(std::string(static_cast<const char*>(data->Data), size_t(data->DataSize)));
+            if (file.extension() == ".material")
+            {
+                DragMaterial(file, data->IsDelivery());
+                ImGui::EndDragDropTarget();
+                return;
+            }
             if (file != m_DragFile)
             {
                 m_DragFile  = file;
@@ -197,15 +209,55 @@ namespace Kans
         ImGui::EndDragDropTarget();
     }
 
+    ScenePickHit ViewportPanel::SurfaceAt(ImVec2 mouse)
+    {
+        // The picker uses a bottom-left pixel origin.
+        const glm::vec2 pixel(mouse.x - m_Min.x, mouse.y - m_Min.y);
+        return m_Client->Pick(ViewProjection(),
+                              {uint32_t(std::clamp(pixel.x, 0.0f, float(m_Size.x - 1))),
+                               uint32_t(std::clamp(float(m_Size.y) - 1.0f - pixel.y, 0.0f, float(m_Size.y - 1)))});
+    }
+
+    void ViewportPanel::DragMaterial(const std::filesystem::path& file, bool delivered)
+    {
+        m_DropSlot.reset();
+        Entity part;
+        if (!UsesSceneCamera() && m_Scene)
+        {
+            const auto hit = SurfaceAt(ImGui::GetMousePos());
+            part           = hit.MaterialSlot ? m_Scene->GetEntityByUUID(hit.EntityID) : Entity {};
+            if (part)
+                m_DropSlot = std::make_pair(hit.EntityID, *hit.MaterialSlot);
+        }
+        const auto material = file.stem().u8string();
+        if (m_DropSlot)
+        {
+            const auto  slots = m_Scene->GetMeshSlots(part);
+            const auto  slot  = m_DropSlot->second;
+            std::string name  = slot < slots.size() && !slots[slot].Name.empty() ? slots[slot].Name :
+                                                                                   "Slot " + std::to_string(slot + 1);
+            ImGui::SetTooltip("%s  " ICON_FA_ARROW_LEFT "  %s\n%s",
+                              name.c_str(),
+                              material.c_str(),
+                              part.GetComponent<TagComponent>().Tag.c_str());
+        }
+        else
+            ImGui::SetTooltip("Drop %s on a model part to use it there", material.c_str());
+        if (delivered)
+        {
+            if (m_DropSlot && m_MaterialDrop)
+                m_MaterialDrop(part, m_DropSlot->second, file);
+            m_DropSlot.reset();
+            m_DragFile.clear();
+        }
+    }
+
     glm::vec3 ViewportPanel::DropPosition(ImVec2 mouse, AssetID model)
     {
         const glm::vec2 pixel(mouse.x - m_Min.x, mouse.y - m_Min.y);
         const auto [origin, direction] = m_Camera.ScreenRay(pixel);
-        // The surface under the cursor; the picker uses a bottom-left pixel origin.
-        const auto hit = m_Client->Pick(
-            ViewProjection(),
-            {uint32_t(std::clamp(pixel.x, 0.0f, float(m_Size.x - 1))),
-             uint32_t(std::clamp(float(m_Size.y) - 1.0f - pixel.y, 0.0f, float(m_Size.y - 1)))});
+        // The surface under the cursor.
+        const auto hit = SurfaceAt(mouse);
         Bounds bounds;
         if (model.IsValid() && m_Client->GetAssetCache())
             bounds = m_Client->GetAssetCache()->GetModelBounds(model);

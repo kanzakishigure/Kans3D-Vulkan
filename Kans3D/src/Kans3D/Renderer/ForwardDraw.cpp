@@ -48,15 +48,14 @@ namespace Kans
 
     bool RenderFrame::IncludesSection(UUID entity, UUID instanceRoot, const GpuMesh* mesh, uint32_t section) const
     {
-        return !View.Highlights.Isolate ||
+        return View.Highlights.Isolate.empty() ||
                (mesh && section < mesh->Sections.size() &&
-                World.MatchesSubtree(entity, instanceRoot, View.Highlights.Isolate->first) &&
-                mesh->Sections[section].MaterialSlot == View.Highlights.Isolate->second);
+                World.IsIsolated(View.Highlights, entity, instanceRoot, mesh->Sections[section].MaterialSlot));
     }
 
     void RenderFrame::PrepareDrawLists()
     {
-        if (View.Highlights.Isolate)
+        if (!View.Highlights.Isolate.empty())
         {
             View.Draws.erase(std::remove_if(View.Draws.begin(),
                                             View.Draws.end(),

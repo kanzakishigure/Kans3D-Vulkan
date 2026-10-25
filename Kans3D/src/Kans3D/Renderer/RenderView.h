@@ -32,7 +32,8 @@ namespace Kans
     {
         std::vector<UUID>                        Selected; // Primary first; includes mesh descendants.
         std::vector<SlotHighlight>               Highlights;
-        std::optional<std::pair<UUID, uint32_t>> Isolate;
+        // Draw only these (entity subtree, slot) parts; empty draws everything.
+        std::vector<std::pair<UUID, uint32_t>> Isolate;
     };
     struct SceneRenderStats
     {

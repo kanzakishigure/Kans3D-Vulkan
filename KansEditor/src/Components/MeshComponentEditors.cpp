@@ -1,17 +1,24 @@
 #include <algorithm>
 #include <map>
-#include "ComponentEditors.h"
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Scene.h"
+#include "ComponentEditors.h"
+#include "MaterialAssignment.h"
 #include "UI/EditorIcons.h"
+#include "UI/MaterialSlotRow.h"
 #include "UI/PropertyGrid.h"
 
 namespace Kans::ComponentEditors
 {
     // Mesh and prefab edits notify from their pickers rather than through a
     // per-frame PatchComponent: any prefab notification reconciles the instance.
+
+    namespace
+    {
+        std::string Parts(size_t count) { return std::to_string(count) + (count == 1 ? " part" : " parts"); }
+    } // namespace
 
     void DrawPrefabInstance(Entity root, ComponentUI& ui)
     {
@@ -65,30 +72,31 @@ namespace Kans::ComponentEditors
                 found->second.push_back({part, slot});
             }
         }
-        if (ImGui::TreeNodeEx("##Materials", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
-                              "Materials (%zu)", materials.size()))
+        if (PropertyGrid::BeginGroup(("Materials (" + std::to_string(materials.size()) + ")").c_str()))
         {
-            ImGui::TextDisabled("Replaces the material on every part using it.");
-            if (PropertyGrid::Begin("##MaterialGrid"))
+            // A row stands for an imported material and replaces it on every part using it.
+            PropertyGrid::BeginFree();
+            for (const auto& [imported, uses] : materials)
             {
-                for (const auto& [imported, uses] : materials)
-                {
-                    ImGui::PushID(imported.ToString().c_str());
-                    // Shown as replaced only when every use carries the same replacement.
-                    AssetID current = uses.front().Part.GetComponent<MeshComponent>().Materials.at(uses.front().Slot);
+                ImGui::PushID(imported.ToString().c_str());
+                // Shown as replaced only when every use carries the same replacement.
+                AssetID current = uses.front().Part.GetComponent<MeshComponent>().Materials.at(uses.front().Slot);
+                for (const auto& use : uses)
+                    if (use.Part.GetComponent<MeshComponent>().Materials.at(use.Slot) != current)
+                        current = imported;
+                SlotParts parts;
+                for (const auto& use : uses)
+                    parts.push_back({use.Part.GetUUID(), use.Slot});
+                AssetID chosen;
+                if (Widgets::MaterialSlotRow(
+                        ui, ui.MaterialName(imported), Parts(uses.size()), parts, imported, current, chosen))
                     for (const auto& use : uses)
-                        if (use.Part.GetComponent<MeshComponent>().Materials.at(use.Slot) != current)
-                            current = imported;
-                    AssetID chosen;
-                    if (ui.MaterialPicker(ui.MaterialName(imported).c_str(), imported, current, chosen))
-                        for (const auto& use : uses)
-                            scene->SetPrefabMaterialOverride(
-                                root, use.Part.GetComponent<PrefabOwnedComponent>().NodeKey, use.Slot, chosen);
-                    ImGui::PopID();
-                }
-                PropertyGrid::End();
+                        scene->SetPrefabMaterialOverride(
+                            root, use.Part.GetComponent<PrefabOwnedComponent>().NodeKey, use.Slot, chosen);
+                ImGui::PopID();
             }
-            ImGui::TreePop();
+            PropertyGrid::EndFree();
+            PropertyGrid::EndGroup();
         }
         size_t removed = 0;
         for (const auto& [key, change] : instance.Overrides)
@@ -182,8 +190,16 @@ namespace Kans::ComponentEditors
             if (state != nodes.end())
                 base = &state->second.BaseMesh;
         }
-        if (!PropertyGrid::Begin("##Slots"))
+        // Sections per slot, for the part counts.
+        std::vector<size_t> sections(slots.size(), 0);
+        if (assets)
+            if (const auto data = assets->Request<MeshAsset>(mesh.Mesh); data.IsReady())
+                for (const auto& section : data.Asset->GetData().Sections)
+                    if (section.MaterialSlot < sections.size())
+                        ++sections[section.MaterialSlot];
+        if (!PropertyGrid::BeginGroup("Materials"))
             return;
+        PropertyGrid::BeginFree();
         for (uint32_t slot : shown)
         {
             ImGui::PushID(int(slot));
@@ -192,20 +208,13 @@ namespace Kans::ComponentEditors
             const AssetID current =
                 slot < mesh.Materials.size() && mesh.Materials[slot].IsValid() ? mesh.Materials[slot] : imported;
             AssetID    chosen;
-            const auto label = slots[slot].Name.empty() ? "Slot " + std::to_string(slot + 1) : slots[slot].Name;
-            if (ui.MaterialPicker(label.c_str(), imported, current, chosen))
-            {
-                if (owned)
-                    scene->SetPrefabMaterialOverride(root, entity.GetComponent<PrefabOwnedComponent>().NodeKey, slot,
-                                                     chosen);
-                else
-                    entity.PatchComponent<MeshComponent>([&](MeshComponent& m) {
-                        m.Materials.resize(std::max<size_t>(m.Materials.size(), slot + 1));
-                        m.Materials[slot] = chosen;
-                    });
-            }
+            const auto label  = slots[slot].Name.empty() ? "Slot " + std::to_string(slot + 1) : slots[slot].Name;
+            const auto detail = owned ? std::string("Slot ") + std::to_string(slot + 1) : Parts(sections[slot]);
+            if (Widgets::MaterialSlotRow(ui, label, detail, {{entity.GetUUID(), slot}}, imported, current, chosen))
+                AssignMaterial(*scene, entity, slot, chosen);
             ImGui::PopID();
         }
-        PropertyGrid::End();
+        PropertyGrid::EndFree();
+        PropertyGrid::EndGroup();
     }
 } // namespace Kans::ComponentEditors

@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include "Components/MaterialAssignment.h"
 
 #include "ImGuizmo.h"
 // TestInclude
@@ -89,6 +90,11 @@ namespace Kans
             m_MaterialEditorPanel.SetPreviewRenderer(m_MaterialPreview.get());
             m_ContentBrowserPanel.SetMaterialThumbnailProvider(
                 [this](const std::filesystem::path& file, uint32_t size) { return MaterialThumbnail(file, size); });
+            m_PropertiesPanel.SetMaterialThumbnailProvider(
+                [this](const std::filesystem::path& file, uint32_t size) { return MaterialThumbnail(file, size); });
+            m_PropertiesPanel.SetBrowserSelection([this] { return m_ContentBrowserPanel.GetSelectedFiles(); });
+            m_ViewportPanel.SetHighlightSource(
+                [this](ViewHighlights& highlights) { m_PropertiesPanel.AppendSlotHighlights(highlights); });
             m_ViewportPanel.SetContext(m_ActiveScene, m_Viewport.get());
             m_ViewportPanel.SetFileDropCallback([this](const std::filesystem::path& file, std::optional<glm::vec3> position) {
                 if (file.extension() == ".kans")
@@ -96,6 +102,15 @@ namespace Kans
                 else if (file.has_extension())
                     PlaceAsset(file, {}, position);
             });
+            m_ViewportPanel.SetMaterialDropCallback(
+                [this](Entity part, uint32_t slot, const std::filesystem::path& file) {
+                    const AssetID material = FindPublishedMaterial(file);
+                    if (!material.IsValid())
+                        Record(AssetError {AssetErrorCode::InvalidArgument,
+                                           file.filename().u8string() + " is not imported yet; try again once it is."});
+                    else if (m_ActiveScene)
+                        AssignMaterial(*m_ActiveScene, part, slot, material);
+                });
             m_ViewportPanel.SetModelResolver([this](const std::filesystem::path& file) {
                 const auto source = file.has_extension() ? FindModelSource(file) : std::nullopt;
                 return source ? FindPublishedModel(*source) : AssetID {};
@@ -163,6 +178,10 @@ namespace Kans
             m_MaterialEditorPanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetPreviewRenderer(nullptr);
             m_ContentBrowserPanel.SetMaterialThumbnailProvider({});
+            m_PropertiesPanel.SetMaterialThumbnailProvider({});
+            m_PropertiesPanel.SetBrowserSelection({});
+            m_ViewportPanel.SetHighlightSource({});
+            m_ViewportPanel.SetMaterialDropCallback({});
             m_MaterialThumbnails.clear();
             m_MaterialPreview.reset();
             m_ThumbnailRenderer.reset();

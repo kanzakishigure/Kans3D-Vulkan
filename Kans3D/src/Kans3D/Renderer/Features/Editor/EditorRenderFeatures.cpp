@@ -135,14 +135,14 @@ namespace Kans
     }
     void EditorPreviewFeature::Prepare(RenderView& view, RenderFrame& renderer)
     {
-        if (!view.Preview || view.Highlights.Isolate)
+        if (!view.Preview || !view.Highlights.Isolate.empty())
             return;
         // Keep the ghost in the original shared, sorted material batch, always lit.
         renderer.SubmitPrefabPreview(*view.Preview);
     }
     void EditorPreviewFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
-        if (context.View.Preview && !context.View.Highlights.Isolate)
+        if (context.View.Preview && context.View.Highlights.Isolate.empty())
             AddOutline(context, "Preview", true, {.35f, .7f, 1, 1});
     }
 } // namespace Kans

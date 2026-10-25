@@ -159,6 +159,15 @@ namespace Kans
                     return true;
         return false;
     }
+    bool RenderWorld::IsIsolated(const ViewHighlights& highlights, UUID entity, UUID instanceRoot, uint32_t slot) const
+    {
+        if (highlights.Isolate.empty())
+            return true;
+        for (const auto& [subtree, isolated] : highlights.Isolate)
+            if (isolated == slot && MatchesSubtree(entity, instanceRoot, subtree))
+                return true;
+        return false;
+    }
     std::vector<RenderWorld::DrawProxy> RenderWorld::CollectDraws(UUID subtree) const
     {
         if (!m_Scene)

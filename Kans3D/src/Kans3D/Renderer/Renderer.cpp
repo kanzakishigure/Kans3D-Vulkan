@@ -662,9 +662,8 @@ namespace Kans
                                    cache                                ? cache->GetMesh(proxy.Mesh) :
                                                                           nullptr;
             if (mesh && proxy.Section < mesh->Sections.size() &&
-                (!view.Highlights.Isolate ||
-                 (world.MatchesSubtree(proxy.EntityID, proxy.InstanceRoot, view.Highlights.Isolate->first) &&
-                  mesh->Sections[proxy.Section].MaterialSlot == view.Highlights.Isolate->second)))
+                world.IsIsolated(
+                    view.Highlights, proxy.EntityID, proxy.InstanceRoot, mesh->Sections[proxy.Section].MaterialSlot))
                 draws.push_back({mesh,
                                  proxy.Transform,
                                  id,
@@ -692,9 +691,10 @@ namespace Kans
                                    cache                                ? cache->GetMesh(proxies[i].Mesh) :
                                                                           nullptr;
             if (mesh && proxies[i].Section < mesh->Sections.size() &&
-                (!view.Highlights.Isolate ||
-                 (world.MatchesSubtree(proxies[i].EntityID, proxies[i].InstanceRoot, view.Highlights.Isolate->first) &&
-                  mesh->Sections[proxies[i].Section].MaterialSlot == view.Highlights.Isolate->second)))
+                world.IsIsolated(view.Highlights,
+                                 proxies[i].EntityID,
+                                 proxies[i].InstanceRoot,
+                                 mesh->Sections[proxies[i].Section].MaterialSlot))
                 draws.push_back({mesh,
                                  proxies[i].Transform,
                                  uint32_t(i + 1),

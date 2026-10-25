@@ -41,6 +41,9 @@ namespace Kans::PropertyGrid
     // ---- Grids (rows outside a group) ----
     bool Begin(const char* id, float labelWidth = 0.0f); // 0: the shared label column.
     void End();
+    // Free-form content inside a grid or group: no label column and no column edge over it.
+    void BeginFree();
+    void EndFree();
 
     // Starts a row and moves to the value cell, where the next item takes the full
     // width. Returns false when the row is filtered out: then draw nothing for it.

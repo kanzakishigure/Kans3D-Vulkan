@@ -350,6 +350,10 @@ namespace Kans::PropertyGrid
         ImGui::PopID();
     }
 
+    void BeginFree() { End(); }
+
+    void EndFree() { Begin("##free"); }
+
     bool Row(const char* label, const char* tooltip, bool modified)
     {
         // Continuation rows (empty label) follow the row they belong to.
