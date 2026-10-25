@@ -121,6 +121,7 @@ namespace Kans
                    a.Shadows == b.Shadows;
         }
         friend class Scene;
+        friend struct SceneClipboardAccess;
         entt::entity m_EntityHandle {entt::null};
         Scene*       m_Scene = nullptr;
     };

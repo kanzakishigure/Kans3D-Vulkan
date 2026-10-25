@@ -19,7 +19,7 @@ namespace Kans
         SceneSerializer(const Ref<Scene>& Scene);
 
         void Serialize(const std::filesystem::path& path);
-        void SerializeEntity(YAML::Emitter& out, Entity entity);
+        void SerializeEntity(YAML::Emitter& out, Entity entity, bool clipboard = false);
         void SerializeRuntime(const std::filesystem::path& path);
 
         void Deserialize(const std::filesystem::path& path);
@@ -28,6 +28,10 @@ namespace Kans
         // Scene and leaves the caller's current Scene untouched on any failure.
         std::variant<std::monostate, AssetError>    SerializeChecked(const std::filesystem::path& path);
         static std::variant<Ref<Scene>, AssetError> DeserializeChecked(const std::filesystem::path& path);
+        // Shared checked entity/component decoder. Clipboard candidates retain generated
+        // prefab entities and animator bindings, which scene files normally regenerate.
+        static std::variant<Ref<Scene>, AssetError> DeserializeNodeChecked(const YAML::Node& root,
+                                                                        bool clipboard = false);
 
     private:
         Ref<Scene> m_Scene;

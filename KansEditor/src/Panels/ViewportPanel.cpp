@@ -118,7 +118,15 @@ namespace Kans
 
     MeshEditTool::View ViewportPanel::EditView() { return {m_Min, m_Max, &m_Camera, m_Scene.get()}; }
 
-    void ViewportPanel::PickAt(ImVec2 mouse) { m_Hierarchy.SetSelected(EntityAt(mouse)); }
+    void ViewportPanel::PickAt(ImVec2 mouse)
+    {
+        Entity hit = EntityAt(mouse);
+        // Ctrl adds to the selection or removes from it; a Ctrl-click on nothing keeps it.
+        if (ImGui::GetIO().KeyCtrl)
+            m_Hierarchy.ToggleSelected(hit);
+        else
+            m_Hierarchy.SetSelected(hit);
+    }
 
     Entity ViewportPanel::EntityAt(ImVec2 mouse)
     {
@@ -275,6 +283,20 @@ namespace Kans
         if ((!m_Hovered && !m_Focused) || io.WantTextInput || m_Navigation != Navigation::None)
             return;
         m_MeshTool.HandleShortcuts(m_Hierarchy.GetSelected());
+        if (!m_MeshTool.IsEditing(m_Hierarchy.GetSelected()))
+        {
+            // Entity actions on the selection, as in the Hierarchy.
+            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false))
+                m_Hierarchy.DuplicateSelection();
+            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false))
+                m_Hierarchy.CopySelection();
+            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_X, false))
+                m_Hierarchy.CutSelection();
+            if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false))
+                m_Hierarchy.Paste();
+            if (!io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+                m_Hierarchy.DeleteSelection();
+        }
         if (io.KeyCtrl)
             return;
         if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
@@ -495,6 +517,27 @@ namespace Kans
                              snap ? snapValues : nullptr);
         if (!ImGuizmo::IsUsing())
             return;
+
+        if (m_Hierarchy.SelectionSize() > 1)
+        {
+            // The same world-space change for every selected subtree root, so rotation and
+            // scale pivot on the primary entity. Children of selected entities follow them.
+            const glm::mat4 delta = transform * glm::inverse(m_Scene->GetWorldTransform(selected));
+            for (Entity entity : m_Hierarchy.TopMostSelected())
+            {
+                const glm::mat4 world   = delta * m_Scene->GetWorldTransform(entity);
+                const Entity    owner   = m_Scene->GetParent(entity);
+                const glm::mat4 local   = owner ? glm::inverse(m_Scene->GetWorldTransform(owner)) * world : world;
+                glm::vec3       position, rotation, size;
+                Math::DecomposeTransform(local, position, rotation, size);
+                entity.PatchComponent<TransformComponent>([&](TransformComponent& tc) {
+                    tc.Position = position;
+                    tc.Rotation = rotation;
+                    tc.Scale    = size;
+                });
+            }
+            return;
+        }
 
         const Entity    parent = m_Scene->GetParent(selected);
         const glm::mat4 local  = parent ? glm::inverse(m_Scene->GetWorldTransform(parent)) * transform : transform;

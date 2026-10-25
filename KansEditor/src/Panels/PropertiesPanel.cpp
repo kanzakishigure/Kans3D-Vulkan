@@ -233,6 +233,10 @@ namespace Kans
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::InputText("##Name", name, sizeof(name)))
             tag = name;
+        // With several entities selected, Properties edits the primary one (the last clicked).
+        if (const size_t count = m_Hierarchy.SelectionSize(); count > 1)
+            ImGui::TextColored(EditorTheme::Colors().AccentHover, ICON_FA_LAYER_GROUP "  %zu selected  |  editing %s", count,
+                               tag.c_str());
         if (entity.HasComponent<IDComponent>())
         {
             const auto id = std::to_string(static_cast<uint64_t>(entity.GetUUID()));

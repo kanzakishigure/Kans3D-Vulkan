@@ -866,7 +866,7 @@ namespace Kans
                          camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic),
                     "Invalid Scene camera");
         }
-        YAML::Node EncodeEntity(Entity entity)
+        YAML::Node EncodeEntity(Entity entity, bool clipboard = false)
         {
             Require(entity.HasComponent<TagComponent>() && entity.HasComponent<TransformComponent>(),
                     "Incomplete Scene entity");
@@ -884,6 +884,13 @@ namespace Kans
             value["Rotation"]           = Vector(transform.Rotation, 3);
             value["Scale"]              = Vector(transform.Scale, 3);
             node["TransformComponent"]  = EncodeTransform(transform);
+            if (clipboard && entity.HasComponent<PrefabOwnedComponent>())
+            {
+                const auto& owned = entity.GetComponent<PrefabOwnedComponent>();
+                node["PrefabOwnedComponent"]["Instance"] = uint64_t(owned.Instance);
+                node["PrefabOwnedComponent"]["Node"] = owned.NodeKey;
+                node["PrefabOwnedComponent"]["Order"] = owned.Order;
+            }
             if (entity.HasComponent<PrefabInstanceComponent>())
                 node["PrefabInstanceComponent"] = EncodePrefab(entity.GetComponent<PrefabInstanceComponent>());
             if (entity.HasComponent<AudioSourceComponent>())
@@ -935,6 +942,15 @@ namespace Kans
                 v["Parameters"]      = a.Parameters;
                 if (a.InlineController)
                     v["InlineController"] = EncodeAnimationControllerNode(*a.InlineController);
+                else if (clipboard && a.ControllerSource)
+                    v["InlineController"] = EncodeAnimationControllerNode(a.ControllerSource->GetData());
+                if (clipboard)
+                {
+                    auto joints = v["JointEntities"];
+                    joints = YAML::Node(YAML::NodeType::Sequence);
+                    for (UUID joint : a.JointEntities)
+                        joints.push_back(uint64_t(joint));
+                }
             }
             Require(!(entity.HasComponent<MeshComponent>() && entity.HasComponent<EditableMeshComponent>()),
                     "Mesh components are mutually exclusive");
@@ -1145,6 +1161,18 @@ namespace Kans
             auto documents = YAML::LoadAll(text);
             Require(documents.size() == 1, "Scene requires one YAML document");
             auto root = documents.front();
+            return DeserializeNodeChecked(root);
+        }
+        catch (const std::exception& error)
+        {
+            return AssetError {AssetErrorCode::InvalidData, std::string(error.what()).substr(0, 2048)};
+        }
+    }
+    std::variant<Ref<Scene>, AssetError> SceneSerializer::DeserializeNodeChecked(const YAML::Node& root,
+                                                                             bool clipboard)
+    {
+        try
+        {
             Keys(root, {"Version", "Scene", "Entities", "Environment", "PostProcess"});
             Require(UInt(root["Version"]) == 1, "Unsupported Scene version");
             auto entities = root["Entities"];
@@ -1198,6 +1226,7 @@ namespace Kans
                       "MeshComponent",
                       "EditableMeshComponent",
                       "PrefabParent",
+                      "PrefabOwnedComponent",
                       "CameraComponent",
                       "DirLightComponent",
                       "PointLightComponent",
@@ -1223,6 +1252,16 @@ namespace Kans
                 entity.GetComponent<TagComponent>().Tag = std::move(tag);
                 auto value                              = node["TransformComponent"];
                 entity.SetComponent<TransformComponent>(DecodeTransform(value));
+                if (node["PrefabOwnedComponent"])
+                {
+                    Require(clipboard, "Prefab ownership is only valid in clipboard entities");
+                    const auto owned = node["PrefabOwnedComponent"];
+                    Keys(owned, {"Instance", "Node", "Order"});
+                    auto instance = UInt(owned["Instance"]);
+                    auto key = Text(owned["Node"]);
+                    Require(instance && !key.empty(), "Invalid prefab ownership");
+                    entity.AddComponent<PrefabOwnedComponent>(UUID(instance), key, SceneIndex(owned["Order"]));
+                }
                 if (node["PrefabInstanceComponent"])
                 {
                     Require(!model, "Scene entity has both prefab and legacy model");
@@ -1275,7 +1314,8 @@ namespace Kans
                           "ApplyRootMotion",
                           "Speed",
                           "Parameters",
-                          "InlineController"});
+                          "InlineController",
+                          "JointEntities"});
                     AnimatorComponent a;
                     a.Skeleton        = AssetID::FromString(v["Skeleton"].as<std::string>());
                     a.Controller      = AssetID::FromString(v["Controller"].as<std::string>());
@@ -1289,6 +1329,13 @@ namespace Kans
                         Require(std::isfinite(p.second), "Non-finite animator parameter");
                     if (v["InlineController"])
                         a.InlineController = DecodeAnimationControllerNode(v["InlineController"]);
+                    if (v["JointEntities"])
+                    {
+                        Require(clipboard && v["JointEntities"].IsSequence() && v["JointEntities"].size() <= 65536,
+                                "Invalid clipboard animator joints");
+                        for (const auto& joint : v["JointEntities"])
+                            a.JointEntities.emplace_back(UInt(joint));
+                    }
                     entity.AddComponent<AnimatorComponent>(std::move(a));
                 }
                 Require(!(node["MeshComponent"] && node["EditableMeshComponent"]),
@@ -1334,7 +1381,11 @@ namespace Kans
                     Require(type <= 1, "Invalid Scene camera type");
                     auto& component = entity.AddComponent<CameraComponent>();
                     auto& camera    = component.SceneCamera;
-                    camera.SetAspectRatio(Number(value["AspectRatio"]));
+                    const auto aspect = Number(value["AspectRatio"]);
+                    // GLM asserts on epsilon before ValidateCamera can reject it.
+                    Require(aspect > 0 && aspect != std::numeric_limits<float>::epsilon(),
+                            "Invalid Scene camera aspect ratio");
+                    camera.SetAspectRatio(aspect);
                     if (value["PostProcessOverride"])
                         camera.SetPostProcessOverride(DecodePostProcess(value["PostProcessOverride"]));
                     if (value["Exposure"])
@@ -1435,7 +1486,8 @@ namespace Kans
                 Require(owner && candidate->SetParent(entity, owner, {}, false), "Invalid Scene entity parent");
             }
             candidate->m_ReconcilingPrefab = false;
-            candidate->UpdatePrefabs();
+            if (!clipboard)
+                candidate->UpdatePrefabs();
             return candidate;
         }
         catch (const std::exception& error)
@@ -1457,7 +1509,10 @@ namespace Kans
         else
             m_Scene = std::get<Ref<Scene>>(std::move(value));
     }
-    void SceneSerializer::SerializeEntity(YAML::Emitter& output, Entity entity) { output << EncodeEntity(entity); }
+    void SceneSerializer::SerializeEntity(YAML::Emitter& output, Entity entity, bool clipboard)
+    {
+        output << EncodeEntity(entity, clipboard);
+    }
     void SceneSerializer::SerializeRuntime(const std::filesystem::path& path) { Serialize(path); }
     void SceneSerializer::DeserializeEntity(YAML::Node&, Ref<Scene>)
     {

@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 #include "Kans3D/Scene/Entity.h"
+#include "EntitySelection.h"
 
 namespace Kans
 {
@@ -18,10 +19,28 @@ namespace Kans
 
         void   SetScene(Ref<Scene> scene);
         Scene* GetScene() const { return m_Scene.get(); }
-        // The selected entity, or a null Entity (also after it was deleted).
+        // The primary selected entity (what Properties and the gizmo follow), or a null
+        // Entity (also after it was deleted).
         Entity GetSelected() const;
-        // Selects and reveals the entity in the tree.
+        // Selects only this entity and reveals it in the tree.
         void SetSelected(Entity entity);
+        // Ctrl-click: adds the entity to the selection or removes it.
+        void ToggleSelected(Entity entity);
+        // Every selected entity, primary last.
+        std::vector<Entity> GetSelection() const;
+        size_t              SelectionSize() const { return m_Selection.Size(); }
+        bool                IsSelected(Entity entity) const { return entity && m_Selection.Contains(entity.GetUUID()); }
+
+        // Actions on the selection (also used by the viewport's shortcuts). Copy and Cut put
+        // the selection on the system clipboard; Paste adds it next to the primary entity.
+        void DeleteSelection();
+        void DuplicateSelection();
+        void CopySelection();
+        void CutSelection();
+        void Paste();
+        bool CanPaste() const;
+        // Selected entities whose ancestors are not selected, in tree order.
+        std::vector<Entity> TopMostSelected() const;
         // A file dropped from the content browser; `parent` is the entity it was
         // dropped on (null for the empty area).
         void SetFileDropCallback(FileDrop callback) { m_FileDrop = std::move(callback); }
@@ -47,15 +66,13 @@ namespace Kans
         bool UpdateMatches(Entity entity);
 
         Entity Create(const char* name, Entity parent);
-        void   Delete(Entity entity);
-        void   Duplicate(Entity entity);
         void   StartRename(Entity entity);
         void   CommitRename();
         void   Move(Entity entity, Entity target, DropPlace place);
 
         Ref<Scene> m_Scene;
-        UUID       m_Selected = 0;
-        UUID       m_Reveal   = 0; // Expand the tree down to this entity once.
+        EntitySelection m_Selection;
+        UUID            m_Reveal = 0; // Expand the tree down to this entity once.
         FileDrop   m_FileDrop;
 
         UUID                  m_Renaming = 0;
@@ -64,7 +81,8 @@ namespace Kans
 
         std::array<char, 128>              m_Search {};
         std::unordered_map<uint64_t, bool> m_Matches; // Subtree matches the search.
-        std::vector<UUID>                  m_Order;   // Entities as drawn, for arrow keys.
+        std::vector<UUID>                  m_Order;     // Entities as drawn, for arrow keys.
+        std::vector<UUID>                  m_LastOrder; // Last frame's, for Shift ranges.
         UUID                               m_MenuEntity     = 0;
         bool                               m_OpenEntityMenu = false;
         bool                               m_OpenCreateMenu = false;

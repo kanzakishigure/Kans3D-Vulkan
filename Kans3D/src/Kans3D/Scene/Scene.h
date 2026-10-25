@@ -208,6 +208,7 @@ namespace Kans
         friend class Entity;
         friend class RenderWorld;
         friend class SceneSerializer;
+        friend struct SceneClipboardAccess;
     };
 
 } // namespace Kans
