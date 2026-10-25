@@ -1,15 +1,36 @@
 #pragma once
-#include "RenderPipelineBase.h"
+#include <functional>
+#include <memory>
+#include <string>
+#include "Graph/RenderGraph.h"
+#include "RenderFeature.h"
+#include "RenderView.h"
+
 namespace Kans
 {
-    class RenderPipeline : public RenderPipelineBase
+    class SceneRenderer;
+    class RenderPipeline
     {
-
     public:
-        RenderPipeline();
-        virtual void Init(RenderPipelineSpecification spec) override final;
+        virtual ~RenderPipeline() = default;
+        virtual void Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) {}
+        virtual void Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) = 0;
 
-    private:
-        Ref<RenderScene> m_RenderScene;
+    protected:
+        // Other pipelines use the same per-view features and extension-point contract.
+        static void Inject(RenderExtensionPoint point, const RenderFeatureContext& context);
+    };
+    class ForwardPipeline final : public RenderPipeline
+    {
+    public:
+        void Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) override;
+        void Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) override;
+    };
+    class RenderPipelineRegistry
+    {
+    public:
+        using Factory = std::function<std::unique_ptr<RenderPipeline>()>;
+        static void                            Register(std::string name, Factory factory);
+        static std::unique_ptr<RenderPipeline> Create(const std::string& name);
     };
 } // namespace Kans

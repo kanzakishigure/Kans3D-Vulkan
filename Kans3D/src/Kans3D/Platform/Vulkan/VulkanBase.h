@@ -2,18 +2,10 @@
 #include <vulkan/vulkan.h>
 #include "Kans3D/Core/Base/Base.h"
 
-namespace Kans
-{
-    struct QueueFamilyIndices;
-}
 namespace Kans::Utils
 {
     // ValidationLayer
     bool checkValidationLayerSupport(std::vector<const char*> validationLayers);
-
-    // Device
-    QueueFamilyIndices findGraphicQueueFamilies(VkPhysicalDevice physicaldevice);
-    bool               isDeviceSuitable(VkPhysicalDevice device);
 
     // Utils
     const std::string VulkanMessageTypeToString(VkDebugUtilsMessageTypeFlagsEXT vkType);

@@ -1,365 +1,326 @@
 #include "kspch.h"
 #include "SelectionTools.h"
-#include <glad/glad.h>
-#include <glm/gtc/type_ptr.hpp>
+#include <cstring>
+#include <iostream>
+#include "InternalShader.h"
 
 namespace Kans
 {
     namespace
     {
-        const char* const PositionVertex = R"(#version 430 core
+        using namespace RenderHardware;
+        // Embedded here so shaders and their uniform layouts can be reviewed together.
+        const char* const PositionVertex    = R"(#version 450
 layout(location = 0) in vec3 a_Position;
-uniform mat4 u_ViewProjection;
-uniform mat4 u_Transform;
-void main() { gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0); }
+layout(set = 0, binding = 0, std140) uniform Draw { mat4 MVP; uvec4 ID; } p;
+void main() { gl_Position = p.MVP * vec4(a_Position, 1.0); }
 )";
-        const char* const IdFragment = R"(#version 430 core
-uniform uint u_ID;
+        const char* const IdFragment        = R"(#version 450
+layout(set = 0, binding = 0, std140) uniform Draw { mat4 MVP; uvec4 ID; } p;
 layout(location = 0) out uint o_ID;
-void main() { o_ID = u_ID; }
+void main() { o_ID = p.ID.x; }
 )";
-        const char* const MaskFragment = R"(#version 430 core
+        const char* const MaskFragment      = R"(#version 450
 layout(location = 0) out float o_Mask;
 void main() { o_Mask = 1.0; }
 )";
-        const char* const FullscreenVertex = R"(#version 430 core
-out vec2 v_UV;
+        const char* const FullscreenVertex  = R"(#version 450
 void main()
 {
     const vec2 corners[3] = vec2[](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
-    v_UV        = corners[gl_VertexID] * 0.5 + 0.5;
-    gl_Position = vec4(corners[gl_VertexID], 0.0, 1.0);
+    gl_Position = vec4(corners[gl_VertexIndex], 0.0, 1.0);
 }
 )";
-        const char* const CompositeFragment = R"(#version 430 core
-in vec2 v_UV;
-uniform sampler2D u_Mask;
-uniform vec4      u_Color;
-uniform int       u_Width;
+        const char* const CompositeFragment = R"(#version 450
+layout(set = 0, binding = 0) uniform sampler2D u_Mask;
+layout(set = 0, binding = 1, std140) uniform Composite { vec4 Color; ivec4 Width; } p;
 layout(location = 0) out vec4 o_Color;
 void main()
 {
     vec2 texel = 1.0 / vec2(textureSize(u_Mask, 0));
-    if (texture(u_Mask, v_UV).r > 0.5)
+    // Fragment coordinates and texture rows share the device framebuffer origin.
+    vec2 uv = gl_FragCoord.xy * texel;
+    if (texture(u_Mask, uv).r > 0.5)
     {
-        // Faint fill over the selection.
-        o_Color = vec4(u_Color.rgb, u_Color.a * 0.12);
+        o_Color = vec4(p.Color.rgb, p.Color.a * 0.12);
         return;
     }
-    for (int y = -u_Width; y <= u_Width; ++y)
-        for (int x = -u_Width; x <= u_Width; ++x)
-            if (texture(u_Mask, v_UV + vec2(x, y) * texel).r > 0.5)
+    for (int y = -p.Width.x; y <= p.Width.x; ++y)
+        for (int x = -p.Width.x; x <= p.Width.x; ++x)
+            if (texture(u_Mask, uv + vec2(x, y) * texel).r > 0.5)
             {
-                o_Color = u_Color;
+                o_Color = p.Color;
                 return;
             }
     discard;
 }
 )";
-
-        std::string ShaderLog(GLuint shader)
+        struct DrawData
         {
-            GLint length = 0;
-            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-            std::string log(size_t(std::max(length, 1)), '\0');
-            glGetShaderInfoLog(shader, length, nullptr, log.data());
-            return log;
+            glm::mat4  MVP;
+            glm::uvec4 ID;
+        };
+        struct CompositeData
+        {
+            glm::vec4  Color;
+            glm::ivec4 Width;
+        };
+
+        Handle<Shader> Build(Device& device, const char* name, const char* vertex, const char* fragment)
+        {
+            auto result = CreateInternalShader(device, name, vertex, fragment);
+            if (auto* error = std::get_if<AssetError>(&result))
+            {
+                if (Log::GetCoreLogger())
+                    CORE_ERROR("{}", error->Message);
+                else
+                    std::cerr << error->Message << std::endl;
+                return {};
+            }
+            return std::get<Handle<Shader>>(std::move(result));
         }
-
-        // Draws meshes with `program` (u_ViewProjection, u_Transform, optional u_ID).
-        void DrawMeshes(const GlProgram& program, const std::vector<MeshDraw>& draws, const glm::mat4& viewProjection)
+        PipelineDesc MeshPipeline(Device& device, const char* name, const char* fragment, Format format)
         {
-            program.Bind();
-            glUniformMatrix4fv(program.Location("u_ViewProjection"), 1, GL_FALSE, glm::value_ptr(viewProjection));
-            const int transform = program.Location("u_Transform"), id = program.Location("u_ID");
+            PipelineDesc desc;
+            desc.Program         = Build(device, name, PositionVertex, fragment);
+            desc.GroupLayouts    = {device.CreateBindGroupLayout({0, {{0, BindingType::UniformBuffer}}})};
+            desc.VertexBindings  = {{0, 64, false}};
+            desc.Attributes      = {{0, 0, 0, VertexFormat::Float3}};
+            desc.Rasterizer.Cull = CullMode::None;
+            desc.ColorFormats    = {format};
+            desc.Blends.resize(1);
+            return desc;
+        }
+        void DrawMeshes(Device&                      device,
+                        CommandList&                 commands,
+                        const Handle<Pipeline>&      pipeline,
+                        const std::vector<MeshDraw>& draws,
+                        const glm::mat4&             projection)
+        {
+            commands.BindPipeline(pipeline);
             for (const auto& draw : draws)
             {
-                if (!draw.Mesh || !draw.Mesh->VertexArray)
+                if (!draw.Mesh || !draw.Mesh->Vertices || !draw.Mesh->Indices)
                     continue;
-                glUniformMatrix4fv(transform, 1, GL_FALSE, glm::value_ptr(draw.Transform));
-                if (id >= 0)
-                    glUniform1ui(id, draw.ID);
-                draw.Mesh->VertexArray->Bind();
-                glDrawElements(GL_TRIANGLES, GLsizei(draw.Mesh->IndexCount), GL_UNSIGNED_INT, nullptr);
+                const DrawData data {projection * draw.Transform, glm::uvec4(draw.ID, 0, 0, 0)};
+                auto           buffer = device.CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
+                buffer->Write(0, &data, sizeof(data));
+                commands.BindGroup(device.CreateBindGroup({pipeline->GetDesc().GroupLayouts[0], {{0, buffer}}}));
+                commands.BindVertexBuffers({{0, draw.Mesh->Vertices, 0}});
+                commands.BindIndexBuffer(draw.Mesh->Indices, IndexType::Uint32);
+                commands.DrawIndexed(draw.Mesh->IndexCount);
             }
-            glBindVertexArray(0);
-        }
-
-        // Saves the state these tools change and restores it on scope exit.
-        struct GlStateGuard
-        {
-            GLint     Framebuffer = 0, ReadFramebuffer = 0, Program = 0, Viewport[4] = {}, Scissor[4] = {};
-            GLint     DepthFunction = GL_LESS;
-            GLint     PolygonMode[2] {}, BlendSourceRGB, BlendDestinationRGB, BlendSourceAlpha, BlendDestinationAlpha;
-            GLint     BlendEquationRGB, BlendEquationAlpha;
-            GLboolean DepthMask = GL_TRUE;
-            GLdouble  DepthRange[2] = {}, ClearDepth = 1.0;
-            GLboolean Depth = GL_FALSE, Blend = GL_FALSE, ScissorTest = GL_FALSE, Cull = GL_FALSE, Stencil = GL_FALSE;
-            GlStateGuard()
-            {
-                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &Framebuffer);
-                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &ReadFramebuffer);
-                glGetIntegerv(GL_DEPTH_FUNC, &DepthFunction);
-                glGetIntegerv(GL_POLYGON_MODE, PolygonMode);
-                glGetIntegerv(GL_BLEND_SRC_RGB, &BlendSourceRGB);
-                glGetIntegerv(GL_BLEND_DST_RGB, &BlendDestinationRGB);
-                glGetIntegerv(GL_BLEND_SRC_ALPHA, &BlendSourceAlpha);
-                glGetIntegerv(GL_BLEND_DST_ALPHA, &BlendDestinationAlpha);
-                glGetIntegerv(GL_BLEND_EQUATION_RGB, &BlendEquationRGB);
-                glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &BlendEquationAlpha);
-                glGetBooleanv(GL_DEPTH_WRITEMASK, &DepthMask);
-                glGetDoublev(GL_DEPTH_RANGE, DepthRange);
-                glGetDoublev(GL_DEPTH_CLEAR_VALUE, &ClearDepth);
-                glGetIntegerv(GL_CURRENT_PROGRAM, &Program);
-                glGetIntegerv(GL_VIEWPORT, Viewport);
-                glGetIntegerv(GL_SCISSOR_BOX, Scissor);
-                Depth       = glIsEnabled(GL_DEPTH_TEST);
-                Blend       = glIsEnabled(GL_BLEND);
-                ScissorTest = glIsEnabled(GL_SCISSOR_TEST);
-                Cull        = glIsEnabled(GL_CULL_FACE);
-                Stencil     = glIsEnabled(GL_STENCIL_TEST);
-            }
-            ~GlStateGuard()
-            {
-                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, GLuint(Framebuffer));
-                glBindFramebuffer(GL_READ_FRAMEBUFFER, GLuint(ReadFramebuffer));
-                glDepthFunc(GLenum(DepthFunction));
-                glDepthMask(DepthMask);
-                glDepthRange(DepthRange[0], DepthRange[1]);
-                glClearDepth(ClearDepth);
-                glUseProgram(GLuint(Program));
-                glViewport(Viewport[0], Viewport[1], Viewport[2], Viewport[3]);
-                glScissor(Scissor[0], Scissor[1], Scissor[2], Scissor[3]);
-                glPolygonMode(GL_FRONT_AND_BACK, PolygonMode[0]);
-                glBlendFuncSeparate(BlendSourceRGB, BlendDestinationRGB, BlendSourceAlpha, BlendDestinationAlpha);
-                glBlendEquationSeparate(BlendEquationRGB, BlendEquationAlpha);
-                const auto set = [](GLenum cap, GLboolean on) { on ? glEnable(cap) : glDisable(cap); };
-                set(GL_DEPTH_TEST, Depth);
-                set(GL_BLEND, Blend);
-                set(GL_SCISSOR_TEST, ScissorTest);
-                set(GL_CULL_FACE, Cull);
-                set(GL_STENCIL_TEST, Stencil);
-            }
-        };
-    } // namespace
-
-    // ---------------------------------------------------------------------- GlProgram
-
-    GlProgram::~GlProgram()
-    {
-        if (m_Program)
-            glDeleteProgram(m_Program);
-    }
-
-    std::variant<std::monostate, AssetError> GlProgram::Build(const std::string& vertex, const std::string& fragment)
-    {
-        const auto compile = [](GLenum stage, const std::string& source, GLuint& shader) -> std::optional<std::string> {
-            shader            = glCreateShader(stage);
-            const char* text  = source.c_str();
-            glShaderSource(shader, 1, &text, nullptr);
-            glCompileShader(shader);
-            GLint compiled = GL_FALSE;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-            return compiled == GL_TRUE ? std::nullopt : std::optional<std::string>(ShaderLog(shader));
-        };
-        GLuint vs = 0, fs = 0;
-        auto   error = compile(GL_VERTEX_SHADER, vertex, vs);
-        if (!error)
-            error = compile(GL_FRAGMENT_SHADER, fragment, fs);
-        if (!error)
-        {
-            const GLuint program = glCreateProgram();
-            glAttachShader(program, vs);
-            glAttachShader(program, fs);
-            glLinkProgram(program);
-            GLint linked = GL_FALSE;
-            glGetProgramiv(program, GL_LINK_STATUS, &linked);
-            if (linked == GL_TRUE)
-            {
-                if (m_Program)
-                    glDeleteProgram(m_Program);
-                m_Program = program;
-            }
-            else
-            {
-                error = "link failed";
-                glDeleteProgram(program);
-            }
-        }
-        glDeleteShader(vs);
-        glDeleteShader(fs);
-        if (error)
-            return AssetError {AssetErrorCode::InvalidData, "Editor shader: " + error->substr(0, 1024)};
-        return std::monostate {};
-    }
-
-    void GlProgram::Bind() const { glUseProgram(m_Program); }
-
-    int GlProgram::Location(const char* name) const { return glGetUniformLocation(m_Program, name); }
-
-    // ---------------------------------------------------------------------- EntityPicker
-
-    EntityPicker::~EntityPicker()
-    {
-        if (m_Framebuffer)
-        {
-            glDeleteFramebuffers(1, &m_Framebuffer);
-            glDeleteTextures(1, &m_Color);
-            glDeleteRenderbuffers(1, &m_Depth);
         }
     }
 
     void EntityPicker::Resize(glm::uvec2 size)
     {
-        if (size == m_Size && m_Framebuffer)
+        if (size == m_Size && m_Color)
             return;
-        if (!m_Framebuffer)
-        {
-            glGenFramebuffers(1, &m_Framebuffer);
-            glGenTextures(1, &m_Color);
-            glGenRenderbuffers(1, &m_Depth);
-        }
+        using namespace RenderHardware;
+        TextureDesc desc;
+        desc.Width       = size.x;
+        desc.Height      = size.y;
+        desc.PixelFormat = Format::R32Uint;
+        desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource;
+        m_Color          = m_Device->CreateTexture(desc);
+        desc.PixelFormat = Format::Depth32Float;
+        desc.Usage       = RenderHardware::TextureUsage::DepthStencil | RenderHardware::TextureUsage::CopySource;
+        m_Depth          = m_Device->CreateTexture(desc);
         m_Size = size;
-        glBindTexture(GL_TEXTURE_2D, m_Color);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, GLsizei(size.x), GLsizei(size.y), 0, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glBindRenderbuffer(GL_RENDERBUFFER, m_Depth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, GLsizei(size.x), GLsizei(size.y));
-        glBindFramebuffer(GL_FRAMEBUFFER, m_Framebuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_Color, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_Depth);
     }
 
     uint32_t EntityPicker::Pick(const std::vector<MeshDraw>& draws,
-                                const glm::mat4&             viewProjection,
+                                const glm::mat4&             projection,
                                 glm::uvec2                   viewport,
                                 glm::uvec2                   pixel)
     {
-        return PickSurface(draws, viewProjection, viewport, pixel).ID;
+        return PickSurface(draws, projection, viewport, pixel).ID;
     }
 
     PickHit EntityPicker::PickSurface(const std::vector<MeshDraw>& draws,
-                                      const glm::mat4&             viewProjection,
+                                      const glm::mat4&             projection,
                                       glm::uvec2                   viewport,
                                       glm::uvec2                   pixel)
     {
         if (draws.empty() || !viewport.x || !viewport.y || pixel.x >= viewport.x || pixel.y >= viewport.y)
             return {};
-        GlStateGuard state;
-        if (!m_Program.IsValid() && std::holds_alternative<AssetError>(m_Program.Build(PositionVertex, IdFragment)))
-            return {};
+        using namespace RenderHardware;
+        if (!m_Device)
+        {
+            for (const auto& draw : draws)
+                if (draw.Mesh && draw.Mesh->Device)
+                {
+                    m_Device = draw.Mesh->Device;
+                    break;
+                }
+            if (!m_Device)
+                return {};
+        }
+        if (!m_Pipeline)
+        {
+            auto desc = MeshPipeline(*m_Device, "EntityPicker", IdFragment, Format::R32Uint);
+            if (!desc.Program)
+                return {};
+            desc.HasDepthStencil        = true;
+            desc.DepthStencilFormat     = Format::Depth32Float;
+            desc.DepthStencil.DepthTest = desc.DepthStencil.DepthWrite = true;
+            m_Pipeline                                                 = m_Device->CreatePipeline(desc);
+        }
         Resize(viewport);
-        glBindFramebuffer(GL_FRAMEBUFFER, m_Framebuffer);
-        glViewport(0, 0, GLsizei(viewport.x), GLsizei(viewport.y));
-        // Only the picked pixel matters.
-        glEnable(GL_SCISSOR_TEST);
-        glScissor(GLint(pixel.x), GLint(pixel.y), 1, 1);
-        glDepthMask(GL_TRUE);
-        glDepthFunc(GL_LESS);
-        glDepthRange(0.0, 1.0);
-        glClearDepth(1.0);
-        const GLuint none = 0;
-        glClearBufferuiv(GL_COLOR, 0, &none);
-        glClear(GL_DEPTH_BUFFER_BIT);
-        glEnable(GL_DEPTH_TEST);
-        glDisable(GL_BLEND);
-        glDisable(GL_CULL_FACE);
-        glDisable(GL_STENCIL_TEST);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        DrawMeshes(m_Program, draws, viewProjection);
+        const auto     coordinates = m_Device->GetCoordinateConventions();
+        const uint32_t row         = DeviceRow(pixel.y, viewport.y, coordinates);
+        auto           commands    = m_Device->CreateCommandList();
+        RenderingDesc  target;
+        target.Colors       = {{m_Color}};
+        target.Depth.Target = m_Depth;
+        commands->BeginRendering(target);
+        commands->SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
+        commands->SetScissor({int32_t(pixel.x), int32_t(row), 1, 1});
+        DrawMeshes(*m_Device, *commands, m_Pipeline, draws, DeviceProjection(projection, coordinates));
+        commands->EndRendering();
+        const size_t bytes = size_t(viewport.x) * viewport.y * 4;
+        auto readback      = m_Device->CreateBuffer({bytes * 2, BufferUsage::CopyDestination, MemoryUsage::Readback});
+        commands->CopyTextureToBuffer(m_Color, {}, readback);
+        commands->CopyTextureToBuffer(m_Depth, {}, readback, bytes);
+        m_Device->Submit(commands);
+        m_Device->WaitIdle();
+        const size_t offset = (size_t(row) * viewport.x + pixel.x) * 4;
+        const auto   id     = readback->Read(offset, 4);
         PickHit hit;
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(GLint(pixel.x), GLint(pixel.y), 1, 1, GL_RED_INTEGER, GL_UNSIGNED_INT, &hit.ID);
+        std::memcpy(&hit.ID, id.data(), 4);
         if (hit.ID)
         {
-            GLfloat depth = 1.0f;
-            glReadPixels(GLint(pixel.x), GLint(pixel.y), 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+            const auto z = readback->Read(bytes + offset, 4);
+            float      depth;
+            std::memcpy(&depth, z.data(), 4);
+            // Editor projections and pixels stay in their existing [-1,1], bottom-left convention.
             const glm::vec2 ndc = (glm::vec2(pixel) + 0.5f) / glm::vec2(viewport) * 2.0f - 1.0f;
-            const glm::vec4 world = glm::inverse(viewProjection) * glm::vec4(ndc, depth * 2.0f - 1.0f, 1.0f);
+            const glm::vec4 world = glm::inverse(projection) * glm::vec4(ndc, depth * 2.0f - 1.0f, 1.0f);
             hit.Position = glm::vec3(world) / world.w;
         }
         return hit;
     }
 
-    // ---------------------------------------------------------------------- SelectionOutline
-
-    SelectionOutline::~SelectionOutline()
-    {
-        if (m_Framebuffer)
-        {
-            glDeleteFramebuffers(1, &m_Framebuffer);
-            glDeleteTextures(1, &m_Texture);
-        }
-        if (m_EmptyVertexArray)
-            glDeleteVertexArrays(1, &m_EmptyVertexArray);
-    }
-
     void SelectionOutline::Resize(glm::uvec2 size)
     {
-        if (size == m_Size && m_Framebuffer)
+        if (size == m_Size && m_Texture)
             return;
-        if (!m_Framebuffer)
-        {
-            glGenFramebuffers(1, &m_Framebuffer);
-            glGenTextures(1, &m_Texture);
-        }
+        using namespace RenderHardware;
+        TextureDesc desc;
+        desc.Width       = size.x;
+        desc.Height      = size.y;
+        desc.PixelFormat = Format::R8Unorm;
+        desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled;
+        m_Texture        = m_Device->CreateTexture(desc);
         m_Size = size;
-        glBindTexture(GL_TEXTURE_2D, m_Texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, GLsizei(size.x), GLsizei(size.y), 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glBindFramebuffer(GL_FRAMEBUFFER, m_Framebuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_Texture, 0);
     }
 
-    void SelectionOutline::Draw(const std::vector<MeshDraw>& draws,
-                                const glm::mat4&             viewProjection,
-                                glm::uvec2                   viewport,
-                                const glm::vec4&             color,
-                                float                        width)
+    void SelectionOutline::Draw(const RenderHardware::RenderingDesc& target,
+                                const std::vector<MeshDraw>&         draws,
+                                const glm::mat4&                     projection,
+                                glm::uvec2                           viewport,
+                                const glm::vec4&                     color,
+                                float                                width)
     {
-        if (draws.empty() || !viewport.x || !viewport.y)
+        if (draws.empty() || !viewport.x || !viewport.y || target.Colors.empty())
             return;
-        GlStateGuard state;
-        if (!m_Mask.IsValid() && std::holds_alternative<AssetError>(m_Mask.Build(PositionVertex, MaskFragment)))
-            return;
-        if (!m_Composite.IsValid() &&
-            std::holds_alternative<AssetError>(m_Composite.Build(FullscreenVertex, CompositeFragment)))
-            return;
-        if (!m_EmptyVertexArray)
-            glGenVertexArrays(1, &m_EmptyVertexArray);
+        using namespace RenderHardware;
+        if (!m_Device)
+        {
+            for (const auto& draw : draws)
+                if (draw.Mesh && draw.Mesh->Device)
+                {
+                    m_Device = draw.Mesh->Device;
+                    break;
+                }
+            if (!m_Device)
+                return;
+        }
         Resize(viewport);
+        auto commands = m_Device->CreateCommandList();
+        RecordMask(*commands, m_Texture, draws, projection, viewport);
+        RecordComposite(*commands, target, m_Texture, viewport, color, width);
+        m_Device->Submit(commands);
+    }
 
-        // 1. Silhouette of the selection, ignoring depth so hidden parts show too.
-        glBindFramebuffer(GL_FRAMEBUFFER, m_Framebuffer);
-        glViewport(0, 0, GLsizei(viewport.x), GLsizei(viewport.y));
-        glDisable(GL_SCISSOR_TEST);
-        glDisable(GL_DEPTH_TEST);
-        glDisable(GL_BLEND);
-        glDisable(GL_CULL_FACE);
-        glDisable(GL_STENCIL_TEST);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        const GLfloat clear[4] = {0, 0, 0, 0};
-        glClearBufferfv(GL_COLOR, 0, clear);
-        DrawMeshes(m_Mask, draws, viewProjection);
+    void SelectionOutline::RecordMask(RenderHardware::CommandList&                           commands,
+                                      const RenderHardware::Handle<RenderHardware::Texture>& maskTexture,
+                                      const std::vector<MeshDraw>&                           draws,
+                                      const glm::mat4&                                       projection,
+                                      glm::uvec2                                             viewport)
+    {
+        using namespace RenderHardware;
+        if (!m_Mask)
+        {
+            auto desc = MeshPipeline(*m_Device, "SelectionMask", MaskFragment, Format::R8Unorm);
+            if (!desc.Program)
+                return;
+            m_Mask   = m_Device->CreatePipeline(desc);
+            m_Layout = m_Device->CreateBindGroupLayout(
+                {0, {{0, BindingType::CombinedTextureSampler}, {1, BindingType::UniformBuffer}}});
+            SamplerDesc sampler;
+            sampler.Min = sampler.Mag = sampler.Mip = Filter::Nearest;
+            sampler.U = sampler.V = sampler.W = AddressMode::ClampToEdge;
+            m_Sampler                         = m_Device->CreateSampler(sampler);
+        }
+        RenderingDesc mask;
+        mask.Colors = {{maskTexture}};
+        commands.BeginRendering(mask);
+        commands.SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
+        commands.SetScissor({0, 0, viewport.x, viewport.y});
+        DrawMeshes(
+            *m_Device, commands, m_Mask, draws, DeviceProjection(projection, m_Device->GetCoordinateConventions()));
+        commands.EndRendering();
+    }
 
-        // 2. Border around the silhouette over the original target.
-        glBindFramebuffer(GL_FRAMEBUFFER, GLuint(state.Framebuffer));
-        glViewport(state.Viewport[0], state.Viewport[1], state.Viewport[2], state.Viewport[3]);
-        glEnable(GL_BLEND);
-        glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
-        m_Composite.Bind();
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, m_Texture);
-        glUniform1i(m_Composite.Location("u_Mask"), 0);
-        glUniform4fv(m_Composite.Location("u_Color"), 1, glm::value_ptr(color));
-        glUniform1i(m_Composite.Location("u_Width"), std::clamp(int(width + 0.5f), 1, 6));
-        glBindVertexArray(m_EmptyVertexArray);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        glBindVertexArray(0);
+    void SelectionOutline::RecordComposite(RenderHardware::CommandList&                           commands,
+                                           const RenderHardware::RenderingDesc&                   target,
+                                           const RenderHardware::Handle<RenderHardware::Texture>& maskTexture,
+                                           glm::uvec2                                             viewport,
+                                           const glm::vec4&                                       color,
+                                           float                                                  width)
+    {
+        using namespace RenderHardware;
+        if (!m_Layout)
+            return;
+        // Target formats are part of the pipeline, so a different target cannot reuse incompatible state.
+        PipelineDesc desc;
+        desc.Program = m_Composite ? m_Composite->GetDesc().Program :
+                                     Build(*m_Device, "SelectionComposite", FullscreenVertex, CompositeFragment);
+        if (!desc.Program)
+            return;
+        desc.GroupLayouts    = {m_Layout};
+        desc.Rasterizer.Cull = CullMode::None;
+        desc.ColorFormats    = {target.Colors[0].Target->GetDesc().PixelFormat};
+        desc.HasDepthStencil = bool(target.Depth.Target);
+        if (desc.HasDepthStencil)
+            desc.DepthStencilFormat = target.Depth.Target->GetDesc().PixelFormat;
+        BlendState blend;
+        blend.Enabled          = true;
+        blend.SourceColor      = BlendFactor::SourceAlpha;
+        blend.DestinationColor = BlendFactor::OneMinusSourceAlpha;
+        blend.SourceAlpha      = BlendFactor::Zero;
+        blend.DestinationAlpha = BlendFactor::One;
+        desc.Blends.resize(desc.ColorFormats.size(), blend);
+        m_Composite = m_Device->CreatePipeline(desc);
+        auto composite = target;
+        composite.Colors.resize(1);
+        for (auto& attachment : composite.Colors)
+            attachment.Load = LoadOp::Load;
+        composite.Depth.Load = LoadOp::Load;
+        commands.BeginRendering(composite);
+        commands.SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
+        commands.SetScissor({0, 0, viewport.x, viewport.y});
+        commands.BindPipeline(m_Composite);
+        BindGroupEntry entry;
+        entry.TextureResource = maskTexture;
+        entry.SamplerResource = m_Sampler;
+        const CompositeData data {color, glm::ivec4(std::clamp(int(width + 0.5f), 1, 6), 0, 0, 0)};
+        auto parameters = m_Device->CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
+        parameters->Write(0, &data, sizeof(data));
+        commands.BindGroup(m_Device->CreateBindGroup({m_Layout, {entry, {1, parameters}}}));
+        commands.Draw(3);
+        commands.EndRendering();
     }
 } // namespace Kans

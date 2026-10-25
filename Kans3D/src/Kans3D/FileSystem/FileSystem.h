@@ -29,6 +29,7 @@ namespace Kans
         std::filesystem::path m_ShaderCachePath;
         std::filesystem::path m_CachePath;
         std::string           m_RootPathHashValue;
+        std::string           m_RenderBackend;
 
         std::filesystem::path m_ConfigPath;
 

@@ -3,6 +3,7 @@
 #include "Kans3D/Core/Events/KeyEvent.h"
 #include "Kans3D/Core/Events/MouseEvent.h"
 #include "Kans3D/Core/Layer.h"
+#include "Kans3D/RHI/ImGuiRenderer.h"
 namespace Kans
 {
     class ImGuiLayer : public Layer
@@ -24,6 +25,7 @@ namespace Kans
         void SetDarkThemeColors();
 
     private:
+        std::unique_ptr<RenderHardware::ImGuiRenderer> m_Renderer;
         float m_Time       = 0.0f;
         bool  m_BlokEvents = false;
     };

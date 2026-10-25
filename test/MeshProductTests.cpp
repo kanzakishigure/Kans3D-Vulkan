@@ -3,7 +3,7 @@
 #include "Kans3D/Asset/Importer/ImportedModelData.h"
 #include "Kans3D/Asset/Loader/Loader.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
-#include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 
 namespace
@@ -200,18 +200,18 @@ namespace
         EXPECT_EQ(std::get<AssetError>(UploadMesh(data)).Code, AssetErrorCode::InvalidData);
         EXPECT_TRUE(std::holds_alternative<std::monostate>(ValidateMeshData(Triangle())));
     }
-    TEST(MeshProductUpload, RejectsAbsentContextAndUnsupportedBackends)
+    TEST(MeshProductUpload, RejectsAbsentDeviceAndUnselectedBackend)
     {
         struct BackendRestore
         {
-            RendererAPIType Previous = RendererAPI::Current();
-            ~BackendRestore() { RendererAPI::SetBackEnd(Previous); }
+            RenderHardware::Backend Previous = RenderHardware::GetBackend();
+            ~BackendRestore() { RenderHardware::SetBackend(Previous); }
         } restore;
-        RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
         EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::InvalidArgument);
-        RendererAPI::SetBackEnd(RendererAPIType::Vulkan);
-        EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::NotImplemented);
-        RendererAPI::SetBackEnd(RendererAPIType::NONE);
+        RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
+        EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::InvalidArgument);
+        RenderHardware::SetBackend(RenderHardware::Backend::None);
         EXPECT_EQ(std::get<AssetError>(UploadMesh(Triangle())).Code, AssetErrorCode::NotImplemented);
     }
 } // namespace

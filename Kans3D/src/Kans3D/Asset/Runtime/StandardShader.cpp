@@ -16,6 +16,7 @@ namespace Kans
             const std::string manifest = R"(KansShaderProgram 1
 vertex=Standard.vert
 fragment=Standard.frag
+output_space=linear_hdr
 default BaseColor = 1 1 1 1
 default Metallic = 0
 default Roughness = 1
@@ -113,7 +114,10 @@ vec3 StandardNormal(vec2 uv)
         if (dot(T, T) < 1e-8 || abs(determinantUV) < 1e-8)
             return N;
         T = normalize(T);
-        B = cross(N, T) * sign(determinantUV);
+        // Recover +V in world space. The sign of the screen-space UV
+        // determinant alone changes when framebuffer Y changes direction.
+        vec3 derivativeB = (q2 * st1.x - q1 * st2.x) * sign(determinantUV);
+        B = cross(N, T) * sign(dot(cross(N, T), derivativeB));
     }
     vec3 mapped = texture(NormalMap, uv).xyz * 2.0 - 1.0;
     mapped.xy *= p.NormalStrength;
@@ -143,7 +147,7 @@ void main()
     float ao = mix(1.0, texture(OcclusionMap, uv).r, p.OcclusionStrength);
     vec3 color = KansShadePbr(albedo, p.Metallic * mr.b, p.Roughness * mr.g, ao, N, v_WorldPosition);
     color += p.EmissiveColor * p.EmissiveIntensity * texture(EmissiveMap, uv).rgb;
-    o_Color = KansToneMap(color);
+    o_Color = u_Frame.DebugView == 3 ? KansToneMap(color) : vec4(color, alpha);
     o_Color.a = alpha;
 }
 )"}});

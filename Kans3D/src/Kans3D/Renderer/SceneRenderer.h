@@ -1,7 +1,10 @@
 #pragma once
 #include <chrono>
 #include <glm/glm.hpp>
-#include "Kans3D/Renderer/RHI/FrameBuffer.h"
+#include "Graph/RenderGraph.h"
+#include "RenderFeature.h"
+#include "RenderView.h"
+#include "Resource/ToneMappingPass.h"
 
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/RenderScene.h"
@@ -11,62 +14,24 @@
 
 namespace Kans
 {
-    struct SceneRendererCamera
+    // Default sizes preserve the editor's environment precomputation. Small
+    // offscreen clients can select lower resolutions without changing shaders.
+    struct EnvironmentPrecomputeSizes
     {
-        Camera    camera;
-        glm::mat4 viewMatrix;
-        glm::vec3 Position;
-    };
-    struct SceneInfo
-    {
-        DirLight            dirLight;
-        PointLight          pointLight;
-        SceneRendererCamera sceneCamera;
-    };
-    class ShaderLibrary;
-
-    // Explicit deferred draw intent; submission does not inspect GL state.
-    enum class ModelStencilMode
-    {
-        Disabled,
-        WriteReference, // Write 1 where a material fragment passes depth.
-    };
-    enum class ModelGeometryMode
-    {
-        Default,
-        StencilOutline, // Only outside reference 1, with no stencil writes.
-        BackFaces,      // Inverted hull outline: cull front faces.
+        uint32_t Cubemap = 512, Irradiance = 512, Prefilter = 128, BrdfLUT = 512;
     };
 
     struct SceneRendererSpecification
     {
         bool SwapChainTarget = false;
-        // Optional library for auxiliary geometry; defaults to the renderer library.
-        Ref<ShaderLibrary> GeometryShaders;
     };
 
     class Scene;
-
-    // How the editor viewport shades models.
-    enum class SceneViewMode
-    {
-        Lit,
-        BaseColor,
-        Normals,
-        Wireframe,
-    };
 
     struct SceneRenderStats
     {
         uint32_t DrawCalls = 0;
         uint64_t Triangles = 0;
-    };
-
-    // Deferred model draw intent. GPU resources are resolved when the draw is consumed.
-    struct ModelDraw
-    {
-        ProductModelComponent Model;
-        glm::mat4             Transform {1.0f};
     };
 
     class SceneRenderer : public RefCounter
@@ -84,8 +49,7 @@ namespace Kans
         void SubmitModel(const ProductModelComponent& model,
                          const glm::mat4&             transform,
                          ModelStencilMode             stencil = ModelStencilMode::Disabled);
-        // Queues model geometry after the material pass with a shader from the library that takes
-        // U_ViewProjection, U_Transform and U_ViewPos (outline, stencil, debug).
+        // Queues built-in StencilShader, OutLineShader or DebugNormalShader geometry after materials.
         void SubmitModelGeometry(const ProductModelComponent& model,
                                  const glm::mat4&             transform,
                                  const std::string&           shaderName,
@@ -110,7 +74,7 @@ namespace Kans
         const SceneRenderStats& GetStats() const { return m_Stats; }
 
         void                  Init();
-        void                  PrepareEnvironment();
+        void                  PrepareEnvironment(EnvironmentPrecomputeSizes sizes = {});
         void                  UpdateEnvironment(std::string path);
         void                  BeginScene(SceneInfo info);
         void                  EndScene();
@@ -118,41 +82,62 @@ namespace Kans
         void                  SetViewportSize(uint32_t width, uint32_t height);
         std::vector<uint32_t> GetViewportSize() { return {m_ViewportWidth, m_ViewportHeight}; }
 
-        void SubmitGrid(float size, float scale, glm::mat4 transform);
-        void SubmitSkybox(Ref<TextureCube> skybox);
+        void               SubmitSprites(std::vector<ViewSprite> sprites);
+        const RenderView&  GetRenderView() const { return m_View; }
+        const RenderGraph& GetRenderGraph() const { return m_Graph; }
+        void               SetPipeline(const std::string& name);
+        const std::string& GetPipeline() const { return m_PipelineName; }
+        RenderFeatureSet&       GetFeatures() { return m_Features; }
+        const RenderFeatureSet& GetFeatures() const { return m_Features; }
+        void SubmitGrid(float size, float scale, glm::mat4 transform, ImmediatePassState state = {});
+        void SubmitSkybox(RenderHardware::Handle<RenderHardware::Texture> skybox, ImmediatePassState state = {});
 
-        uint32_t               GetOutput(uint32_t index) const;
+        RenderHardware::RenderingDesc GetRenderTarget() const { return SceneTarget(RenderHardware::LoadOp::Load); }
+        const RenderHardware::Handle<RenderHardware::Texture>&         GetHDRTarget() const { return m_HDRColor; }
+        uintptr_t              GetOutput(uint32_t index) const;
+        std::shared_ptr<RenderHardware::Device>                        GetDevice() const { return m_Device; }
+        std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> GetMaterialEnvironment();
+        const RenderHardware::Handle<RenderHardware::Sampler>&         GetMaterialEnvironmentSampler() const
+        {
+            return m_IBLSampler;
+        }
         const Environment&     GetEnvironment() const { return m_Environment; }
-        const Ref<Texture2D>&  GetBrdfLUT() const { return m_BrdfLUT; }
+        const RenderHardware::Handle<RenderHardware::Texture>& GetBrdfLUT() const { return m_BrdfLUT; }
         float                  GetElapsedTime() const
         {
             return std::chrono::duration<float>(std::chrono::steady_clock::now() - m_StartTime).count();
         }
-        const Ref<TextureCube> GetSkybox() { return m_SkyBox; }
+        const RenderHardware::Handle<RenderHardware::Texture> GetSkybox() { return m_SkyBox; }
 
     private:
-        void DrawGeometry(const Ref<VertexArray>& geometry);
-        // Draws a mesh and counts it in the stats.
-        void DrawMesh(const GpuMesh& mesh);
-        struct ShaderDraw
-        {
-            AssetID          Mesh;
-            glm::mat4        Transform;
-            AssetID          Material;
-            SceneViewMode    ViewMode;
-            ModelStencilMode Stencil;
-        };
-        struct GeometryDraw
-        {
-            ProductModelComponent Model;
-            glm::mat4             Transform;
-            std::string           ShaderName;
-            ModelGeometryMode     Mode;
-        };
-        void                      DrawShaderMaterials(const std::vector<ShaderDraw>& draws);
-        void                      DrawModelGeometry(const GeometryDraw& draw);
-        std::vector<ShaderDraw>   m_ModelDraws;
-        std::vector<GeometryDraw> m_GeometryDraws;
+        RenderHardware::Handle<RenderHardware::Pipeline> CachedPipeline(const RenderHardware::PipelineDesc& desc);
+        RenderHardware::PipelineDesc
+        ScenePipeline(const char* name, const char* vertex, const char* fragment, bool sampled);
+        using ShaderDraw   = ViewShaderDraw;
+        using GeometryDraw = ViewGeometryDraw;
+        bool HasMaterialPass(const RenderView& view, const std::string& tag);
+        void DrawShaderMaterials(
+            RenderHardware::CommandList&                                                       commands,
+            const std::function<void(const RenderHardware::Handle<RenderHardware::Texture>&)>& sampled   = {},
+            const std::string&                                                                 tag       = {},
+            const RenderView*                                                                  view      = nullptr,
+            RenderHardware::Handle<RenderHardware::CommandList>*                               finalPost = nullptr);
+        void                 DrawModelGeometry(const GeometryDraw& draw, RenderHardware::CommandList& commands);
+        void                 DrawGrid(const ViewGrid& grid, RenderHardware::CommandList& commands);
+        void                 DrawSkybox(const ViewSkybox& sky, RenderHardware::CommandList& commands);
+        void                 PrepareDrawLists();
+        RenderView           m_View;
+        TransientTexturePool m_TransientPool;
+        RenderGraph          m_Graph;
+        std::string          m_PipelineName = "Forward";
+        RenderFeatureSet     m_Features;
+        friend class ForwardPipeline;
+        friend class MaterialPassFeature;
+        friend class EditorGridFeature;
+        friend class DebugGeometryFeature;
+        friend class EditorOutlineFeature;
+        friend class EditorPreviewFeature;
+        friend class RenderScene;
 
         // SceneRenderer did't handle the life of Scnene;
         RenderScene*               m_RenderScene;
@@ -160,11 +145,21 @@ namespace Kans
         SceneRendererSpecification m_Specification;
 
         uint32_t         m_ViewportWidth = 0, m_ViewportHeight = 0;
-        Ref<FrameBuffer> m_FrameBuffer;
+        std::shared_ptr<RenderHardware::Device>                      m_Device;
+        std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Colors;
+        RenderHardware::Handle<RenderHardware::Texture>                m_Depth, m_HDRColor;
+        ToneMappingPass                                                m_ToneMapping;
+        RenderHardware::Handle<RenderHardware::Sampler>              m_IBLSampler;
+        std::array<RenderHardware::Handle<RenderHardware::Texture>, 3> m_BlackEnvironment;
+        std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Shader>> m_InternalPrograms;
+        std::unordered_map<std::string, RenderHardware::Handle<RenderHardware::Pipeline>> m_InternalPipelines;
+        std::optional<GpuMesh>                                                          m_Cube;
+        void                          ResizeTarget();
+        RenderHardware::RenderingDesc SceneTarget(RenderHardware::LoadOp load, bool hdr = false) const;
 
         Environment             m_Environment;
-        Ref<TextureCube>        m_SkyBox;
-        Ref<Texture2D>          m_BrdfLUT;
+        RenderHardware::Handle<RenderHardware::Texture> m_SkyBox;
+        RenderHardware::Handle<RenderHardware::Texture> m_BrdfLUT;
         bool                    m_Active = false;
         Scope<RenderAssetCache> m_AssetCache;
         EntityPicker            m_Picker;
@@ -173,9 +168,6 @@ namespace Kans
         std::optional<ModelDraw> m_Preview;
         SceneViewMode          m_ViewMode = SceneViewMode::Lit;
         SceneRenderStats       m_Stats;
-        // Engine data (set 0) of Shader materials, created on first use.
-        Scope<GpuUniformBuffer>               m_FrameUniforms;
-        Scope<GpuUniformBuffer>               m_ObjectUniforms;
         std::chrono::steady_clock::time_point m_StartTime = std::chrono::steady_clock::now();
     };
 } // namespace Kans

@@ -1,11 +1,4 @@
 #include <glad/glad.h>
-#include <gtest/gtest.h>
-#ifdef KANS_TEST_USE_EGL
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#else
-#include <GLFW/glfw3.h>
-#endif
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -13,15 +6,15 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <gtest/gtest.h>
 #include "Kans3D/Asset/Loader/Loader.h"
 #include "Kans3D/Asset/Product/ContentDigest.h"
 #include "Kans3D/Asset/Product/MeshProduct.h"
 #include "Kans3D/Asset/Product/ModelProduct.h"
 #include "Kans3D/Asset/Product/TextureProduct.h"
-#include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
-#include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
-#include "Kans3D/Platform/OpenGL/OpenGLTexture.h"
-#include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/RHI/Backend.h"
+#include "Kans3D/Renderer/Resource/Texture.h"
+#include "GpuTestContext.h"
 
 namespace
 {
@@ -30,45 +23,7 @@ namespace
     protected:
         void SetUp() override
         {
-#ifdef KANS_TEST_USE_EGL
-            // Surfaceless Mesa works in CI without DISPLAY or a window server.
-            display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
-            ASSERT_NE(display, EGL_NO_DISPLAY);
-            ASSERT_TRUE(eglInitialize(display, nullptr, nullptr));
-            ASSERT_TRUE(eglBindAPI(EGL_OPENGL_API));
-            const EGLint configAttributes[] = {
-                EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT, EGL_NONE};
-            EGLConfig config;
-            EGLint    count = 0;
-            ASSERT_TRUE(eglChooseConfig(display, configAttributes, &config, 1, &count));
-            ASSERT_GT(count, 0);
-            const EGLint attributes[] = {EGL_CONTEXT_MAJOR_VERSION,
-                                         4,
-                                         EGL_CONTEXT_MINOR_VERSION,
-                                         3,
-                                         EGL_CONTEXT_OPENGL_PROFILE_MASK,
-                                         EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
-                                         EGL_NONE};
-            context                   = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes);
-            ASSERT_NE(context, EGL_NO_CONTEXT);
-            const EGLint surfaceAttributes[] = {EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE};
-            surface                          = eglCreatePbufferSurface(display, config, surfaceAttributes);
-            ASSERT_NE(surface, EGL_NO_SURFACE);
-            ASSERT_TRUE(eglMakeCurrent(display, surface, surface, context));
-            ASSERT_TRUE(gladLoadGLLoader(reinterpret_cast<GLADloadproc>(eglGetProcAddress)));
-            Kans::OpenGLRHI::EnsureDSAFunctionsLoaded(reinterpret_cast<GLADloadproc>(eglGetProcAddress));
-#else
-            ASSERT_TRUE(glfwInit());
-            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-            window = glfwCreateWindow(16, 16, "Mipmap test", nullptr, nullptr);
-            ASSERT_NE(window, nullptr);
-            glfwMakeContextCurrent(window);
-            ASSERT_TRUE(gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)));
-            Kans::OpenGLRHI::EnsureDSAFunctionsLoaded(reinterpret_cast<GLADloadproc>(glfwGetProcAddress));
-#endif
+            ASSERT_NO_FATAL_FAILURE(GpuContext.SetUp());
             ASSERT_NE(glGenerateTextureMipmap, nullptr) << "DSA mipmap entry point was not loaded";
             RecordProperty("renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
             RecordProperty("version", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
@@ -83,29 +38,15 @@ namespace
             std::error_code ec;
             if (!temp.empty())
                 std::filesystem::remove(temp, ec);
-#ifdef KANS_TEST_USE_EGL
-            if (display != EGL_NO_DISPLAY)
-            {
-                eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                if (surface != EGL_NO_SURFACE)
-                    eglDestroySurface(display, surface);
-                if (context != EGL_NO_CONTEXT)
-                    eglDestroyContext(display, context);
-                eglTerminate(display);
-            }
-#else
-            if (window)
-                glfwDestroyWindow(window);
-            glfwTerminate();
-#endif
+            GpuContext.TearDown();
         }
 
         Kans::TextureSpecification Specification(bool mips = true)
         {
             Kans::TextureSpecification spec;
-            spec.Format = Kans::RHIFormat::RHI_FORMAT_R8G8B8A8_SRGB;
-            spec.Minf = spec.Maxf = Kans::RHIFilter::RHI_FILTER_LINEAR;
-            spec.Wrap             = Kans::RHISamplerAddressMode::RHI_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            spec.Format = Kans::RenderHardware::Format::RGBA8Unorm;
+            spec.Minf = spec.Maxf = Kans::RenderHardware::Filter::Linear;
+            spec.Wrap             = Kans::RenderHardware::AddressMode::ClampToEdge;
             spec.GenerateMips     = mips;
             return spec;
         }
@@ -159,21 +100,15 @@ namespace
         }
 
         std::filesystem::path temp;
-#ifdef KANS_TEST_USE_EGL
-        EGLDisplay display = EGL_NO_DISPLAY;
-        EGLContext context = EGL_NO_CONTEXT;
-        EGLSurface surface = EGL_NO_SURFACE;
-#else
-        GLFWwindow* window = nullptr;
-#endif
+        GpuTestContext        GpuContext {GpuTestBackend::OpenGL};
     };
 
     TEST_F(OpenGLTextureMipmap, FileGeneratesCompleteChainAndAveragedPixels)
     {
         ASSERT_NO_FATAL_FAILURE(WriteCheckerboard());
-        Kans::OpenGLTexture2D texture(Specification(), temp);
+        auto texture = Kans::Texture2D::Create(Specification(), temp);
         ASSERT_EQ(glGetError(), GL_NO_ERROR);
-        CheckChain(texture.GetRenererID(), 8, 4);
+        CheckChain(texture->GetImGuiTextureID(), 8, 4);
         std::array<unsigned char, 4> pixel {};
         glGetTexImage(GL_TEXTURE_2D, 3, GL_RGBA, GL_UNSIGNED_BYTE, pixel.data());
         ASSERT_EQ(glGetError(), GL_NO_ERROR);
@@ -185,9 +120,9 @@ namespace
     TEST_F(OpenGLTextureMipmap, DisabledKeepsOnlyBaseLevel)
     {
         ASSERT_NO_FATAL_FAILURE(WriteCheckerboard());
-        Kans::OpenGLTexture2D texture(Specification(false), temp);
+        auto                  texture = Kans::Texture2D::Create(Specification(false), temp);
         GLint                 levels = 0, filter = 0;
-        glBindTexture(GL_TEXTURE_2D, texture.GetRenererID());
+        glBindTexture(GL_TEXTURE_2D, texture->GetImGuiTextureID());
         glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
         glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &filter);
         EXPECT_EQ(levels, 1);
@@ -217,9 +152,9 @@ namespace
             SCOPED_TRACE(name);
             const auto path = std::filesystem::path(KANS_TEST_ICON_DIR) / (std::string(name) + ".png");
             ASSERT_TRUE(std::filesystem::exists(path));
-            Kans::OpenGLTexture2D texture(Specification(), path);
+            auto texture = Kans::Texture2D::Create(Specification(), path);
             ASSERT_EQ(glGetError(), GL_NO_ERROR);
-            CheckChain(texture.GetRenererID(), texture.GetWidth(), texture.GetHeight());
+            CheckChain(texture->GetImGuiTextureID(), texture->GetWidth(), texture->GetHeight());
             GLint levels = 0;
             glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
             std::array<unsigned char, 4> pixel {};
@@ -263,10 +198,10 @@ namespace
         const GLint  values[] = {8, 9, 11, 2, 3, 1, GL_TRUE, GL_TRUE};
         for (size_t i = 0; i < 8; ++i)
             glPixelStorei(names[i], values[i]);
-        const auto previousBackend = RendererAPI::Current();
-        RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+        const auto previousBackend = RenderHardware::GetBackend();
+        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
         auto uploaded = Texture2D::CreateFromProduct(std::get<Ref<TextureAsset>>(loaded)->GetData());
-        RendererAPI::SetBackEnd(previousBackend);
+        RenderHardware::SetBackend(previousBackend);
         for (size_t i = 0; i < 8; ++i)
         {
             GLint restored = 0;
@@ -281,7 +216,7 @@ namespace
         glDeleteBuffers(1, &pbo);
         ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(uploaded));
         const auto& texture = std::get<Ref<Texture2D>>(uploaded);
-        glBindTexture(GL_TEXTURE_2D, texture->GetRenererID());
+        glBindTexture(GL_TEXTURE_2D, texture->GetImGuiTextureID());
         GLint internal = 0, levels = 0, maximum = 0;
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &internal);
         glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
@@ -329,9 +264,9 @@ namespace
                 else
                     data.Mips[0].Pixels.push_back(std::byte(i * 9 + 1));
             }
-            auto uploaded = OpenGLTexture2D::UploadProduct(data);
-            ASSERT_TRUE(std::holds_alternative<Ref<OpenGLTexture2D>>(uploaded));
-            glBindTexture(GL_TEXTURE_2D, std::get<Ref<OpenGLTexture2D>>(uploaded)->GetRenererID());
+            auto uploaded = Texture2D::CreateFromProduct(data);
+            ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(uploaded));
+            glBindTexture(GL_TEXTURE_2D, std::get<Ref<Texture2D>>(uploaded)->GetImGuiTextureID());
             const GLenum external = components == 1 ? GL_RED : components == 2 ? GL_RG : GL_RGBA;
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             if (format == TexturePixelFormat::RGBA32Float)
@@ -356,12 +291,12 @@ namespace
     {
         using namespace Kans;
         TextureData data;
-        EXPECT_EQ(std::get<AssetError>(OpenGLTexture2D::UploadProduct(data)).Code, AssetErrorCode::InvalidData);
+        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidData);
         data.Kind  = TextureKind::Array2D;
         data.Width = data.Height = 1;
         data.Layers              = 2;
         data.Mips                = {{std::vector<std::byte>(8)}};
-        EXPECT_EQ(std::get<AssetError>(OpenGLTexture2D::UploadProduct(data)).Code, AssetErrorCode::NotImplemented);
+        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
         EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 } // namespace

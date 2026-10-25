@@ -10,19 +10,20 @@ namespace Kans
     class Scene;
     class SceneRenderer;
     struct SceneInfo;
+    struct RenderView;
     struct DirLight
     {
-        glm::vec3 Dirction;
-        glm::vec3 Diffuse_Intensity;
-        glm::vec3 Specular_Intensity;
-        glm::vec3 Ambient_Intensity;
+        glm::vec3 Dirction {0};
+        glm::vec3 Diffuse_Intensity {0};
+        glm::vec3 Specular_Intensity {0};
+        glm::vec3 Ambient_Intensity {0};
     };
     struct PointLight
     {
-        glm::vec3 Position;
-        glm::vec3 Diffuse_Intensity;
-        glm::vec3 Specular_Intensity;
-        glm::vec3 Ambient_Intensity;
+        glm::vec3 Position {0};
+        glm::vec3 Diffuse_Intensity {0};
+        glm::vec3 Specular_Intensity {0};
+        glm::vec3 Ambient_Intensity {0};
     };
 
     struct PipLineState
@@ -53,6 +54,8 @@ namespace Kans
         void OnRenderEditor(Ref<SceneRenderer> renderer, TimeStep ts, const EditorCamera& camera);
         void OnRenderRuntime(Ref<SceneRenderer> renderer, TimeStep ts);
 
+        // CPU-only scene extraction. Caller supplies camera, viewport and debug mode.
+        void Extract(RenderView& view) const;
         void OnViewportResize(uint32_t width, uint32_t height);
         void SetLogicScene(const Ref<Scene>& scene);
 
@@ -62,7 +65,6 @@ namespace Kans
     private:
         void CollectLights(SceneInfo& info) const;
         void Render(SceneRenderer& renderer, const SceneInfo& info);
-        void SubmitModels(SceneRenderer& renderer);
 
     private:
         Ref<Scene> m_LogicScene;

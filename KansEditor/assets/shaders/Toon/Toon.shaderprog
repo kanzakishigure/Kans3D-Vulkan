@@ -1,6 +1,7 @@
 KansShaderProgram 1
 vertex=Toon.vert
 fragment=Toon.frag
+output_space=linear_hdr
 
 default BaseColor = 1 1 1 1
 default ShadowColor = 0.65 0.6 0.7 1

@@ -58,10 +58,10 @@ namespace
         for (const auto& name : {"u_Albedo", "NotKnown"})
         {
             auto corrupt = bytes;
-            std::memcpy(corrupt.data() + corrupt.size() - 8, name, 8);
+            std::memcpy(corrupt.data() + corrupt.size() - 12, name, 8);
             EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeShaderProduct(corrupt.data(), corrupt.size())));
         }
-        for (size_t size = bytes.size() - 8; size < bytes.size(); ++size)
+        for (size_t size = bytes.size() - 12; size < bytes.size(); ++size)
             EXPECT_TRUE(std::holds_alternative<AssetError>(DecodeShaderProduct(bytes.data(), size)));
     }
     TEST(MaterialParameterGroups, StandardGroupsCoverEveryEditableMemberInAuthoredOrder)

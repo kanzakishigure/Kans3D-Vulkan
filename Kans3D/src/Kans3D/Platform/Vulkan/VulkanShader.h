@@ -1,10 +1,10 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include "Kans3D/Renderer/Resource/Shader.h"
+#include "Kans3D/Platform/Vulkan/VulkanShaderTypes.h"
 
 namespace Kans
 {
-    class VulkanShader : public Shader
+    class VulkanShader : public RefCounter
     {
     public:
         VulkanShader() = default;
@@ -14,16 +14,16 @@ namespace Kans
 
         virtual ~VulkanShader();
 
-        virtual void Reload(bool forceCompile = false) override;
-        virtual void RT_Reload(bool forceCompile) override;
+        virtual void Reload(bool forceCompile = false);
+        virtual void RT_Reload(bool forceCompile);
 
-        virtual const std::string& GetName() const override { return m_Name; }
+        virtual const std::string& GetName() const { return m_Name; }
 
-        virtual const ShaderBuffer& GetShaderBuffer() const override { return m_Shaderbuffer; }
-        virtual void                SetShaderBuffer(ShaderBufferLayout layout) override;
+        virtual const ShaderBuffer& GetShaderBuffer() const { return m_Shaderbuffer; }
+        virtual void                SetShaderBuffer(ShaderBufferLayout layout);
 
     private:
-        void LoadAndCreateShader(const std::map<VkShaderStageFlagBits, std::vector<uint32_t>>& shaderData);
+        void StoreCompiledData(const std::map<VkShaderStageFlagBits, std::vector<uint32_t>>& shaderData);
 
     private:
         std::string m_Name;
@@ -34,7 +34,6 @@ namespace Kans
         ShaderBuffer                                           m_Shaderbuffer;
         std::map<VkShaderStageFlagBits, std::vector<uint32_t>> m_ShaderData;
 
-        std::vector<VkPipelineShaderStageCreateInfo> m_PipelineShaderStageCreateInfos;
 
     private:
         friend class VulkanShaderCompiler;

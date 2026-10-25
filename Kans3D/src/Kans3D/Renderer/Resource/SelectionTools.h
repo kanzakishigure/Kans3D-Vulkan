@@ -1,10 +1,7 @@
 #pragma once
 #include <optional>
-#include <string>
-#include <variant>
 #include <vector>
 #include <glm/glm.hpp>
-#include "Kans3D/Asset/AssetError.h"
 #include "RenderAssetCache.h"
 
 namespace Kans
@@ -26,32 +23,16 @@ namespace Kans
         std::optional<glm::vec3> Position;
     };
 
-    // Minimal OpenGL program compiled from GLSL source (requires a current context).
-    class GlProgram
-    {
-    public:
-        GlProgram() = default;
-        ~GlProgram();
-        GlProgram(const GlProgram&)            = delete;
-        GlProgram& operator=(const GlProgram&) = delete;
-
-        [[nodiscard]] std::variant<std::monostate, AssetError> Build(const std::string& vertex,
-                                                                     const std::string& fragment);
-        bool     IsValid() const { return m_Program != 0; }
-        void     Bind() const;
-        int      Location(const char* name) const;
-        uint32_t Handle() const { return m_Program; }
-
-    private:
-        uint32_t m_Program = 0;
-    };
-
     // Finds what is under a pixel by rendering the draws' IDs into an integer
     // target; only the requested pixel is rasterized.
     class EntityPicker
     {
     public:
-        ~EntityPicker();
+        explicit EntityPicker(std::shared_ptr<RenderHardware::Device> device = {}) : m_Device(std::move(device)) {}
+        // Inject before first use; otherwise the first mesh provides the device.
+        void SetDevice(std::shared_ptr<RenderHardware::Device> device) { m_Device = std::move(device); }
+        EntityPicker(const EntityPicker&)            = delete;
+        EntityPicker& operator=(const EntityPicker&) = delete;
         // `pixel` has a bottom-left origin. Returns 0 when nothing is there.
         uint32_t Pick(const std::vector<MeshDraw>& draws,
                       const glm::mat4&             viewProjection,
@@ -65,27 +46,49 @@ namespace Kans
 
     private:
         void       Resize(glm::uvec2 size);
-        GlProgram  m_Program;
-        uint32_t   m_Framebuffer = 0, m_Color = 0, m_Depth = 0;
+        std::shared_ptr<RenderHardware::Device>          m_Device;
+        RenderHardware::Handle<RenderHardware::Pipeline> m_Pipeline;
+        RenderHardware::Handle<RenderHardware::Texture>  m_Color, m_Depth;
         glm::uvec2 m_Size {0, 0};
     };
 
     // Outlines draws in screen space: renders their silhouette into a mask and
-    // composites a border (and a faint fill) over the bound framebuffer.
+    // composites a border (and a faint fill) inside the supplied RHI target.
     class SelectionOutline
     {
     public:
-        ~SelectionOutline();
-        void Draw(const std::vector<MeshDraw>& draws,
-                  const glm::mat4&             viewProjection,
-                  glm::uvec2                   viewport,
-                  const glm::vec4&             color,
-                  float                        width = 2.0f);
+        explicit SelectionOutline(std::shared_ptr<RenderHardware::Device> device = {}) : m_Device(std::move(device)) {}
+        // Inject before first use; otherwise the first mesh provides the device.
+        void SetDevice(std::shared_ptr<RenderHardware::Device> device) { m_Device = std::move(device); }
+        SelectionOutline(const SelectionOutline&)            = delete;
+        SelectionOutline& operator=(const SelectionOutline&) = delete;
+        // Composites onto colour attachment 0, loading its existing pixels.
+        void Draw(const RenderHardware::RenderingDesc& target,
+                  const std::vector<MeshDraw>&         draws,
+                  const glm::mat4&                     viewProjection,
+                  glm::uvec2                           viewport,
+                  const glm::vec4&                     color,
+                  float                                width = 2.0f);
+
+        void RecordMask(RenderHardware::CommandList&                           commands,
+                        const RenderHardware::Handle<RenderHardware::Texture>& mask,
+                        const std::vector<MeshDraw>&                           draws,
+                        const glm::mat4&                                       projection,
+                        glm::uvec2                                             viewport);
+        void RecordComposite(RenderHardware::CommandList&                           commands,
+                             const RenderHardware::RenderingDesc&                   target,
+                             const RenderHardware::Handle<RenderHardware::Texture>& mask,
+                             glm::uvec2                                             viewport,
+                             const glm::vec4&                                       color,
+                             float                                                  width = 2.0f);
 
     private:
         void       Resize(glm::uvec2 size);
-        GlProgram  m_Mask, m_Composite;
-        uint32_t   m_Framebuffer = 0, m_Texture = 0, m_EmptyVertexArray = 0;
+        std::shared_ptr<RenderHardware::Device>                 m_Device;
+        RenderHardware::Handle<RenderHardware::Pipeline>        m_Mask, m_Composite;
+        RenderHardware::Handle<RenderHardware::BindGroupLayout> m_Layout;
+        RenderHardware::Handle<RenderHardware::Sampler>         m_Sampler;
+        RenderHardware::Handle<RenderHardware::Texture>         m_Texture;
         glm::uvec2 m_Size {0, 0};
     };
 } // namespace Kans

@@ -5,7 +5,7 @@
 #include "Kans3D/Asset/Product/ContentDigest.h"
 #include "Kans3D/Asset/Product/TextureProduct.h"
 #include "Kans3D/Asset/Storage/ProductStore.h"
-#include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/RHI/Backend.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 #include "AssetTestUtilities.h"
 
@@ -440,19 +440,19 @@ namespace
         EXPECT_EQ(view->GetData().Mips[1].Pixels, texture.Mips[1].Pixels);
         EXPECT_EQ(manager->GetResidentCount(), 1u);
     }
-    TEST(TextureProductUpload, RejectsAbsentContextAndUnimplementedBackendWithoutSourceIo)
+    TEST(TextureProductUpload, RejectsAbsentDeviceAndUnselectedBackendWithoutSourceIo)
     {
         auto data = R8(1, 1, {17});
         struct BackendRestore
         {
-            RendererAPIType Previous = RendererAPI::Current();
-            ~BackendRestore() { RendererAPI::SetBackEnd(Previous); }
+            RenderHardware::Backend Previous = RenderHardware::GetBackend();
+            ~BackendRestore() { RenderHardware::SetBackend(Previous); }
         } restore;
-        RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+        RenderHardware::SetBackend(RenderHardware::Backend::OpenGL);
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidArgument);
-        RendererAPI::SetBackEnd(RendererAPIType::Vulkan);
-        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
-        RendererAPI::SetBackEnd(RendererAPIType::NONE);
+        RenderHardware::SetBackend(RenderHardware::Backend::Vulkan);
+        EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::InvalidArgument);
+        RenderHardware::SetBackend(RenderHardware::Backend::None);
         EXPECT_EQ(std::get<AssetError>(Texture2D::CreateFromProduct(data)).Code, AssetErrorCode::NotImplemented);
     }
 } // namespace

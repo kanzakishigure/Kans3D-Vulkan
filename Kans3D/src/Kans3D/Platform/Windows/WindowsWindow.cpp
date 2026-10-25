@@ -1,13 +1,10 @@
 #include "kspch.h"
 #include "Kans3D/Platform/Windows/WindowsWindow.h"
-#include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
-#include "Kans3D/Platform/Vulkan/VulkanRHI.h"
 
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Input/Input.h"
-#include "Kans3D/Renderer/RHI/RendererAPI.h"
+#include "Kans3D/RHI/Backend.h"
 
-#include <glad/glad.h>
 #include <imgui.h>
 #include <stb_image.h>
 
@@ -42,15 +39,6 @@ namespace Kans
             glfwSetErrorCallback(GLFWErrorCallback);
             s_GLiFWIntialized = true;
         }
-        if (RendererAPI::Current() == RendererAPIType::Vulkan)
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        else if (RendererAPI::Current() == RendererAPIType::OPENGL)
-        {
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        }
-
         if (m_Specification.HideTitlebar)
         {
 #ifdef PLATFORM_WINDOWS
@@ -60,27 +48,10 @@ namespace Kans
 #endif
         }
 
-        if (m_Specification.Fullscreen)
-        {
-            GLFWmonitor*       primaryMonitor = glfwGetPrimaryMonitor();
-            const GLFWvidmode* mode           = glfwGetVideoMode(primaryMonitor);
-
-            glfwWindowHint(GLFW_DECORATED, false);
-            glfwWindowHint(GLFW_RED_BITS, mode->redBits);
-            glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
-            glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
-            glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
-
-            m_Window =
-                glfwCreateWindow(mode->width, mode->height, m_Specification.Title.c_str(), primaryMonitor, nullptr);
-        }
-        else
-        {
-            PROFILE_SCOPE("glfwCreateWindow");
-            m_Window = glfwCreateWindow(
-                m_Specification.Width, m_Specification.Height, m_Specification.Title.c_str(), nullptr, nullptr);
-            s_GLFWWindowsCount++;
-        }
+        m_Window = static_cast<GLFWwindow*>(
+            RenderHardware::CreateWindowSurface(RenderHardware::GetBackend(), m_Specification));
+        if (!m_Specification.Fullscreen)
+            ++s_GLFWWindowsCount;
 
         // Set GLFW Event Callback data
         glfwSetWindowUserPointer(m_Window, this);
@@ -112,6 +83,8 @@ namespace Kans
                 glfwSetWindowIcon(m_Window, 1, &icon);
                 stbi_image_free(icon.pixels);
             }
+            else
+                CORE_ERROR("Cannot load window icon '{}'; keeping the default window icon.", iconpath.string());
         }
     }
     void WindowsWindow::Shutdown()
@@ -130,7 +103,7 @@ namespace Kans
 
     void WindowsWindow::SwapBuffers()
     {
-        glfwSwapBuffers(m_Window);
+        RenderHardware::PresentWindow(*this);
         // m_SwapChain.Present();
     }
 
@@ -138,10 +111,7 @@ namespace Kans
     {
         PROFILE_FUCTION();
 
-        if (enable)
-            glfwSwapInterval(1);
-        else
-            glfwSwapInterval(0);
+        RenderHardware::SetWindowVSync(*this, enable);
 
         m_Specification.VSync = enable;
     }

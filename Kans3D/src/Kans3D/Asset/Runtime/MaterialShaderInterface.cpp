@@ -13,6 +13,7 @@ namespace Kans
                 {"Kans3D/Engine.glsl", R"(#ifndef KANS3D_ENGINE_GLSL
 #define KANS3D_ENGINE_GLSL
 #define KANS_LIGHT_COUNT 4
+#define KANS_POINT_LIGHT_LIMIT 16
 // Engine data (descriptor set 0). Matrices and positions are in world space.
 layout(set = 0, binding = 0, std140) uniform KansFrame
 {
@@ -23,7 +24,24 @@ layout(set = 0, binding = 0, std140) uniform KansFrame
     vec4  LightDiffuse[KANS_LIGHT_COUNT]; // diffuse intensity for non-PBR shading
     float Time;
     float DebugView;
+    vec2 FramePadding;
+    vec4 PointPositions[KANS_POINT_LIGHT_LIMIT];
+    vec4 PointRadiance[KANS_POINT_LIGHT_LIMIT];
+    vec4 PointSpecular[KANS_POINT_LIGHT_LIMIT];
+    vec4 DirectionalDirection;
+    vec4 DirectionalRadiance;
+    vec4 DirectionalSpecular;
+    vec4 DirectionalAmbient;
+    vec4 LightingInfo;
 } u_Frame;
+int KansPointLightCount() { return clamp(int(u_Frame.LightingInfo.x), 0, KANS_POINT_LIGHT_LIMIT); }
+float KansExposure() { return u_Frame.LightingInfo.y; }
+vec3 KansPointLightPosition(int i) { return u_Frame.PointPositions[i].xyz; }
+vec3 KansPointLightRadiance(int i) { return u_Frame.PointRadiance[i].rgb; }
+vec3 KansPointLightSpecular(int i) { return u_Frame.PointSpecular[i].rgb; }
+vec3 KansDirectionalToLight() { return -u_Frame.DirectionalDirection.xyz; }
+vec3 KansDirectionalRadiance() { return u_Frame.DirectionalRadiance.rgb; }
+vec3 KansDirectionalAmbient() { return u_Frame.DirectionalAmbient.rgb; }
 layout(set = 0, binding = 1, std140) uniform KansObject
 {
     mat4 Transform;
@@ -82,39 +100,51 @@ float KansGeometrySchlickGGX(float NdotV, float roughness)
     return NdotV / (NdotV * (1.0 - k) + k);
 }
 
+vec3 KansDirectPbr(vec3 albedo, float metallic, float roughness, vec3 N, vec3 V,
+                   vec3 L, vec3 radiance, vec3 specularScale)
+{
+    if (dot(N, L) <= 0.0) return vec3(0);
+    vec3 H = normalize(V + L);
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    float NdotV = max(dot(N, V), 0.0), NdotL = max(dot(N, L), 0.0);
+    float G = KansGeometrySchlickGGX(NdotV, roughness) * KansGeometrySchlickGGX(NdotL, roughness);
+    vec3 F = F0 + (1.0 - F0) * pow(clamp(1.0 - max(dot(H, V), 0.0), 0.0, 1.0), 5.0);
+    vec3 specular = KansDistributionGGX(N, H, roughness) * G * F / (4.0 * NdotV * NdotL + 0.001);
+    vec3 kD = (1.0 - F) * (1.0 - metallic);
+    return (kD * albedo / KANS_PI + specular * specularScale) * radiance * NdotL;
+}
 vec3 KansShadePbr(vec3 albedo, float metallic, float roughness, float ao, vec3 N, vec3 worldPos)
 {
     roughness = clamp(roughness, 0.04, 1.0);
-    metallic  = clamp(metallic, 0.0, 1.0);
-    vec3 V    = normalize(u_Frame.CameraPosition.xyz - worldPos);
-    vec3 R    = reflect(-V, N);
-    vec3 F0   = mix(vec3(0.04), albedo, metallic);
+    metallic = clamp(metallic, 0.0, 1.0);
+    vec3 V = normalize(u_Frame.CameraPosition.xyz - worldPos);
+    vec3 R = reflect(-V, N);
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
     float NdotV = max(dot(N, V), 0.0);
-
     vec3 Lo = vec3(0.0);
-    for (int i = 0; i < KANS_LIGHT_COUNT; ++i)
+    for (int i = 0; i < KansPointLightCount(); ++i)
     {
-        vec3  toLight  = u_Frame.LightPositions[i].xyz - worldPos;
-        vec3  L        = normalize(toLight);
-        vec3  H        = normalize(V + L);
-        vec3  radiance = u_Frame.LightColors[i].rgb / max(dot(toLight, toLight), 1e-4);
-        float NdotL    = max(dot(N, L), 0.0);
-        float G        = KansGeometrySchlickGGX(NdotV, roughness) * KansGeometrySchlickGGX(NdotL, roughness);
-        vec3  F        = F0 + (1.0 - F0) * pow(clamp(1.0 - max(dot(H, V), 0.0), 0.0, 1.0), 5.0);
-        vec3  specular = KansDistributionGGX(N, H, roughness) * G * F / (4.0 * NdotV * NdotL + 0.001);
-        vec3  kD       = (vec3(1.0) - F) * (1.0 - metallic);
-        Lo += (kD * albedo / KANS_PI + specular) * radiance * NdotL;
+        if (all(lessThanEqual(KansPointLightRadiance(i), vec3(0)))) continue;
+        vec3 toLight = KansPointLightPosition(i) - worldPos;
+        if (dot(toLight, toLight) <= 1e-8) continue;
+        float distanceSquared = max(dot(toLight, toLight), 1e-4);
+        vec3 L = normalize(toLight);
+        Lo += KansDirectPbr(albedo, metallic, roughness, N, V, L,
+                            KansPointLightRadiance(i) / distanceSquared, KansPointLightSpecular(i));
     }
-
-    vec3 F  = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
+    if (u_Frame.DirectionalDirection.w != 0.0)
+        Lo += KansDirectPbr(albedo, metallic, roughness, N, V, KansDirectionalToLight(),
+                            KansDirectionalRadiance(), u_Frame.DirectionalSpecular.rgb);
+    vec3 F = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
     vec3 kD = (1.0 - F) * (1.0 - metallic);
-    vec3 diffuse     = textureLod(u_IrradianceMap, N, 0.0).rgb * albedo;
+    vec3 diffuse = textureLod(u_IrradianceMap, N, 0.0).rgb * albedo;
     vec3 prefiltered = textureLod(u_PrefilterMap, R, roughness * 4.0).rgb;
-    vec2 brdf        = texture(u_BrdfLUT, vec2(NdotV, roughness)).rg;
-    return (kD * diffuse + prefiltered * (F * brdf.x + brdf.y)) * ao + Lo;
+    vec2 brdf = texture(u_BrdfLUT, vec2(NdotV, roughness)).rg;
+    return (kD * diffuse + prefiltered * (F * brdf.x + brdf.y)
+            + KansDirectionalAmbient() * albedo) * ao + Lo;
 }
 
-// Reinhard tone mapping and gamma encoding for the LDR scene target.
+// Legacy display-referred helper. Retained for published/custom sources; HDR shaders return linear colour.
 vec4 KansToneMap(vec3 color)
 {
     color = color / (color + vec3(1.0));
@@ -152,7 +182,16 @@ vec4 KansToneMap(vec3 color)
                   {"LightColors", 144, 4, 1, EngineLightCount},
                   {"LightDiffuse", 208, 4, 1, EngineLightCount},
                   {"Time", 272, 1, 1, 1},
-                  {"DebugView", 276, 1, 1, 1}}},
+                  {"DebugView", 276, 1, 1, 1},
+                  {"FramePadding", 280, 2, 1, 1},
+                  {"PointPositions", 288, 4, 1, EnginePointLightLimit},
+                  {"PointRadiance", 544, 4, 1, EnginePointLightLimit},
+                  {"PointSpecular", 800, 4, 1, EnginePointLightLimit},
+                  {"DirectionalDirection", 1056, 4, 1, 1},
+                  {"DirectionalRadiance", 1072, 4, 1, 1},
+                  {"DirectionalSpecular", 1088, 4, 1, 1},
+                  {"DirectionalAmbient", 1104, 4, 1, 1},
+                  {"LightingInfo", 1120, 4, 1, 1}}},
                 {ShaderBindingKind::UniformBuffer,
                  ShaderImageDimension::Texture2D,
                  sizeof(EngineObjectUniforms),
@@ -185,7 +224,7 @@ vec4 KansToneMap(vec3 color)
                 (binding.Kind != ShaderBindingKind::CombinedImageSampler || binding.Dimension == expected.Dimension) &&
                 (binding.Members.size() == expected.Members.size() ||
                  (binding.Binding == uint32_t(EngineBinding::Frame) &&
-                  binding.Members.size() == LegacyFrameMemberCount) ||
+                  (binding.Members.size() == LegacyFrameMemberCount || binding.Members.size() == 7)) ||
                  (binding.Binding == uint32_t(EngineBinding::Object) &&
                   binding.Members.size() == LegacyObjectMemberCount));
             for (size_t i = 0; matches && i < binding.Members.size(); ++i)
@@ -253,6 +292,110 @@ vec4 KansToneMap(vec3 color)
                     return Contract("'" + binding.Name + "' uses descriptor set " + std::to_string(binding.Set) +
                                     "; only set 0 (engine) and set 1 (material) are available");
             }
+        return std::monostate {};
+    }
+
+    namespace
+    {
+        bool MemberSubset(const ShaderUniformMember& a, const ShaderUniformMember& b)
+        {
+            if (a.Name != b.Name || a.Offset != b.Offset || a.Type != b.Type || a.Components != b.Components ||
+                a.Columns != b.Columns || a.ArrayCount != b.ArrayCount || a.ArrayStride != b.ArrayStride ||
+                a.MatrixStride != b.MatrixStride || a.RowMajor != b.RowMajor || a.Bytes > b.Bytes)
+                return false;
+            if (a.Type != ShaderUniformType::Struct && a.Bytes != b.Bytes)
+                return false;
+            for (const auto& member : a.Members)
+            {
+                auto found = std::find_if(
+                    b.Members.begin(), b.Members.end(), [&](const auto& want) { return want.Name == member.Name; });
+                if (found == b.Members.end() || !MemberSubset(member, *found))
+                    return false;
+            }
+            return true;
+        }
+        bool BindingSubset(const ShaderResourceBinding& a, const ShaderResourceBinding& b)
+        {
+            if (a.Kind != b.Kind || a.Set != b.Set || a.Binding != b.Binding || a.Count != b.Count ||
+                a.Dimension != b.Dimension || a.Name != b.Name || a.BlockBytes > b.BlockBytes)
+                return false;
+            for (const auto& member : a.Members)
+            {
+                auto found = std::find_if(
+                    b.Members.begin(), b.Members.end(), [&](const auto& want) { return want.Name == member.Name; });
+                if (found == b.Members.end() || !MemberSubset(member, *found))
+                    return false;
+            }
+            return true;
+        }
+    } // namespace
+    std::variant<std::monostate, AssetError> ValidateMaterialShaderPasses(const ShaderProgramCode&       main,
+                                                                          const std::vector<ShaderPass>& passes)
+    {
+        if (passes.empty())
+            return std::monostate {}; // Generic single-stage products retain their existing contract.
+        auto inspected = InspectShaderProgram(main);
+        if (auto* error = std::get_if<AssetError>(&inspected))
+            return *error;
+        const auto& reflection = std::get<std::vector<ShaderStageReflection>>(inspected);
+        auto        valid      = ValidateMaterialShaderInterface(reflection);
+        if (auto* error = std::get_if<AssetError>(&valid))
+            return *error;
+        std::map<std::pair<uint32_t, uint32_t>, ShaderResourceBinding> bindings;
+        for (const auto& stage : reflection)
+            for (const auto& binding : stage.Bindings)
+            {
+                auto [found, inserted] = bindings.emplace(std::make_pair(binding.Set, binding.Binding), binding);
+                if (!inserted && (!BindingSubset(binding, found->second) || !BindingSubset(found->second, binding)))
+                    return Contract("main pass has inconsistent resource names/layouts across stages");
+            }
+        std::set<std::string> names;
+        if (passes.size() > 32)
+            return Contract("too many additional passes");
+        for (const auto& pass : passes)
+        {
+            const auto fail = [&](const std::string& message) {
+                return Contract("pass '" + pass.Name + "': " + message);
+            };
+            const auto token = [](const std::string& value) {
+                return !value.empty() && value.size() <= 256 &&
+                       std::all_of(
+                           value.begin(), value.end(), [](unsigned char c) { return std::isalnum(c) || c == '_'; });
+            };
+            const auto& state = pass.State;
+            if (!token(pass.Name) || pass.Name == "Main" || !token(pass.Tag) || !names.insert(pass.Name).second)
+                return fail("invalid/duplicate name or tag");
+            if (uint32_t(state.Cull) > 2 || uint32_t(state.DepthCompare) > 7 || state.ColorWriteMask > 15 ||
+                uint32_t(state.SourceColor) > 9 || uint32_t(state.DestinationColor) > 9 ||
+                uint32_t(state.SourceAlpha) > 9 || uint32_t(state.DestinationAlpha) > 9)
+                return fail("invalid render state");
+            auto extra = InspectShaderProgram(pass.Code);
+            if (auto* error = std::get_if<AssetError>(&extra))
+                return fail(error->Message);
+            const auto& stages   = std::get<std::vector<ShaderStageReflection>>(extra);
+            auto        contract = ValidateMaterialShaderInterface(stages);
+            if (auto* error = std::get_if<AssetError>(&contract))
+                return fail(error->Message);
+            std::set<uint32_t> engine;
+            for (const auto& stage : stages)
+                for (const auto& binding : stage.Bindings)
+                {
+                    auto found = bindings.find({binding.Set, binding.Binding});
+                    if (found == bindings.end() || !BindingSubset(binding, found->second))
+                        return fail("set " + std::to_string(binding.Set) + " binding " +
+                                    std::to_string(binding.Binding) + " ('" + binding.Name +
+                                    "') is not a subset of the main pass layout");
+                    if (binding.Set == 0)
+                    {
+                        if (!BindingSubset(found->second, binding))
+                            return fail("set 0 contract differs from main pass");
+                        engine.insert(binding.Binding);
+                    }
+                }
+            for (const auto& [key, binding] : bindings)
+                if (key.first == 0 && !engine.count(key.second))
+                    return fail("set 0 contract omits main pass binding " + std::to_string(key.second));
+        }
         return std::monostate {};
     }
 

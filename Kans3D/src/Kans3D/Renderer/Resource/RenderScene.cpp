@@ -34,24 +34,49 @@ namespace Kans
 
     void RenderScene::CollectLights(SceneInfo& info) const
     {
-        auto directional = m_LogicScene->m_Registry.view<DirLightComponent>();
+        info.dirLight   = {};
+        info.pointLight = {};
+        info.pointLights.clear();
+        info.HasDirectionalLight = false;
+        uint64_t directionalID   = std::numeric_limits<uint64_t>::max();
+        auto     directional     = m_LogicScene->m_Registry.view<DirLightComponent, IDComponent>();
         for (auto entity : directional)
         {
-            auto [light]                     = directional.get(entity);
-            info.dirLight.Dirction           = light.Direction;
-            info.dirLight.Ambient_Intensity  = light.Ambient_Intensity;
-            info.dirLight.Diffuse_Intensity  = light.Diffuse_Intensity;
-            info.dirLight.Specular_Intensity = light.Specular_Intensity;
+            const auto id = uint64_t(directional.get<IDComponent>(entity).ID);
+            if (info.HasDirectionalLight && id >= directionalID)
+                continue;
+            const auto& light = directional.get<DirLightComponent>(entity);
+            info.dirLight     = {
+                light.Direction, light.Diffuse_Intensity, light.Specular_Intensity, light.Ambient_Intensity};
+            info.HasDirectionalLight = true;
+            directionalID            = id;
         }
-        auto points = m_LogicScene->m_Registry.view<PointLightComponent, TransformComponent>();
+        struct Candidate
+        {
+            PointLight Light;
+            float      Distance;
+            uint64_t   ID;
+        };
+        std::vector<Candidate> candidates;
+        auto points = m_LogicScene->m_Registry.view<PointLightComponent, TransformComponent, IDComponent>();
         for (auto entity : points)
         {
-            auto [light, transform]            = points.get(entity);
-            info.pointLight.Position           = glm::vec3(m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()})[3]);
-            info.pointLight.Ambient_Intensity  = light.Ambient_Intensity;
-            info.pointLight.Diffuse_Intensity  = light.Diffuse_Intensity;
-            info.pointLight.Specular_Intensity = light.Specular_Intensity;
+            const auto& light    = points.get<PointLightComponent>(entity);
+            const auto  position = glm::vec3(m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()})[3]);
+            const auto  delta    = position - info.sceneCamera.Position;
+            const float distance = glm::dot(delta, delta);
+            candidates.push_back(
+                {{position, light.Diffuse_Intensity, light.Specular_Intensity, light.Ambient_Intensity},
+                 std::isfinite(distance) ? distance : std::numeric_limits<float>::max(),
+                 uint64_t(points.get<IDComponent>(entity).ID)});
         }
+        std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) {
+            return a.Distance != b.Distance ? a.Distance < b.Distance : a.ID < b.ID;
+        });
+        for (size_t i = 0; i < std::min(candidates.size(), size_t(EnginePointLightLimit)); ++i)
+            info.pointLights.push_back(candidates[i].Light);
+        if (!info.pointLights.empty())
+            info.pointLight = info.pointLights.front(); // Source-compatible singular snapshot.
     }
 
     void RenderScene::OnRenderEditor(Ref<SceneRenderer> renderer, TimeStep ts, const EditorCamera& camera)
@@ -82,56 +107,74 @@ namespace Kans
     {
         renderer.SetScene(this);
         renderer.BeginScene(info);
-        SubmitModels(renderer);
-
-        if (!m_LogicScene->m_Registry.view<SpriteRendererComponent>().empty())
+        Extract(renderer.m_View);
+        // Reuse one override vector while preparing parts; no allocation for each model.
+        ProductModelComponent preparation;
+        size_t                maxOverrides = 0;
+        for (const auto& model : renderer.m_View.Models)
+            maxOverrides = std::max(maxOverrides, model.OverrideCount);
+        preparation.Overrides.reserve(maxOverrides);
+        for (const auto& model : renderer.m_View.Models)
         {
-            Renderer2D::ResetStats();
-            Renderer2D::BeginScene(info.sceneCamera.camera.GetProjectionMatrix(), info.sceneCamera.viewMatrix);
-            auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-            for (auto entity : group)
-            {
-                auto [transform, sprite] = group.get(entity);
-                Renderer2D::DrawQuad(
-                    m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()}), sprite.Texture, sprite.Color);
-            }
-            Renderer2D::EndScene();
+            preparation.Model = model.Model;
+            const auto begin  = renderer.m_View.MaterialOverrides.begin() + model.OverrideBegin;
+            preparation.Overrides.assign(begin, begin + model.OverrideCount);
+            renderer.SubmitModel(preparation, model.Transform, model.Stencil);
         }
-
-        if (m_RenderResource.Piplinestate.EnableGridShader && Renderer::GetShaderLibrary() &&
-            Renderer::GetShaderLibrary()->Exists("GridShader"))
-        {
-            OpenGLRenderCommand::EnableCullFace(false);
-            renderer.SubmitGrid(0.025f, 16.025f, glm::scale(glm::mat4(1.0f), glm::vec3(10, 1, 10)));
-            OpenGLRenderCommand::EnableCullFace(true);
-        }
-
-        OpenGLRenderCommand::EnableCullFace(false);
         if (renderer.GetEnvironment().IrradianceMap)
             renderer.SubmitSkybox(renderer.GetEnvironment().IrradianceMap);
-        OpenGLRenderCommand::EnableCullFace(true);
         renderer.EndScene();
     }
 
-    void RenderScene::SubmitModels(SceneRenderer& renderer)
+    void RenderScene::Extract(RenderView& output) const
     {
+        CollectLights(output.Scene);
+        output.Models.clear();
+        output.MaterialOverrides.clear();
+        output.Geometry.clear();
+        output.Sprites.clear();
+        output.Grids.clear();
+        output.ImmediateOrder.clear();
         const auto& state = m_RenderResource.Piplinestate;
-        auto        view  = m_LogicScene->m_Registry.view<TransformComponent, ProductModelComponent>();
-        for (auto entity : view)
+        auto        models = m_LogicScene->m_Registry.view<TransformComponent, ProductModelComponent>();
+        for (auto entity : models)
         {
-            auto [transformCMP, model] = view.get(entity);
-            const glm::mat4 transform  = m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()});
-            renderer.SubmitModel(
-                model, transform, state.EnableStencil ? ModelStencilMode::WriteReference : ModelStencilMode::Disabled);
+            const auto&     model     = models.get<ProductModelComponent>(entity);
+            const glm::mat4 transform = m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()});
+            output.Models.push_back(
+                {model.Model,
+                 transform,
+                 state.EnableStencil ? ModelStencilMode::WriteReference : ModelStencilMode::Disabled,
+                 output.MaterialOverrides.size(),
+                 model.Overrides.size()});
+            output.MaterialOverrides.insert(
+                output.MaterialOverrides.end(), model.Overrides.begin(), model.Overrides.end());
             if (state.EnableStencil)
-                renderer.SubmitModelGeometry(model,
-                                             transform * glm::scale(glm::mat4(1.0f), glm::vec3(1.007f)),
-                                             "StencilShader",
-                                             ModelGeometryMode::StencilOutline);
+                output.Geometry.push_back({model,
+                                           transform * glm::scale(glm::mat4(1), glm::vec3(1.007f)),
+                                           "StencilShader",
+                                           ModelGeometryMode::StencilOutline});
             if (state.EnableOutline)
-                renderer.SubmitModelGeometry(model, transform, "OutLineShader", ModelGeometryMode::BackFaces);
+                output.Geometry.push_back({model, transform, "OutLineShader", ModelGeometryMode::BackFaces});
             if (state.EnableDebugNormal)
-                renderer.SubmitModelGeometry(model, transform, "DebugNormalShader");
+                output.Geometry.push_back({model, transform, "DebugNormalShader", ModelGeometryMode::Default});
+        }
+        if (!m_LogicScene->m_Registry.view<SpriteRendererComponent>().empty())
+        {
+            auto group = m_LogicScene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+            for (auto entity : group)
+            {
+                const auto& sprite = group.get<SpriteRendererComponent>(entity);
+                // Legacy runtime ignores TilingFactor and uses DrawQuad's default 1.
+                output.Sprites.push_back(
+                    {m_LogicScene->GetWorldTransform({entity, m_LogicScene.get()}), sprite.Texture, sprite.Color});
+            }
+            output.ImmediateOrder.push_back({ViewImmediateKind::Sprites, 0});
+        }
+        if (state.EnableGridShader)
+        {
+            output.Grids.push_back({.025f, 16.025f, glm::scale(glm::mat4(1), glm::vec3(10, 1, 10)), {}});
+            output.ImmediateOrder.push_back({ViewImmediateKind::Grid, 0});
         }
     }
 

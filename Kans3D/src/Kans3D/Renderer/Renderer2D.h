@@ -1,9 +1,10 @@
 #pragma once
+#include <functional>
+#include "ImmediatePassState.h"
 
-#include "RHI/OpenGL/VertexArray.h"
+#include "Kans3D/RHI/RHI.h"
 #include "Resource/Camera.h"
 #include "Resource/OrthographicCamera.h"
-#include "Resource/Shader.h"
 #include "Resource/SubTexture2D.h"
 #include "Resource/Texture.h"
 
@@ -14,10 +15,17 @@ namespace Kans
     {
 
     public:
-        static void Init();
+        static void Init(std::shared_ptr<RenderHardware::Device> device = {});
+        static void SetTarget(std::shared_ptr<RenderHardware::Device> device,
+                              const RenderHardware::RenderingDesc&    target);
+        static void ClearTarget();
+        using SubmissionSink = std::function<void(RenderHardware::Handle<RenderHardware::CommandList>,
+                                                  RenderHardware::Handle<RenderHardware::Texture>)>;
+        static void SetSubmissionSink(SubmissionSink sink);
+        static void SetCommandList(RenderHardware::CommandList* commands);
 
-        static void BeginScene(const OrthographicCamera& camera);
-        static void BeginScene(const Camera& camera, const glm::mat4& view);
+        static void BeginScene(const OrthographicCamera& camera, ImmediatePassState state = {});
+        static void BeginScene(const Camera& camera, const glm::mat4& view, ImmediatePassState state = {});
 
         static void EndScene();
         static void Shutdown();

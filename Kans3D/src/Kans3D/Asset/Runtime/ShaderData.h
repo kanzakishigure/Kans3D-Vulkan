@@ -118,15 +118,70 @@ namespace Kans
         std::vector<std::string> Members;
     };
 
+    enum class ShaderCullMode : uint32_t
+    {
+        None,
+        Front,
+        Back
+    };
+    enum class ShaderDepthCompare : uint32_t
+    {
+        Never,
+        Less,
+        Equal,
+        LessEqual,
+        Greater,
+        NotEqual,
+        GreaterEqual,
+        Always
+    };
+    enum class ShaderBlendFactor : uint32_t
+    {
+        Zero,
+        One,
+        SourceColor,
+        OneMinusSourceColor,
+        SourceAlpha,
+        OneMinusSourceAlpha,
+        DestinationColor,
+        OneMinusDestinationColor,
+        DestinationAlpha,
+        OneMinusDestinationAlpha
+    };
+    // Material-owned state, independent of a device or frame's main-pass state.
+    struct ShaderPassState
+    {
+        ShaderCullMode     Cull      = ShaderCullMode::Back;
+        bool               DepthTest = true, DepthWrite = true;
+        ShaderDepthCompare DepthCompare = ShaderDepthCompare::Less;
+        bool               Blend        = false;
+        ShaderBlendFactor  SourceColor = ShaderBlendFactor::One, DestinationColor = ShaderBlendFactor::Zero;
+        ShaderBlendFactor  SourceAlpha = ShaderBlendFactor::One, DestinationAlpha = ShaderBlendFactor::Zero;
+        uint32_t           ColorWriteMask = 7; // RGBA bits; preserve scene alpha by default.
+    };
+    struct ShaderPass
+    {
+        std::string                        Name, Tag;
+        ShaderProgramCode                  Code;
+        ShaderPassState                    State;
+        std::vector<ShaderStageReflection> Reflection;
+    };
+    enum class ShaderOutputSpace : uint32_t
+    {
+        Display   = 0,
+        LinearHDR = 1
+    };
     struct ShaderData
     {
         ShaderProgramCode       Code;
+        std::vector<ShaderPass> Passes;
         ShaderParameterDefaults ParameterDefaults;
         ShaderParameterHints    ParameterHints;
         // Derived from validated bytecode, never trusted caller-supplied metadata.
         std::vector<ShaderStageReflection> Reflection;
         ShaderTextureFallbacks             TextureFallbacks;
         std::vector<MaterialParameterGroup> Groups;
+        ShaderOutputSpace                   OutputSpace = ShaderOutputSpace::Display;
     };
     std::variant<std::vector<ShaderStageReflection>, AssetError> InspectShaderProgram(const ShaderProgramCode& code);
     class ShaderDataAsset                                        final : public Asset

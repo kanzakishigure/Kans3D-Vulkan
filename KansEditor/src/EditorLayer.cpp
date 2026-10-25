@@ -3,11 +3,11 @@
 #include <filesystem>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <Kans3D/Platform/OpenGL/OpenGLShader.h>
 
 #include "ImGuizmo.h"
 // TestInclude
 #include "Kans3D/Core/Log/Log.h"
+#include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include <Kans3D/Core/Hash.h>
 #include <Kans3D/Core/UUID.h>
 #include <Kans3D/ImGui/Colors.h>
@@ -109,13 +109,7 @@ namespace Kans
             m_History.Reset(*m_ActiveScene);
         }
 
-        // post Init Renderer pipeline
-        {
-            m_ActiveRenderScene = CreateRef<RenderScene>(m_ActiveScene);
-            RenderPipelineSpecification pipline_init_specification;
-            pipline_init_specification.render_scene = m_ActiveRenderScene;
-            Renderer::InitRenderPipline(pipline_init_specification);
-        }
+        m_ActiveRenderScene = CreateRef<RenderScene>(m_ActiveScene);
 
         {
 
@@ -126,6 +120,8 @@ namespace Kans
         {
 
             m_ViewportRenderer = CreateRef<SceneRenderer>(m_ActiveRenderScene.get());
+            // Grid, selection/preview outlines and debug shells exist only in editor views.
+            RegisterDefaultEditorFeatures(m_ViewportRenderer->GetFeatures());
             m_ActiveRenderScene->PrepareEnvironment("assets/textures/HDR/studio_country_hall_2k.hdr");
             m_ViewportRenderer->PrepareEnvironment();
             // Material previews share the scene's environment and asset cache.

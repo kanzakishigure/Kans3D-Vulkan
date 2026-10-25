@@ -107,6 +107,10 @@ namespace Kans
     {
         const TimeStep step(ImGui::GetIO().DeltaTime);
         m_Renderer->SetViewMode(UsesSceneCamera() ? SceneViewMode::Lit : m_ViewMode);
+        // The game camera shows what the game renders: no editor grid or outlines.
+        auto& features = m_Renderer->GetFeatures();
+        for (const char* name : {"EditorGrid", "EditorSelection", "EditorPreview"})
+            features.SetEnabled(name, !UsesSceneCamera());
         if (UsesSceneCamera())
             m_RenderScene->OnRenderRuntime(m_Renderer, step);
         else
