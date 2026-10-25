@@ -38,7 +38,10 @@ namespace Kans
 
     private:
         // Scene-wide settings, shown when no entity is selected.
+        void DrawContents();
+        void DrawSearch();
         void DrawSceneSettings(Scene& scene);
+        void DrawEnvironmentGroups(Scene& scene);
         void DrawPostProcess(Scene& scene);
         void DrawHeader(Entity entity);
         void DrawPrefabPart(Entity entity);
@@ -49,6 +52,8 @@ namespace Kans
         std::vector<EditorAssetChoice> m_AssetChoices;
         AssetManager*                  m_Assets = nullptr;
         std::array<char, 128>          m_ComponentFilter {};
+        std::string                    m_Search;
+        bool                           m_ModifiedOnly = false;
         std::array<char, 128>          m_AssetFilter {};
         // Copied component values (Copy/Paste in a section's menu).
         std::type_index m_ClipboardType = typeid(void);

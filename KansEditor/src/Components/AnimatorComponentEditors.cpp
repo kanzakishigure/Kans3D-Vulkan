@@ -41,7 +41,8 @@ namespace Kans::ComponentEditors
         // A joint chosen from the skeleton (empty = none).
         bool JointCombo(const char* label, std::string& joint, const SkeletonData* skeleton)
         {
-            PropertyGrid::Row(label);
+            if (!PropertyGrid::Row(label))
+                return false;
             ImGui::PushID(label);
             bool changed = false;
             if (ImGui::BeginCombo("##joint", joint.empty() ? "(none)" : joint.c_str(), ImGuiComboFlags_HeightLarge))
@@ -146,8 +147,8 @@ namespace Kans::ComponentEditors
             bool changed = false;
             if (PropertyGrid::Begin("##Layer"))
             {
-                PropertyGrid::Row("Name");
-                changed |= InputName("##layername", layer.Name);
+                if (PropertyGrid::Row("Name"))
+                    changed |= InputName("##layername", layer.Name);
                 changed |= PropertyGrid::Float("Weight", layer.Weight, 0.01f, 0.0f, 1.0f);
                 const char* modes[] = {"Override", "Additive"};
                 int         mode    = int(layer.Mode);
@@ -198,8 +199,8 @@ namespace Kans::ComponentEditors
                     {
                         if (PropertyGrid::Begin("##StateGrid"))
                         {
-                            PropertyGrid::Row("Name");
-                            changed |= InputName("##statename", state.Name);
+                            if (PropertyGrid::Row("Name"))
+                                changed |= InputName("##statename", state.Name);
                             if (state.Motion < c.Motions.size() && c.Motions[state.Motion].Type == AnimationMotionType::Clip)
                             {
                                 AssetID clip = c.Motions[state.Motion].Clip;
@@ -355,8 +356,8 @@ namespace Kans::ComponentEditors
                 changed |= RemoveButton(c.TwoBoneConstraints, i);
                 if (i < c.TwoBoneConstraints.size() && PropertyGrid::Begin("##TwoBone"))
                 {
-                    PropertyGrid::Row("Name");
-                    changed |= InputName("##ikname", ik.Name);
+                    if (PropertyGrid::Row("Name"))
+                        changed |= InputName("##ikname", ik.Name);
                     changed |= JointCombo("Root", ik.Root, skeleton);
                     changed |= JointCombo("Middle", ik.Middle, skeleton);
                     changed |= JointCombo("End", ik.End, skeleton);
@@ -381,8 +382,8 @@ namespace Kans::ComponentEditors
                 changed |= RemoveButton(c.LookAtConstraints, i);
                 if (i < c.LookAtConstraints.size() && PropertyGrid::Begin("##LookAt"))
                 {
-                    PropertyGrid::Row("Name");
-                    changed |= InputName("##lookname", ik.Name);
+                    if (PropertyGrid::Row("Name"))
+                        changed |= InputName("##lookname", ik.Name);
                     for (size_t b = 0; b < ik.Bones.size(); ++b)
                     {
                         ImGui::PushID(int(b));

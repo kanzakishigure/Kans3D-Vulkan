@@ -1,6 +1,7 @@
 #include "PropertiesPanel.h"
 #include "Kans3D/ImGui/EditorTheme.h"
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -45,7 +46,6 @@ namespace Kans
             return destination.lexically_relative(KansFileSystem::GetProjectRoot());
         }
 
-        const ImVec4 OverrideColor = EditorTheme::Colors().AccentHover;
 
         bool ContainsIgnoreCase(const std::string& text, const char* needle)
         {
@@ -72,6 +72,32 @@ namespace Kans
 
     void PropertiesPanel::Draw()
     {
+        DrawSearch();
+        PropertyGrid::SetFilter(m_Search, m_ModifiedOnly);
+        if (ImGui::BeginChild("##Cards", {0, 0}, ImGuiChildFlags_None))
+            DrawContents();
+        ImGui::EndChild();
+        PropertyGrid::ClearFilter();
+    }
+
+    void PropertiesPanel::DrawSearch()
+    {
+        // Search filters rows by label; the toggle keeps only rows that differ from their default.
+        const float toggle = ImGui::GetFrameHeight();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - toggle - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS "  Search properties", &m_Search);
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, m_ModifiedOnly ? EditorTheme::Colors().Selection : ImVec4(0, 0, 0, 0));
+        if (ImGui::Button(ICON_FA_FILTER "##ModifiedOnly", {toggle, toggle}))
+            m_ModifiedOnly = !m_ModifiedOnly;
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(m_ModifiedOnly ? "Showing modified values only" : "Show modified values only");
+        ImGui::Dummy({0, EditorTheme::Px(2.0f)});
+    }
+
+    void PropertiesPanel::DrawContents()
+    {
         Entity entity = m_Hierarchy.GetSelected();
         if (!entity)
         {
@@ -96,8 +122,13 @@ namespace Kans
 
     void PropertiesPanel::DrawSceneSettings(Scene& scene)
     {
-        if (!ImGui::CollapsingHeader(ICON_FA_GLOBE "  Environment", ImGuiTreeNodeFlags_DefaultOpen))
-            return;
+        if (PropertyGrid::BeginCard("Environment", ICON_FA_GLOBE, "Environment"))
+            DrawEnvironmentGroups(scene);
+        PropertyGrid::EndCard();
+    }
+
+    void PropertiesPanel::DrawEnvironmentGroups(Scene& scene)
+    {
         // The project's HDR images, listed once per panel open is enough; rescan on demand.
         if (m_EnvironmentMaps.empty() || ImGui::IsWindowAppearing())
         {
@@ -110,42 +141,55 @@ namespace Kans
                     m_EnvironmentMaps.push_back(it->path().lexically_relative(root));
             std::sort(m_EnvironmentMaps.begin(), m_EnvironmentMaps.end());
         }
+        static const EnvironmentSettings defaults;
         const bool authored = scene.HasEnvironmentSettings();
         auto       settings = scene.GetEnvironmentSettings();
-        if (!PropertyGrid::Begin("##Environment"))
-            return;
-        // "Editor default" leaves the scene without settings: it shows the editor's environment.
-        const std::string current = !authored            ? "Editor default" :
-                                    settings.Map.empty() ? "None" :
-                                                           settings.Map.generic_u8string();
-        PropertyGrid::Row("Map", "The HDR image lighting the scene and shown as the sky");
-        ImGui::PushID("Map");
-        if (ImGui::BeginCombo("##map", current.c_str()))
+        bool       changed  = false;
+        if (PropertyGrid::BeginGroup("Sky"))
         {
-            if (ImGui::Selectable("Editor default", !authored))
-                scene.ClearEnvironmentSettings();
-            if (ImGui::Selectable("None", authored && settings.Map.empty()))
+            // "Editor default" leaves the scene without settings: it shows the editor's environment.
+            const std::string current = !authored            ? "Editor default" :
+                                        settings.Map.empty() ? "None" :
+                                                               settings.Map.generic_u8string();
+            if (PropertyGrid::Row("Map", "The HDR image lighting the scene and shown as the sky"))
             {
-                settings.Map.clear();
-                scene.SetEnvironmentSettings(settings);
-            }
-            for (const auto& map : m_EnvironmentMaps)
-                if (ImGui::Selectable(map.generic_u8string().c_str(), authored && settings.Map == map))
+                ImGui::PushID("Map");
+                if (ImGui::BeginCombo("##map", current.c_str()))
                 {
-                    settings.Map = map;
-                    scene.SetEnvironmentSettings(settings);
+                    if (ImGui::Selectable("Editor default", !authored))
+                        scene.ClearEnvironmentSettings();
+                    if (ImGui::Selectable("None", authored && settings.Map.empty()))
+                    {
+                        settings.Map.clear();
+                        scene.SetEnvironmentSettings(settings);
+                    }
+                    for (const auto& map : m_EnvironmentMaps)
+                        if (ImGui::Selectable(map.generic_u8string().c_str(), authored && settings.Map == map))
+                        {
+                            settings.Map = map;
+                            scene.SetEnvironmentSettings(settings);
+                        }
+                    ImGui::EndCombo();
                 }
-            ImGui::EndCombo();
+                ImGui::PopID();
+            }
+            changed |= PropertyGrid::Float("Rotation", settings.Rotation, 0.5f, -360.0f, 720.0f, "%.1f°", &defaults.Rotation);
+            changed |= PropertyGrid::Checkbox("Show sky", settings.ShowSkybox, &defaults.ShowSkybox);
+            if (settings.ShowSkybox)
+                changed |= PropertyGrid::Float("Sky brightness", settings.SkyboxIntensity, 0.01f, 0.0f, 16.0f, "%.3f",
+                                               &defaults.SkyboxIntensity);
+            // Scene-linear, like Blender's world colour; shown wherever no sky is drawn.
+            changed |= PropertyGrid::Color3("Background", settings.BackgroundColor, &defaults.BackgroundColor);
+            PropertyGrid::EndGroup();
         }
-        ImGui::PopID();
-        bool changed = PropertyGrid::Float("Diffuse", settings.DiffuseIntensity, 0.01f, 0.0f, 16.0f);
-        changed |= PropertyGrid::Float("Specular", settings.SpecularIntensity, 0.01f, 0.0f, 16.0f);
-        changed |= PropertyGrid::Float("Rotation", settings.Rotation, 0.5f, -360.0f, 720.0f, "%.1f deg");
-        changed |= PropertyGrid::Checkbox("Show sky", settings.ShowSkybox);
-        if (settings.ShowSkybox)
-            changed |= PropertyGrid::Float("Sky brightness", settings.SkyboxIntensity, 0.01f, 0.0f, 16.0f);
-        // Scene-linear, like Blender's world colour; shown wherever no sky is drawn.
-        changed |= PropertyGrid::Color3("Background", settings.BackgroundColor);
+        if (PropertyGrid::BeginGroup("Lighting"))
+        {
+            changed |= PropertyGrid::Float("Diffuse", settings.DiffuseIntensity, 0.01f, 0.0f, 16.0f, "%.3f",
+                                           &defaults.DiffuseIntensity);
+            changed |= PropertyGrid::Float("Specular", settings.SpecularIntensity, 0.01f, 0.0f, 16.0f, "%.3f",
+                                           &defaults.SpecularIntensity);
+            PropertyGrid::EndGroup();
+        }
         if (changed)
         {
             // The first edit of a scene without settings keeps the map it was showing.
@@ -161,23 +205,21 @@ namespace Kans
             else
                 scene.SetEnvironmentSettings(settings);
         }
-        PropertyGrid::End();
     }
 
     void PropertiesPanel::DrawPostProcess(Scene& scene)
     {
         // Applies to every camera of the scene and to the editor view; a camera may override it.
-        if (!ImGui::CollapsingHeader(ICON_FA_SLIDERS "  Post Processing", ImGuiTreeNodeFlags_DefaultOpen))
-            return;
-        if (!PropertyGrid::Begin("##PostProcess"))
-            return;
-        auto settings = scene.GetPostProcessSettings();
-        if (DrawPostProcessSettings(
-                settings,
-                [&](AssetID& dirt) { return AssetPicker("Lens dirt", AssetType::Texture, dirt); },
-                [&](const char* label, AssetID& id) { return AssetPicker(label, AssetType::Material, id); }))
-            scene.SetPostProcessSettings(settings);
-        PropertyGrid::End();
+        if (PropertyGrid::BeginCard("PostProcessing", ICON_FA_SLIDERS, "Post Processing"))
+        {
+            auto settings = scene.GetPostProcessSettings();
+            if (DrawPostProcessSettings(
+                    settings,
+                    [&](AssetID& dirt) { return AssetPicker("Lens dirt", AssetType::Texture, dirt); },
+                    [&](const char* label, AssetID& id) { return AssetPicker(label, AssetType::Material, id); }))
+                scene.SetPostProcessSettings(settings);
+        }
+        PropertyGrid::EndCard();
     }
 
     void PropertiesPanel::DrawHeader(Entity entity)
@@ -207,30 +249,12 @@ namespace Kans
     {
         Scene*     scene      = GetScene();
         const bool overridden = scene && component.Overridden && component.Overridden(entity, *scene);
-        ImGui::PushID(component.Name.c_str());
-        const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed |
-                                         ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap |
-                                         ImGuiTreeNodeFlags_FramePadding;
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.0f, 4.0f});
-        // A prefab part's section that carries an override is tinted, as in the Hierarchy.
-        if (overridden)
-            ImGui::PushStyleColor(ImGuiCol_Text, OverrideColor);
-        const bool open = ImGui::TreeNodeEx(
-            "##section", flags, "%s  %s%s", component.Icon, component.Name.c_str(), overridden ? "  (overridden)" : "");
-        if (overridden)
-            ImGui::PopStyleColor();
-        const bool  menu   = ImGui::IsItemClicked(ImGuiMouseButton_Right);
-        const float height = ImGui::GetFrameHeight();
-        ImGui::PopStyleVar();
-        // Settings button at the right end of the header.
-        ImGui::SameLine((ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x) - height);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-        if (ImGui::Button(ICON_FA_GEAR, {height, height}) || menu)
-            ImGui::OpenPopup("##SectionMenu");
-        ImGui::PopStyleColor();
-        bool remove = false;
-        if (ImGui::BeginPopup("##SectionMenu"))
-        {
+        bool       remove     = false;
+        PropertyGrid::CardOptions options;
+        // A prefab part's card that carries an override gets the accent bar, as the Hierarchy tints it.
+        options.Overridden = overridden;
+        options.Note       = overridden ? "Overridden" : nullptr;
+        options.Menu       = [&] {
             bool any = false;
             if (component.Reset && ImGui::MenuItem(ICON_FA_ROTATE_RIGHT "  Reset"))
                 component.Reset(entity);
@@ -260,18 +284,12 @@ namespace Kans
             }
             if (!any && !removable)
                 ImGui::TextDisabled("No actions");
-            ImGui::EndPopup();
-        }
-        if (open)
-        {
-            ImGui::Spacing();
+        };
+        if (PropertyGrid::BeginCard(component.Name.c_str(), component.Icon, component.Name.c_str(), options))
             component.Draw(entity, *this);
-            ImGui::Spacing();
-            ImGui::TreePop();
-        }
+        PropertyGrid::EndCard();
         if (remove)
             component.Remove(entity);
-        ImGui::PopID();
     }
 
     void PropertiesPanel::DrawAddComponent(Entity entity)
@@ -350,7 +368,8 @@ namespace Kans
 
     bool PropertiesPanel::AssetPicker(const char* label, AssetType type, AssetID& id)
     {
-        PropertyGrid::Row(label);
+        if (!PropertyGrid::Row(label))
+            return false;
         ImGui::PushID(label);
         bool        changed = false;
         std::string preview = id.IsValid() ? "(missing) " + id.ToString() : "(none)";
@@ -419,7 +438,8 @@ namespace Kans
 
     bool PropertiesPanel::MaterialPicker(const char* label, AssetID imported, AssetID current, AssetID& chosen)
     {
-        PropertyGrid::Row(label);
+        if (!PropertyGrid::Row(label))
+            return false;
         bool       picked     = false;
         const bool overridden = current != imported;
         if (overridden)

@@ -8,31 +8,42 @@ namespace Kans
 {
     bool DrawBloomSettings(BloomSettings& settings, const std::function<bool(AssetID&)>& dirtPicker)
     {
-        bool changed = PropertyGrid::Checkbox("Bloom", settings.Enabled);
-        if (!settings.Enabled)
-            return changed;
-        const char* modes[] = {"Additive", "Energy conserving"};
-        int         mode    = int(settings.Mode);
-        if (PropertyGrid::Combo("Mode", modes, 2, mode))
+        static const BloomSettings defaults;
+        bool changed = false, toggled = false;
+        // The heading's toggle turns bloom on; the common controls stay right under it.
+        if (PropertyGrid::BeginGroup("Bloom", &settings.Enabled, &toggled))
         {
-            settings.Mode = BloomSettings::Composite(mode);
-            changed       = true;
+            const char* modes[] = {"Additive", "Energy conserving"};
+            int         mode    = int(settings.Mode);
+            const int   modeDefault = int(defaults.Mode);
+            if (PropertyGrid::Combo("Mode", modes, 2, mode, &modeDefault))
+            {
+                settings.Mode = BloomSettings::Composite(mode);
+                changed       = true;
+            }
+            const float maxIntensity = settings.Mode == BloomSettings::EnergyConserving ? 1.0f : 128.0f;
+            changed |= PropertyGrid::Float("Intensity", settings.Intensity, 0.01f, 0.0f, maxIntensity, "%.3f", &defaults.Intensity);
+            changed |= PropertyGrid::Float("Threshold", settings.Threshold, 0.01f, 0.0f, 65472.0f, "%.3f", &defaults.Threshold);
+            changed |= PropertyGrid::Color3("Tint", settings.Tint, &defaults.Tint);
+            if (dirtPicker)
+            {
+                changed |= dirtPicker(settings.DirtTexture);
+                if (settings.DirtTexture.IsValid())
+                    changed |= PropertyGrid::Float("Dirt intensity", settings.DirtIntensity, 0.01f, 0.0f, 128.0f, "%.3f",
+                                                   &defaults.DirtIntensity);
+            }
+            PropertyGrid::EndGroup();
         }
-        const float maxIntensity = settings.Mode == BloomSettings::EnergyConserving ? 1.0f : 128.0f;
-        changed |= PropertyGrid::Float("Intensity", settings.Intensity, 0.01f, 0.0f, maxIntensity);
-        changed |= PropertyGrid::Float("Threshold", settings.Threshold, 0.01f, 0.0f, 65472.0f);
-        changed |= PropertyGrid::Float("Knee", settings.Knee, 0.01f, 0.0f, 1.0f);
-        changed |= PropertyGrid::Float("Scatter", settings.Scatter, 0.01f, 0.0f, 1.0f);
-        changed |= PropertyGrid::Float("Clamp", settings.Clamp, 10.0f, 0.0f, 65472.0f, "%.0f");
-        changed |= PropertyGrid::Color3("Tint", settings.Tint);
-        changed |= PropertyGrid::Checkbox("High quality", settings.HighQualityFiltering);
-        if (dirtPicker)
+        // Fine-tuning sits directly after Bloom, folded, rather than at the bottom of the card.
+        if (settings.Enabled && PropertyGrid::BeginGroup("Bloom: Advanced", nullptr, nullptr, false))
         {
-            changed |= dirtPicker(settings.DirtTexture);
-            if (settings.DirtTexture.IsValid())
-                changed |= PropertyGrid::Float("Dirt intensity", settings.DirtIntensity, 0.01f, 0.0f, 128.0f);
+            changed |= PropertyGrid::Float("Knee", settings.Knee, 0.01f, 0.0f, 1.0f, "%.3f", &defaults.Knee);
+            changed |= PropertyGrid::Float("Scatter", settings.Scatter, 0.01f, 0.0f, 1.0f, "%.3f", &defaults.Scatter);
+            changed |= PropertyGrid::Float("Clamp", settings.Clamp, 10.0f, 0.0f, 65472.0f, "%.0f", &defaults.Clamp);
+            changed |= PropertyGrid::Checkbox("High quality", settings.HighQualityFiltering, &defaults.HighQualityFiltering);
+            PropertyGrid::EndGroup();
         }
-        return changed;
+        return changed || toggled;
     }
     namespace
     {
@@ -48,7 +59,11 @@ namespace Kans
                 auto&             entry = materials[i];
                 const std::string label = "Post material " + std::to_string(i + 1);
                 changed |= picker(label.c_str(), entry.Material);
-                PropertyGrid::Row("");
+                if (!PropertyGrid::Row(""))
+                {
+                    ImGui::PopID();
+                    continue;
+                }
                 changed |= ImGui::Checkbox("Enabled", &entry.Enabled);
                 ImGui::SameLine();
                 ImGui::BeginDisabled(i == 0);
@@ -88,20 +103,31 @@ namespace Kans
                                  const std::function<bool(AssetID&)>& dirtPicker,
                                  const AssetRowPicker&                 materialPicker)
     {
-        bool changed = PropertyGrid::Float("Exposure", settings.Exposure, 0.01f, 0.001f, 128.0f);
-        // Standard matches Blender's "Standard" view transform: exposure, then sRGB.
-        const char* toneMappings[] = {"ACES", "Standard (none)"};
-        int         toneMapping    = int(settings.ToneMapping);
-        if (PropertyGrid::Combo("Tone mapping", toneMappings, 2, toneMapping))
+        static const PostProcessSettings defaults;
+        bool changed = false;
+        if (PropertyGrid::BeginGroup("Exposure"))
         {
-            settings.ToneMapping = ToneMappingMode(toneMapping);
-            changed              = true;
+            changed |= PropertyGrid::Float("Exposure", settings.Exposure, 0.01f, 0.001f, 128.0f, "%.3f", &defaults.Exposure);
+            // Standard matches Blender's "Standard" view transform: exposure, then sRGB.
+            const char* toneMappings[] = {"ACES", "Standard (none)"};
+            int         toneMapping    = int(settings.ToneMapping);
+            const int   toneDefault    = int(defaults.ToneMapping);
+            if (PropertyGrid::Combo("Tone mapping", toneMappings, 2, toneMapping, &toneDefault))
+            {
+                settings.ToneMapping = ToneMappingMode(toneMapping);
+                changed              = true;
+            }
+            // Blackman-Harris reconstruction radius (Blender Film > Filter Size); 0 keeps the sharp resolve.
+            changed |= PropertyGrid::Float("Pixel filter", settings.FilterSize, 0.05f, 0.0f, 4.0f, "%.2f px",
+                                           &defaults.FilterSize);
+            PropertyGrid::EndGroup();
         }
-        // Blackman-Harris reconstruction radius (Blender Film > Filter Size); 0 keeps the sharp resolve.
-        changed |= PropertyGrid::Float("Pixel filter", settings.FilterSize, 0.05f, 0.0f, 4.0f, "%.2f px");
         changed |= DrawBloomSettings(settings.Bloom, dirtPicker);
-        if (materialPicker)
+        if (materialPicker && PropertyGrid::BeginGroup("Post materials"))
+        {
             changed |= DrawPostMaterials(settings.Materials, materialPicker);
+            PropertyGrid::EndGroup();
+        }
         return changed;
     }
     bool DrawAntiAliasing(AntiAliasing& mode)

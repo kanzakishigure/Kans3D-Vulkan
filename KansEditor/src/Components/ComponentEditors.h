@@ -2,11 +2,16 @@
 #include <imgui.h>
 #include "ComponentRegistry.h"
 #include "Kans3D/Geometry/Shapes.h"
+#include "Kans3D/Scene/Components.h"
 
 // Drawers of the built-in components, registered in ComponentEditors.cpp.
 namespace Kans::ComponentEditors
 {
     inline constexpr ImVec4 ErrorColor {0.95f, 0.38f, 0.35f, 1.0f};
+
+    // Values a light starts with (Add and Reset), also the reset targets in its editor.
+    void DefaultDirectionalLight(DirLightComponent& light);
+    void DefaultPointLight(PointLightComponent& light);
 
     void DrawTransform(Entity entity, ComponentUI& ui);
     void DrawCamera(Entity entity, ComponentUI& ui);

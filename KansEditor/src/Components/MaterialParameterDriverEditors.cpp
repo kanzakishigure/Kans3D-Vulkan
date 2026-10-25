@@ -36,7 +36,8 @@ namespace Kans::ComponentEditors
 
     bool EntityField(const char* label, uint64_t& id, Scene* scene)
     {
-        PropertyGrid::Row(label);
+        if (!PropertyGrid::Row(label))
+            return false;
         Entity      target  = scene && id ? scene->GetEntityByUUID(UUID(id)) : Entity {};
         std::string current = !id ? "(none)" : target ? target.GetComponent<TagComponent>().Tag : "(missing)";
         bool        changed = false;
@@ -74,8 +75,8 @@ namespace Kans::ComponentEditors
                 ImGui::PushID(int(i));
                 if (PropertyGrid::Begin("##Driver"))
                 {
-                    PropertyGrid::Row("Parameter", "A vec3 or vec4 uniform declared by the material's shader");
-                    InputParameter(binding.Parameter);
+                    if (PropertyGrid::Row("Parameter", "A vec3 or vec4 uniform declared by the material's shader"))
+                        InputParameter(binding.Parameter);
                     uint64_t source = uint64_t(binding.SourceEntity);
                     if (EntityField("Source", source, ui.GetScene()))
                         binding.SourceEntity = UUID(source);

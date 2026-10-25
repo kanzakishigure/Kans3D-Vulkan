@@ -11,6 +11,8 @@ namespace Kans::ComponentEditors
     {
         if (!PropertyGrid::Begin("##Transform"))
             return;
+        // Uniform scaling stays on for the session, for every entity.
+        static bool linkedScale = false;
         // Edits go through PatchComponent so the render world sees them; it only
         // notifies on an actual change.
         entity.PatchComponent<TransformComponent>([](TransformComponent& c) {
@@ -18,68 +20,90 @@ namespace Kans::ComponentEditors
             glm::vec3 rotation = glm::degrees(c.Rotation);
             if (PropertyGrid::Vec3("Rotation", rotation, 0.0f, 0.5f))
                 c.Rotation = glm::radians(rotation);
-            PropertyGrid::Vec3("Scale", c.Scale, 1.0f, 0.01f);
+            PropertyGrid::Vec3("Scale", c.Scale, 1.0f, 0.01f, &linkedScale);
         });
         PropertyGrid::End();
     }
 
     void DrawCamera(Entity entity, ComponentUI& ui)
     {
-        if (!PropertyGrid::Begin("##Camera"))
-            return;
+        static SceneCamera defaults {}; // Its getters are not const.
         entity.PatchComponent<CameraComponent>([&](CameraComponent& c) {
             auto& camera = c.SceneCamera;
-            PropertyGrid::Checkbox("Primary", c.Primary);
-            PropertyGrid::Checkbox("Fixed aspect", c.FixedAspectRatio);
-            const char* projections[] = {"Perspective", "Orthographic"};
-            int         projection    = int(camera.GetProjectionType());
-            if (PropertyGrid::Combo("Projection", projections, 2, projection))
-                camera.SetProjectionType(SceneCamera::ProjectionType(projection));
-            if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
+            if (PropertyGrid::BeginGroup("Basics"))
             {
-                float fov = camera.GetPerspectiveVerticalFOV();
-                if (PropertyGrid::Float("Vertical FOV", fov, 0.1f, 1.0f, 179.0f, "%.1f deg"))
-                    camera.SetPerspectiveVerticalFOV(fov);
-                float nearClip = camera.GetPerspectiveNearClip();
-                if (PropertyGrid::Float("Near clip", nearClip, 0.01f, 0.001f, 1000.0f))
-                    camera.SetPerspectiveNearClip(nearClip);
-                float farClip = camera.GetPerspectiveFarClip();
-                if (PropertyGrid::Float("Far clip", farClip, 1.0f, 0.01f, 100000.0f, "%.1f"))
-                    camera.SetPerspectiveFarClip(farClip);
+                PropertyGrid::Checkbox("Primary", c.Primary);
+                static const bool fixedDefault = false;
+                PropertyGrid::Checkbox("Fixed aspect", c.FixedAspectRatio, &fixedDefault);
+                const char* projections[]     = {"Perspective", "Orthographic"};
+                int         projection        = int(camera.GetProjectionType());
+                const int   projectionDefault = int(defaults.GetProjectionType());
+                if (PropertyGrid::Combo("Projection", projections, 2, projection, &projectionDefault))
+                    camera.SetProjectionType(SceneCamera::ProjectionType(projection));
+                PropertyGrid::EndGroup();
             }
-            else
+            if (PropertyGrid::BeginGroup("Lens"))
             {
-                float size = camera.GetOrthographicSize();
-                if (PropertyGrid::Float("Size", size, 0.1f, 0.01f, 10000.0f))
-                    camera.SetOrthographicSize(size);
-                float nearClip = camera.GetOrthographicNearClip();
-                if (PropertyGrid::Float("Near clip", nearClip, 0.1f))
-                    camera.SetOrthographicNearClip(nearClip);
-                float farClip = camera.GetOrthographicFarClip();
-                if (PropertyGrid::Float("Far clip", farClip, 0.1f))
-                    camera.SetOrthographicFarClip(farClip);
+                if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
+                {
+                    const float fovDefault = defaults.GetPerspectiveVerticalFOV(), nearDefault = defaults.GetPerspectiveNearClip(),
+                                farDefault = defaults.GetPerspectiveFarClip();
+                    float fov = camera.GetPerspectiveVerticalFOV();
+                    if (PropertyGrid::Float("Vertical FOV", fov, 0.1f, 1.0f, 179.0f, "%.1f°", &fovDefault))
+                        camera.SetPerspectiveVerticalFOV(fov);
+                    float nearClip = camera.GetPerspectiveNearClip();
+                    if (PropertyGrid::Float("Near clip", nearClip, 0.01f, 0.001f, 1000.0f, "%.3f m", &nearDefault))
+                        camera.SetPerspectiveNearClip(nearClip);
+                    float farClip = camera.GetPerspectiveFarClip();
+                    if (PropertyGrid::Float("Far clip", farClip, 1.0f, 0.01f, 100000.0f, "%.1f m", &farDefault))
+                        camera.SetPerspectiveFarClip(farClip);
+                }
+                else
+                {
+                    const float sizeDefault = defaults.GetOrthographicSize(), nearDefault = defaults.GetOrthographicNearClip(),
+                                farDefault = defaults.GetOrthographicFarClip();
+                    float size = camera.GetOrthographicSize();
+                    if (PropertyGrid::Float("Size", size, 0.1f, 0.01f, 10000.0f, "%.3f m", &sizeDefault))
+                        camera.SetOrthographicSize(size);
+                    float nearClip = camera.GetOrthographicNearClip();
+                    if (PropertyGrid::Float("Near clip", nearClip, 0.1f, 0.0f, 0.0f, "%.3f m", &nearDefault))
+                        camera.SetOrthographicNearClip(nearClip);
+                    float farClip = camera.GetOrthographicFarClip();
+                    if (PropertyGrid::Float("Far clip", farClip, 0.1f, 0.0f, 0.0f, "%.3f m", &farDefault))
+                        camera.SetOrthographicFarClip(farClip);
+                }
+                PropertyGrid::EndGroup();
             }
-            auto antiAliasing = camera.GetAntiAliasing();
-            if (DrawAntiAliasing(antiAliasing))
-                camera.SetAntiAliasing(antiAliasing);
+            if (PropertyGrid::BeginGroup("Rendering"))
+            {
+                auto antiAliasing = camera.GetAntiAliasing();
+                if (DrawAntiAliasing(antiAliasing))
+                    camera.SetAntiAliasing(antiAliasing);
+                PropertyGrid::EndGroup();
+            }
             // Post-processing normally comes from the scene; an override applies to this camera only.
             bool overridden = camera.GetPostProcessOverride().has_value();
-            if (PropertyGrid::Checkbox("Override post", overridden))
+            bool toggled    = false;
+            const bool open = PropertyGrid::BeginGroup("Override post", &overridden, &toggled);
+            if (toggled)
                 camera.SetPostProcessOverride(
                     overridden ? std::optional<PostProcessSettings>(
                                      ui.GetScene() ? ui.GetScene()->GetPostProcessSettings() : PostProcessSettings {}) :
                                  std::nullopt);
-            if (camera.GetPostProcessOverride())
+            if (open)
             {
-                auto settings = *camera.GetPostProcessOverride();
-                if (DrawPostProcessSettings(
-                        settings,
-                        [&](AssetID& dirt) { return ui.AssetPicker("Lens dirt", AssetType::Texture, dirt); },
-                        [&](const char* label, AssetID& id) { return ui.AssetPicker(label, AssetType::Material, id); }))
-                    camera.SetPostProcessOverride(settings);
+                if (camera.GetPostProcessOverride())
+                {
+                    auto settings = *camera.GetPostProcessOverride();
+                    if (DrawPostProcessSettings(
+                            settings,
+                            [&](AssetID& dirt) { return ui.AssetPicker("Lens dirt", AssetType::Texture, dirt); },
+                            [&](const char* label, AssetID& id) { return ui.AssetPicker(label, AssetType::Material, id); }))
+                        camera.SetPostProcessOverride(settings);
+                }
+                PropertyGrid::EndGroup();
             }
         });
-        PropertyGrid::End();
     }
 
     void DrawSprite(Entity entity, ComponentUI&)
@@ -97,34 +121,46 @@ namespace Kans::ComponentEditors
 
     void DrawDirectionalLight(Entity entity, ComponentUI&)
     {
-        if (!PropertyGrid::Begin("##DirLight"))
-            return;
+        static const DirLightComponent defaults = [] {
+            DirLightComponent light;
+            DefaultDirectionalLight(light);
+            return light;
+        }();
         entity.PatchComponent<DirLightComponent>([](DirLightComponent& c) {
-            PropertyGrid::Vec3("Direction", c.Direction, 0.0f, 0.01f);
-            PropertyGrid::Color3("Diffuse", c.Diffuse_Intensity);
-            PropertyGrid::Color3("Specular", c.Specular_Intensity);
-            PropertyGrid::Color3("Ambient", c.Ambient_Intensity);
+            if (PropertyGrid::BeginGroup("Light"))
+            {
+                PropertyGrid::Vec3("Direction", c.Direction, defaults.Direction, 0.01f);
+                PropertyGrid::Color3("Diffuse", c.Diffuse_Intensity, &defaults.Diffuse_Intensity);
+                PropertyGrid::Color3("Specular", c.Specular_Intensity, &defaults.Specular_Intensity);
+                PropertyGrid::Color3("Ambient", c.Ambient_Intensity, &defaults.Ambient_Intensity);
+                PropertyGrid::EndGroup();
+            }
             auto shadows = c.Shadows;
             if (DrawShadowSettings(shadows, true))
                 c.Shadows = shadows.Validated();
         });
-        PropertyGrid::End();
     }
 
     void DrawPointLight(Entity entity, ComponentUI&)
     {
-        if (!PropertyGrid::Begin("##PointLight"))
-            return;
+        static const PointLightComponent defaults = [] {
+            PointLightComponent light;
+            DefaultPointLight(light);
+            return light;
+        }();
         entity.PatchComponent<PointLightComponent>([](PointLightComponent& c) {
-            PropertyGrid::Color3("Diffuse", c.Diffuse_Intensity);
-            PropertyGrid::Color3("Specular", c.Specular_Intensity);
-            PropertyGrid::Color3("Ambient", c.Ambient_Intensity);
-            PropertyGrid::Text("Position", "From the Transform", true);
+            if (PropertyGrid::BeginGroup("Light"))
+            {
+                PropertyGrid::Color3("Diffuse", c.Diffuse_Intensity, &defaults.Diffuse_Intensity);
+                PropertyGrid::Color3("Specular", c.Specular_Intensity, &defaults.Specular_Intensity);
+                PropertyGrid::Color3("Ambient", c.Ambient_Intensity, &defaults.Ambient_Intensity);
+                PropertyGrid::Text("Position", "From the Transform", true);
+                PropertyGrid::EndGroup();
+            }
             auto shadows = c.Shadows;
             if (DrawShadowSettings(shadows, false))
                 c.Shadows = shadows.Validated();
         });
-        PropertyGrid::End();
     }
 
     void DrawScript(Entity entity, ComponentUI&)
@@ -135,9 +171,8 @@ namespace Kans::ComponentEditors
             const bool exists = ScriptEngine::EntityClassExists(c.ClassName);
             // Classes come from the generated registry of the loaded script assemblies.
             const auto classes = ScriptEngine::GetEntityClasses();
-            if (!classes.empty())
+            if (!classes.empty() && PropertyGrid::Row("Class", "C# entity class (Scripts > Build & Reload Scripts)"))
             {
-                PropertyGrid::Row("Class", "C# entity class (Scripts > Build & Reload Scripts)");
                 if (ImGui::BeginCombo("##ClassList", c.ClassName.empty() ? "Select..." : c.ClassName.c_str()))
                 {
                     for (const auto& name : classes)
@@ -146,7 +181,8 @@ namespace Kans::ComponentEditors
                     ImGui::EndCombo();
                 }
             }
-            PropertyGrid::Row(classes.empty() ? "Class" : "Name", "Name of a C# entity class");
+            if (!PropertyGrid::Row(classes.empty() ? "Class" : "Name", "Name of a C# entity class"))
+                return;
             char buffer[256] = {};
             c.ClassName.copy(buffer, sizeof(buffer) - 1);
             if (!exists)

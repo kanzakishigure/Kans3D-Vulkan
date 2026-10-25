@@ -25,16 +25,17 @@ namespace Kans
 
         bool IsPrefabPart(Entity entity) { return entity.HasComponent<PrefabOwnedComponent>(); }
 
-        void DefaultDirectionalLight(DirLightComponent& light)
-        {
-            light.Direction         = {0.0f, -1.0f, 0.0f};
-            light.Diffuse_Intensity = light.Specular_Intensity = light.Ambient_Intensity = glm::vec3(1.0f);
-        }
-        void DefaultPointLight(PointLightComponent& light)
-        {
-            light.Diffuse_Intensity = light.Specular_Intensity = light.Ambient_Intensity = glm::vec3(1.0f);
-        }
     } // namespace
+
+    void ComponentEditors::DefaultDirectionalLight(DirLightComponent& light)
+    {
+        light.Direction         = {0.0f, -1.0f, 0.0f};
+        light.Diffuse_Intensity = light.Specular_Intensity = light.Ambient_Intensity = glm::vec3(1.0f);
+    }
+    void ComponentEditors::DefaultPointLight(PointLightComponent& light)
+    {
+        light.Diffuse_Intensity = light.Specular_Intensity = light.Ambient_Intensity = glm::vec3(1.0f);
+    }
 
     void RegisterBuiltinComponents(ComponentRegistry& registry)
     {
