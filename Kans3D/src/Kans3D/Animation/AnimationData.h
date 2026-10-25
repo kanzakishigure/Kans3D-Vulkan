@@ -1,8 +1,13 @@
 #pragma once
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 #include <glm/glm.hpp>
@@ -50,6 +55,12 @@ namespace Kans
         Linear,
         Spherical
     };
+    enum class AnimationSampleEndpoint : uint8_t
+    {
+        Interpolated,
+        First,
+        Last
+    };
     template<class T>
     struct AnimationKey
     {
@@ -60,14 +71,127 @@ namespace Kans
     struct AnimationTrack
     {
         TrackInterpolation           Interpolation = TrackInterpolation::Linear;
-        std::vector<AnimationKey<T>> Keys;
+        std::vector<AnimationKey<T>> Keys; // Mutable authoring data (Off and controller inline clips).
+        // Products v4/v5: separate times/values, bit-exact uniform times and value runs.
+        // Logical intervals are retained even for constants: mix/normalize can round differently
+        // at different weights, so collapsing intervals would not be lossless.
+        uint32_t              PackedCount  = 0;
+        uint32_t              TimeEncoding = 0; // 0 v4 explicit, 1 Start+i*Interval, 2 Start+i/Interval,
+                                                // 3 shared full table, 4/5 shared table + u16/u32 indices.
+        double                Start = 0, Interval = 0;
+        std::vector<double>   Times;
+        std::vector<T>        Values;
+        std::vector<uint32_t> RunEnds; // Exclusive logical end of each value run; empty = one value/key.
+        std::shared_ptr<const std::vector<double>> TimeTable;
+        std::vector<uint16_t>                      TimeIndices16;
+        std::vector<uint32_t>                      TimeIndices32;
+        // Exact authored endpoints preserve root cycles after lossy constant fitting.
+        std::optional<std::array<T, 2>> RootEndpoints;
+
+        size_t KeyCount() const { return PackedCount ? PackedCount : Keys.size(); }
+        double KeyTime(size_t i) const
+        {
+            if (!PackedCount)
+                return Keys[i].Time;
+            if (TimeEncoding >= 3)
+                return (*TimeTable)[TimeEncoding == 4 ? TimeIndices16[i] : TimeEncoding == 5 ? TimeIndices32[i] : i];
+            return TimeEncoding == 1 ? Start + double(i) * Interval :
+                   TimeEncoding == 2 ? Start + double(i) / Interval :
+                                       Times[i];
+        }
+        T KeyValue(size_t i) const
+        {
+            if (!PackedCount)
+                return Keys[i].Value;
+            if (Values.size() == 1)
+                return Values[0];
+            return Values[RunEnds.empty() ?
+                              i :
+                              size_t(std::upper_bound(RunEnds.begin(), RunEnds.end(), i) - RunEnds.begin())];
+        }
+        AnimationKey<T> KeyAt(size_t i) const { return {KeyTime(i), KeyValue(i)}; }
+        size_t          ResidentBytes() const
+        {
+            return Keys.capacity() * sizeof(AnimationKey<T>) + Times.capacity() * sizeof(double) +
+                   Values.capacity() * sizeof(T) + RunEnds.capacity() * sizeof(uint32_t) +
+                   TimeIndices16.capacity() * sizeof(uint16_t) + TimeIndices32.capacity() * sizeof(uint32_t);
+        }
     };
+    inline glm::quat BlendAnimationRotations(glm::quat a, glm::quat b, float weight, bool spherical)
+    {
+        if (glm::dot(a, b) < 0)
+            b = -b;
+        return glm::normalize(spherical ? glm::slerp(a, b, weight) : a * (1 - weight) + b * weight);
+    }
+    template<class T>
+    T InterpolateAnimationValues(const T& a, const T& b, float weight, TrackInterpolation mode)
+    {
+        if constexpr (std::is_same_v<T, glm::quat>)
+            return BlendAnimationRotations(a, b, weight, mode == TrackInterpolation::Spherical);
+        else
+            return glm::mix(a, b, weight);
+    }
+    template<class T>
+    T SampleAnimationTrack(const AnimationTrack<T>& track, double time, const T& rest)
+    {
+        const size_t count = track.KeyCount();
+        if (!count)
+            return rest;
+        if (time <= track.KeyTime(0))
+            return track.KeyValue(0);
+        if (time >= track.KeyTime(count - 1))
+            return track.KeyValue(count - 1);
+        size_t upper;
+        if (!track.PackedCount)
+            upper = size_t(std::upper_bound(track.Keys.begin(),
+                                            track.Keys.end(),
+                                            time,
+                                            [](double t, const auto& key) { return t < key.Time; }) -
+                           track.Keys.begin());
+        else if (track.TimeEncoding == 1 || track.TimeEncoding == 2)
+        {
+            const double index =
+                track.TimeEncoding == 1 ? (time - track.Start) / track.Interval : (time - track.Start) * track.Interval;
+            upper = size_t(std::clamp(index, 0.0, double(count - 1))) + 1;
+            while (upper < count && track.KeyTime(upper) <= time)
+                ++upper;
+            while (upper > 0 && track.KeyTime(upper - 1) > time)
+                --upper;
+        }
+        else if (track.TimeEncoding == 0)
+            upper = size_t(std::upper_bound(track.Times.begin(), track.Times.end(), time) - track.Times.begin());
+        else if (track.TimeEncoding == 3)
+            upper = size_t(std::upper_bound(track.TimeTable->begin(), track.TimeTable->end(), time) -
+                           track.TimeTable->begin());
+        else if (track.TimeEncoding == 4)
+            upper = size_t(std::upper_bound(track.TimeIndices16.begin(),
+                                            track.TimeIndices16.end(),
+                                            time,
+                                            [&](double t, uint16_t index) { return t < (*track.TimeTable)[index]; }) -
+                           track.TimeIndices16.begin());
+        else
+            upper = size_t(std::upper_bound(track.TimeIndices32.begin(),
+                                            track.TimeIndices32.end(),
+                                            time,
+                                            [&](double t, uint32_t index) { return t < (*track.TimeTable)[index]; }) -
+                           track.TimeIndices32.begin());
+        const auto a = track.KeyAt(upper - 1);
+        if (track.Interpolation == TrackInterpolation::Step)
+            return a.Value;
+        const auto  b = track.KeyAt(upper);
+        const float w = float((time - a.Time) / (b.Time - a.Time));
+        return InterpolateAnimationValues(a.Value, b.Value, w, track.Interpolation);
+    }
     struct JointAnimationTrack
     {
         std::string               Joint;
         AnimationTrack<glm::vec3> Translation, Scale;
         AnimationTrack<glm::quat> Rotation {TrackInterpolation::Spherical, {}};
     };
+    JointTransform SampleAnimationJoint(const JointTransform&,
+                                        const JointAnimationTrack&,
+                                        double                  time,
+                                        AnimationSampleEndpoint endpoint = AnimationSampleEndpoint::Interpolated);
     struct AnimationEvent
     {
         double      Time = 0;
@@ -78,6 +202,26 @@ namespace Kans
         std::string           ShapeKey;
         AnimationTrack<float> Weight;
     };
+    enum class AnimationCompressionMode : uint32_t
+    {
+        Off,
+        Lossless,
+        Optimal,
+        Custom
+    };
+    struct AnimationCompressionSettings
+    {
+        AnimationCompressionMode Mode     = AnimationCompressionMode::Off;
+        float                    Position = .0001f, Shell = .03f, Morph = .001f;
+    };
+    struct AnimationCompressionStatistics
+    {
+        AnimationCompressionMode Mode              = AnimationCompressionMode::Off;
+        uint64_t                 UncompressedBytes = 0, CompressedBytes = 0;
+        float                    MaxPositionError = 0, MaxMorphError = 0;
+        double                   MaxPositionTime = 0;
+        std::string              Joint, ShapeKey;
+    };
     struct AnimationClipData
     {
         std::string                      Name, SourceName;
@@ -85,6 +229,10 @@ namespace Kans
         std::vector<JointAnimationTrack> Tracks;
         std::vector<MorphAnimationTrack> MorphTracks;
         std::vector<AnimationEvent>      Events; // Sorted by time; duplicates are distinct events.
+        AnimationCompressionStatistics   Compression;
+        std::vector<std::shared_ptr<const std::vector<double>>> TimeTables;
+        const AnimationCompressionStatistics&                   GetCompressionStatistics() const { return Compression; }
+        size_t                                                  ResidentBytes() const;
     };
     struct AnimationNameMapping
     {

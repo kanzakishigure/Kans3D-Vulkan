@@ -185,10 +185,153 @@ namespace Kans
         }
     } // namespace
 
+    // All material sections of a Geometry contribute in original polygon order. Assimp's
+    // triangulation order within a polygon is retained by the stable sort.
+    static void GenerateSourceNormals(ImportedModelData& model, const std::vector<FbxSourceGeometry>& geometries)
+    {
+        struct Triangle
+        {
+            size_t                  Mesh, Index;
+            uint32_t                Polygon;
+            std::array<uint32_t, 3> Points;
+        };
+        for (size_t g = 0; g < geometries.size(); ++g)
+        {
+            const auto&                               polygons = geometries[g].Polygons;
+            std::map<uint32_t, std::vector<uint32_t>> incident;
+            for (uint32_t p = 0; p < polygons.size(); ++p)
+                for (auto cp : polygons[p])
+                    incident[cp].push_back(p);
+            std::vector<Triangle>          triangles;
+            std::vector<size_t>            used(polygons.size(), 0);
+            std::map<uint32_t, glm::dvec3> sums;
+            for (size_t m = 0; m < model.Meshes.size(); ++m)
+            {
+                const auto& mesh = model.Meshes[m];
+                if (mesh.SourceGeometry != int32_t(g))
+                    continue;
+                for (size_t i = 0; i < mesh.Indices.size(); i += 3)
+                {
+                    std::array<uint32_t, 3> cp;
+                    for (size_t c = 0; c < 3; ++c)
+                        cp[c] = mesh.SourceControlPoints.at(mesh.Indices[i + c]);
+                    uint32_t polygon = UINT32_MAX;
+                    for (auto p : incident[cp[0]])
+                    {
+                        const auto& points = polygons[p];
+                        if (used[p] < points.size() - 2 &&
+                            std::find(points.begin(), points.end(), cp[1]) != points.end() &&
+                            std::find(points.begin(), points.end(), cp[2]) != points.end())
+                        {
+                            polygon = p;
+                            ++used[p];
+                            break;
+                        }
+                    }
+                    triangles.push_back({m, i, polygon, cp});
+                    if (polygon == UINT32_MAX)
+                    {
+                        // Material splitting can visit later polygons first. If overlapping
+                        // polygons share a triangle subset, repair an earlier ambiguous match
+                        // with an augmenting path rather than rejecting valid source geometry.
+                        std::vector<std::vector<size_t>> owners(polygons.size());
+                        for (size_t t = 0; t + 1 < triangles.size(); ++t)
+                            owners[triangles[t].Polygon].push_back(t);
+                        std::vector<size_t> parent(triangles.size(), size_t(-1));
+                        std::vector<size_t> queue {triangles.size() - 1};
+                        std::vector<bool>   visited(polygons.size(), false);
+                        parent.back() = triangles.size() - 1;
+                        bool matched  = false;
+                        for (size_t cursor = 0; cursor < queue.size() && !matched; ++cursor)
+                        {
+                            const auto  current = queue[cursor];
+                            const auto& points  = triangles[current].Points;
+                            for (auto p : incident[points[0]])
+                            {
+                                const auto& candidate = polygons[p];
+                                if (visited[p] ||
+                                    std::find(candidate.begin(), candidate.end(), points[1]) == candidate.end() ||
+                                    std::find(candidate.begin(), candidate.end(), points[2]) == candidate.end())
+                                    continue;
+                                visited[p] = true;
+                                if (owners[p].size() < candidate.size() - 2)
+                                {
+                                    ++used[p];
+                                    for (auto t = current;; t = parent[t])
+                                    {
+                                        const auto previous  = triangles[t].Polygon;
+                                        triangles[t].Polygon = p;
+                                        if (previous == UINT32_MAX)
+                                            break;
+                                        p = previous;
+                                    }
+                                    matched = true;
+                                    break;
+                                }
+                                for (auto t : owners[p])
+                                    if (parent[t] == size_t(-1))
+                                    {
+                                        parent[t] = current;
+                                        queue.push_back(t);
+                                    }
+                            }
+                        }
+                        if (!matched)
+                            throw std::runtime_error("FBX source triangle has no source polygon");
+                    }
+                }
+            }
+            std::stable_sort(
+                triangles.begin(), triangles.end(), [](const auto& a, const auto& b) { return a.Polygon < b.Polygon; });
+            for (const auto& triangle : triangles)
+            {
+                const auto&               mesh = model.Meshes[triangle.Mesh];
+                const auto                i    = triangle.Index;
+                std::array<glm::dvec3, 3> p;
+                for (size_t c = 0; c < 3; ++c)
+                {
+                    const auto& v = mesh.Vertices.at(mesh.Indices[i + c]).Position;
+                    p[c]          = {v[0], v[1], v[2]};
+                }
+                const auto   cross  = glm::cross(p[1] - p[0], p[2] - p[0]);
+                const double length = glm::length(cross);
+                if (!(length > 0))
+                    continue;
+                const auto normal = cross / length;
+                for (size_t c = 0; c < 3; ++c)
+                {
+                    const auto   a = p[(c + 1) % 3] - p[c], b = p[(c + 2) % 3] - p[c];
+                    const double angle  = std::atan2(glm::length(glm::cross(a, b)), glm::dot(a, b));
+                    const auto   cp     = mesh.SourceControlPoints[mesh.Indices[i + c]];
+                    auto [at, inserted] = sums.emplace(cp, glm::dvec3(0));
+                    at->second += normal * angle;
+                }
+            }
+            for (auto& mesh : model.Meshes)
+                if (mesh.SourceGeometry == int32_t(g))
+                {
+                    mesh.SmoothNormals.resize(mesh.Vertices.size());
+                    for (size_t v = 0; v < mesh.Vertices.size(); ++v)
+                    {
+                        const auto at  = sums.find(mesh.SourceControlPoints[v]);
+                        const auto sum = at == sums.end() ? glm::dvec3(0) : at->second;
+                        if (glm::dot(sum, sum) <= 1e-20)
+                            mesh.SmoothNormals[v] = mesh.Vertices[v].Normal;
+                        else
+                        {
+                            const auto n          = glm::normalize(sum);
+                            mesh.SmoothNormals[v] = {float(n.x), float(n.y), float(n.z)};
+                        }
+                    }
+                }
+        }
+    }
+
     static std::variant<ImportedModelData, AssetError>
     ParseModelCpuImpl(const std::filesystem::path&              path,
                       const std::vector<std::filesystem::path>* allowedFiles,
-                      std::optional<bool>                       recomputeMorphNormals)
+                      std::optional<bool>                       recomputeMorphNormals,
+                      bool                                      sourceNormals)
     {
         std::error_code error;
         if (!std::filesystem::is_regular_file(path, error))
@@ -198,6 +341,7 @@ namespace Kans
                     AssetErrorCode::IoError,
                 "Model source is not a readable regular file: " + path.u8string()};
 
+        std::vector<FbxSourceGeometry> sourceGeometries;
         ModelIO context;
         context.AllowedFiles = allowedFiles;
         const auto normalized    = std::filesystem::absolute(path).lexically_normal();
@@ -226,7 +370,7 @@ namespace Kans
                         input.read(bytes.data(), size);
                         if (!input)
                             return AssetError {AssetErrorCode::IoError, "Cannot read binary FBX"};
-                        context.Prepared     = PrepareBinaryFbx(bytes);
+                        context.Prepared     = PrepareBinaryFbx(bytes, sourceNormals ? &sourceGeometries : nullptr);
                         context.PreparedPath = normalized;
                     }
                 }
@@ -429,12 +573,32 @@ namespace Kans
         {
             const auto* mesh = scene->mMeshes[i];
             const std::string name = mesh->mName.C_Str();
-            if (mesh->GetNumUVChannels() > 1 || mesh->GetNumColorChannels() > 1)
+            // The carrier participates in Assimp joining/triangulation, but is consumed only
+            // as import identity. It never becomes an authored color or changes UV/tangent data.
+            int sourceChannel = -1, sourceGeometry = -1;
+            if (sourceNormals && !sourceGeometries.empty())
+                for (unsigned channel = 0; channel < mesh->GetNumColorChannels(); ++channel)
+                {
+                    const auto& encoded = mesh->mColors[channel][0];
+                    if (encoded.a == FbxSourceColorMarker && std::isfinite(encoded.b) && encoded.b >= 0 &&
+                        encoded.b < sourceGeometries.size() && encoded.b == std::floor(encoded.b) &&
+                        !sourceGeometries[size_t(encoded.b)].Polygons.empty())
+                    {
+                        sourceChannel  = int(channel);
+                        sourceGeometry = int(encoded.b);
+                    }
+                }
+            const auto uvChannels    = mesh->GetNumUVChannels();
+            const auto colorChannels = mesh->GetNumColorChannels() - (sourceChannel >= 0 ? 1 : 0);
+            if (uvChannels > 1 || colorChannels > 1)
                 result.Warnings.push_back("mesh '" + name + "' keeps only its first UV and color channel");
 
             if (!mesh->HasPositions() || !mesh->HasNormals() || mesh->mMaterialIndex >= result.Materials.size())
                 return AssetError {AssetErrorCode::InvalidData, "Model mesh has invalid geometry or material"};
             ImportedMeshData data;
+            data.SourceGeometry = sourceGeometry;
+            data.UVChannels     = uvChannels;
+            data.ColorChannels  = colorChannels;
             data.Name          = mesh->mName.C_Str();
             data.MaterialIndex = mesh->mMaterialIndex;
             data.Vertices.reserve(mesh->mNumVertices);
@@ -445,9 +609,19 @@ namespace Kans
                 const auto&    n = mesh->mNormals[vertex];
                 value.Position   = {p.x, p.y, p.z};
                 value.Normal     = {n.x, n.y, n.z};
+                if (sourceChannel >= 0)
+                {
+                    const auto&  encoded = mesh->mColors[sourceChannel][vertex];
+                    const double low = encoded.r, high = encoded.g;
+                    if (!std::isfinite(low) || !std::isfinite(high) || low < 0 || low > 65535 || high < 0 ||
+                        high > 65535 || low != std::floor(low) || high != std::floor(high) ||
+                        encoded.b != float(sourceGeometry) || encoded.a != FbxSourceColorMarker)
+                        return AssetError {AssetErrorCode::InvalidData, "Invalid FBX source control point encoding"};
+                    data.SourceControlPoints.push_back(uint32_t(low) | (uint32_t(high) << 16));
+                }
                 if (mesh->HasTextureCoords(0))
                     value.UV = {mesh->mTextureCoords[0][vertex].x, mesh->mTextureCoords[0][vertex].y};
-                if (mesh->HasVertexColors(0))
+                if (mesh->HasVertexColors(0) && sourceChannel != 0)
                 {
                     const auto& c = mesh->mColors[0][vertex];
                     value.Color   = {c.r, c.g, c.b, c.a};
@@ -829,11 +1003,11 @@ namespace Kans
                             clip.MorphTracks.push_back(std::move(track));
                         else
                         {
-                            if (found->Weight.Keys.size() != track.Weight.Keys.size())
+                            if (found->Weight.KeyCount() != track.Weight.KeyCount())
                                 return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
-                            for (size_t k = 0; k < track.Weight.Keys.size(); ++k)
-                                if (found->Weight.Keys[k].Time != track.Weight.Keys[k].Time ||
-                                    std::abs(found->Weight.Keys[k].Value - track.Weight.Keys[k].Value) > 1e-6f)
+                            for (size_t k = 0; k < track.Weight.KeyCount(); ++k)
+                                if (found->Weight.KeyTime(k) != track.Weight.KeyTime(k) ||
+                                    std::abs(found->Weight.KeyValue(k) - track.Weight.KeyValue(k)) > 1e-6f)
                                     return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
                         }
                     }
@@ -911,8 +1085,8 @@ namespace Kans
                     }
                     double interval = std::numeric_limits<double>::max();
                     auto   rate     = [&](const auto& track) {
-                        for (size_t k = 1; k < track.Keys.size(); ++k)
-                            interval = std::min(interval, track.Keys[k].Time - track.Keys[k - 1].Time);
+                        for (size_t k = 1; k < track.KeyCount(); ++k)
+                            interval = std::min(interval, track.KeyTime(k) - track.KeyTime(k - 1));
                     };
                     for (const auto& track : clip.Tracks)
                     {
@@ -939,6 +1113,21 @@ namespace Kans
         }
         if (std::isfinite(unit) && unit > 0 && unit != 100 && !result.Nodes.empty())
             ScaleModel(result, static_cast<float>(unit / 100.0));
+        if (sourceNormals)
+        {
+            if (sourceGeometries.empty() || std::any_of(result.Meshes.begin(),
+                                                        result.Meshes.end(),
+                                                        [](const auto& mesh) { return mesh.SourceGeometry < 0; }))
+                result.Warnings.push_back("mesh.smooth_normals: source identity unavailable; using weld smoothing");
+            try
+            {
+                GenerateSourceNormals(result, sourceGeometries);
+            }
+            catch (const std::exception& error)
+            {
+                return AssetError {AssetErrorCode::InvalidData, error.what()};
+            }
+        }
         return result;
     }
 
@@ -977,15 +1166,16 @@ namespace Kans
         }
     }
 
-    std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path,
-                                                              std::optional<bool>          recomputeMorphNormals)
+    std::variant<ImportedModelData, AssetError>
+    ParseModelCpu(const std::filesystem::path& path, std::optional<bool> recomputeMorphNormals, bool sourceNormals)
     {
-        return ParseModelCpuImpl(path, nullptr, recomputeMorphNormals);
+        return ParseModelCpuImpl(path, nullptr, recomputeMorphNormals, sourceNormals);
     }
 
     std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path&              path,
                                                               const std::vector<std::filesystem::path>& allowedFiles,
-                                                              std::optional<bool> recomputeMorphNormals)
+                                                              std::optional<bool> recomputeMorphNormals,
+                                                              bool                sourceNormals)
     {
         if (allowedFiles.empty() || allowedFiles.size() > 1024)
             return AssetError {AssetErrorCode::InvalidArgument, "Invalid model input set size"};
@@ -997,7 +1187,7 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, "Empty model input path"};
             normalized.push_back(std::filesystem::absolute(file).lexically_normal());
         }
-        return ParseModelCpuImpl(path, &normalized, recomputeMorphNormals);
+        return ParseModelCpuImpl(path, &normalized, recomputeMorphNormals, sourceNormals);
     }
     std::variant<std::filesystem::path, AssetError> ResolveModelTexture(const std::filesystem::path& modelFile,
                                                                         const std::string&           reference)

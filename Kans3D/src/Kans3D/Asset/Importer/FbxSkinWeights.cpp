@@ -24,6 +24,8 @@ namespace Kans
             bool                  Terminator = false;
             std::vector<Property> Properties;
             std::vector<Node>     Children;
+            std::vector<char>     GeneratedProperties;
+            size_t                GeneratedCount = 0;
         };
         class BinaryFbx
         {
@@ -191,6 +193,94 @@ namespace Kans
                     patch.insert(patch.end(), raw.begin() + i * stride, raw.begin() + (i + 1) * stride);
                 Patches.emplace(p.Begin, std::move(patch));
             }
+            static Node IntNode(std::string_view name, uint32_t value)
+            {
+                Node n;
+                n.Name           = name;
+                n.GeneratedCount = 1;
+                n.GeneratedProperties.push_back('I');
+                EmitWord(n.GeneratedProperties, value, 4);
+                return n;
+            }
+            static Node StringNode(std::string_view name, std::string_view value)
+            {
+                Node n;
+                n.Name           = name;
+                n.GeneratedCount = 1;
+                n.GeneratedProperties.push_back('S');
+                EmitWord(n.GeneratedProperties, value.size(), 4);
+                n.GeneratedProperties.insert(n.GeneratedProperties.end(), value.begin(), value.end());
+                return n;
+            }
+            void InjectSource(Node& object, Property indices, size_t geometry, FbxSourceGeometry& sourceGeometry)
+            {
+                uint32_t channel = 0;
+                Node*    layer   = nullptr;
+                for (auto& child : object.Children)
+                {
+                    if (child.Name == "LayerElementColor" && !child.Properties.empty())
+                        channel = std::max(channel, uint32_t(Integer(child.Properties[0])) + 1);
+                    if (child.Name == "Layer" && !child.Properties.empty() && Integer(child.Properties[0]) == 0)
+                        layer = &child;
+                }
+                // Assimp has eight color channels. Leave saturated geometries unmodified and fall back.
+                if (channel >= 8)
+                    return;
+                if (!layer)
+                {
+                    Node newLayer       = IntNode("Layer", 0);
+                    newLayer.Terminator = true;
+                    newLayer.Children.push_back(IntNode("Version", 100));
+                    object.Children.push_back(std::move(newLayer));
+                    layer = &object.Children.back();
+                }
+                Node carrier       = IntNode("LayerElementColor", channel);
+                carrier.Terminator = true;
+                carrier.Children   = {IntNode("Version", 101),
+                                      StringNode("Name", "__KansSourceControlPoint"),
+                                      StringNode("MappingInformationType", "ByPolygonVertex"),
+                                      StringNode("ReferenceInformationType", "Direct")};
+                Node values;
+                values.Name           = "Colors";
+                values.GeneratedCount = 1;
+                auto& out             = values.GeneratedProperties;
+                out.push_back('d');
+                Require(indices.Count <= Budget / 32 && geometry <= 16777216);
+                EmitWord(out, indices.Count * 4, 4);
+                EmitWord(out, 0, 4);
+                EmitWord(out, indices.Count * 32, 4);
+                const auto            raw = Array(indices);
+                std::vector<uint32_t> polygon;
+                for (size_t i = 0; i < indices.Count; ++i)
+                {
+                    uint32_t bits = 0;
+                    for (int j = 0; j < 4; ++j)
+                        bits |= uint32_t(uint8_t(raw[i * 4 + j])) << (8 * j);
+                    const auto cp = int32_t(bits) < 0 ? ~bits : bits;
+                    // Two 16-bit limbs preserve every uint32 control point exactly in ai_real=float.
+                    for (double value :
+                         {double(cp & 65535), double(cp >> 16), double(geometry), double(FbxSourceColorMarker)})
+                    {
+                        uint64_t encoded;
+                        std::memcpy(&encoded, &value, sizeof(encoded));
+                        EmitWord(out, encoded, 8);
+                    }
+                    polygon.push_back(cp);
+                    if (int32_t(bits) < 0)
+                    {
+                        sourceGeometry.Polygons.push_back(std::move(polygon));
+                        polygon.clear();
+                    }
+                }
+                Require(polygon.empty());
+                carrier.Children.push_back(std::move(values));
+                Node entry;
+                entry.Name       = "LayerElement";
+                entry.Terminator = true;
+                entry.Children   = {StringNode("Type", "LayerElementColor"), IntNode("TypedIndex", channel)};
+                layer->Children.push_back(std::move(entry));
+                object.Children.push_back(std::move(carrier));
+            }
             void WriteNode(const Node& node, std::vector<char>& out)
             {
                 const auto start = out.size();
@@ -203,6 +293,8 @@ namespace Kans
                         out.insert(out.end(), found->second.begin(), found->second.end());
                     else
                         out.insert(out.end(), Source.begin() + p.Begin, Source.begin() + p.End);
+                out.insert(out.end(), node.GeneratedProperties.begin(), node.GeneratedProperties.end());
+                count += node.GeneratedCount;
                 if (node.Name == "Objects" && node.Properties.empty())
                 {
                     // Assimp 6's read-all-materials path evaluates the implicit ID-0
@@ -241,12 +333,12 @@ namespace Kans
                 Wide   = Word(23, 4) >= 7500;
                 Header = Wide ? 25 : 13;
             }
-            std::vector<char> Prepare()
+            std::vector<char> Prepare(std::vector<FbxSourceGeometry>* geometries)
             {
                 auto        roots       = ReadNodes(27, Source.size(), 0);
-                const Node* objects     = nullptr;
+                Node*       objects     = nullptr;
                 const Node* connections = nullptr;
-                for (const auto& node : roots)
+                for (auto& node : roots)
                 {
                     if (node.Name == "Objects")
                         objects = &node;
@@ -319,10 +411,20 @@ namespace Kans
                         PatchArray(*weights, keep);
                     }
                 }
+                if (geometries)
+                    for (auto& object : objects->Children)
+                        if (object.Name == "Geometry" && object.Properties.size() >= 3 &&
+                            Text(object.Properties[2]) == "Mesh")
+                        {
+                            const auto* indices = Field(object, "PolygonVertexIndex");
+                            Require(indices);
+                            geometries->emplace_back();
+                            InjectSource(object, *indices, geometries->size() - 1, geometries->back());
+                        }
                 std::vector<char> result;
                 result.reserve(Source.size() + 1024 * 1024);
                 result.insert(result.end(), Source.begin(), Source.begin() + 27);
-                for (const auto& node : roots)
+                for (auto& node : roots)
                     WriteNode(node, result);
                 const auto footer = roots.empty() ? size_t(27) : roots.back().End;
                 result.insert(result.end(), Source.begin() + footer, Source.end());
@@ -331,10 +433,10 @@ namespace Kans
             }
         };
     } // namespace
-    std::vector<char> PrepareBinaryFbx(const std::vector<char>& source)
+    std::vector<char> PrepareBinaryFbx(const std::vector<char>& source, std::vector<FbxSourceGeometry>* geometries)
     {
         if (source.size() < 27 || std::memcmp(source.data(), "Kaydara FBX Binary  \0\x1a\0", 23) != 0)
             return {};
-        return BinaryFbx(source).Prepare();
+        return BinaryFbx(source).Prepare(geometries);
     }
 } // namespace Kans

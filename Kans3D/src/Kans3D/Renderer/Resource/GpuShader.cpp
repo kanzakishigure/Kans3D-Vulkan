@@ -18,6 +18,15 @@ namespace Kans
     void              GpuUniformBuffer::Update(const void* data, size_t bytes) { m_Buffer->Write(0, data, bytes); }
     namespace
     {
+        bool ReadsSmoothNormals(const std::vector<ShaderStageReflection>& reflection)
+        {
+            for (const auto& stage : reflection)
+                if (stage.Stage == ShaderProductStage::Vertex)
+                    for (const auto& input : stage.Inputs)
+                        if (input.Location == 7)
+                            return true;
+            return false;
+        }
         AssetError Failure(std::string text) { return {AssetErrorCode::InvalidData, "Material Shader: " + text}; }
     } // namespace
     std::variant<GpuShader, AssetError> GpuShader::Create(const ShaderData&                       data,
@@ -51,6 +60,7 @@ namespace Kans
                 }))
                 return Failure("texture fallback '" + name + "' does not name a material sampler");
         GpuShader shader;
+        shader.UsesSmoothNormals = ReadsSmoothNormals(reflection);
         shader.OutputSpace = data.OutputSpace;
         shader.m_Source    = std::make_shared<const ShaderData>(data);
         shader.m_Device = std::move(device);
@@ -62,6 +72,11 @@ namespace Kans
                 ShaderData passData;
                 passData.Code = pass.Code;
                 shader.Passes.push_back({pass.Name, pass.Tag, pass.State, shader.m_Device->CreateShader(passData), {}});
+                auto passReflection = InspectShaderProgram(pass.Code);
+                if (auto* error = std::get_if<AssetError>(&passReflection))
+                    return *error;
+                shader.Passes.back().UsesSmoothNormals =
+                    ReadsSmoothNormals(std::get<std::vector<ShaderStageReflection>>(passReflection));
             }
         }
         catch (const std::exception& e)
@@ -114,26 +129,30 @@ namespace Kans
 
         return shader;
     }
-    bool GpuShader::PrepareSkinning() const
+    bool GpuShader::PrepareSkinning(bool smoothNormalFallback) const
     {
-        if (SkinnedProgram)
+        auto& program = smoothNormalFallback ? SkinnedNormalFallbackProgram : SkinnedProgram;
+        if (program)
             return true;
         if (!m_Source)
             return false;
-        auto converted = MakeSkinnedShader(*m_Source);
+        auto converted = MakeSkinnedShader(*m_Source, smoothNormalFallback);
         if (auto* error = std::get_if<AssetError>(&converted))
         {
             CORE_ERROR("Skinning shader: {0}", error->Message);
             return false;
         }
         auto& data     = std::get<ShaderData>(converted);
-        SkinnedProgram = m_Device->CreateShader(data);
-        SkinLayout     = SkinningLayout(*m_Device);
+        program        = m_Device->CreateShader(data);
+        if (!SkinLayout)
+            SkinLayout = SkinningLayout(*m_Device);
         for (size_t i = 0; i < Passes.size(); ++i)
         {
             ShaderData pass;
             pass.Code                = data.Passes[i].Code;
-            Passes[i].SkinnedProgram = m_Device->CreateShader(pass);
+            auto& passProgram =
+                smoothNormalFallback ? Passes[i].SkinnedNormalFallbackProgram : Passes[i].SkinnedProgram;
+            passProgram = m_Device->CreateShader(pass);
         }
         return true;
     }
@@ -150,6 +169,7 @@ namespace Kans
         copy.m_Device           = m_Device;
         copy.Program            = Program;
         copy.m_Source           = m_Source;
+        copy.SkinnedNormalFallbackProgram = SkinnedNormalFallbackProgram;
         copy.SkinnedProgram     = SkinnedProgram;
         copy.SkinLayout         = SkinLayout;
         copy.EngineLayout       = EngineLayout;
@@ -157,6 +177,7 @@ namespace Kans
         copy.EngineResources    = EngineResources;
         copy.Pipelines          = Pipelines;
         copy.Passes             = Passes;
+        copy.UsesSmoothNormals            = UsesSmoothNormals;
         copy.OutputSpace        = OutputSpace;
         copy.m_SamplerFallbacks = m_SamplerFallbacks;
         return copy;

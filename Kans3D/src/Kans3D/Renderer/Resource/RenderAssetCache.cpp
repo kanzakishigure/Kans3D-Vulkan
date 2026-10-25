@@ -142,6 +142,27 @@ namespace Kans
                                                    RenderHardware::BufferUsage::Vertex,
                                                    RenderHardware::MemoryUsage::Upload});
         mesh.Vertices->Write(0, vertices->data(), vertices->size() * sizeof(MeshVertexData));
+        if (data.HasSmoothNormals())
+        {
+            auto smooth = data.SmoothNormals;
+            if (!data.Skin.empty())
+            {
+                const auto normalMatrix = glm::transpose(glm::inverse(glm::mat3(data.SkinBindTransform)));
+                for (auto& n : smooth)
+                {
+                    const auto transformed = glm::normalize(normalMatrix * glm::vec3(n[0], n[1], n[2]));
+                    n                      = {transformed.x, transformed.y, transformed.z};
+                }
+                mesh.BindSmoothNormals = device->CreateBuffer({smooth.size() * sizeof(smooth[0]),
+                                                               RenderHardware::BufferUsage::Vertex,
+                                                               RenderHardware::MemoryUsage::Upload});
+                mesh.BindSmoothNormals->Write(0, data.SmoothNormals.data(), smooth.size() * sizeof(smooth[0]));
+            }
+            mesh.SmoothNormals = device->CreateBuffer({smooth.size() * sizeof(smooth[0]),
+                                                       RenderHardware::BufferUsage::Vertex,
+                                                       RenderHardware::MemoryUsage::Upload});
+            mesh.SmoothNormals->Write(0, smooth.data(), smooth.size() * sizeof(smooth[0]));
+        }
         mesh.Indices = device->CreateBuffer({data.Indices.size() * sizeof(uint32_t),
                                              RenderHardware::BufferUsage::Index,
                                              RenderHardware::MemoryUsage::Upload});

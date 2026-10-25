@@ -112,6 +112,13 @@ void KansWriteShadowDepth(vec3 worldPos)
 }
 #endif
 )"},
+                {"Kans3D/SmoothNormal.glsl", R"(#ifndef KANS3D_SMOOTH_NORMAL_GLSL
+#define KANS3D_SMOOTH_NORMAL_GLSL
+layout(location = 7) in vec3 a_SmoothNormal;
+// Mesh-space normal, rotated by the engine skinning prologue; morphs leave it unchanged.
+vec3 KansSmoothNormal() { return a_SmoothNormal; }
+#endif
+)"},
                 {"Kans3D/VertexInput.glsl", R"(#ifndef KANS3D_VERTEX_INPUT_GLSL
 #define KANS3D_VERTEX_INPUT_GLSL
 // Engine mesh vertex layout.
@@ -531,8 +538,9 @@ vec4 KansToneMap(vec3 color)
         // Engine mesh layout: position, normal, uv, color, tangent.
         constexpr uint32_t vertexComponents[] = {3, 3, 2, 4, 4};
         for (const auto& input : vertex->Inputs)
-            if (input.Location >= 5 || input.Columns != 1 || input.Scalar != ShaderInterfaceScalar::Float ||
-                input.Components != vertexComponents[input.Location])
+            if ((input.Location >= 5 && input.Location != 7) || input.Columns != 1 ||
+                input.Scalar != ShaderInterfaceScalar::Float ||
+                input.Components != (input.Location == 7 ? 3 : vertexComponents[input.Location]))
                 return Contract("vertex input '" + input.Name + "' does not match the engine vertex layout");
         if (!(depthOnly && fragment->Outputs.empty()) &&
             (fragment->Outputs.size() != 1 || fragment->Outputs[0].Location != 0 ||

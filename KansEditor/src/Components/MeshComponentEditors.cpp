@@ -144,6 +144,15 @@ namespace Kans::ComponentEditors
             ImGui::TextDisabled("Loading mesh...");
             return;
         }
+        if (assets)
+            if (const auto data = assets->Request<MeshAsset>(mesh.Mesh); data.IsReady())
+            {
+                const auto& d = data.Asset->GetData();
+                ImGui::TextDisabled("%zu vertices, %zu triangles%s",
+                                    d.Vertices.size(),
+                                    d.Indices.size() / 3,
+                                    d.HasSmoothNormals() ? ", smooth normals" : "");
+            }
         // A part shows only the slots its sections use.
         std::vector<uint32_t> shown;
         if (mesh.Section && assets)

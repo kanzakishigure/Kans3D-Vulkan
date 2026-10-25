@@ -74,16 +74,26 @@ namespace Kans
     namespace
     {
         // Settings: "scale" (positive number, default 1) multiplies the model size.
+        enum class SmoothNormalMode
+        {
+            Off,
+            Weld,
+            Source
+        };
         struct ModelSettings
         {
             AnimationNameMapping           Mapping;
             float                          Scale = 1;
+            SmoothNormalMode               SmoothNormals = SmoothNormalMode::Off;
             std::optional<bool>            RecomputeMorphNormals;
             std::map<std::string, AssetID> Materials;
         };
 
         std::variant<ModelSettings, AssetError> ParseModelSettings(const std::map<std::string, std::string>& settings)
         {
+            auto compression = ParseAnimationCompressionSettings(settings);
+            if (auto* error = std::get_if<AssetError>(&compression))
+                return *error;
             ModelSettings parsed;
             for (const auto& [key, value] : settings)
             {
@@ -95,6 +105,11 @@ namespace Kans
                     parsed.Materials.emplace(key.substr(9), id);
                     continue;
                 }
+                if (key == "animation.compression" || key.compare(0, 22, "animation.compression.") == 0 ||
+                    key == "animation.error.position" || key.compare(0, 25, "animation.error.position.") == 0 ||
+                    key == "animation.error.shell" || key.compare(0, 22, "animation.error.shell.") == 0 ||
+                    key == "animation.error.morph" || key.compare(0, 22, "animation.error.morph.") == 0)
+                    continue;
                 if (key == "animation.strip_prefix")
                 {
                     parsed.Mapping.StripPrefix = value;
@@ -103,6 +118,16 @@ namespace Kans
                 if (key.compare(0, 14, "animation.map.") == 0)
                 {
                     parsed.Mapping.Names[key.substr(14)] = value;
+                    continue;
+                }
+                if (key == "mesh.smooth_normals")
+                {
+                    if (value != "true" && value != "false" && value != "weld" && value != "source")
+                        return AssetError {AssetErrorCode::InvalidArgument,
+                                           "mesh.smooth_normals must be false, weld, source, or true"};
+                    parsed.SmoothNormals = value == "source" ? SmoothNormalMode::Source :
+                                           value == "false"  ? SmoothNormalMode::Off :
+                                                               SmoothNormalMode::Weld;
                     continue;
                 }
                 if (key == "morph.recompute_normals")
@@ -212,8 +237,10 @@ namespace Kans
         std::vector<std::filesystem::path> allowedFiles {context.SourceFile};
         for (const auto& input : context.SourceInputs)
             allowedFiles.push_back(input.first);
-        auto parsed =
-            ParseModelCpu(context.SourceFile, allowedFiles, std::get<ModelSettings>(scale).RecomputeMorphNormals);
+        auto parsed = ParseModelCpu(context.SourceFile,
+                                    allowedFiles,
+                                    std::get<ModelSettings>(scale).RecomputeMorphNormals,
+                                    std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Source);
         if (const auto* error = std::get_if<AssetError>(&parsed))
             return *error;
         auto& source = std::get<ImportedModelData>(parsed);
@@ -350,6 +377,15 @@ namespace Kans
                                {}},
                               std::get<std::vector<std::byte>>(std::move(encoded))});
         }
+        // The runtime names may be remapped; the compression metric still evaluates the
+        // original import hierarchy and rest transforms, with those same names applied.
+        auto compressionSkeleton = source.Skeleton;
+        if (compressionSkeleton)
+            for (auto& joint : compressionSkeleton->Joints)
+            {
+                joint.Name = std::get<ModelSettings>(scale).Mapping.Map(joint.Name);
+                joint.Path = std::get<ModelSettings>(scale).Mapping.Map(joint.Path);
+            }
         for (size_t i = 0; i < source.Clips.size(); ++i)
         {
             auto& clip = source.Clips[i];
@@ -359,7 +395,16 @@ namespace Kans
                 track.ShapeKey = std::get<ModelSettings>(scale).Mapping.Map(track.ShapeKey);
             const auto id = idFor(clipKeys[i]);
             model.AnimationClips.push_back(id);
-            auto encoded = EncodeAnimationClipProduct(clip);
+            auto compression = ParseAnimationCompressionSettings(context.Settings, clipKeys[i]);
+            if (auto* error = std::get_if<AssetError>(&compression))
+                return *error;
+            const auto& options = std::get<AnimationCompressionSettings>(compression);
+            auto encoded = options.Mode == AnimationCompressionMode::Off ?
+                               EncodeAnimationClipProduct(clip) :
+                           compressionSkeleton ?
+                               EncodeAnimationClipProduct(clip, *compressionSkeleton, options) :
+                               AnimationProductBytes(AssetError {AssetErrorCode::InvalidData,
+                                                                 "Compressed clip requires its import skeleton"});
             if (auto* error = std::get_if<AssetError>(&encoded))
                 return *error;
             staged.push_back(
@@ -443,6 +488,9 @@ namespace Kans
                     BuildMorphBounds(*found);
                 }
                 data.Vertices.insert(data.Vertices.end(), vertices->begin(), vertices->end());
+                if (std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Source)
+                    data.SmoothNormals.insert(
+                        data.SmoothNormals.end(), input.SmoothNormals.begin(), input.SmoothNormals.end());
                 if (skinned)
                 {
                     if (input.Skin.empty())
@@ -482,6 +530,10 @@ namespace Kans
             }
             data.Material         = data.MaterialSlots.front().DefaultMaterial;
             data.AuthoredMaterial = data.MaterialSlots.front().AuthoredMaterial;
+            if (std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Weld ||
+                (std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Source &&
+                 data.SmoothNormals.size() != data.Vertices.size()))
+                GenerateSmoothNormals(data);
             auto encoded          = EncodeMeshProduct(data);
             if (const auto* error = std::get_if<AssetError>(&encoded))
                 return *error;

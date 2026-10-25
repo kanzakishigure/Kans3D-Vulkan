@@ -8,6 +8,11 @@ namespace Kans
     using AnimationProductBytes = std::variant<std::vector<std::byte>, AssetError>;
     AnimationProductBytes                             EncodeSkeletonProduct(const SkeletonData&);
     AnimationProductBytes                             EncodeAnimationClipProduct(const AnimationClipData&);
+    // Compression is explicitly opt-in; inline controller authoring always uses the original YAML codec.
+    std::variant<AnimationCompressionSettings, AssetError>
+    ParseAnimationCompressionSettings(const std::map<std::string, std::string>&, const std::string& clipObjectKey = {});
+    AnimationProductBytes
+    EncodeAnimationClipProduct(const AnimationClipData&, const SkeletonData&, const AnimationCompressionSettings&);
     AnimationProductBytes                             EncodeAnimationControllerProduct(const AnimationControllerData&);
     std::variant<SkeletonData, AssetError>            DecodeSkeletonProduct(const std::byte*, size_t);
     std::variant<AnimationClipData, AssetError>       DecodeAnimationClipProduct(const std::byte*, size_t);
