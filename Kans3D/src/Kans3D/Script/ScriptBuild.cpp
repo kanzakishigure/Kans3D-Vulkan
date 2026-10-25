@@ -16,9 +16,41 @@ extern char** environ;
 
 namespace Kans
 {
-#if defined(_WIN32)
     namespace
     {
+        // .NET tools localise their output; English keeps it ASCII for the editor console.
+        constexpr std::pair<const char*, const char*> DotnetEnvironment[] = {{"DOTNET_CLI_UI_LANGUAGE", "en"},
+                                                                             {"VSLANG", "1033"}};
+
+#if defined(_WIN32)
+        // The current environment block with DotnetEnvironment replacing any inherited values.
+        std::wstring ChildEnvironment()
+        {
+            std::wstring block;
+            if (auto* inherited = GetEnvironmentStringsW())
+            {
+                for (const wchar_t* entry = inherited; *entry; entry += wcslen(entry) + 1)
+                {
+                    std::wstring_view variable(entry);
+                    bool              overridden = false;
+                    for (const auto& [name, value] : DotnetEnvironment)
+                    {
+                        const auto prefix = std::filesystem::u8path(std::string(name) + "=").wstring();
+                        overridden |= variable.size() >= prefix.size() &&
+                                      CompareStringOrdinal(variable.data(), int(prefix.size()), prefix.data(),
+                                                           int(prefix.size()), TRUE) == CSTR_EQUAL;
+                    }
+                    if (!overridden)
+                        block.append(variable).push_back(L'\0');
+                }
+                FreeEnvironmentStringsW(inherited);
+            }
+            for (const auto& [name, value] : DotnetEnvironment)
+                block.append(std::filesystem::u8path(std::string(name) + "=" + value).wstring()).push_back(L'\0');
+            block.push_back(L'\0');
+            return block;
+        }
+
         // CommandLineToArgvW/CRT escaping, including quotes and trailing backslashes.
         std::wstring Quote(const std::wstring& argument)
         {
@@ -40,8 +72,25 @@ namespace Kans
             result.append(slashes * 2, L'\\');
             return result + L'"';
         }
-    } // namespace
+#else
+        std::vector<std::string> ChildEnvironment()
+        {
+            std::vector<std::string> variables;
+            for (char** entry = environ; *entry; ++entry)
+            {
+                std::string_view variable(*entry);
+                bool             overridden = false;
+                for (const auto& [name, value] : DotnetEnvironment)
+                    overridden |= variable.rfind(std::string(name) + "=", 0) == 0;
+                if (!overridden)
+                    variables.emplace_back(variable);
+            }
+            for (const auto& [name, value] : DotnetEnvironment)
+                variables.push_back(std::string(name) + "=" + value);
+            return variables;
+        }
 #endif
+    } // namespace
     ScriptBuild::Result ScriptBuild::Build(const std::filesystem::path& csproj, Config config)
     {
         Result                   result;
@@ -75,13 +124,14 @@ namespace Kans
         startup.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
         PROCESS_INFORMATION process {};
         auto                executable = std::filesystem::u8path(args[0]).wstring();
+        auto                environment = ChildEnvironment();
         bool                started    = CreateProcessW(executable.c_str(),
                                                         command.data(),
                                                         nullptr,
                                                         nullptr,
                                                         TRUE,
-                                                        CREATE_NO_WINDOW,
-                                                        nullptr,
+                                                        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                                                        environment.data(),
                                                         nullptr,
                                                         &startup,
                                                         &process);
@@ -117,8 +167,13 @@ namespace Kans
         for (auto& arg : args)
             argv.push_back(arg.data());
         argv.push_back(nullptr);
+        auto               variables = ChildEnvironment();
+        std::vector<char*> envp;
+        for (auto& variable : variables)
+            envp.push_back(variable.data());
+        envp.push_back(nullptr);
         pid_t process;
-        int   status = posix_spawnp(&process, argv[0], &actions, nullptr, argv.data(), environ);
+        int   status = posix_spawnp(&process, argv[0], &actions, nullptr, argv.data(), envp.data());
         posix_spawn_file_actions_destroy(&actions);
         close(pipeFD[1]);
         if (status != 0)

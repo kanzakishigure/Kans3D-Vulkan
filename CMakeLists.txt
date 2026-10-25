@@ -11,9 +11,11 @@ find_program(DOTNET dotnet)
 option(KANS_SCRIPTS_AOT "Publish a NativeAOT shared script library" OFF)
 set(KANS_SCRIPT_PROJECT "" CACHE FILEPATH "User script csproj for NativeAOT packaging")
 if(DOTNET)
+    # .NET tools localise their output; English keeps it ASCII so no console or IDE code page garbles it.
+    set(KANS_DOTNET_ENV DOTNET_CLI_UI_LANGUAGE=en VSLANG=1033)
     get_filename_component(KANS_DOTNET_REAL "${DOTNET}" REALPATH)
     get_filename_component(KANS_DOTNET_ROOT "${KANS_DOTNET_REAL}" DIRECTORY)
-    execute_process(COMMAND "${DOTNET}" --info OUTPUT_VARIABLE KANS_DOTNET_INFO)
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E env ${KANS_DOTNET_ENV} "${DOTNET}" --info OUTPUT_VARIABLE KANS_DOTNET_INFO)
     string(REGEX MATCH "RID:[ \t]+([^ \r\n]+)" _ "${KANS_DOTNET_INFO}")
     set(KANS_HOST_RID "${CMAKE_MATCH_1}")
     file(GLOB KANS_HOST_PACKS "${KANS_DOTNET_ROOT}/packs/Microsoft.NETCore.App.Host.${KANS_HOST_RID}/*/runtimes/${KANS_HOST_RID}/native")
@@ -216,7 +218,7 @@ if(DOTNET)
             message(FATAL_ERROR "KANS_SCRIPTS_AOT needs KANS_SCRIPT_PROJECT=<user.csproj>")
         endif()
         add_custom_target(KansScriptsAot
-            COMMAND "${DOTNET}" publish "${PROJECT_SOURCE_DIR}/KansScriptCore/Aot/KansScriptAot.csproj"
+            COMMAND "${CMAKE_COMMAND}" -E env ${KANS_DOTNET_ENV} "${DOTNET}" publish "${PROJECT_SOURCE_DIR}/KansScriptCore/Aot/KansScriptAot.csproj"
                 -c Release -r "${KANS_AOT_RID}"
                 "-p:KansScriptProject=${KANS_SCRIPT_PROJECT}" -m:1 -nr:false
                 -p:UseSharedCompilation=false --output "${CMAKE_BINARY_DIR}/scripts-aot"

@@ -7,7 +7,7 @@ set(KANS_MANAGED_FILES
     "${KANS_MANAGED_OUTPUT}/ScriptCore.runtimeconfig.json"
     "${KANS_MANAGED_OUTPUT}/ScriptCore.deps.json")
 add_custom_command(OUTPUT ${KANS_MANAGED_FILES}
-    COMMAND "${DOTNET}" build "${CMAKE_CURRENT_SOURCE_DIR}/Core/KansScriptCore.csproj"
+    COMMAND "${CMAKE_COMMAND}" -E env ${KANS_DOTNET_ENV} "${DOTNET}" build "${CMAKE_CURRENT_SOURCE_DIR}/Core/KansScriptCore.csproj"
         -c "$<IF:$<CONFIG:Debug>,Debug,Release>" -m:1 -nr:false --nologo
         -p:UseSharedCompilation=false --output "${KANS_MANAGED_OUTPUT}"
     DEPENDS ${KANS_MANAGED_SOURCES}
