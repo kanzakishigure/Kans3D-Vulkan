@@ -8,6 +8,39 @@
 
 namespace Kans
 {
+    std::variant<ShaderDomainSource, AssetError> ParseShaderProgramDomain(const std::string& text)
+    {
+        ShaderDomainSource result;
+        bool               domain = false, stage = false, output = false, pass = false;
+        std::istringstream lines(text);
+        std::string        line;
+        while (std::getline(lines, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.rfind("domain=", 0) == 0)
+            {
+                if (domain || line != "domain=post_process")
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate Shader domain"};
+                domain        = true;
+                result.Domain = ShaderDomain::PostProcess;
+            }
+            if (line.rfind("stage=", 0) == 0)
+            {
+                if (stage || (line != "stage=before_tonemap" && line != "stage=after_tonemap"))
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid or duplicate post-process stage"};
+                stage = true;
+                result.Stage =
+                    line == "stage=before_tonemap" ? PostProcessStage::BeforeToneMap : PostProcessStage::AfterToneMap;
+            }
+            output |= line.rfind("output_space=", 0) == 0;
+            pass |= line.rfind("pass ", 0) == 0;
+        }
+        if (domain != stage || (domain && (output || pass)))
+            return AssetError {AssetErrorCode::InvalidData,
+                               "Post-process requires domain and stage, forbids output_space and passes"};
+        return result;
+    }
     std::variant<ShaderOutputSpace, AssetError> ParseShaderOutputSpace(const std::string& text)
     {
         ShaderOutputSpace  result = ShaderOutputSpace::Display;
@@ -47,6 +80,10 @@ namespace Kans
         };
         if (!next() || line != "KansShaderProgram 1")
             return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Shader program header"};
+        auto domain = ParseShaderProgramDomain(text);
+        if (auto* error = std::get_if<AssetError>(&domain))
+            return *error;
+        const bool post        = std::get<ShaderDomainSource>(domain).Domain == ShaderDomain::PostProcess;
         auto outputSpace = ParseShaderOutputSpace(text);
         if (auto* error = std::get_if<AssetError>(&outputSpace))
             return *error;
@@ -71,7 +108,8 @@ namespace Kans
             if (inPass)
                 continue;
             if (line.empty() || line[0] == '#' || line.rfind("default ", 0) == 0 || line.rfind("hint ", 0) == 0 ||
-                line.rfind("texture ", 0) == 0 || line.rfind("group ", 0) == 0 || line.rfind("output_space=", 0) == 0)
+                line.rfind("texture ", 0) == 0 || line.rfind("group ", 0) == 0 || line.rfind("output_space=", 0) == 0 ||
+                line.rfind("domain=", 0) == 0 || line.rfind("stage=", 0) == 0)
                 continue;
             const auto split = line.find('=');
             if (split == std::string::npos)
@@ -90,10 +128,12 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidData, "Invalid Shader program stage path"};
             result.push_back({stage, std::move(logical)});
         }
-        if ((stages.count(ShaderProductStage::Compute) && stages.size() != 1) ||
-            (!stages.count(ShaderProductStage::Compute) &&
-             (stages.size() != 2 || !stages.count(ShaderProductStage::Vertex) ||
-              !stages.count(ShaderProductStage::Fragment))))
+        if (post && (stages.size() != 1 || !stages.count(ShaderProductStage::Fragment)))
+            return AssetError {AssetErrorCode::InvalidData, "Post-process requires exactly one fragment stage"};
+        if (!post && ((stages.count(ShaderProductStage::Compute) && stages.size() != 1) ||
+                      (!stages.count(ShaderProductStage::Compute) &&
+                       (stages.size() != 2 || !stages.count(ShaderProductStage::Vertex) ||
+                        !stages.count(ShaderProductStage::Fragment)))))
             return AssetError {AssetErrorCode::InvalidData, "Shader program requires vertex+fragment or compute"};
         if (!std::get<std::vector<ShaderPassSource>>(passes).empty() && stages.count(ShaderProductStage::Compute))
             return AssetError {AssetErrorCode::InvalidData, "Additional passes require a graphics main pass"};

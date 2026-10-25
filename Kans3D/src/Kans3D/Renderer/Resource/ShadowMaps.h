@@ -23,5 +23,8 @@ namespace Kans
     std::vector<uint32_t> SelectPointShadows(const SceneInfo& scene, uint32_t cap = 4);
     // Initialized all-lit descriptors; no render pass is needed for the immutable fallback.
     std::shared_ptr<ShadowResources> CreateShadowFallback(RenderHardware::Device& device);
+    // Custom depth draws main geometry only, using the first enabled DepthOnly pass,
+    // otherwise ShadowCaster, otherwise built-in Standard depth. No main-depth occlusion.
+    GraphTexture                     BuildCustomDepthPass(RenderGraph& graph, RenderFrame& frame);
     void                             BuildShadowPasses(RenderGraph& graph, RenderFrame& frame);
 } // namespace Kans

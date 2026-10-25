@@ -25,6 +25,8 @@ namespace Kans
             for (; x != a.end(); ++x, ++y)
                 if (x->first != y->first || x->second.Removed != y->second.Removed ||
                     x->second.Materials != y->second.Materials ||
+                    x->second.RenderCustomDepth != y->second.RenderCustomDepth ||
+                    x->second.CustomStencil != y->second.CustomStencil ||
                     x->second.LocalTransform.has_value() != y->second.LocalTransform.has_value() ||
                     (x->second.LocalTransform && !Same(*x->second.LocalTransform, *y->second.LocalTransform)))
                     return false;
@@ -125,9 +127,17 @@ namespace Kans
                     else
                         change.Materials[uint32_t(slot)] = value;
                 }
+                if (mesh.RenderCustomDepth != state.AppliedMesh.RenderCustomDepth)
+                    change.RenderCustomDepth = mesh.RenderCustomDepth == state.BaseMesh.RenderCustomDepth ?
+                                                   std::optional<bool>() :
+                                                   mesh.RenderCustomDepth;
+                if (mesh.CustomStencil != state.AppliedMesh.CustomStencil)
+                    change.CustomStencil = mesh.CustomStencil == state.BaseMesh.CustomStencil ?
+                                               std::optional<uint8_t>() :
+                                               mesh.CustomStencil;
                 state.AppliedMesh = mesh;
             }
-            if (!change.LocalTransform && change.Materials.empty() && !change.Removed)
+            if (change.Empty())
             {
                 instance.Overrides.erase(owned.NodeKey);
                 instance.AppliedOverrides.erase(owned.NodeKey);
@@ -166,7 +176,7 @@ namespace Kans
             }
         instance.MeshSources = std::move(meshSources);
         for (auto it = instance.Overrides.begin(); it != instance.Overrides.end();)
-            if (!it->second.LocalTransform && it->second.Materials.empty() && !it->second.Removed)
+            if (it->second.Empty())
                 it = instance.Overrides.erase(it);
             else
                 ++it;
@@ -272,6 +282,10 @@ namespace Kans
             auto change    = instance.Overrides.find(node.Key);
             if (change != instance.Overrides.end())
             {
+                if (change->second.RenderCustomDepth)
+                    mesh.RenderCustomDepth = *change->second.RenderCustomDepth;
+                if (change->second.CustomStencil)
+                    mesh.CustomStencil = *change->second.CustomStencil;
                 if (change->second.LocalTransform)
                     transform = *change->second.LocalTransform;
                 for (const auto& [slot, material] : change->second.Materials)
@@ -296,7 +310,7 @@ namespace Kans
         instance.Nodes = std::move(states);
         instance.LegacyPending.reset();
         for (auto it = instance.Overrides.begin(); it != instance.Overrides.end();)
-            if (!it->second.LocalTransform && it->second.Materials.empty() && !it->second.Removed)
+            if (it->second.Empty())
                 it = instance.Overrides.erase(it);
             else
                 ++it;

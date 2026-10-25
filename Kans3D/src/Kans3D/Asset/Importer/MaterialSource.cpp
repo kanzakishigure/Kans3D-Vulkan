@@ -106,7 +106,8 @@ namespace Kans
             auto inspected = InspectShaderProgram(shader.Code);
             if (auto* error = std::get_if<AssetError>(&inspected))
                 return std::move(*error);
-            auto contract = ValidateMaterialShaderInterface(std::get<std::vector<ShaderStageReflection>>(inspected));
+            auto contract =
+                ValidateMaterialShaderInterface(std::get<std::vector<ShaderStageReflection>>(inspected), shader.Domain);
             if (auto* error = std::get_if<AssetError>(&contract))
                 return std::move(*error);
             return inspected;
@@ -129,7 +130,7 @@ namespace Kans
         auto reflection = InspectShaderProgram(shader.Code);
         if (const auto* error = std::get_if<AssetError>(&reflection))
             return *error;
-        auto packed = PackMaterialUniforms(data, shader.Code, *data.Bindings);
+        auto packed = PackMaterialUniforms(data, shader.Code, *data.Bindings, 64 * 1024 * 1024, shader.Domain);
         if (const auto* error = std::get_if<AssetError>(&packed))
             return *error;
         auto schema = DescribeMaterial(&shader);
@@ -649,7 +650,7 @@ namespace Kans
                 }
                 recipe.Uniforms.push_back(std::move(assignment));
             }
-            auto packed = PackMaterialUniforms(data, shader->Code, recipe);
+            auto packed = PackMaterialUniforms(data, shader->Code, recipe, 64 * 1024 * 1024, shader->Domain);
             if (auto* error = std::get_if<AssetError>(&packed))
                 return std::move(*error);
             auto valid = ValidateMaterialData(data);

@@ -47,10 +47,7 @@ namespace Kans
                        return x.Authored == y.Authored && x.Replacement == y.Replacement;
                    });
         }
-        bool Same(const MeshComponent& a, const MeshComponent& b)
-        {
-            return a.Mesh == b.Mesh && a.Materials == b.Materials && a.Section == b.Section;
-        }
+        bool Same(const MeshComponent& a, const MeshComponent& b) { return a == b; }
         bool Same(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
         bool Same(const PrefabAttachmentComponent& a, const PrefabAttachmentComponent& b)
         {
@@ -67,6 +64,8 @@ namespace Kans
             for (; x != a.Overrides.end(); ++x, ++y)
                 if (x->first != y->first || x->second.Removed != y->second.Removed ||
                     x->second.Materials != y->second.Materials ||
+                    x->second.RenderCustomDepth != y->second.RenderCustomDepth ||
+                    x->second.CustomStencil != y->second.CustomStencil ||
                     x->second.LocalTransform.has_value() != y->second.LocalTransform.has_value() ||
                     (x->second.LocalTransform && !Same(*x->second.LocalTransform, *y->second.LocalTransform)))
                     return false;

@@ -16,6 +16,11 @@ namespace Kans
     {
         if (recorded)
             *recorded = false;
+        if (shader.Domain != ShaderDomain::Surface)
+        {
+            cache.WarnMaterialDomain(bindings.Shader, false);
+            return true;
+        }
         using namespace RenderHardware;
         auto       device      = cache.GetDevice();
         const bool skinned     = bool(mesh.Skin && data.Palette);
@@ -41,9 +46,9 @@ namespace Kans
             key |= uint32_t(data.ColorFormats[i]) << (12 + i * 6);
         key |= uint32_t(smoothStream) << 31;
         Handle<Pipeline> shadowPipeline;
-        auto&            pipeline = data.ShadowDepth ? shadowPipeline :
-                                    extraPass        ? extraPass->Pipelines[key] :
-                                                       shader.Pipelines[key];
+        auto&            pipeline = (data.ShadowDepth || data.CustomDepth) ? shadowPipeline :
+                                    extraPass                              ? extraPass->Pipelines[key] :
+                                                                             shader.Pipelines[key];
         if (!pipeline)
         {
             PipelineDesc desc;
@@ -114,13 +119,15 @@ namespace Kans
                 blend.DestinationAlpha         = static_cast<BlendFactor>(state.DestinationAlpha);
                 blend.WriteMask                = state.ColorWriteMask;
             }
-            if (data.ShadowDepth)
+            if (data.ShadowDepth || data.CustomDepth)
             {
                 desc.Rasterizer.Front       = data.DepthFront;
-                desc.DepthStencilFormat     = Format::Depth32Float;
+                desc.DepthStencilFormat     = data.CustomDepth ? Format::Depth24Stencil8 : Format::Depth32Float;
                 desc.DepthStencil.DepthTest = desc.DepthStencil.DepthWrite = true;
                 desc.DepthStencil.DepthCompare                             = CompareOp::LessEqual;
-                desc.DepthStencil.StencilTest                              = false;
+                desc.DepthStencil.StencilTest                              = data.CustomDepth;
+                desc.DepthStencil.Front.Reference = desc.DepthStencil.Back.Reference = data.CustomStencil;
+                desc.DepthStencil.Front.Pass = desc.DepthStencil.Back.Pass = StencilOp::Replace;
                 desc.Rasterizer.DepthBiasConstant                          = data.ConstantBias;
                 desc.Rasterizer.DepthBiasSlope                             = data.SlopeBias;
                 desc.Rasterizer.Cull = data.Render.DoubleSided ? CullMode::None :
@@ -128,7 +135,7 @@ namespace Kans
                                                                  CullMode::Back;
             }
             desc.Blends.resize(data.ColorFormats.size(), blend);
-            if (data.ShadowDepth)
+            if (data.ShadowDepth || data.CustomDepth)
             {
                 auto  resources = data.Shadows ? data.Shadows : cache.GetShadowFallback();
                 auto& cached    = resources->DepthPipelines[Detail::PipelineKey(desc)];
@@ -172,8 +179,9 @@ namespace Kans
             engine.Entries.push_back(std::move(entry));
         }
         bool complete = true;
-        const auto* instance = cache.GetInstanceMaterialBindings(bindings, data.Parameters);
-        auto        material = cache.GetMaterialGroup(shader, *instance, &complete);
+        const auto* instance =
+            data.MaterialGroup ? &bindings : cache.GetInstanceMaterialBindings(bindings, data.Parameters);
+        auto material = data.MaterialGroup ? data.MaterialGroup : cache.GetMaterialGroup(shader, *instance, &complete);
         if (!material)
             return false;
         commands.BindPipeline(pipeline);

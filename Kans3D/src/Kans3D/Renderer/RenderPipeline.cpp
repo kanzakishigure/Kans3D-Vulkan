@@ -68,8 +68,189 @@ namespace Kans
             context.Commands.EndRendering();
         });
     }
+    void ForwardPipeline::PreparePostMaterials(RenderFrame& frame)
+    {
+        m_PostDraws.clear();
+        if (!frame.Assets())
+            return;
+        for (const auto& entry : frame.View.GetPostProcessSettings().Materials)
+        {
+            if (!entry.Enabled || !entry.Material.IsValid())
+                continue;
+            // Explicit per-view snapshots are used by previews and deterministic GPU fixtures.
+            if (!frame.View.MaterialResources.count(entry.Material))
+            {
+                auto status = frame.Assets()->GetAssetManager().Request<MaterialDataAsset>(entry.Material);
+                if (!status.IsReady())
+                {
+                    frame.Complete &= status.State != AssetLoadState::Loading;
+                    continue;
+                }
+                const auto* material = frame.Assets()->GetMaterial(entry.Material);
+                if (!material)
+                    continue;
+                const auto* shader = frame.Assets()->GetShader(material->Shader);
+                if (!shader)
+                {
+                    auto state = frame.Assets()->GetAssetManager().Request<ShaderDataAsset>(material->Shader);
+                    frame.Complete &= state.State != AssetLoadState::Loading;
+                    continue;
+                }
+            }
+            const auto* bindings = frame.GetBindings(entry.Material, false);
+            const auto* shader   = bindings ? frame.GetShader(entry.Material, bindings->Shader) : nullptr;
+            if (!bindings || !shader)
+                continue;
+            if (shader->Domain != ShaderDomain::PostProcess)
+            {
+                frame.Assets()->WarnMaterialDomain(entry.Material, true);
+                continue;
+            }
+            bool complete = true;
+            auto group    = frame.Assets()->GetMaterialGroup(*shader, *bindings, &complete);
+            frame.Complete &= complete;
+            if (!group)
+                continue;
+            m_PostDraws.push_back(
+                {std::make_shared<GpuShader>(shader->Snapshot()), group, bindings->Images, entry.Material});
+        }
+        if (!m_PostDraws.empty())
+            frame.Output.EnsureSampledDepth();
+        if (std::any_of(m_PostDraws.begin(), m_PostDraws.end(), [](const auto& draw) {
+                return draw.Shader->PostStage == PostProcessStage::BeforeToneMap;
+            }))
+            frame.DeferToneMapping = true;
+    }
+    void ForwardPipeline::AddPostMaterials(RenderGraph& graph, RenderFrame& frame, PostProcessStage stage)
+    {
+        using namespace RenderHardware;
+        const bool hdr    = stage == PostProcessStage::BeforeToneMap;
+        const auto append = [&](std::string name, std::vector<GraphUse> uses, RenderGraph::Record record) {
+            const auto pass = graph.AddPass(std::move(name), std::move(uses), std::move(record));
+            if (pass)
+                graph.OrderAfter(pass, pass - 1);
+        };
+        for (const auto& draw : m_PostDraws)
+        {
+            if (draw.Shader->PostStage != stage)
+                continue;
+            const auto image  = hdr ? frame.Output.GetHDR() : frame.Output.GetColors()[0];
+            const auto output = graph.ImportTexture(hdr ? "SceneHDR" : "SceneColor0", image);
+            if (hdr && !frame.PostProcessHDR)
+            {
+                const auto display = graph.ImportTexture("Post display input", frame.Output.GetColors()[0]);
+                append("Post material HDR prefill",
+                       {{display, GraphAccess::SampledRead}, {output, GraphAccess::ColorWrite}},
+                       [&frame](auto& c) {
+                           frame.Services.GetToneMapping().Record(c.Device,
+                                                                  c.Commands,
+                                                                  frame.Output.GetColors()[0],
+                                                                  {frame.Output.GetHDR()},
+                                                                  frame.View.GetPostProcessSettings().Exposure,
+                                                                  true,
+                                                                  frame.View.GetPostProcessSettings().ToneMapping);
+                       });
+            }
+            auto desc        = image->GetDesc();
+            desc.Usage       = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+            const auto input = graph.CreateTexture("Post material input", desc);
+            append("Post material input copy",
+                   {{output, GraphAccess::TransferRead}, {input, GraphAccess::TransferWrite}},
+                   [output, input](auto& c) { c.Commands.CopyTexture(c.Texture(output), {}, c.Texture(input)); });
+            const auto            depth = graph.ImportTexture("Post scene depth", frame.Output.GetDepth());
+            std::vector<GraphUse> uses {{input, GraphAccess::SampledRead},
+                                        {depth, GraphAccess::SampledRead},
+                                        {m_CustomDepth, GraphAccess::SampledRead},
+                                        {output, GraphAccess::ColorReadWrite}};
+            for (const auto& texture : draw.Images)
+            {
+                const auto id = graph.ImportTexture("Post material texture", texture);
+                if (std::none_of(uses.begin(), uses.end(), [&](auto u) { return u.Texture == id; }))
+                    uses.push_back({id, GraphAccess::SampledRead});
+            }
+            auto uniforms              = frame.View.LightingUniforms.value_or(MakeLightingUniforms(frame.View.Scene));
+            uniforms.View              = frame.View.Scene.sceneCamera.viewMatrix;
+            uniforms.Projection        = DeviceProjection(frame.View.Scene.sceneCamera.camera.GetProjectionMatrix(),
+                                                          frame.GetDevice()->GetCoordinateConventions());
+            uniforms.ViewProjection    = uniforms.Projection * uniforms.View;
+            uniforms.InverseView       = glm::inverse(uniforms.View);
+            uniforms.InverseProjection = glm::inverse(uniforms.Projection);
+            uniforms.CameraPosition    = glm::vec4(frame.View.Scene.sceneCamera.Position, 1);
+            uniforms.Time              = frame.View.Time;
+            uniforms.LightingInfo.y    = frame.View.GetPostProcessSettings().Exposure;
+            auto buffer =
+                frame.GetDevice()->CreateBuffer({sizeof(uniforms), BufferUsage::Uniform, MemoryUsage::Upload});
+            buffer->Write(0, &uniforms, sizeof(uniforms));
+            const auto custom = m_CustomDepth;
+            if (!m_PostLinearSampler)
+            {
+                SamplerDesc sampler;
+                sampler.U = sampler.V = sampler.W = AddressMode::ClampToEdge;
+                sampler.Min = sampler.Mag = Filter::Linear;
+                sampler.Mip               = Filter::Nearest;
+                sampler.MaxLod            = 0;
+                m_PostLinearSampler       = frame.GetDevice()->CreateSampler(sampler);
+                sampler.Min = sampler.Mag = Filter::Nearest;
+                m_PostPointSampler        = frame.GetDevice()->CreateSampler(sampler);
+            }
+            append(std::string("Post material ") + (hdr ? "before_tonemap " : "after_tonemap ") + draw.ID.ToString(),
+                   std::move(uses),
+                   [draw,
+                    &frame,
+                    buffer,
+                    input,
+                    output,
+                    depth,
+                    custom,
+                    linear = m_PostLinearSampler,
+                    point  = m_PostPointSampler](auto& c) {
+                       PipelineDesc pipeline;
+                       pipeline.Program         = draw.Shader->Program;
+                       pipeline.GroupLayouts    = {draw.Shader->EngineLayout, draw.Shader->MaterialLayout};
+                       pipeline.ColorFormats    = {c.Texture(output)->GetDesc().PixelFormat};
+                       pipeline.Rasterizer.Cull = CullMode::None;
+                       pipeline.Blends.resize(1);
+                       pipeline.Blends[0].WriteMask = 7; // Opaque RGB replace, preserve destination alpha.
+                       BindGroupDesc engine;
+                       engine.Layout = draw.Shader->EngineLayout;
+                       for (const auto& resource : draw.Shader->EngineResources)
+                       {
+                           BindGroupEntry entry;
+                           entry.Slot = resource.Binding;
+                           if (resource.Binding == 0)
+                               entry.BufferResource = buffer;
+                           else
+                           {
+                               entry.TextureResource = c.Texture(resource.Binding == 11 ? input :
+                                                                 resource.Binding == 12 ? depth :
+                                                                                          custom);
+                               entry.SamplerResource = resource.Binding == 11 ? linear : point;
+                               if (resource.Binding == 14)
+                               {
+                                   entry.Aspect      = TextureAspect::Stencil;
+                                   entry.Subresource = TextureSubresource {};
+                               }
+                           }
+                           engine.Entries.push_back(entry);
+                       }
+                       RenderingDesc render;
+                       render.Colors.push_back({c.Texture(output), {}, LoadOp::Load});
+                       c.Commands.BeginRendering(render);
+                       c.Commands.SetViewport({0, 0, float(frame.View.Viewport.x), float(frame.View.Viewport.y)});
+                       c.Commands.SetScissor({0, 0, frame.View.Viewport.x, frame.View.Viewport.y});
+                       c.Commands.BindPipeline(frame.Services.CachedPipeline(pipeline));
+                       c.Commands.BindGroup(c.Device.CreateBindGroup(engine));
+                       c.Commands.BindGroup(draw.Material);
+                       c.Commands.Draw(3);
+                       c.Commands.EndRendering();
+                   });
+            if (hdr)
+                frame.DeferToneMapping = frame.PostProcessHDR = true;
+        }
+    }
     void ForwardPipeline::Build(RenderGraph& graph, RenderFrame& renderer)
     {
+        PreparePostMaterials(renderer);
         const auto& view = renderer.View;
         using namespace RenderHardware;
         const bool reconstruct = view.GetPostProcessSettings().FilterSize >= 1;
@@ -248,6 +429,9 @@ namespace Kans
         }
         Inject(RenderExtensionPoint::AfterTransparent, featureContext);
         AddReconstructionFilter(graph, renderer);
+        if (!m_PostDraws.empty())
+            m_CustomDepth = BuildCustomDepthPass(graph, renderer);
+        AddPostMaterials(graph, renderer, PostProcessStage::BeforeToneMap);
         Inject(RenderExtensionPoint::BeforePostProcess, featureContext);
         if (renderer.DeferToneMapping && renderer.PostProcessHDR)
         {
@@ -267,6 +451,7 @@ namespace Kans
         }
         // Display-space overlays follow every post effect and the final tone mapping.
         renderer.DeferToneMapping = renderer.PostProcessHDR = false;
+        AddPostMaterials(graph, renderer, PostProcessStage::AfterToneMap);
         if (view.EffectiveAA == AntiAliasing::FXAA)
             AddFXAA(graph, renderer);
         Inject(RenderExtensionPoint::Overlay, featureContext);
@@ -513,6 +698,9 @@ namespace Kans
         // Bloom consumes the single-sample HDR resolve. Its build-time contract is HDR input.
         frame.PostProcessHDR = true;
         AddReconstructionFilter(graph, frame);
+        if (!m_PostDraws.empty())
+            m_CustomDepth = BuildCustomDepthPass(graph, frame);
+        AddPostMaterials(graph, frame, PostProcessStage::BeforeToneMap);
         Inject(RenderExtensionPoint::BeforePostProcess, postFeatures);
         auto toneUses = resolved;
         toneUses.pop_back();
@@ -527,6 +715,7 @@ namespace Kans
                                                    frame.View.GetPostProcessSettings().ToneMapping);
             frame.DeferToneMapping = frame.PostProcessHDR = false;
         });
+        AddPostMaterials(graph, frame, PostProcessStage::AfterToneMap);
         Inject(RenderExtensionPoint::Overlay, postFeatures);
     }
 } // namespace Kans

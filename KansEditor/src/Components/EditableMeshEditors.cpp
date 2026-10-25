@@ -9,14 +9,7 @@ namespace Kans::ComponentEditors
 {
     namespace
     {
-        bool Int(const char* label, int& value, int min, int max)
-        {
-            PropertyGrid::Row(label);
-            ImGui::PushID(label);
-            const bool changed = ImGui::DragInt("##value", &value, 0.2f, min, max);
-            ImGui::PopID();
-            return changed;
-        }
+        using PropertyGrid::Int;
 
         // The parameters a shape type uses, as listed for ShapeDesc.
         bool DrawShapeParameters(ShapeDesc& d)
@@ -121,6 +114,14 @@ namespace Kans::ComponentEditors
                 entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
                     c.CastShadows    = cast;
                     c.ReceiveShadows = receive;
+                });
+            bool custom  = component.RenderCustomDepth;
+            int  stencil = component.CustomStencil;
+            if (PropertyGrid::Checkbox("Custom depth", custom) |
+                (custom && PropertyGrid::Int("Custom stencil", stencil, 0, 255)))
+                entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
+                    c.RenderCustomDepth = custom;
+                    c.CustomStencil     = uint8_t(std::clamp(stencil, 0, 255));
                 });
             PropertyGrid::End();
         }

@@ -171,6 +171,16 @@ namespace Kans
         Display   = 0,
         LinearHDR = 1
     };
+    enum class ShaderDomain : uint32_t
+    {
+        Surface,
+        PostProcess
+    };
+    enum class PostProcessStage : uint32_t
+    {
+        BeforeToneMap,
+        AfterToneMap
+    };
     struct ShaderData
     {
         ShaderProgramCode       Code;
@@ -182,6 +192,8 @@ namespace Kans
         ShaderTextureFallbacks             TextureFallbacks;
         std::vector<MaterialParameterGroup> Groups;
         ShaderOutputSpace                   OutputSpace = ShaderOutputSpace::Display;
+        ShaderDomain                        Domain      = ShaderDomain::Surface;
+        PostProcessStage                    PostStage   = PostProcessStage::BeforeToneMap;
     };
     std::variant<std::vector<ShaderStageReflection>, AssetError> InspectShaderProgram(const ShaderProgramCode& code);
     class ShaderDataAsset                                        final : public Asset

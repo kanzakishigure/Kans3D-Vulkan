@@ -17,7 +17,9 @@ namespace Kans
         Ref<const InstanceMaterialParameters>                          Parameters;
         uint32_t                                                       Section = 0;
         std::shared_ptr<ShadowResources>                               Shadows;
-        bool                                                           ShadowDepth = false;
+        bool                                                           ShadowDepth = false, CustomDepth = false;
+        uint8_t                                                        CustomStencil = 0;
+        RenderHardware::Handle<RenderHardware::BindGroup>              MaterialGroup;
         RenderHardware::FrontFace                      DepthFront = RenderHardware::FrontFace::CounterClockwise;
         RenderHardware::Handle<RenderHardware::Shader> DepthProgram;
         float                                          ConstantBias = 0, SlopeBias = 0;

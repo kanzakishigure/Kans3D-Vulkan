@@ -39,6 +39,8 @@ namespace Kans
                 const auto& editable     = entity.GetComponent<EditableMeshComponent>();
                 component.Materials      = editable.Materials;
                 component.CastShadows    = editable.CastShadows;
+                component.RenderCustomDepth = editable.RenderCustomDepth;
+                component.CustomStencil     = editable.CustomStencil;
                 component.ReceiveShadows = editable.ReceiveShadows;
                 record.Key               = MeshKey(m_Scene->ResolveEditableMesh(entity));
             }
@@ -103,7 +105,10 @@ namespace Kans
                                             record.Sort.Root,
                                             component.CastShadows,
                                             component.ReceiveShadows,
-                                            skin});
+                                            skin,
+                                            {},
+                                            component.RenderCustomDepth,
+                                            component.CustomStencil});
                 }
             }
         }
@@ -367,7 +372,9 @@ namespace Kans
                                     proxy.CastShadows,
                                     proxy.ReceiveShadows,
                                     proxy.SkinPose,
-                                    proxy.Parameters});
+                                    proxy.Parameters,
+                                    proxy.RenderCustomDepth,
+                                    proxy.CustomStencil});
         const auto& state = settings.Piplinestate;
         for (const auto& [order, handle] : m_Order)
         {
@@ -392,7 +399,9 @@ namespace Kans
                                         proxy.CastShadows,
                                         proxy.ReceiveShadows,
                                         proxy.SkinPose,
-                                        proxy.Parameters});
+                                        proxy.Parameters,
+                                        proxy.RenderCustomDepth,
+                                        proxy.CustomStencil});
             if (auto root =
                     m_Scene->GetEntityByUUID(submission.InstanceRoot ? submission.InstanceRoot : submission.EntityID);
                 root && root.HasComponent<MaterialParameterDriversComponent>())
@@ -499,6 +508,7 @@ namespace Kans
                     if (x.Mesh != y.Mesh || x.Material != y.Material || x.Section != y.Section ||
                         x.LocalBounds.Min != y.LocalBounds.Min || x.LocalBounds.Max != y.LocalBounds.Max ||
                         x.WorldBounds.Min != y.WorldBounds.Min || x.WorldBounds.Max != y.WorldBounds.Max ||
+                        x.RenderCustomDepth != y.RenderCustomDepth || x.CustomStencil != y.CustomStencil ||
                         x.CastShadows != y.CastShadows || x.ReceiveShadows != y.ReceiveShadows)
                         stale(e.EntityID);
                 }
