@@ -125,6 +125,10 @@ namespace Kans
             if (auto* audio = AudioSystem::Get())
                 audio->Update();
             ProcessEvents();
+            auto tasks = std::move(m_PostFrame);
+            m_PostFrame.clear();
+            for (auto& task : tasks)
+                task();
         }
     }
     void Application::OnEvent(Event& e)
@@ -151,6 +155,11 @@ namespace Kans
 
         m_LayerStack.PushLayer(layer);
         layer->OnAttach();
+    }
+    void Application::PopLayer(Layer* layer)
+    {
+        m_LayerStack.PopLayer(layer);
+        delete layer;
     }
     void Application::PushOverlay(Layer* overlay)
     {

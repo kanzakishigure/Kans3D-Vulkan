@@ -33,14 +33,15 @@ namespace Kans
                     AssetErrorCode::InvalidData, file, "Project paths must be relative without '..' components");
             return std::nullopt;
         }
-        bool ValidName(const std::string& name)
-        {
-            return !name.empty() && name != "." && name != ".." &&
-                   std::none_of(name.begin(), name.end(), [](unsigned char c) {
-                       return c < 32 || c == 127 || std::string("<>:\"/\\|?*").find(c) != std::string::npos;
-                   });
-        }
     } // namespace
+
+    bool IsValidProjectName(const std::string& name)
+    {
+        return !name.empty() && name != "." && name != ".." &&
+               std::none_of(name.begin(), name.end(), [](unsigned char c) {
+                   return c < 32 || c == 127 || std::string("<>:\"/\\|?*").find(c) != std::string::npos;
+               });
+    }
 
     std::variant<ProjectFile, AssetError> LoadProjectFile(const fs::path& kproj)
     {
@@ -132,7 +133,7 @@ namespace Kans
     CreateProjectFromTemplate(const fs::path& templateDir, const fs::path& parentDir, const std::string& name)
     {
         const auto target = parentDir / fs::u8path(name);
-        if (!ValidName(name))
+        if (!IsValidProjectName(name))
             return ProjectYaml::Error(AssetErrorCode::InvalidArgument, target, "Invalid project name");
         bool created = false;
         try

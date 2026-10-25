@@ -8,7 +8,10 @@
 #include "EditorLayer.h"
 #include <set>
 #include <cstdlib>
+#include <ctime>
 #include "Kans3D/Project/ProjectFile.h"
+#include "Kans3D/Project/RecentProjects.h"
+#include "Launcher/LauncherModel.h"
 
 namespace Kans
 {
@@ -31,6 +34,15 @@ namespace Kans
             std::exit(EXIT_FAILURE);
         }
         KansFileSystem::SetProject(config);
+        m_ProjectName = file.Name;
+        m_LayoutFile  = Launcher::LayoutFile(config.RootDirectory, config.CacheDirectory);
+        Application::Get().GetWindow().SetTitle(file.Name + " - Kans3D Editor");
+        RecentProjects recent(RecentProjects::DefaultStorageFile());
+        if (auto error = recent.Load())
+            CORE_WARN("Recent projects: {}", error->Message);
+        recent.Touch(m_ProjectFile, file.Name, static_cast<int64_t>(std::time(nullptr)));
+        if (auto error = recent.Save())
+            CORE_WARN("Cannot save recent projects: {}", error->Message);
         auto opened = Project::Open(config);
         if (const auto* error = std::get_if<AssetError>(&opened))
         {

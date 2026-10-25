@@ -1,4 +1,6 @@
 #include "EditorLayer.h"
+#include "Kans3D/Project/RecentProjects.h"
+#include "Launcher/EditorProcess.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/constants.hpp>
@@ -122,6 +124,7 @@ namespace Kans
         m_Panels.PrepareDockSpace(dockspace, ImGui::GetContentRegionAvail());
         ImGui::DockSpace(dockspace);
         DrawSceneFileDialogs();
+        DrawProjectBrowser();
         ImGui::End();
 
         m_ViewportPanel.SetPlaying(m_Play.IsActive());
@@ -286,12 +289,98 @@ namespace Kans
 
     // ------------------------------------------------------------------ menu bar and main toolbar
 
+    void EditorLayer::DrawProjectMenu()
+    {
+        const auto openBrowser = [this](ProjectBrowser::Page page) {
+            const auto templates = (KansFileSystem::GetResoucesFolder() / ".." / "Templates").lexically_normal();
+            m_ProjectBrowser = CreateScope<ProjectBrowser>(templates);
+            m_ProjectBrowser->SetPage(page);
+            m_ProjectBrowserRequested = true;
+        };
+        if (ImGui::MenuItem(MenuLabel(ICON_FA_PLUS, "New Project...").c_str()))
+            openBrowser(ProjectBrowser::Page::New);
+        if (ImGui::MenuItem(MenuLabel(ICON_FA_FOLDER_OPEN, "Open Project...").c_str()))
+        {
+            openBrowser(ProjectBrowser::Page::Recent);
+            m_ProjectBrowser->BrowseForProject();
+        }
+        if (ImGui::BeginMenu(MenuLabel(ICON_FA_CLOCK_ROTATE_LEFT, "Recent Projects").c_str()))
+        {
+            RecentProjects recent(RecentProjects::DefaultStorageFile());
+            (void)recent.Load(); // A broken list just shows fewer entries.
+            const auto current = std::filesystem::weakly_canonical(m_ProjectFile);
+            int        shown   = 0;
+            for (const auto& entry : recent.Entries())
+            {
+                if (entry.ProjectFile == current || shown == 10)
+                    continue;
+                ++shown;
+                const bool exists = RecentProjects::Exists(entry);
+                if (ImGui::MenuItem(entry.Name.c_str(), nullptr, false, exists))
+                    SwitchProject(entry.ProjectFile);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s%s", entry.ProjectFile.u8string().c_str(), exists ? "" : "\n(missing)");
+            }
+            if (shown == 0)
+                ImGui::TextDisabled("No other recent projects");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Show All..."))
+                openBrowser(ProjectBrowser::Page::Recent);
+            ImGui::EndMenu();
+        }
+    }
+
+    void EditorLayer::DrawProjectBrowser()
+    {
+        if (!m_ProjectBrowser)
+            return;
+        if (m_ProjectBrowserRequested)
+        {
+            ImGui::OpenPopup("Projects");
+            m_ProjectBrowserRequested = false;
+        }
+        const auto* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowSize({std::min(1000.0f, viewport->WorkSize.x - 80.0f), std::min(640.0f, viewport->WorkSize.y - 80.0f)},
+                                 ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        bool open = true;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+        const bool visible = ImGui::BeginPopupModal("Projects", &open, ImGuiWindowFlags_NoSavedSettings);
+        ImGui::PopStyleVar();
+        if (!visible)
+        {
+            m_ProjectBrowser.reset();
+            return;
+        }
+        if (auto chosen = m_ProjectBrowser->Draw())
+        {
+            ImGui::CloseCurrentPopup();
+            SwitchProject(*chosen);
+        }
+        ImGui::EndPopup();
+    }
+
+    void EditorLayer::SwitchProject(const std::filesystem::path& project)
+    {
+        std::error_code ec;
+        if (std::filesystem::equivalent(project, m_ProjectFile, ec))
+            return;
+        if (auto error = EditorProcess::LaunchWithProject(project))
+        {
+            Record(AssetError {AssetErrorCode::IoError, *error});
+            return;
+        }
+        Application::Get().Close();
+    }
+
     void EditorLayer::DrawMenuBar()
     {
         if (!ImGui::BeginMenuBar())
             return;
         if (ImGui::BeginMenu("File"))
         {
+            DrawProjectMenu();
+            ImGui::Separator();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FILE, "New Scene").c_str(), "Ctrl+N"))
                 Record(NewScene());
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FOLDER_OPEN, "Open Scene...").c_str(), "Ctrl+O"))

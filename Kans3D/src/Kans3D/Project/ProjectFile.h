@@ -13,6 +13,8 @@ namespace Kans
         std::filesystem::path CacheDirectory = "Cache";
     };
 
+    // Usable as a folder and file name on every platform (no separators or Windows-reserved characters).
+    bool IsValidProjectName(const std::string& name);
     [[nodiscard]] std::variant<ProjectFile, AssetError> LoadProjectFile(const std::filesystem::path& kproj);
     [[nodiscard]] std::optional<AssetError>             SaveProjectFile(const std::filesystem::path& kproj,
                                                                         const ProjectFile&           project);

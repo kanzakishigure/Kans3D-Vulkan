@@ -30,6 +30,11 @@ namespace Kans
         void                 SetVSync(bool enable) override;
         bool                 IsVSync() const override;
         virtual inline void* GetNativeWindow() const override { return m_Window; }
+        void                 SetTitle(const std::string& title) override
+        {
+            m_Specification.Title = title;
+            glfwSetWindowTitle(m_Window, title.c_str());
+        }
 
     protected:
         static void windowSizeCallback(GLFWwindow* window, int width, int height)

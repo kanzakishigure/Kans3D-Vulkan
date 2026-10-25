@@ -43,6 +43,10 @@ namespace Kans
         void OnEvent(Event& e);
         void PushLayer(Layer* layer);
         void PushOverlay(Layer* overlay);
+        // Detaches and deletes the layer. Call from SubmitPostFrame, never while layers are iterated.
+        void PopLayer(Layer* layer);
+        // Runs `task` after the current frame, outside layer iteration (e.g. to swap layers).
+        void SubmitPostFrame(std::function<void()> task) { m_PostFrame.push_back(std::move(task)); }
         void Close() { m_Running = false; }
         void SetCloseRequestHandler(std::function<bool()> handler) { m_CloseRequestHandler = std::move(handler); }
 
@@ -74,6 +78,7 @@ namespace Kans
         std::string   m_CapturePath;
         uint32_t      m_CaptureAfter = 0, m_CaptureFrame = 0;
         std::function<bool()> m_CloseRequestHandler;
+        std::vector<std::function<void()>> m_PostFrame;
         bool          m_Running   = true;
         bool          m_Minimized = false;
 

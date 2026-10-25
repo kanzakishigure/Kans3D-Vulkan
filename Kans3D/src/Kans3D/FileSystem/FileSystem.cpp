@@ -126,7 +126,7 @@ namespace Kans
                                  GetExecutableDirectory() / "Resources/Scripts/ScriptCore.dll";
     }
 
-    std::filesystem::path KansFileSystem::GetExecutableDirectory()
+    std::filesystem::path KansFileSystem::GetExecutablePath()
     {
 #if defined(_WIN32)
         std::vector<wchar_t> executable(32768);
@@ -135,9 +135,9 @@ namespace Kans
             throw std::system_error(GetLastError(), std::system_category(), "GetModuleFileNameW failed");
         if (length >= executable.size())
             throw std::system_error(ERROR_INSUFFICIENT_BUFFER, std::system_category(), "Executable path is too long");
-        return std::filesystem::path(std::wstring(executable.data(), length)).parent_path();
+        return std::filesystem::path(std::wstring(executable.data(), length));
 #else
-        return std::filesystem::read_symlink("/proc/self/exe").parent_path();
+        return std::filesystem::read_symlink("/proc/self/exe");
 #endif
     }
 

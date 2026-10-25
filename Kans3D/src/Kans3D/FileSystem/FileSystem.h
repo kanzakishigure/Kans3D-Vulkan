@@ -35,7 +35,8 @@ namespace Kans
         static void Init(const std::filesystem::path& configPath);
         static void ShutDown();
 
-        static std::filesystem::path GetExecutableDirectory();
+        static std::filesystem::path GetExecutablePath();
+        static std::filesystem::path GetExecutableDirectory() { return GetExecutablePath().parent_path(); }
         static bool IsEditorRoot(const std::filesystem::path& dir);
         static std::optional<std::filesystem::path> FindEditorRoot(const std::filesystem::path& executableDir,
                                                                  const std::filesystem::path& currentDir);

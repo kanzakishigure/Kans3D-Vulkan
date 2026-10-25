@@ -107,6 +107,22 @@ namespace Kans
                 Record(OpenScene(KansFileSystem::GetProjectRoot() / m_StartupScene));
             QueueUnimportedShaders();
         }
+        LoadLayout();
+    }
+
+    void EditorLayer::LoadLayout()
+    {
+        // ImGui keeps the pointer and saves through it until the context goes away, after this layer.
+        static std::string layout;
+        layout = m_LayoutFile.u8string();
+        std::error_code ec;
+        std::filesystem::create_directories(m_LayoutFile.parent_path(), ec);
+        auto& io       = ImGui::GetIO();
+        io.IniFilename = layout.c_str();
+        // Explicit: when the launcher ran first, ImGui has already done its one automatic load.
+        // Every settings handler is installed and the content browser is bound by now.
+        if (std::filesystem::exists(m_LayoutFile, ec))
+            ImGui::LoadIniSettingsFromDisk(layout.c_str());
     }
 
     void EditorLayer::OnDetach()

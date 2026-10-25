@@ -33,6 +33,7 @@ namespace Kans
         virtual void         SetVSync(bool enabled)                            = 0;
         virtual bool         IsVSync() const                                   = 0;
         virtual inline void* GetNativeWindow() const                           = 0;
+        virtual void         SetTitle(const std::string& title) {}
 
         // return a windows pointer of the platform we support
         static Window* Create(const WindowSpecification& props = WindowSpecification());

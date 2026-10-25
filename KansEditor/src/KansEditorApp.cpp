@@ -10,20 +10,40 @@
 #include <glm/gtc/type_ptr.hpp>
 #include "Debug/DebugLayer.h"
 #include "EditorLayer.h"
+#include "Launcher/EditorProcess.h"
+#include "Launcher/LauncherLayer.h"
+#include "Launcher/LauncherModel.h"
 
 class KansEditor : public Kans::Application
 {
 public:
-    KansEditor(Kans::ApplicationSpecification spec, const std::filesystem::path& project) : Application(spec)
+    KansEditor(Kans::ApplicationSpecification  spec,
+               const std::filesystem::path& editorRoot,
+               const std::filesystem::path& project,
+               const std::filesystem::path& request)
+        : Application(spec)
     {
-
-        PushLayer(new Kans::EditorLayer(project));
+        // The launcher has no layout to keep; the editor layer loads the project's own.
+        ImGui::GetIO().IniFilename = nullptr;
+        if (!project.empty())
+            PushLayer(new Kans::EditorLayer(project));
+        else
+        {
+            auto* launcher = new Kans::LauncherLayer(editorRoot / "Templates");
+            PushLayer(launcher);
+            if (!request.empty())
+                launcher->Request(request);
+        }
         PushLayer(new Kans::DebugLayer());
     }
     ~KansEditor() {}
 };
 Kans::Application* Kans::createApplication(int argc, char** argv)
 {
+    const auto               utf8 = EditorProcess::Arguments(argc, argv);
+    std::vector<const char*> pointers;
+    for (const auto& argument : utf8)
+        pointers.push_back(argument.c_str());
     const auto executableDir = KansFileSystem::GetExecutableDirectory();
     const auto currentDir = std::filesystem::current_path();
     const auto editorRoot = KansFileSystem::FindEditorRoot(executableDir, currentDir);
@@ -33,51 +53,20 @@ Kans::Application* Kans::createApplication(int argc, char** argv)
                    executableDir.string(), currentDir.string());
         std::exit(EXIT_FAILURE);
     }
-    std::filesystem::path project;
-    for (int i = 1; i < argc; ++i)
+    const auto arguments = Launcher::ParseLaunchArguments(int(utf8.size()), pointers.data());
+    if (!arguments.Error.empty())
     {
-        if (std::string(argv[i]) != "--project")
-            continue;
-        if (!project.empty() || i + 1 >= argc || std::string(argv[i + 1]).empty() ||
-            std::string(argv[i + 1]).rfind("--", 0) == 0)
-        {
-            CORE_ERROR("--project requires exactly one project path");
-            std::exit(EXIT_FAILURE);
-        }
-        project = std::filesystem::absolute(argv[++i]);
-    }
-    if (project.empty())
-    {
-        CORE_ERROR("No project specified: use --project <file.kproj or folder>");
+        CORE_ERROR("{}", arguments.Error);
         std::exit(EXIT_FAILURE);
     }
-    std::error_code ec;
-    if (std::filesystem::is_directory(project, ec))
+    // A valid project opens straight away; anything else goes to the launcher,
+    // which explains the problem or offers to create the missing project file.
+    std::filesystem::path project, request = arguments.Project;
+    if (!request.empty())
     {
-        auto found = FindProjectFile(project);
-        if (const auto* error = std::get_if<AssetError>(&found))
-        {
-            CORE_ERROR("Cannot select project: {}", error->Message);
-            std::exit(EXIT_FAILURE);
-        }
-        project = std::get<std::filesystem::path>(found);
-    }
-    if (project.extension() != ".kproj")
-    {
-        CORE_ERROR("Project file must have a .kproj extension: '{}'", project.string());
-        std::exit(EXIT_FAILURE);
-    }
-    const auto unique = FindProjectFile(project.parent_path());
-    if (const auto* error = std::get_if<AssetError>(&unique))
-    {
-        CORE_ERROR("Cannot select project: {}", error->Message);
-        std::exit(EXIT_FAILURE);
-    }
-    auto loaded = LoadProjectFile(project);
-    if (const auto* error = std::get_if<AssetError>(&loaded))
-    {
-        CORE_ERROR("Cannot load project: {}", error->Message);
-        std::exit(EXIT_FAILURE);
+        auto selection = Launcher::ResolveSelection(request);
+        if (auto* file = std::get_if<std::filesystem::path>(&selection))
+            project = *file;
     }
     const auto absoluteEditorRoot = std::filesystem::absolute(*editorRoot);
     std::filesystem::current_path(absoluteEditorRoot);
@@ -90,5 +79,5 @@ Kans::Application* Kans::createApplication(int argc, char** argv)
     spec.Fullscreen   = false;
     spec.HideTitlebar = false;
 
-    return new KansEditor(spec, project);
+    return new KansEditor(spec, absoluteEditorRoot, project, request);
 }

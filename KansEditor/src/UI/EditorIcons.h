@@ -91,3 +91,6 @@
 #define ICON_FA_RIGHT_LEFT             "\xef\x8d\xa2" // U+F362
 #define ICON_FA_PERSON_RUNNING         "\xef\x9c\x8c" // U+F70C
 #define ICON_FA_FACE_SMILE             "\xef\x84\x98" // U+F118
+#define ICON_FA_HARD_DRIVE             "\xef\x82\xa0" // U+F0A0
+#define ICON_FA_ELLIPSIS_VERTICAL      "\xef\x85\x82" // U+F142
+#define ICON_FA_SHAPES                 "\xef\x98\x9f" // U+F61F

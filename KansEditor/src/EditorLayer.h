@@ -19,6 +19,7 @@
 #include "Panels/ViewportPanel.h"
 #include "SceneHistory.h"
 #include "UI/SceneFileDialog.h"
+#include "Launcher/ProjectBrowser.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Scene/ScenePlaySession.h"
 #include "Kans3D/Script/ScriptBuild.h"
@@ -59,7 +60,17 @@ namespace Kans
     private:
         // ---- Assets and scenes (EditorLayerAssets.cpp) ----
         void                                     OpenProject();
-        std::filesystem::path m_ProjectFile, m_StartupScene;
+        std::filesystem::path m_ProjectFile, m_StartupScene, m_LayoutFile;
+        std::string           m_ProjectName;
+        // Points ImGui at the project's layout file and loads it.
+        void LoadLayout();
+        // ---- Projects (EditorLayerUI.cpp) ----
+        void DrawProjectMenu();
+        void DrawProjectBrowser();
+        // Starts an editor for `project` and closes this one.
+        void SwitchProject(const std::filesystem::path& project);
+        Scope<ProjectBrowser> m_ProjectBrowser;
+        bool                  m_ProjectBrowserRequested = false;
         std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
         std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
         // Adds a dropped model to the scene, importing it first if needed.
