@@ -331,7 +331,8 @@ namespace Kans
     ParseModelCpuImpl(const std::filesystem::path&              path,
                       const std::vector<std::filesystem::path>* allowedFiles,
                       std::optional<bool>                       recomputeMorphNormals,
-                      bool                                      sourceNormals)
+                      bool                                      sourceNormals,
+                      bool                                      singleRead = false)
     {
         std::error_code error;
         if (!std::filesystem::is_regular_file(path, error))
@@ -394,8 +395,10 @@ namespace Kans
             std::lock_guard<std::mutex> lock(importMutex);
             const unsigned              flags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
                                                 aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace;
-            rawScene = aiImportFileExWithProperties(
-                path.u8string().c_str(), flags | aiProcess_ValidateDataStructure, &io, properties.get());
+            rawScene = aiImportFileExWithProperties(path.u8string().c_str(),
+                                                    flags | (singleRead ? 0 : aiProcess_ValidateDataStructure),
+                                                    &io,
+                                                    properties.get());
             if (!rawScene)
             {
                 parseError = aiGetErrorString();
@@ -403,7 +406,7 @@ namespace Kans
                 // also double-releases on a failed aiApplyPostProcessing, so do not revalidate that way.
                 // Retry only this specific error, require real morph channels, then use the geometry,
                 // hierarchy, skeleton and clip validation below (including sparse target indices/weights).
-                if (parseError.find("aiAnimation::mNumChannels is 0") != std::string::npos)
+                if (!singleRead && parseError.find("aiAnimation::mNumChannels is 0") != std::string::npos)
                 {
                     rawScene = aiImportFileExWithProperties(path.u8string().c_str(), flags, &io, properties.get());
                     bool hasMorphOnly = false, invalid = false;
@@ -1188,6 +1191,10 @@ namespace Kans
             normalized.push_back(std::filesystem::absolute(file).lexically_normal());
         }
         return ParseModelCpuImpl(path, &normalized, recomputeMorphNormals, sourceNormals);
+    }
+    std::variant<ImportedModelData, AssetError> InspectModelCpu(const std::filesystem::path& path)
+    {
+        return ParseModelCpuImpl(path, nullptr, {}, false, true);
     }
     std::variant<std::filesystem::path, AssetError> ResolveModelTexture(const std::filesystem::path& modelFile,
                                                                         const std::string&           reference)

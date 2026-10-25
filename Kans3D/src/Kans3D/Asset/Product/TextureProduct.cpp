@@ -33,7 +33,7 @@ namespace Kans
         std::vector<std::byte> bytes;
         bytes.reserve(static_cast<size_t>(kHeader + payload));
         Write(bytes, uint32_t(0x5845544b)); // KTEX
-        Write(bytes, uint16_t(1));
+        Write(bytes, uint16_t(2));
         Write(bytes, uint16_t(AssetType::Texture));
         Write(bytes, uint16_t(texture.Kind));
         Write(bytes, uint16_t(texture.Format));
@@ -45,7 +45,10 @@ namespace Kans
         Write(bytes, texture.Layers);
         Write(bytes, uint32_t(texture.Mips.size()));
         Write(bytes, uint16_t(texture.AlphaMode));
-        Write(bytes, uint16_t(texture.Origin));
+        // v2 packs sampler settings into the former origin field. Linear/repeat
+        // leave every byte other than the version identical to v1.
+        Write(bytes,
+              uint16_t(uint16_t(texture.Origin) | (uint16_t(texture.Filter) << 1) | (uint16_t(texture.Wrap) << 2)));
         Write(bytes, payload);
         for (const auto& mip : texture.Mips)
             bytes.insert(bytes.end(), mip.Pixels.begin(), mip.Pixels.end());
@@ -59,7 +62,8 @@ namespace Kans
         auto cursor = bytes;
         if (Read<uint32_t>(cursor) != 0x5845544b)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product magic"};
-        if (Read<uint16_t>(cursor) != 1)
+        const auto version = Read<uint16_t>(cursor);
+        if (version != 1 && version != 2)
             return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Texture Product version"};
         if (Read<uint16_t>(cursor) != uint16_t(AssetType::Texture))
             return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product type"};
@@ -74,7 +78,12 @@ namespace Kans
         out.Layers         = Read<uint32_t>(cursor);
         const auto levels  = Read<uint32_t>(cursor);
         out.AlphaMode      = TextureAlphaMode(Read<uint16_t>(cursor));
-        out.Origin         = TextureOrigin(Read<uint16_t>(cursor));
+        const auto sampling = Read<uint16_t>(cursor);
+        if ((version == 1 && sampling > 1) || (sampling & ~uint16_t(15)))
+            return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product sampler flags"};
+        out.Origin         = TextureOrigin(sampling & 1);
+        out.Filter         = TextureFilter((sampling >> 1) & 1);
+        out.Wrap           = TextureWrap(sampling >> 2);
         const auto payload = Read<uint64_t>(cursor);
         if (!levels || levels > 15 || payload != size - kHeader)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Texture Product payload/mip count"};

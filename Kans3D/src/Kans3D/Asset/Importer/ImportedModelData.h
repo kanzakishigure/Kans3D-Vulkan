@@ -87,6 +87,9 @@ namespace Kans
                   const std::vector<std::filesystem::path>& allowedFiles,
                   std::optional<bool>                       recomputeMorphNormals = {},
                   bool                                      sourceNormals         = false);
+    // Inspection avoids Assimp's validator retry for morph-only animations: one
+    // Assimp read, followed by the same owned-data validation as regular parsing.
+    [[nodiscard]] std::variant<ImportedModelData, AssetError> InspectModelCpu(const std::filesystem::path& path);
     // Uniformly scales the model by scaling its root nodes.
     void ScaleModel(ImportedModelData& model, float scale);
     // Finds the file a model's texture reference points to. Accepts backslashes,

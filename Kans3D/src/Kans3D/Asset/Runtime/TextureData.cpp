@@ -44,7 +44,7 @@ namespace Kans
                 t.Depth > 16384 || t.Layers > 2048 || !Stride(t.Format) ||
                 uint16_t(t.Kind) > uint16_t(TextureKind::Volume3D) ||
                 uint16_t(t.Usage) > uint16_t(TextureUsage::Normal) || uint16_t(t.ColorSpace) > 1 ||
-                uint16_t(t.AlphaMode) > 2 || uint16_t(t.Origin) > 1)
+                uint16_t(t.AlphaMode) > 2 || uint16_t(t.Origin) > 1 || uint16_t(t.Filter) > 1 || uint16_t(t.Wrap) > 2)
                 return false;
             if ((t.Kind == TextureKind::Texture2D && (t.Depth != 1 || t.Layers != 1)) ||
                 (t.Kind == TextureKind::Array2D && t.Depth != 1) ||
@@ -132,6 +132,73 @@ namespace Kans
                 for (unsigned i = 0; i < Stride(t.Format); ++i)
                     bytes[i] = static_cast<std::byte>(std::lround(std::clamp(value[i], 0.0, 1.0) * 255));
         }
+        TextureMipData FilterLevel(const TextureData&            out,
+                                   const std::vector<std::byte>& previous,
+                                   uint32_t                      pw,
+                                   uint32_t                      ph,
+                                   uint32_t                      pd,
+                                   uint32_t                      w,
+                                   uint32_t                      h,
+                                   uint32_t                      d)
+        {
+            TextureMipData mip;
+            const auto     stride = Stride(out.Format);
+            mip.Pixels.resize(size_t(w) * h * d * out.Layers * stride);
+            for (uint32_t layer = 0; layer < out.Layers; ++layer)
+                for (uint32_t z = 0; z < d; ++z)
+                    for (uint32_t y = 0; y < h; ++y)
+                        for (uint32_t x = 0; x < w; ++x)
+                        {
+                            const double          x0 = double(x) * pw / w, x1 = double(x + 1) * pw / w;
+                            const double          y0 = double(y) * ph / h, y1 = double(y + 1) * ph / h;
+                            const double          z0 = double(z) * pd / d, z1 = double(z + 1) * pd / d;
+                            std::array<double, 4> sum {}, plain {};
+                            double                weights = 0, alphaWeights = 0;
+                            for (uint32_t pz = static_cast<uint32_t>(z0); pz < static_cast<uint32_t>(std::ceil(z1));
+                                 ++pz)
+                                for (uint32_t py = static_cast<uint32_t>(y0); py < static_cast<uint32_t>(std::ceil(y1));
+                                     ++py)
+                                    for (uint32_t px = static_cast<uint32_t>(x0);
+                                         px < static_cast<uint32_t>(std::ceil(x1));
+                                         ++px)
+                                    {
+                                        const double weight =
+                                            ((std::min)(x1, double(px + 1)) - (std::max)(x0, double(px))) *
+                                            ((std::min)(y1, double(py + 1)) - (std::max)(y0, double(py))) *
+                                            ((std::min)(z1, double(pz + 1)) - (std::max)(z0, double(pz)));
+                                        const size_t index     = ((size_t(layer) * pd + pz) * ph + py) * pw + px;
+                                        const auto   pixel     = Pixel(previous.data() + index * stride, out);
+                                        const bool   associate = out.Usage == TextureUsage::Color &&
+                                                                 out.AlphaMode == TextureAlphaMode::Straight;
+                                        for (unsigned channel = 0; channel < 4; ++channel)
+                                        {
+                                            sum[channel] +=
+                                                pixel[channel] * weight * ((associate && channel < 3) ? pixel[3] : 1);
+                                            plain[channel] += pixel[channel] * weight;
+                                        }
+                                        weights += weight;
+                                        alphaWeights += weight * pixel[3];
+                                    }
+                            for (unsigned channel = 0; channel < 4; ++channel)
+                                sum[channel] /= weights;
+                            if (out.Usage == TextureUsage::Color && out.AlphaMode == TextureAlphaMode::Straight)
+                                for (unsigned channel = 0; channel < 3; ++channel)
+                                    // A fully transparent block keeps its average color instead of black.
+                                    sum[channel] = alphaWeights > 0 ? sum[channel] * weights / alphaWeights :
+                                                                      plain[channel] / weights;
+                            if (out.Usage == TextureUsage::Normal)
+                            {
+                                const double length = std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
+                                for (unsigned channel = 0; channel < 3; ++channel)
+                                    sum[channel] =
+                                        ((length > 1e-12 ? sum[channel] / length : (channel == 2 ? 1.0 : 0.0)) + 1) *
+                                        0.5;
+                            }
+                            const size_t index = ((size_t(layer) * d + z) * h + y) * w + x;
+                            StorePixel(mip.Pixels.data() + index * stride, sum, out);
+                        }
+            return mip;
+        }
     } // namespace
 
     std::variant<uint64_t, AssetError> TextureMipByteSize(const TextureData& texture, uint32_t level)
@@ -208,77 +275,42 @@ namespace Kans
                          texture.Depth,
                          texture.Layers,
                          {texture.Mips.front()}};
-        const auto  stride = Stride(out.Format);
+        out.Filter = texture.Filter;
+        out.Wrap   = texture.Wrap;
         for (uint32_t level = 1; level < FullLevels(out); ++level)
-        {
-            auto size = TextureMipByteSize(out, level);
-            if (const auto* error = std::get_if<AssetError>(&size))
-                return *error;
-            const auto     count = std::get<uint64_t>(size);
-            TextureMipData mip;
-            mip.Pixels.resize(static_cast<size_t>(count));
-            const uint32_t w = Extent(out.Width, level), h = Extent(out.Height, level), d = Extent(out.Depth, level);
-            const uint32_t pw = Extent(out.Width, level - 1), ph = Extent(out.Height, level - 1),
-                           pd    = Extent(out.Depth, level - 1);
-            const auto& previous = out.Mips.back().Pixels;
-            for (uint32_t layer = 0; layer < out.Layers; ++layer)
-                for (uint32_t z = 0; z < d; ++z)
-                    for (uint32_t y = 0; y < h; ++y)
-                        for (uint32_t x = 0; x < w; ++x)
-                        {
-                            const double          x0 = double(x) * pw / w, x1 = double(x + 1) * pw / w;
-                            const double          y0 = double(y) * ph / h, y1 = double(y + 1) * ph / h;
-                            const double          z0 = double(z) * pd / d, z1 = double(z + 1) * pd / d;
-                            std::array<double, 4> sum {}, plain {};
-                            double                weights = 0, alphaWeights = 0;
-                            for (uint32_t pz = static_cast<uint32_t>(z0); pz < static_cast<uint32_t>(std::ceil(z1));
-                                 ++pz)
-                                for (uint32_t py = static_cast<uint32_t>(y0); py < static_cast<uint32_t>(std::ceil(y1));
-                                     ++py)
-                                    for (uint32_t px = static_cast<uint32_t>(x0);
-                                         px < static_cast<uint32_t>(std::ceil(x1));
-                                         ++px)
-                                    {
-                                        const double weight =
-                                            ((std::min)(x1, double(px + 1)) - (std::max)(x0, double(px))) *
-                                            ((std::min)(y1, double(py + 1)) - (std::max)(y0, double(py))) *
-                                            ((std::min)(z1, double(pz + 1)) - (std::max)(z0, double(pz)));
-                                        const size_t index     = ((size_t(layer) * pd + pz) * ph + py) * pw + px;
-                                        const auto   pixel     = Pixel(previous.data() + index * stride, out);
-                                        const bool   associate = out.Usage == TextureUsage::Color &&
-                                                               out.AlphaMode == TextureAlphaMode::Straight;
-                                        for (unsigned channel = 0; channel < 4; ++channel)
-                                        {
-                                            sum[channel] +=
-                                                pixel[channel] * weight * ((associate && channel < 3) ? pixel[3] : 1);
-                                            plain[channel] += pixel[channel] * weight;
-                                        }
-                                        weights += weight;
-                                        alphaWeights += weight * pixel[3];
-                                    }
-                            for (unsigned channel = 0; channel < 4; ++channel)
-                                sum[channel] /= weights;
-                            if (out.Usage == TextureUsage::Color && out.AlphaMode == TextureAlphaMode::Straight)
-                                for (unsigned channel = 0; channel < 3; ++channel)
-                                    // A fully transparent block keeps its average color instead of black.
-                                    sum[channel] = alphaWeights > 0 ? sum[channel] * weights / alphaWeights :
-                                                                      plain[channel] / weights;
-                            if (out.Usage == TextureUsage::Normal)
-                            {
-                                const double length = std::sqrt(sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]);
-                                for (unsigned channel = 0; channel < 3; ++channel)
-                                    sum[channel] =
-                                        ((length > 1e-12 ? sum[channel] / length : (channel == 2 ? 1.0 : 0.0)) + 1) *
-                                        0.5;
-                            }
-                            const size_t index = ((size_t(layer) * d + z) * h + y) * w + x;
-                            StorePixel(mip.Pixels.data() + index * stride, sum, out);
-                        }
-            out.Mips.push_back(std::move(mip));
-        }
+            out.Mips.push_back(FilterLevel(out,
+                                           out.Mips.back().Pixels,
+                                           Extent(out.Width, level - 1),
+                                           Extent(out.Height, level - 1),
+                                           Extent(out.Depth, level - 1),
+                                           Extent(out.Width, level),
+                                           Extent(out.Height, level),
+                                           Extent(out.Depth, level)));
         auto valid = ValidateTextureData(out);
         if (const auto* error = std::get_if<AssetError>(&valid))
             return *error;
+        return out;
+    }
+
+    std::variant<TextureData, AssetError> ResizeTexture(const TextureData& texture, uint32_t maxSize)
+    {
+        auto validated = ValidateTextureData(texture);
+        if (auto* error = std::get_if<AssetError>(&validated))
+            return *error;
+        if (texture.Kind != TextureKind::Texture2D)
+            return AssetError {AssetErrorCode::NotImplemented, "Resize requires a 2D texture"};
+        if (!maxSize || std::max(texture.Width, texture.Height) <= maxSize)
+            return texture;
+        TextureData out     = texture;
+        const auto  largest = std::max(texture.Width, texture.Height);
+        out.Width           = std::max(1u, uint32_t((uint64_t(texture.Width) * maxSize + largest / 2) / largest));
+        out.Height          = std::max(1u, uint32_t((uint64_t(texture.Height) * maxSize + largest / 2) / largest));
+        out.Mips.clear();
+        auto size = TextureMipByteSize(out, 0);
+        if (auto* error = std::get_if<AssetError>(&size))
+            return *error;
+        out.Mips.push_back(
+            FilterLevel(out, texture.Mips.front().Pixels, texture.Width, texture.Height, 1, out.Width, out.Height, 1));
         return out;
     }
 } // namespace Kans

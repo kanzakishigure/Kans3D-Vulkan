@@ -478,6 +478,43 @@ namespace Kans
         }
     } // namespace
 
+    std::variant<SourceInventory, AssetError> InspectTextureSource(const std::filesystem::path& file)
+    {
+        if (!file.is_absolute())
+            return AssetError {AssetErrorCode::InvalidArgument, "Inspection requires an absolute source path"};
+        auto read = ReadProductFile(file, SourceBudget);
+        if (auto* error = std::get_if<AssetError>(&read))
+            return *error;
+        const auto& bytes = std::get<std::vector<std::byte>>(read);
+        if (bytes.empty())
+            return AssetError {AssetErrorCode::InvalidData, "Texture source is empty"};
+        const auto* data = reinterpret_cast<const unsigned char*>(bytes.data());
+        int         w = 0, h = 0, c = 0;
+        if (!stbi_info_from_memory(data, int(bytes.size()), &w, &h, &c) || w <= 0 || h <= 0 || w > 16384 || h > 16384)
+            return AssetError {AssetErrorCode::InvalidData, "Unsupported or malformed Texture source"};
+        const bool       hdr = stbi_is_hdr_from_memory(data, int(bytes.size())) != 0;
+        InspectedTexture texture;
+        texture.Width    = w;
+        texture.Height   = h;
+        texture.Channels = c;
+        texture.BitDepth = hdr ? 32 : stbi_is_16_bit_from_memory(data, int(bytes.size())) ? 16 : 8;
+        texture.HasAlpha = c == 2 || c == 4;
+        texture.Format   = bytes.size() >= 8 && data[0] == 137 && data[1] == 'P' ? "PNG" :
+                           bytes.size() >= 2 && data[0] == 255 && data[1] == 216 ? "JPEG" :
+                           bytes.size() >= 2 && data[0] == 'B' && data[1] == 'M' ? "BMP" :
+                           hdr                                                   ? "HDR" :
+                                                                                   "TGA";
+        std::string name = file.stem().u8string();
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+        texture.LikelyNormalMap    = name.find("normal") != std::string::npos ||
+                                     (name.size() >= 2 && name.compare(name.size() - 2, 2, "_n") == 0) ||
+                                     (name.size() >= 4 && name.compare(name.size() - 4, 4, "_nrm") == 0);
+        texture.NormalMapHeuristic = "Filename contains normal or ends with _n / _nrm (case-insensitive).";
+        SourceInventory result;
+        result.Texture = std::move(texture);
+        return result;
+    }
+
     std::variant<TextureData, AssetError> ParseTextureSource(const std::filesystem::path& file,
                                                              const TextureImportSettings& settings)
     {
@@ -524,6 +561,8 @@ namespace Kans
         result.Format     = hdr || wide ? TexturePixelFormat::RGBA32Float : TexturePixelFormat::RGBA8;
         result.ColorSpace = hdr || wide ? TextureColorSpace::Linear : sourceSpace;
         result.Usage      = settings.Usage;
+        result.Filter     = settings.Filter;
+        result.Wrap       = settings.Wrap;
         result.AlphaMode  = settings.AlphaMode.value_or(channels == 2 || channels == 4 ? TextureAlphaMode::Straight :
                                                                                         TextureAlphaMode::Opaque);
         result.Origin     = settings.FlipY ? TextureOrigin::BottomLeft : TextureOrigin::TopLeft;
@@ -595,6 +634,13 @@ namespace Kans
             }
         if (const auto checked = ValidateTextureData(result); std::holds_alternative<AssetError>(checked))
             return std::get<AssetError>(checked);
+        if (settings.MaxSize && std::max(result.Width, result.Height) > settings.MaxSize)
+        {
+            auto resized = ResizeTexture(result, settings.MaxSize);
+            if (auto* failure = std::get_if<AssetError>(&resized))
+                return *failure;
+            result = std::get<TextureData>(std::move(resized));
+        }
         if (settings.GenerateMips)
             return GenerateTextureMips(result);
         return result;

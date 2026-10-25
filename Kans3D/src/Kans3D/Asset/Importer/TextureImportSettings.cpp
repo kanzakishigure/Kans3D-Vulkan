@@ -1,11 +1,13 @@
 #include "kspch.h"
 #include "TextureImportSettings.h"
+#include <charconv>
 
 namespace Kans
 {
     std::variant<std::monostate, AssetError> ValidateTextureImportSettings(const TextureImportSettings& settings)
     {
-        if (settings.Usage > TextureUsage::Normal ||
+        if (settings.MaxSize > 16384 || settings.Filter > TextureFilter::Nearest ||
+            settings.Wrap > TextureWrap::Mirror || settings.Usage > TextureUsage::Normal ||
             (settings.ColorSpace && *settings.ColorSpace > TextureColorSpace::SRGB) ||
             (settings.AlphaMode && *settings.AlphaMode > TextureAlphaMode::Premultiplied))
             return AssetError {AssetErrorCode::InvalidArgument, "Unknown Texture import setting enum"};
@@ -23,7 +25,33 @@ namespace Kans
         TextureImportSettings result;
         for (const auto& [key, value] : values)
         {
-            if (key == "usage")
+            if (key == "max_size")
+            {
+                auto parsed = std::from_chars(value.data(), value.data() + value.size(), result.MaxSize);
+                if (parsed.ec != std::errc {} || parsed.ptr != value.data() + value.size())
+                    return AssetError {AssetErrorCode::InvalidArgument, "Invalid Texture max_size: " + value};
+            }
+            else if (key == "filter")
+            {
+                if (value == "linear")
+                    result.Filter = TextureFilter::Linear;
+                else if (value == "nearest")
+                    result.Filter = TextureFilter::Nearest;
+                else
+                    return AssetError {AssetErrorCode::InvalidArgument, "Invalid Texture filter: " + value};
+            }
+            else if (key == "wrap")
+            {
+                if (value == "repeat")
+                    result.Wrap = TextureWrap::Repeat;
+                else if (value == "clamp")
+                    result.Wrap = TextureWrap::Clamp;
+                else if (value == "mirror")
+                    result.Wrap = TextureWrap::Mirror;
+                else
+                    return AssetError {AssetErrorCode::InvalidArgument, "Invalid Texture wrap: " + value};
+            }
+            else if (key == "usage")
             {
                 if (value == "color")
                     result.Usage = TextureUsage::Color;

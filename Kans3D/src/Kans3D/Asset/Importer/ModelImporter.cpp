@@ -66,7 +66,7 @@ namespace Kans
 
         void AddUnique(std::vector<AssetID>& values, AssetID id)
         {
-            if (std::find(values.begin(), values.end(), id) == values.end())
+            if (id.IsValid() && std::find(values.begin(), values.end(), id) == values.end())
                 values.push_back(id);
         }
     } // namespace
@@ -87,6 +87,18 @@ namespace Kans
             SmoothNormalMode               SmoothNormals = SmoothNormalMode::Off;
             std::optional<bool>            RecomputeMorphNormals;
             std::map<std::string, AssetID> Materials;
+            bool Meshes = true, Animations = true, ImportMaterials = true, ImportSkeleton = true, MorphTargets = true;
+            std::map<std::string, bool> MeshIncludes, ClipIncludes;
+            bool                        IncludeMesh(const std::string& name) const
+            {
+                auto i = MeshIncludes.find(name);
+                return Meshes && (i == MeshIncludes.end() || i->second);
+            }
+            bool IncludeClip(const std::string& name) const
+            {
+                auto i = ClipIncludes.find(name);
+                return Animations && (i == ClipIncludes.end() || i->second);
+            }
         };
 
         std::variant<ModelSettings, AssetError> ParseModelSettings(const std::map<std::string, std::string>& settings)
@@ -97,8 +109,35 @@ namespace Kans
             ModelSettings parsed;
             for (const auto& [key, value] : settings)
             {
+                if (key.compare(0, 8, "include.") == 0)
+                {
+                    if (value != "true" && value != "false")
+                        return AssetError {AssetErrorCode::InvalidArgument, "Invalid model include boolean: " + key};
+                    bool enabled = value == "true";
+                    if (key == "include.meshes")
+                        parsed.Meshes = enabled;
+                    else if (key == "include.animations")
+                        parsed.Animations = enabled;
+                    else if (key == "include.materials")
+                        parsed.ImportMaterials = enabled;
+                    else if (key == "include.skeleton")
+                        parsed.ImportSkeleton = enabled;
+                    else if (key == "include.morph_targets")
+                        parsed.MorphTargets = enabled;
+                    else if (key.compare(0, 13, "include.mesh.") == 0 && key.size() > 13)
+                        parsed.MeshIncludes[key.substr(13)] = enabled;
+                    else if (key.compare(0, 13, "include.clip.") == 0 && key.size() > 13)
+                        parsed.ClipIncludes[key.substr(13)] = enabled;
+                    else
+                        return AssetError {AssetErrorCode::InvalidArgument, "Unknown model include key: " + key};
+                    continue;
+                }
                 if (key.compare(0, 9, "material.") == 0 && key.compare(9, 9, "material:") == 0)
                 {
+                    if (key.size() <= 18)
+                        return AssetError {AssetErrorCode::InvalidArgument, "Empty material slot key"};
+                    if (value.empty())
+                        continue;
                     const auto id = AssetID::FromString(value);
                     if (!id.IsValid() || id.ToString() != value)
                         return AssetError {AssetErrorCode::InvalidArgument, "Invalid material remap AssetID: " + value};
@@ -117,7 +156,10 @@ namespace Kans
                 }
                 if (key.compare(0, 14, "animation.map.") == 0)
                 {
-                    parsed.Mapping.Names[key.substr(14)] = value;
+                    if (key.size() == 14)
+                        return AssetError {AssetErrorCode::InvalidArgument, "Empty animation mapping name"};
+                    if (!value.empty())
+                        parsed.Mapping.Names[key.substr(14)] = value;
                     continue;
                 }
                 if (key == "mesh.smooth_normals")
@@ -132,9 +174,11 @@ namespace Kans
                 }
                 if (key == "morph.recompute_normals")
                 {
+                    if (value == "auto")
+                        continue;
                     if (value != "true" && value != "false")
                         return AssetError {AssetErrorCode::InvalidArgument,
-                                           "morph.recompute_normals must be true or false"};
+                                           "morph.recompute_normals must be auto, true or false"};
                     parsed.RecomputeMorphNormals = value == "true";
                     continue;
                 }
@@ -148,6 +192,134 @@ namespace Kans
             return parsed;
         }
     } // namespace
+
+    std::variant<std::monostate, AssetError>
+    ModelImporter::ValidateSettings(const std::map<std::string, std::string>& settings) const
+    {
+        auto parsed = ParseModelSettings(settings);
+        if (auto* error = std::get_if<AssetError>(&parsed))
+            return *error;
+        return std::monostate {};
+    }
+
+    std::variant<SourceInventory, AssetError> ModelImporter::Inspect(const ImportContext& context) const
+    {
+        if (!context.SourceFile.is_absolute())
+            return AssetError {AssetErrorCode::InvalidArgument, "Inspection requires an absolute source path"};
+        auto settings = ParseModelSettings(context.Settings);
+        if (auto* error = std::get_if<AssetError>(&settings))
+            return *error;
+        auto parsed = InspectModelCpu(context.SourceFile);
+        if (auto* error = std::get_if<AssetError>(&parsed))
+            return *error;
+        const auto&     model = std::get<ImportedModelData>(parsed);
+        SourceInventory inventory;
+        inventory.Warnings = model.Warnings;
+        std::vector<std::string> slots;
+        for (const auto& m : model.Materials)
+            slots.push_back(ObjectKey("material", m.Name));
+        MakeUnique(slots, std::vector<std::string>(slots.size()));
+        for (size_t i = 0; i < model.Materials.size(); ++i)
+        {
+            InspectedMaterialSlot slot {slots[i], model.Materials[i].Name, {}};
+            const auto&           remaps = std::get<ModelSettings>(settings).Materials;
+            if (auto found = remaps.find(slot.Key); found != remaps.end())
+                slot.SuggestedMaterial = found->second;
+            inventory.Materials.push_back(slot);
+            for (const auto& t : model.Materials[i].Textures)
+            {
+                // Assimp may expose one image as both diffuse and base color.
+                // Inventory lists each source reference once per material slot.
+                if (std::any_of(inventory.Textures.begin(), inventory.Textures.end(), [&](const auto& texture) {
+                        return texture.MaterialSlot == slot.Key && texture.Reference == t.Source;
+                    }))
+                    continue;
+                InspectedTextureReference texture;
+                texture.MaterialSlot = slot.Key;
+                texture.Reference    = t.Source;
+                texture.Embedded     = !t.Source.empty() && t.Source[0] == '*';
+                texture.Found        = texture.Embedded;
+                if (!texture.Embedded)
+                {
+                    auto path = ResolveModelTexture(context.SourceFile, t.Source);
+                    if (auto* found = std::get_if<std::filesystem::path>(&path))
+                    {
+                        texture.ResolvedPath = *found;
+                        texture.Found        = true;
+                    }
+                    else
+                    {
+                        std::string normalized = t.Source;
+                        std::replace(normalized.begin(), normalized.end(), '\\', '/');
+                        auto referenced      = std::filesystem::u8path(normalized);
+                        texture.ResolvedPath = (context.SourceFile.parent_path() /
+                                                (referenced.is_absolute() ? referenced.filename() : referenced))
+                                                   .lexically_normal();
+                    }
+                }
+                inventory.Textures.push_back(std::move(texture));
+            }
+        }
+        std::vector<std::string> meshKeys, paths(model.Meshes.size()), nodePaths(model.Nodes.size());
+        for (size_t i = 0; i < model.Nodes.size(); ++i)
+        {
+            const auto& node = model.Nodes[i];
+            nodePaths[i]     = (node.Parent >= 0 ? nodePaths.at(node.Parent) : "") + "/" + node.Name;
+            for (auto m : node.Meshes)
+                if (paths.at(m).empty())
+                    paths[m] = nodePaths[i];
+        }
+        for (const auto& mesh : model.Meshes)
+            meshKeys.push_back(ObjectKey("mesh", mesh.Name) + ":" + slots.at(mesh.MaterialIndex));
+        MakeUnique(meshKeys, paths);
+        for (size_t i = 0; i < model.Meshes.size(); ++i)
+        {
+            const auto&   mesh = model.Meshes[i];
+            InspectedMesh item;
+            item.Name             = mesh.Name;
+            item.ObjectKey        = meshKeys[i];
+            item.VertexCount      = mesh.Vertices.size();
+            item.TriangleCount    = mesh.Indices.size() / 3;
+            item.Skinned          = !mesh.Skin.empty();
+            item.MorphTargetCount = uint32_t(mesh.MorphTargets.size());
+            item.MaterialSlots.push_back(slots.at(mesh.MaterialIndex));
+            for (const auto& target : mesh.MorphTargets)
+            {
+                item.MorphTargets.push_back(target.Name);
+                if (std::find(inventory.MorphTargets.begin(), inventory.MorphTargets.end(), target.Name) ==
+                    inventory.MorphTargets.end())
+                    inventory.MorphTargets.push_back(target.Name);
+            }
+            inventory.Meshes.push_back(std::move(item));
+        }
+        if (model.Skeleton)
+        {
+            InspectedSkeleton skeleton;
+            skeleton.JointCount = uint32_t(model.Skeleton->Joints.size());
+            for (const auto& joint : model.Skeleton->Joints)
+                if (joint.Parent < 0)
+                {
+                    skeleton.RootName = joint.Name;
+                    break;
+                }
+            inventory.Skeleton = std::move(skeleton);
+        }
+        std::vector<std::string> clipKeys;
+        for (const auto& clip : model.Clips)
+            clipKeys.push_back(ObjectKey("clip", clip.Name));
+        MakeUnique(clipKeys, std::vector<std::string>(clipKeys.size()));
+        for (size_t i = 0; i < model.Clips.size(); ++i)
+        {
+            const auto&   clip = model.Clips[i];
+            InspectedClip item {clip.Name, clipKeys[i], clip.Duration, clip.FrameRate, 0};
+            for (const auto& track : clip.Tracks)
+                item.KeyCount += track.Translation.KeyCount() + track.Rotation.KeyCount() + track.Scale.KeyCount();
+            for (const auto& track : clip.MorphTracks)
+                item.KeyCount += track.Weight.KeyCount();
+            inventory.Clips.push_back(std::move(item));
+        }
+        return inventory;
+    }
 
     std::variant<ImportInputs, AssetError> ModelImporter::DiscoverInputs(const ImportContext& context) const
     {
@@ -177,53 +349,54 @@ namespace Kans
         for (const auto& file : model.SourceFiles)
             if (file != context.SourceFile.lexically_normal())
                 inputs.SourceFiles.push_back(file);
-        for (const auto& material : model.Materials)
-            for (const auto& texture : material.Textures)
-            {
-                if (!texture.Source.empty() && texture.Source[0] == '*')
-                    continue; // Embedded texture; reported by the parser.
-                // A missing texture leaves the material slot empty instead of failing the model.
-                auto resolved = ResolveModelTexture(context.SourceFile, texture.Source);
-                if (const auto* error = std::get_if<AssetError>(&resolved))
+        if (std::get<ModelSettings>(settings).ImportMaterials)
+            for (const auto& material : model.Materials)
+                for (const auto& texture : material.Textures)
                 {
-                    inputs.Warnings.push_back(error->Message);
-                    continue;
-                }
-                auto path = std::get<std::filesystem::path>(std::move(resolved));
-                // Suggested import settings: non-color textures must not be decoded as
-                // sRGB, and an opaque material's color texture uses its alpha as data,
-                // not coverage. A texture referenced with different needs gets none.
-                using S                                     = MaterialTextureSemantic;
-                const auto                         semantic = static_cast<S>(texture.Semantic);
-                std::map<std::string, std::string> hint;
-                if (semantic == S::Normal || semantic == S::NormalCamera || semantic == S::Height)
-                    hint = {{"usage", "normal"}};
-                else if (semantic == S::MetallicRoughness || semantic == S::Metalness ||
-                         semantic == S::DiffuseRoughness || semantic == S::AmbientOcclusion || semantic == S::Unknown ||
-                         semantic == S::Lightmap)
-                    hint = {{"usage", "data"}};
-                else if ((semantic == S::BaseColor || semantic == S::Diffuse) && material.Opaque)
-                    hint = {{"alpha_mode", "opaque"}};
-                const bool first = std::find(inputs.ProductSources.begin(), inputs.ProductSources.end(), path) ==
-                                   inputs.ProductSources.end();
-                if (first)
-                {
-                    if (!hint.empty())
-                        inputs.ProductSourceSettings[path] = hint;
-                    else
+                    if (!texture.Source.empty() && texture.Source[0] == '*')
+                        continue; // Embedded texture; reported by the parser.
+                    // A missing texture leaves the material slot empty instead of failing the model.
+                    auto resolved = ResolveModelTexture(context.SourceFile, texture.Source);
+                    if (const auto* error = std::get_if<AssetError>(&resolved))
+                    {
+                        inputs.Warnings.push_back(error->Message);
+                        continue;
+                    }
+                    auto path = std::get<std::filesystem::path>(std::move(resolved));
+                    // Suggested import settings: non-color textures must not be decoded as
+                    // sRGB, and an opaque material's color texture uses its alpha as data,
+                    // not coverage. A texture referenced with different needs gets none.
+                    using S                                     = MaterialTextureSemantic;
+                    const auto                         semantic = static_cast<S>(texture.Semantic);
+                    std::map<std::string, std::string> hint;
+                    if (semantic == S::Normal || semantic == S::NormalCamera || semantic == S::Height)
+                        hint = {{"usage", "normal"}};
+                    else if (semantic == S::MetallicRoughness || semantic == S::Metalness ||
+                             semantic == S::DiffuseRoughness || semantic == S::AmbientOcclusion ||
+                             semantic == S::Unknown || semantic == S::Lightmap)
+                        hint = {{"usage", "data"}};
+                    else if ((semantic == S::BaseColor || semantic == S::Diffuse) && material.Opaque)
+                        hint = {{"alpha_mode", "opaque"}};
+                    const bool first = std::find(inputs.ProductSources.begin(), inputs.ProductSources.end(), path) ==
+                                       inputs.ProductSources.end();
+                    if (first)
+                    {
+                        if (!hint.empty())
+                            inputs.ProductSourceSettings[path] = hint;
+                        else
+                            conflicted.insert(path);
+                    }
+                    else if (!conflicted.count(path) && (hint.empty() || inputs.ProductSourceSettings[path] != hint))
+                    {
+                        inputs.ProductSourceSettings.erase(path);
                         conflicted.insert(path);
+                    }
+                    if (first)
+                    {
+                        inputs.OptionalProductSources.insert(path);
+                        inputs.ProductSources.push_back(std::move(path));
+                    }
                 }
-                else if (!conflicted.count(path) && (hint.empty() || inputs.ProductSourceSettings[path] != hint))
-                {
-                    inputs.ProductSourceSettings.erase(path);
-                    conflicted.insert(path);
-                }
-                if (first)
-                {
-                    inputs.OptionalProductSources.insert(path);
-                    inputs.ProductSources.push_back(std::move(path));
-                }
-            }
         return inputs;
     }
 
@@ -326,6 +499,8 @@ namespace Kans
 
         for (size_t i = 0; i < source.Materials.size(); ++i)
         {
+            if (!std::get<ModelSettings>(scale).ImportMaterials)
+                continue;
             const auto&       input = source.Materials[i];
             MaterialData      data {input.Name, input.BaseColor, input.Metallic, input.Roughness, {}};
             data.Render = input.Render;
@@ -356,9 +531,11 @@ namespace Kans
             staged.push_back({std::move(descriptor), std::get<std::vector<std::byte>>(std::move(encoded))});
         }
 
+        if (!std::get<ModelSettings>(scale).MorphTargets && source.Skeleton)
+            source.Skeleton->ShapeKeys.clear();
         std::set<std::string> warnedRemaps;
         ModelData             model;
-        if (source.Skeleton)
+        if (source.Skeleton && std::get<ModelSettings>(scale).ImportSkeleton)
         {
             model.Skeleton = idFor("skeleton:root");
             // Node identities use the same disambiguation as the prefab, including duplicate names.
@@ -389,6 +566,12 @@ namespace Kans
         for (size_t i = 0; i < source.Clips.size(); ++i)
         {
             auto& clip = source.Clips[i];
+            if (!std::get<ModelSettings>(scale).IncludeClip(clip.Name))
+                continue;
+            if (!std::get<ModelSettings>(scale).MorphTargets)
+                clip.MorphTracks.clear();
+            if (clip.Tracks.empty() && clip.MorphTracks.empty())
+                continue;
             for (auto& track : clip.Tracks)
                 track.Joint = std::get<ModelSettings>(scale).Mapping.Map(track.Joint);
             for (auto& track : clip.MorphTracks)
@@ -411,15 +594,23 @@ namespace Kans
                 {{id.GetLocalID(), AssetType::AnimationClip, std::to_string(id.GetLocalID()) + ".kanim", {}},
                  std::get<std::vector<std::byte>>(std::move(encoded))});
         }
+        std::set<size_t> includedGroups;
         for (size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex)
         {
+            const auto& options = std::get<ModelSettings>(scale);
+            if (std::none_of(groups[groupIndex].begin(), groups[groupIndex].end(), [&](auto i) {
+                    return options.IncludeMesh(source.Meshes[i].Name);
+                }))
+                continue;
+            includedGroups.insert(groupIndex);
             MeshData          data;
             const auto        meshID = idFor(groupKeys[groupIndex]);
             ProductDescriptor descriptor {meshID.GetLocalID(), AssetType::StaticMesh, {}, {}};
             descriptor.StagedFile = std::to_string(descriptor.LocalID) + ".kmesh";
             bool skinned          = false;
             for (auto index : groups[groupIndex])
-                skinned |= !source.Meshes[index].Skin.empty();
+                skinned |= options.ImportSkeleton && options.IncludeMesh(source.Meshes[index].Name) &&
+                           !source.Meshes[index].Skin.empty();
             if (skinned)
             {
                 data.VertexFormat = MeshVertexFormat::Skinned;
@@ -430,8 +621,10 @@ namespace Kans
             for (uint32_t inputIndex : groups[groupIndex])
             {
                 const auto& input    = source.Meshes.at(inputIndex);
+                if (!options.IncludeMesh(input.Name))
+                    continue;
                 const auto& slotKey  = materialKeys.at(input.MaterialIndex);
-                const auto  material = idFor(slotKey);
+                const auto  material = options.ImportMaterials ? idFor(slotKey) : AssetID {};
                 AssetID     bound    = material;
                 const auto  remap    = std::get<ModelSettings>(scale).Materials.find(slotKey);
                 if (remap != std::get<ModelSettings>(scale).Materials.end())
@@ -470,23 +663,24 @@ namespace Kans
                 Bounds bounds;
                 for (const auto& vertex : *vertices)
                     bounds.Expand(glm::vec3(vertex.Position[0], vertex.Position[1], vertex.Position[2]));
-                for (const auto& sourceTarget : input.MorphTargets)
-                {
-                    auto found = std::find_if(data.MorphTargets.begin(), data.MorphTargets.end(), [&](const auto& t) {
-                        return t.Name == sourceTarget.Name;
-                    });
-                    if (found == data.MorphTargets.end())
+                if (options.MorphTargets)
+                    for (const auto& sourceTarget : input.MorphTargets)
                     {
-                        data.MorphTargets.push_back({sourceTarget.Name, sourceTarget.DefaultWeight, {}, {}});
-                        found = data.MorphTargets.end() - 1;
+                        auto found = std::find_if(data.MorphTargets.begin(),
+                                                  data.MorphTargets.end(),
+                                                  [&](const auto& t) { return t.Name == sourceTarget.Name; });
+                        if (found == data.MorphTargets.end())
+                        {
+                            data.MorphTargets.push_back({sourceTarget.Name, sourceTarget.DefaultWeight, {}, {}});
+                            found = data.MorphTargets.end() - 1;
+                        }
+                        for (auto d : sourceTarget.Deltas)
+                        {
+                            d.Vertex += uint32_t(baseVertex);
+                            found->Deltas.push_back(d);
+                        }
+                        BuildMorphBounds(*found);
                     }
-                    for (auto d : sourceTarget.Deltas)
-                    {
-                        d.Vertex += uint32_t(baseVertex);
-                        found->Deltas.push_back(d);
-                    }
-                    BuildMorphBounds(*found);
-                }
                 data.Vertices.insert(data.Vertices.end(), vertices->begin(), vertices->end());
                 if (std::get<ModelSettings>(scale).SmoothNormals == SmoothNormalMode::Source)
                     data.SmoothNormals.insert(
@@ -546,8 +740,8 @@ namespace Kans
             AddUnique(descriptor.Dependencies, model.Skeleton);
         for (auto clip : model.AnimationClips)
             AddUnique(descriptor.Dependencies, clip);
-        for (const auto& key : groupKeys)
-            AddUnique(descriptor.Dependencies, idFor(key));
+        for (auto index : includedGroups)
+            AddUnique(descriptor.Dependencies, idFor(groupKeys[index]));
         std::vector<std::string> nodeKeys;
         for (const auto& node : source.Nodes)
             nodeKeys.push_back(ObjectKey("node", node.Name));
@@ -556,7 +750,7 @@ namespace Kans
         {
             const auto&   input = source.Nodes[i];
             ModelNodeData node {input.Name, input.Parent, input.LocalTransform, {}, nodeKeys[i]};
-            if (nodeGroups[i] != size_t(-1))
+            if (includedGroups.count(nodeGroups[i]))
             {
                 const auto id = idFor(groupKeys.at(nodeGroups[i]));
                 node.Meshes.push_back(id);

@@ -44,6 +44,18 @@ namespace Kans
         BottomLeft = 1
     };
 
+    enum class TextureFilter : uint16_t
+    {
+        Linear  = 0,
+        Nearest = 1
+    };
+    enum class TextureWrap : uint16_t
+    {
+        Repeat = 0,
+        Clamp  = 1,
+        Mirror = 2
+    };
+
     struct TextureMipData
     {
         // Tightly packed layers, then depth slices, rows, pixels, components.
@@ -63,6 +75,8 @@ namespace Kans
         // Contiguous levels starting at base. Layers remain constant; volume
         // depth shrinks with width/height. Cube face order: +X,-X,+Y,-Y,+Z,-Z.
         std::vector<TextureMipData> Mips;
+        TextureFilter               Filter = TextureFilter::Linear;
+        TextureWrap                 Wrap   = TextureWrap::Repeat;
     };
 
     [[nodiscard]] std::variant<uint64_t, AssetError> TextureMipByteSize(const TextureData& texture, uint32_t level);
@@ -70,6 +84,9 @@ namespace Kans
     // Regenerates the full chain from base data. Cube seam-aware filtering is a
     // separate pending operation; this function rejects Cube/CubeArray input.
     [[nodiscard]] std::variant<TextureData, AssetError> GenerateTextureMips(const TextureData& texture);
+
+    // Area filter in linear color space, with alpha association and normal renormalization.
+    [[nodiscard]] std::variant<TextureData, AssetError> ResizeTexture(const TextureData&, uint32_t maxSize);
 
     class TextureAsset final : public Asset
     {

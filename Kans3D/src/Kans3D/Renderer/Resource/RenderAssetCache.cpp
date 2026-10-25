@@ -773,6 +773,14 @@ namespace Kans
                 {
                     const auto status = m_Assets.Request<TextureAsset>(id);
                     texture = GetTexture(id);
+                    if (texture)
+                    {
+                        const auto& desc   = texture->GetSampling();
+                        auto&       cached = m_ProductSamplers[{desc.Min, desc.U}];
+                        if (!cached)
+                            cached = GetDevice()->CreateSampler(desc);
+                        sampler = cached;
+                    }
                     if (auto found = m_TextureSamplers.find(id); found != m_TextureSamplers.end())
                         sampler = found->second;
                     const auto& entry = m_Textures.at(id);
@@ -891,6 +899,7 @@ namespace Kans
         m_FallbackTextures = {};
         m_MaterialSampler.reset();
         m_TextureSamplers.clear();
+        m_ProductSamplers.clear();
         m_ShadowFallback.reset();
     }
 } // namespace Kans

@@ -72,6 +72,23 @@ namespace Kans
         return found->second;
     }
 
+    std::variant<ImportSettingsSchema, AssetError> ImporterRegistry::GetSettingsSchema(const std::string& name) const
+    {
+        auto it = m_Named.find(name);
+        if (it == m_Named.end())
+            return AssetError {AssetErrorCode::NotFound, "Unknown importer: " + name};
+        return it->second.Importer->GetSettingsSchema();
+    }
+
+    std::variant<ImportSettingsSchema, AssetError>
+    ImporterRegistry::GetSettingsSchemaForSource(const std::filesystem::path& file, const std::string& name) const
+    {
+        auto resolved = Resolve(file, name);
+        if (auto* error = std::get_if<AssetError>(&resolved))
+            return *error;
+        return std::get<RegisteredImporter>(resolved).Importer->GetSettingsSchema();
+    }
+
     bool ImporterRegistry::Supports(const std::filesystem::path& sourceFile) const
     {
         return m_Defaults.count(Lowercase(sourceFile.extension().u8string())) != 0;

@@ -182,6 +182,9 @@ namespace Kans
         std::shared_ptr<RenderHardware::Device>                                      m_Device;
         RenderHardware::Handle<RenderHardware::Sampler>                              m_MaterialSampler;
         std::unordered_map<AssetID, RenderHardware::Handle<RenderHardware::Sampler>> m_TextureSamplers;
+        std::map<std::pair<RenderHardware::Filter, RenderHardware::AddressMode>,
+                 RenderHardware::Handle<RenderHardware::Sampler>>
+                                                                                     m_ProductSamplers;
         std::array<Ref<Texture2D>, 3>                                      m_FallbackTextures;
         AssetManager&                                                      m_Assets;
         std::shared_ptr<ShadowResources>                                             m_ShadowFallback;

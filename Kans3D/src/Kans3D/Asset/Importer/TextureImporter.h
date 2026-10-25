@@ -5,7 +5,11 @@ namespace Kans
     class TextureImporter final : public AssetImporterBase
     {
     public:
-        uint32_t                                             GetVersion() const override { return 3; }
+        ImportSettingsSchema GetSettingsSchema() const override;
+        std::variant<std::monostate, AssetError>
+        ValidateSettings(const std::map<std::string, std::string>&) const override;
+        std::variant<SourceInventory, AssetError>            Inspect(const ImportContext&) const override;
+        uint32_t                                             GetVersion() const override { return 4; }
         [[nodiscard]] std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;
     };
 } // namespace Kans

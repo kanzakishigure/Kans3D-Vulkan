@@ -7,6 +7,11 @@
 namespace Kans
 {
 
+    std::variant<SourceInventory, AssetError> TextureImporter::Inspect(const ImportContext& context) const
+    {
+        return InspectTextureSource(context.SourceFile);
+    }
+
     std::variant<ImportResult, AssetError> TextureImporter::Import(const ImportContext& context) const
     {
         if (!context.SourceID.IsValid() || !context.SourceFile.is_absolute() || !context.StagingDirectory.is_absolute())

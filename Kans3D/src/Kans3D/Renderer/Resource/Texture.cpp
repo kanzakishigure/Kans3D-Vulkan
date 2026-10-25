@@ -94,7 +94,13 @@ namespace Kans
             }
             device->Submit(commands);
             device->WaitIdle();
-            return CreateRef<Texture2D>(std::move(device), std::move(image));
+            SamplerDesc sampling;
+            sampling.Min = sampling.Mag = sampling.Mip =
+                data.Filter == TextureFilter::Nearest ? Filter::Nearest : Filter::Linear;
+            sampling.U = sampling.V = sampling.W = data.Wrap == TextureWrap::Clamp  ? AddressMode::ClampToEdge :
+                                                   data.Wrap == TextureWrap::Mirror ? AddressMode::MirrorRepeat :
+                                                                                      AddressMode::Repeat;
+            return CreateRef<Texture2D>(std::move(device), std::move(image), sampling);
         }
         catch (const std::exception& e)
         {

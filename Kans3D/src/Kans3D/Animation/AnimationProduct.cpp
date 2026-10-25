@@ -1762,6 +1762,8 @@ namespace Kans
                 {
                     if (key != bases[field] && key.size() == bases[field].size() + 1)
                         return AssetError {AssetErrorCode::InvalidArgument, "Empty clip object key: " + key};
+                    if (key != bases[field] && value == "inherit")
+                        continue;
                     if (field == 0)
                     {
                         if (value != "off" && value != "lossless" && value != "optimal" && value != "custom")
@@ -1780,7 +1782,7 @@ namespace Kans
                 }
         auto get = [&](size_t field) -> const std::string* {
             auto found = clipObjectKey.empty() ? values.end() : values.find(bases[field] + "." + clipObjectKey);
-            if (found == values.end())
+            if (found == values.end() || found->second == "inherit")
                 found = values.find(bases[field]);
             return found == values.end() ? nullptr : &found->second;
         };

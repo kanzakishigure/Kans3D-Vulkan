@@ -52,6 +52,15 @@ namespace Kans
         [[nodiscard]] std::variant<std::monostate, AssetError>            Shutdown();
         [[nodiscard]] std::variant<EditorAssetImportSnapshot, AssetError> GetSnapshot() const;
 
+        // Owner thread, idle only. While a worker owns Project these return
+        // Cancelled ("Project is busy importing") before reading project state.
+        // Unavailable from Start until Poll consumes completion, including when
+        // the worker has finished but has not been polled. The importer-name
+        // schema overload also works while a build runs.
+        [[nodiscard]] std::variant<SourceInventory, AssetError>      InspectSource(SourceAssetID source) const;
+        [[nodiscard]] std::variant<ImportSettingsSchema, AssetError> GetSettingsSchema(SourceAssetID source) const;
+        [[nodiscard]] std::variant<ImportSettingsSchema, AssetError>
+        GetSettingsSchema(const std::string& importerName) const;
         [[nodiscard]] std::variant<std::vector<SourceAssetMetadata>, AssetError> GetSources() const;
         [[nodiscard]] std::variant<std::monostate, AssetError>                   RefreshSources();
         [[nodiscard]] std::variant<std::monostate, AssetError>          MoveSourceAsset(SourceAssetID    source,

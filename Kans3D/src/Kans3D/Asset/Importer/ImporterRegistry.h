@@ -25,6 +25,9 @@ namespace Kans
         // Selects the named importer, or the extension's default when name is empty.
         [[nodiscard]] std::variant<RegisteredImporter, AssetError> Resolve(const std::filesystem::path& sourceFile,
                                                                            const std::string& name = {}) const;
+        std::variant<ImportSettingsSchema, AssetError> GetSettingsSchema(const std::string& importerName) const;
+        std::variant<ImportSettingsSchema, AssetError>
+        GetSettingsSchemaForSource(const std::filesystem::path& sourceFile, const std::string& importerName = {}) const;
         bool Supports(const std::filesystem::path& sourceFile) const;
 
     private:

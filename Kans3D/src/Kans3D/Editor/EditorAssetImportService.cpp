@@ -1,6 +1,8 @@
 #include "kspch.h"
 #include "EditorAssetImportService.h"
 #include <chrono>
+#include "Kans3D/Asset/Product/ModelProduct.h"
+#include "Kans3D/Asset/Storage/ProductFiles.h"
 
 namespace Kans
 {
@@ -154,6 +156,88 @@ namespace Kans
                 snapshot.Phase = static_cast<PublicationPhase>(phase);
         }
         return snapshot;
+    }
+
+    std::variant<ImportSettingsSchema, AssetError>
+    EditorAssetImportService::GetSettingsSchema(const std::string& name) const
+    {
+        if (auto error = CheckOwner())
+            return *error;
+        auto registry = CreateDefaultImporterRegistry();
+        if (auto* error = std::get_if<AssetError>(&registry))
+            return *error;
+        return std::get<ImporterRegistry>(registry).GetSettingsSchema(name);
+    }
+
+    std::variant<ImportSettingsSchema, AssetError>
+    EditorAssetImportService::GetSettingsSchema(SourceAssetID source) const
+    {
+        if (auto error = CheckIdle())
+            return *error;
+        auto metadata = m_Project->GetSourceAssetDatabase().FindByID(source);
+        if (!metadata.IsValid() || !metadata.Exists)
+            return AssetError {AssetErrorCode::NotFound, "Inspection source is absent or Missing"};
+        auto registry = CreateDefaultImporterRegistry();
+        if (auto* error = std::get_if<AssetError>(&registry))
+            return *error;
+        return std::get<ImporterRegistry>(registry).GetSettingsSchemaForSource(metadata.Path.ToString(),
+                                                                               metadata.Import.Importer);
+    }
+
+    std::variant<SourceInventory, AssetError> EditorAssetImportService::InspectSource(SourceAssetID source) const
+    {
+        if (auto error = CheckIdle())
+            return *error;
+        auto metadata = m_Project->GetSourceAssetDatabase().FindByID(source);
+        if (!metadata.IsValid() || !metadata.Exists)
+            return AssetError {AssetErrorCode::NotFound, "Inspection source is absent or Missing"};
+        auto registry = CreateDefaultImporterRegistry();
+        if (auto* error = std::get_if<AssetError>(&registry))
+            return *error;
+        auto resolved =
+            std::get<ImporterRegistry>(registry).Resolve(metadata.Path.ToString(), metadata.Import.Importer);
+        if (auto* error = std::get_if<AssetError>(&resolved))
+            return *error;
+        ImportContext context;
+        context.SourceID   = source;
+        context.AssetRoot  = m_Config.AssetDirectory;
+        context.SourceFile = m_Config.AssetDirectory / std::filesystem::u8path(metadata.Path.ToString());
+        context.Settings   = metadata.Import.Settings;
+        context.Target     = EditorAssetTarget;
+        auto inspected     = std::get<RegisteredImporter>(resolved).Importer->Inspect(context);
+        if (auto* inventory = std::get_if<SourceInventory>(&inspected); inventory && !inventory->Materials.empty())
+        {
+            const auto lower = [](std::string text) {
+                std::transform(
+                    text.begin(), text.end(), text.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+                return text;
+            };
+            // Read only published material products. Current remaps take priority;
+            // ties use the registry's stable AssetID order, independent of scan order.
+            // Own-source materials cannot be remap inputs without a dependency cycle.
+            std::map<std::string, AssetID> materials;
+            auto                           products = m_Project->GetRuntimeAssetRegistry()->GetAllProducts();
+            std::sort(products.begin(), products.end(), [](const auto& a, const auto& b) {
+                return a.Metadata.assetID < b.Metadata.assetID;
+            });
+            for (const auto& product : products)
+                if (product.Target == EditorAssetTarget && product.Metadata.Type == AssetType::Material &&
+                    product.Metadata.assetID.GetSourceID() != source)
+                {
+                    auto bytes = ReadRegisteredProduct(m_ProductDirectory, product);
+                    if (auto* data = std::get_if<std::vector<std::byte>>(&bytes))
+                    {
+                        auto decoded = DecodeMaterialProduct(data->data(), data->size());
+                        if (auto* material = std::get_if<MaterialData>(&decoded))
+                            materials.emplace(lower(material->Name), product.Metadata.assetID);
+                    }
+                }
+            for (auto& slot : inventory->Materials)
+                if (!slot.SuggestedMaterial)
+                    if (auto found = materials.find(lower(slot.SourceName)); found != materials.end())
+                        slot.SuggestedMaterial = found->second;
+        }
+        return inspected;
     }
 
     std::variant<std::vector<SourceAssetMetadata>, AssetError> EditorAssetImportService::GetSources() const

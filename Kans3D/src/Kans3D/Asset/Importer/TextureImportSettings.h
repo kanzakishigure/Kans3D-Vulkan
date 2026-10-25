@@ -12,6 +12,9 @@ namespace Kans
         ::Kans::TextureUsage             Usage = ::Kans::TextureUsage::Color;
         std::optional<TextureColorSpace> ColorSpace;
         std::optional<TextureAlphaMode>  AlphaMode;
+        uint32_t                         MaxSize      = 0;
+        TextureFilter                    Filter       = TextureFilter::Linear;
+        TextureWrap                      Wrap         = TextureWrap::Repeat;
         bool                             GenerateMips = true;
         bool                             FlipY        = false;
         bool                             NormalFlipY  = false;
