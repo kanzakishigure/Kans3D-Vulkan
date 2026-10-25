@@ -74,6 +74,8 @@ target_link_libraries(Kans3D PUBLIC
     VulkanMemoryAllocator
 )
 
+target_link_libraries(Kans3D PRIVATE miniaudio)
+
 # Vulkan SDK (shaderc, spirv-cross, vulkan loader)
 if(VULKAN_SDK_DIR)
     target_link_libraries(Kans3D PUBLIC vulkan_sdk)

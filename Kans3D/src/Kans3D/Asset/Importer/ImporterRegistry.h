@@ -32,6 +32,6 @@ namespace Kans
         std::unordered_map<std::string, std::string>        m_Defaults; // extension -> name
     };
 
-    // Model, Texture, Shader and Material importers.
+    // Model, Texture, Shader, Material and Audio importers.
     [[nodiscard]] std::variant<ImporterRegistry, AssetError> CreateDefaultImporterRegistry();
 } // namespace Kans

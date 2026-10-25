@@ -1,0 +1,12 @@
+#pragma once
+#include "AssetImporterBase.h"
+
+namespace Kans
+{
+    class AudioImporter final : public AssetImporterBase
+    {
+    public:
+        uint32_t                                             GetVersion() const override { return 1; }
+        [[nodiscard]] std::variant<ImportResult, AssetError> Import(const ImportContext& context) const override;
+    };
+} // namespace Kans

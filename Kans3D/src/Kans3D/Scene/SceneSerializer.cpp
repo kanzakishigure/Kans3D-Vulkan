@@ -82,6 +82,50 @@ namespace Kans
             Require(std::isfinite(value), "Non-finite Scene number");
             return value;
         }
+        AudioSourceComponent DecodeAudioSource(const YAML::Node& node)
+        {
+            Keys(node,
+                 {"Clip",
+                  "Volume",
+                  "Pitch",
+                  "PlayOnStart",
+                  "Loop",
+                  "Spatial",
+                  "Pan",
+                  "Attenuation",
+                  "MinDistance",
+                  "MaxDistance",
+                  "Rolloff",
+                  "DopplerFactor",
+                  "ConeInnerAngle",
+                  "ConeOuterAngle",
+                  "ConeOuterGain"});
+            AudioSourceComponent c;
+            c.Clip                 = AssetID::FromString(Text(node["Clip"]));
+            c.Volume               = Number(node["Volume"]);
+            c.Pitch                = Number(node["Pitch"]);
+            c.PlayOnStart          = node["PlayOnStart"].as<bool>();
+            c.Loop                 = node["Loop"].as<bool>();
+            c.Spatial              = node["Spatial"].as<bool>();
+            c.Pan                  = Number(node["Pan"]);
+            const auto attenuation = node["Attenuation"].as<int>();
+            Require(attenuation >= 0 && attenuation <= int(AudioAttenuationModel::Exponential),
+                    "Invalid audio attenuation model");
+            c.Attenuation    = static_cast<AudioAttenuationModel>(attenuation);
+            c.MinDistance    = Number(node["MinDistance"]);
+            c.MaxDistance    = Number(node["MaxDistance"]);
+            c.Rolloff        = Number(node["Rolloff"]);
+            c.DopplerFactor  = Number(node["DopplerFactor"]);
+            c.ConeInnerAngle = Number(node["ConeInnerAngle"]);
+            c.ConeOuterAngle = Number(node["ConeOuterAngle"]);
+            c.ConeOuterGain  = Number(node["ConeOuterGain"]);
+            Require(c.Volume >= 0 && c.Volume <= 4 && c.Pitch > 0 && c.Pitch <= 4 && c.Pan >= -1 && c.Pan <= 1 &&
+                        c.MinDistance > 0 && c.MaxDistance >= c.MinDistance && c.Rolloff >= 0 && c.DopplerFactor >= 0 &&
+                        c.ConeInnerAngle >= 0 && c.ConeInnerAngle <= c.ConeOuterAngle && c.ConeOuterAngle <= 360 &&
+                        c.ConeOuterGain >= 0 && c.ConeOuterGain <= 1,
+                    "Invalid audio source range");
+            return c;
+        }
         uint64_t UInt(const YAML::Node& node)
         {
             Require(node.IsScalar(), "Missing Scene integer");
@@ -744,6 +788,28 @@ namespace Kans
             node["TransformComponent"]  = EncodeTransform(transform);
             if (entity.HasComponent<PrefabInstanceComponent>())
                 node["PrefabInstanceComponent"] = EncodePrefab(entity.GetComponent<PrefabInstanceComponent>());
+            if (entity.HasComponent<AudioSourceComponent>())
+            {
+                const auto& c       = entity.GetComponent<AudioSourceComponent>();
+                auto        v       = node["AudioSourceComponent"];
+                v["Clip"]           = c.Clip.ToString();
+                v["Attenuation"]    = int(c.Attenuation);
+                v["Volume"]         = c.Volume;
+                v["Pitch"]          = c.Pitch;
+                v["PlayOnStart"]    = c.PlayOnStart;
+                v["Loop"]           = c.Loop;
+                v["Spatial"]        = c.Spatial;
+                v["Pan"]            = c.Pan;
+                v["MinDistance"]    = c.MinDistance;
+                v["MaxDistance"]    = c.MaxDistance;
+                v["Rolloff"]        = c.Rolloff;
+                v["DopplerFactor"]  = c.DopplerFactor;
+                v["ConeInnerAngle"] = c.ConeInnerAngle;
+                v["ConeOuterAngle"] = c.ConeOuterAngle;
+                v["ConeOuterGain"]  = c.ConeOuterGain;
+            }
+            if (entity.HasComponent<AudioListenerComponent>())
+                node["AudioListenerComponent"]["Active"] = entity.GetComponent<AudioListenerComponent>().Active;
             if (entity.HasComponent<AnimatorComponent>())
             {
                 const auto& a        = entity.GetComponent<AnimatorComponent>();
@@ -1002,6 +1068,8 @@ namespace Kans
                       "ProductModelComponent",
                       "PrefabInstanceComponent",
                       "AnimatorComponent",
+                      "AudioSourceComponent",
+                      "AudioListenerComponent",
                       "MeshComponent",
                       "EditableMeshComponent",
                       "PrefabParent",
@@ -1034,6 +1102,14 @@ namespace Kans
                 {
                     Require(!model, "Scene entity has both prefab and legacy model");
                     entity.AddComponent<PrefabInstanceComponent>(DecodePrefab(node["PrefabInstanceComponent"]));
+                }
+                if (node["AudioSourceComponent"])
+                    entity.AddComponent<AudioSourceComponent>(DecodeAudioSource(node["AudioSourceComponent"]));
+                if (node["AudioListenerComponent"])
+                {
+                    Keys(node["AudioListenerComponent"], {"Active"});
+                    entity.AddComponent<AudioListenerComponent>().Active =
+                        node["AudioListenerComponent"]["Active"].as<bool>();
                 }
                 if (node["AnimatorComponent"])
                 {

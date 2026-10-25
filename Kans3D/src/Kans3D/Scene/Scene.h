@@ -10,6 +10,7 @@
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
 #include "EnvironmentSettings.h"
+#include "Kans3D/Audio/AudioClipRegistry.h"
 
 namespace Kans
 {
@@ -123,6 +124,14 @@ namespace Kans
 
         void OnRuntimeStart();
         void OnRuntimeStop();
+        void OnRuntimePause();
+        void OnRuntimeResume();
+        // The engine must outlive its attachment to this scene.
+        void SetAudioEngine(AudioEngine* engine);
+        void PlayAudioSource(Entity entity);
+        void StopAudioSource(Entity entity);
+        void PauseAudioSource(Entity entity);
+        bool IsAudioSourcePlaying(Entity entity) const;
 
         Entity GetCameraEntity();
 
@@ -133,13 +142,26 @@ namespace Kans
         template<typename T>
         void OnComponentAdd(Entity entity, T& component);
         // Removes the entity from its parent's children or the root order.
-        void Detach(Entity entity);
-        Entity CopyEntity(Entity source, Entity parent, Entity before);
-        void DestroyNativeScriptInstances();
+        void              Detach(Entity entity);
+        Entity            CopyEntity(Entity source, Entity parent, Entity before);
+        void              DestroyNativeScriptInstances();
+        bool              OwnsAudioSource(Entity entity) const;
+        void              StartAudio();
+        void              StopAudio();
+        void              UpdateAudio(double seconds);
+        void              UpdateAudioListener(double seconds);
+        void              PrepareAudioSource(Entity entity);
+        void              PushAudioSource(Entity entity, double seconds);
+        AudioEngine*      m_AudioEngine = nullptr;
+        AudioClipRegistry m_AudioClips;
+        bool              m_AudioRunning = false, m_AudioPaused = false, m_WarnedMultipleListeners = false;
+        UUID              m_AudioListener = 0;
+        glm::vec3         m_CameraAudioPosition {0};
+        bool              m_HasCameraAudioPosition = false;
 
     private:
-        void                                 OnRenderComponentChanged(entt::registry&, entt::entity entity);
-        void                                 OnEditableMeshChanged(entt::registry&, entt::entity entity);
+        void OnRenderComponentChanged(entt::registry&, entt::entity entity);
+        void OnEditableMeshChanged(entt::registry&, entt::entity entity);
         mutable std::unordered_map<entt::entity, Ref<const RuntimeMesh>>              m_EditableMeshes;
         mutable std::unordered_map<entt::entity, std::shared_ptr<const EditableMesh>> m_EditableSources;
         mutable uint64_t                                                              m_EditableMeshBuildCount = 0;

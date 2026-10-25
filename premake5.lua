@@ -19,6 +19,25 @@ group"Dependencies"
 include "Kans3D/vendor/GLFW"
 include "Kans3D/vendor/imgui"
 include "Kans3D/vendor/yaml-cpp"
+project "miniaudio"
+    location "Kans3D/vendor/miniaudio"
+    kind "StaticLib"
+    language "C"
+    staticruntime "off"
+    targetdir ("bin/" ..outputdir.. "/%{prj.name}")
+    objdir ("bin-int/" ..outputdir.. "/%{prj.name}")
+    files { "Kans3D/vendor/miniaudio/miniaudio_impl.c" }
+    includedirs { "%{IncludeDir.miniaudio}" }
+    filter "system:linux"
+        pic "On"
+        links { "dl", "pthread", "m" }
+    filter "configurations:Debug"
+        runtime "Debug"
+        symbols "On"
+    filter "configurations:Release or Dist"
+        runtime "Release"
+        optimize "On"
+    filter {}
 group""
 -- 以上 include 加载依赖的 Premake 项目配置。
 group"Core"
@@ -57,6 +76,7 @@ project "Kans3D"
         "%{IncludeDir.ImGui}",
         "%{IncludeDir.GLM}",
         "%{IncludeDir.stb_image}",
+        "%{IncludeDir.miniaudio}",
         "%{IncludeDir.entt}",
         "%{IncludeDir.assimp}",
         "%{IncludeDir.VulkanSDK}",
@@ -71,11 +91,14 @@ project "Kans3D"
         "GLFW",
         "ImGui",
         "yaml-cpp",
+        "miniaudio",
         "%{Library.Vulkan}",
         "%{Library.mono}"
         
     }
 
+    filter "system:linux"
+        links { "dl", "pthread", "m" }
     filter "files:Kans3D/vendor/ImGuizmo/**.cpp"
 	flags { "NoPCH" }
     filter { "system:windows", "toolset:msc*" }

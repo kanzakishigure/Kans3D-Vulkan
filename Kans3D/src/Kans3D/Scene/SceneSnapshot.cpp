@@ -81,6 +81,8 @@ namespace Kans
             return a.Diffuse_Intensity == b.Diffuse_Intensity && a.Specular_Intensity == b.Specular_Intensity &&
                    a.Ambient_Intensity == b.Ambient_Intensity;
         }
+        bool Same(const AudioSourceComponent& a, const AudioSourceComponent& b) { return a == b; }
+        bool Same(const AudioListenerComponent& a, const AudioListenerComponent& b) { return a == b; }
         bool Same(const AnimatorComponent& a, const AnimatorComponent& b) { return a == b; }
         bool Same(const ScriptComponent& a, const ScriptComponent& b) { return a.ClassName == b.ClassName; }
 
@@ -118,7 +120,8 @@ namespace Kans
                Same(a.Relationship, b.Relationship) && Same(a.Camera, b.Camera) && Same(a.Sprite, b.Sprite) &&
                Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
                Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) && Same(a.DirLight, b.DirLight) &&
-               Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script);
+               Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) &&
+               Same(a.AudioSource, b.AudioSource) && Same(a.AudioListener, b.AudioListener);
     }
 
     bool operator==(const SceneSnapshot& a, const SceneSnapshot& b)
@@ -151,6 +154,8 @@ namespace Kans
             Kans::Capture(entity, item.Editable);
             Kans::Capture(entity, item.Prefab);
             Kans::Capture(entity, item.Animator);
+            Kans::Capture(entity, item.AudioSource);
+            Kans::Capture(entity, item.AudioListener);
             Kans::Capture(entity, item.PrefabParent);
             if (item.Prefab)
             {
@@ -184,6 +189,7 @@ namespace Kans
 
     void Scene::Restore(const SceneSnapshot& snapshot)
     {
+        StopAudio();
         DestroyNativeScriptInstances();
         if (ScriptEngine::IsInitialized() && ScriptEngine::GetSceneContext() == this)
             ScriptEngine::OnRuntimeEnd();
@@ -219,6 +225,8 @@ namespace Kans
             Kans::Restore(entity, item.Editable);
             Kans::Restore(entity, item.Prefab);
             Kans::Restore(entity, item.Animator);
+            Kans::Restore(entity, item.AudioSource);
+            Kans::Restore(entity, item.AudioListener);
             Kans::Restore(entity, item.PrefabParent);
             Kans::Restore(entity, item.DirLight);
             Kans::Restore(entity, item.PointLight);

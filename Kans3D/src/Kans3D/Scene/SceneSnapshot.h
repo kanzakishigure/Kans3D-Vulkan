@@ -22,6 +22,8 @@ namespace Kans
         std::optional<EditableMeshComponent>     Editable;
         std::optional<PrefabInstanceComponent>   Prefab;
         std::optional<AnimatorComponent>         Animator;
+        std::optional<AudioSourceComponent>      AudioSource;
+        std::optional<AudioListenerComponent>    AudioListener;
         std::optional<PrefabAttachmentComponent> PrefabParent;
         std::optional<DirLightComponent>       DirLight;
         std::optional<PointLightComponent>     PointLight;

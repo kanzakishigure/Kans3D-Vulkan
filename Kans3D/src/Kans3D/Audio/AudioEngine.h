@@ -1,0 +1,120 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+#include <glm/vec3.hpp>
+
+namespace Kans
+{
+    class AudioClipRegistry;
+    enum class AudioOutputMode { Device, Offline };
+    struct AudioEngineConfig
+    {
+        AudioOutputMode Mode = AudioOutputMode::Device;
+        uint32_t SampleRate = 48000;
+        uint32_t Channels = 2;
+        uint32_t MaxListeners = 1;
+        bool UseNullDevice = false; // Device mode: real-time silent playback without opening hardware.
+    };
+
+    using AudioSoundID = uint64_t;
+    enum class AudioLoadMode { Decompress, Stream };
+    struct AudioSoundInfo
+    {
+        uint32_t Channels, SampleRate;
+        uint64_t LengthFrames;
+    };
+    struct AudioVoiceHandle
+    {
+        uint32_t Index = 0, Generation = 0;
+        bool IsValid() const { return Generation != 0; }
+    };
+    struct AudioVoiceDesc
+    {
+        AudioSoundID Sound = 0;
+        AudioLoadMode LoadMode = AudioLoadMode::Decompress;
+        float Volume = 1, Pitch = 1, Pan = 0;
+        bool Loop = false;
+        bool AutoRelease = false;
+        bool Spatial = false;
+    };
+    enum class AudioAttenuationModel { None, Inverse, Linear, Exponential };
+    struct AudioSpatialParams
+    {
+        glm::vec3 Position{0}, Velocity{0}, Direction{0, 0, -1};
+        AudioAttenuationModel Attenuation = AudioAttenuationModel::Inverse;
+        float MinDistance = 1, MaxDistance = 100, Rolloff = 1, DopplerFactor = 1;
+        float ConeInnerAngle = 360, ConeOuterAngle = 360, ConeOuterGain = 0;
+    };
+    struct AudioListenerState
+    {
+        glm::vec3 Position{0}, Velocity{0}, Forward{0, 0, -1}, Up{0, 1, 0};
+    };
+
+    // All public calls are main-thread only. Handles must be used with their owning engine.
+    class AudioEngine
+    {
+    public:
+        AudioEngine();
+        ~AudioEngine();
+        AudioEngine(const AudioEngine&) = delete;
+        AudioEngine& operator=(const AudioEngine&) = delete;
+
+        [[nodiscard]] std::optional<std::string> Init(const AudioEngineConfig& config);
+        void Shutdown();
+        bool IsInitialized() const;
+        AudioOutputMode GetMode() const;
+        uint32_t GetSampleRate() const;
+        uint32_t GetChannels() const;
+        void SetMasterVolume(float linear);
+        float GetMasterVolume() const;
+        uint64_t Render(float* out, uint64_t frameCount);
+        void Update();
+
+        std::optional<std::string> RegisterSound(AudioSoundID id, std::shared_ptr<const std::vector<std::byte>> encodedBytes);
+        std::optional<std::string> RegisterSound(AudioSoundID id, std::vector<std::byte> encodedBytes)
+        {
+            return RegisterSound(id, std::make_shared<const std::vector<std::byte>>(std::move(encodedBytes)));
+        }
+        std::optional<std::string> RegisterSoundPCM(AudioSoundID id, std::vector<float> interleaved,
+                                                  uint32_t channels, uint32_t sampleRate);
+        void UnregisterSound(AudioSoundID id);
+        bool IsSoundRegistered(AudioSoundID id) const;
+        std::optional<AudioSoundInfo> GetSoundInfo(AudioSoundID id) const;
+        // Resident decompressed PCM; encoded sounds decode on the first Decompress voice, streams never do.
+        uint64_t GetDecodedBytes(AudioSoundID id) const;
+
+        AudioVoiceHandle CreateVoice(const AudioVoiceDesc& desc);
+        void DestroyVoice(AudioVoiceHandle handle);
+        bool IsVoiceValid(AudioVoiceHandle handle) const;
+        void Play(AudioVoiceHandle handle);
+        void Stop(AudioVoiceHandle handle);
+        void Pause(AudioVoiceHandle handle);
+        bool IsPlaying(AudioVoiceHandle handle) const;
+        bool HasEnded(AudioVoiceHandle handle) const;
+        void SetVolume(AudioVoiceHandle handle, float linear);
+        void SetPitch(AudioVoiceHandle handle, float pitch);
+        // Balance pan: -1 = left, +1 = right; attenuates the opposite channel by 1 - abs(pan).
+        void SetPan(AudioVoiceHandle handle, float pan);
+        void SetLooping(AudioVoiceHandle handle, bool looping);
+        void SeekFrames(AudioVoiceHandle handle, uint64_t frame);
+        // Decoder cursor in source frames; may lead audible playback by one processing block.
+        uint64_t GetCursorFrames(AudioVoiceHandle handle) const;
+        // Target is a multiplier relative to SetVolume; seconds are measured at the engine sample rate.
+        void FadeTo(AudioVoiceHandle handle, float targetVolume, float seconds);
+        void SetLoopRegion(AudioVoiceHandle handle, uint64_t beginFrame, uint64_t endFrame);
+        void SetSpatialParams(AudioVoiceHandle handle, const AudioSpatialParams& params);
+        void SetListener(uint32_t index, const AudioListenerState& state);
+
+    private:
+        friend class AudioClipRegistry;
+        void AttachClipRegistry(AudioClipRegistry* registry);
+        void DetachClipRegistry(AudioClipRegistry* registry);
+        struct Impl;
+        std::unique_ptr<Impl> m_Impl;
+    };
+}

@@ -124,6 +124,7 @@ namespace Kans
                    a.Specular_Intensity == b.Specular_Intensity && a.Ambient_Intensity == b.Ambient_Intensity &&
                    a.Shadows == b.Shadows;
         }
+        friend class Scene;
         entt::entity m_EntityHandle {entt::null};
         Scene*       m_Scene = nullptr;
     };
