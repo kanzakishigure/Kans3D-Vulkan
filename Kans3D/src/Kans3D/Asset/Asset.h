@@ -22,7 +22,16 @@ namespace Kans
         bool                         IsValid() const noexcept { return !(m_Path.empty() || m_Hash == Hash::None); }
         const std::filesystem::path& GetPath() const noexcept { return m_Path; }
         uint64_t                     GetHash() const noexcept { return m_Hash; }
-        std::string                  ToString() const { return m_Path.generic_string(); }
+        std::string                  ToString() const { return m_Path.generic_u8string(); }
+
+        // Commit an already prepared path without allocating.
+        void Swap(AssetPath& other) noexcept
+        {
+            m_Path.swap(other.m_Path);
+            const auto hash = m_Hash;
+            m_Hash = other.m_Hash;
+            other.m_Hash = hash;
+        }
 
         bool operator==(const AssetPath& other) const noexcept { return other.m_Path == m_Path; }
         bool operator!=(const AssetPath& other) const noexcept { return !(*this == other); }
@@ -49,6 +58,7 @@ namespace Kans
 
         bool operator==(const SourceAssetID& other) const noexcept { return other.m_ID == m_ID; }
         bool operator!=(const SourceAssetID& other) const noexcept { return !(*this == other); }
+        bool operator<(const SourceAssetID& other) const noexcept { return m_ID < other.m_ID; }
 
     private:
         UUID     m_ID;
@@ -66,6 +76,12 @@ namespace Kans
             return m_localID == other.m_localID && m_sourceID == other.m_sourceID;
         }
         bool                 operator!=(const AssetID& other) const noexcept { return !(*this == other); }
+        bool                 operator<(const AssetID& other) const noexcept
+        {
+            return m_sourceID.GetUUID() != other.m_sourceID.GetUUID() ?
+                       m_sourceID.GetUUID() < other.m_sourceID.GetUUID() :
+                       m_localID < other.m_localID;
+        }
         bool                 IsValid() const noexcept { return m_sourceID.IsValid() && m_localID != UUID::None; }
         const SourceAssetID& GetSourceID() const noexcept { return m_sourceID; }
         uint64_t             GetLocalID() const noexcept { return m_localID; }

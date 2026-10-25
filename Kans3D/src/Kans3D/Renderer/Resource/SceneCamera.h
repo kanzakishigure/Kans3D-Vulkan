@@ -86,6 +86,6 @@ namespace Kans
         float m_OrthographicFar  = 1.0f;
         float m_OrthographicNear = -1.0f;
 
-        float m_AspectRatio;
+        float m_AspectRatio = 1.0f;
     };
 } // namespace Kans

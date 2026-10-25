@@ -4,8 +4,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "Kans3D/Core/UUID.h"
+#include "ProductModelComponent.h"
 
-#include "Kans3D/Renderer/Resource/Mesh.h"
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 
@@ -31,6 +31,15 @@ namespace Kans
         operator std::string&() { return Tag; }
     };
 
+    // Parent/child links between entities (by UUID; 0 = no parent). Children are
+    // in display order; the Scene keeps the order of top-level entities.
+    struct RelationshipComponent
+    {
+        UUID              Parent = 0;
+        std::vector<UUID> Children;
+    };
+
+    // Transform relative to the parent entity (or the world for top-level ones).
     struct TransformComponent
     {
 
@@ -106,21 +115,6 @@ namespace Kans
         }
     };
 
-    struct StaticMeshComponent
-    {
-        // TODO
-        // use subMeh vector;
-        // MeshSource now have the material ,SubMesh
-
-        Ref<StaticMesh>    StaticMesh;
-        Ref<MaterialTable> MaterialTable;
-
-        StaticMeshComponent()                           = default;
-        StaticMeshComponent(const StaticMeshComponent&) = default;
-        // temp know We Don't have any asset system,should have not instance in the Component
-        // Ref<Material> MeshMaterial;
-    };
-
     struct DirLightComponent
     {
         glm::vec3 Direction;
@@ -138,14 +132,6 @@ namespace Kans
         glm::vec3 Ambient_Intensity;
         PointLightComponent()                           = default;
         PointLightComponent(const PointLightComponent&) = default;
-    };
-
-    struct MaterialComponent
-    {
-        MaterialComponent()                         = default;
-        MaterialComponent(const MaterialComponent&) = default;
-
-        Ref<MaterialTable> MaterialTable;
     };
 
     struct ScriptComponent
@@ -168,9 +154,8 @@ namespace Kans
                                          CameraComponent,
                                          SpriteRendererComponent,
                                          NativeScriptComponent,
-                                         StaticMeshComponent,
+                                         ProductModelComponent,
                                          DirLightComponent,
                                          PointLightComponent,
-                                         MaterialComponent,
                                          ScriptComponent>;
 } // namespace Kans

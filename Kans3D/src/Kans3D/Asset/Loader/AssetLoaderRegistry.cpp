@@ -1,0 +1,47 @@
+#include "kspch.h"
+#include "AssetLoaderRegistry.h"
+#include "Kans3D/Asset/Runtime/MeshData.h"
+#include "Kans3D/Asset/Runtime/ModelData.h"
+#include "Kans3D/Asset/Runtime/ShaderData.h"
+#include "Kans3D/Asset/Runtime/TextureData.h"
+
+namespace Kans
+{
+    std::variant<std::monostate, AssetError> AssetLoaderRegistry::Register(AssetType type, AssetDecodeFn decoder)
+    {
+        if (type == AssetType::None || !decoder)
+            return AssetError {AssetErrorCode::InvalidArgument, "Invalid runtime asset decoder"};
+        if (!m_Decoders.emplace(type, std::move(decoder)).second)
+            return AssetError {AssetErrorCode::DuplicateID, "Runtime decoder already registered for asset type"};
+        return std::monostate {};
+    }
+
+    const AssetDecodeFn* AssetLoaderRegistry::Find(AssetType type) const
+    {
+        const auto found = m_Decoders.find(type);
+        return found == m_Decoders.end() ? nullptr : &found->second;
+    }
+
+    namespace
+    {
+        template<typename T>
+        std::variant<Ref<Asset>, AssetError> Decode(const AssetLoadContext& context)
+        {
+            auto result = Loader<T>().Load(context);
+            if (const auto* error = std::get_if<AssetError>(&result))
+                return *error;
+            return std::static_pointer_cast<Asset>(std::get<Ref<T>>(std::move(result)));
+        }
+    } // namespace
+
+    AssetLoaderRegistry AssetLoaderRegistry::CreateDefault()
+    {
+        AssetLoaderRegistry registry;
+        registry.m_Decoders.emplace(MeshAsset::GetStaticType(), Decode<MeshAsset>);
+        registry.m_Decoders.emplace(MaterialDataAsset::GetStaticType(), Decode<MaterialDataAsset>);
+        registry.m_Decoders.emplace(ModelAsset::GetStaticType(), Decode<ModelAsset>);
+        registry.m_Decoders.emplace(TextureAsset::GetStaticType(), Decode<TextureAsset>);
+        registry.m_Decoders.emplace(ShaderDataAsset::GetStaticType(), Decode<ShaderDataAsset>);
+        return registry;
+    }
+} // namespace Kans

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <filesystem>
+#include <variant>
+#include "Kans3D/Asset/AssetError.h"
 #include "Scene.h"
 
 namespace YAML
@@ -22,6 +24,10 @@ namespace Kans
 
         void Deserialize(const std::filesystem::path& path);
         void DeserializeEntity(YAML::Node& entitiesNode, Ref<Scene> scene);
+        // Checked persistence: bounded input and atomic save; Load constructs a candidate
+        // Scene and leaves the caller's current Scene untouched on any failure.
+        std::variant<std::monostate, AssetError>    SerializeChecked(const std::filesystem::path& path);
+        static std::variant<Ref<Scene>, AssetError> DeserializeChecked(const std::filesystem::path& path);
 
     private:
         Ref<Scene> m_Scene;

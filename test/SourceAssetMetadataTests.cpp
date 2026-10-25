@@ -17,7 +17,8 @@ namespace
         EXPECT_FALSE(metadata.IsValid());
         EXPECT_FALSE(metadata.sourceAssetID.IsValid());
         EXPECT_FALSE(metadata.Path.IsValid());
-        EXPECT_EQ(metadata.MetaVersion, 1u);
+        EXPECT_EQ(metadata.MetaVersion, 3u);
+        EXPECT_TRUE(metadata.LocalIDs.empty());
         EXPECT_FALSE(metadata.Exists);
         EXPECT_FALSE(metadata.Missing);
         EXPECT_EQ(metadata.FileSize, 0u);

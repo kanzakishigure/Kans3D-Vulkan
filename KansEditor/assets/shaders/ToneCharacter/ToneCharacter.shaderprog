@@ -1,0 +1,37 @@
+KansShaderProgram 1
+# Genshin-style character shading, ported from
+# Resources/Shaders/OpenGL/GenShin_Shader/ToneCharactorShader.glsl.
+vertex=ToneCharacter.vert
+fragment=ToneCharacter.frag
+
+# Defaults of the legacy MaterialUtils::InitMaterial.
+default RampShadowRange = 0.54
+default RampAOShadowRange = 0.68
+default ShadowIntensity = 0.92
+default BrightIntensity = 0.96
+default AOIntensity = 0.05
+default CharacterIntensity = 1.124
+default RampIntensity = 1.0
+default SpecularIntensity1 = 1.0
+default SpecularIntensity2 = 1.0
+default SpecularIntensity3 = 1.0
+# Texture orientation. The light map shares the diffuse map's orientation when
+# both use the same file format; flip one when mixing the .png and .tga copies.
+default DiffuseFlipV = false
+default LightMapFlipV = false
+default LightMapIsData = false
+
+# Material editor widgets.
+hint DiffuseFlipV = toggle
+hint LightMapFlipV = toggle
+hint LightMapIsData = toggle
+hint RampShadowRange = range 0.05 1
+hint RampAOShadowRange = range 0 1
+hint ShadowIntensity = range 0 2
+hint BrightIntensity = range 0 2
+hint AOIntensity = range 0 1
+hint CharacterIntensity = range 0 2
+hint RampIntensity = range 0 1
+hint SpecularIntensity1 = range 0 4
+hint SpecularIntensity2 = range 0 4
+hint SpecularIntensity3 = range 0 4

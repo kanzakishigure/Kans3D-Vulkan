@@ -22,7 +22,7 @@ namespace Kans
             return;
         }
 
-        m_Hash = Hash::Generate64MD5Hash(m_Path.generic_string());
+        m_Hash = Hash::Generate64MD5Hash(m_Path.generic_u8string());
     }
     void AssetPath::normalize()
     {

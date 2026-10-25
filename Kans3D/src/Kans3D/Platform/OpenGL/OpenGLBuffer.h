@@ -6,7 +6,7 @@ namespace Kans
     class OpenGLVertexBuffer : public VertexBuffer
     {
     public:
-        OpenGLVertexBuffer(float* vertices, uint32_t size);
+        OpenGLVertexBuffer(const float* vertices, uint32_t size);
         OpenGLVertexBuffer(uint32_t size);
 
         virtual ~OpenGLVertexBuffer();
@@ -19,21 +19,21 @@ namespace Kans
         virtual void                SetBufferLayout(const BufferLayout& layout) override { m_Layout = layout; }
 
     private:
-        uint32_t     m_RendererID;
+        uint32_t     m_RendererID = 0;
         BufferLayout m_Layout;
     };
 
     class OpenGLIndexBuffer : public IndexBuffer
     {
     public:
-        OpenGLIndexBuffer(uint32_t* indices, uint32_t size);
+        OpenGLIndexBuffer(const uint32_t* indices, uint32_t size);
         virtual ~OpenGLIndexBuffer();
         virtual void     Bind() const;
         virtual void     Unbind() const;
         virtual uint32_t GetCount() const { return m_Count; }
 
     private:
-        uint32_t m_RendererID;
-        uint32_t m_Count;
+        uint32_t m_RendererID = 0;
+        uint32_t m_Count      = 0;
     };
 } // namespace Kans

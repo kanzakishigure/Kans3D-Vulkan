@@ -13,8 +13,13 @@ namespace Kans
     class SourceAssetDatabase
     {
     public:
-        SourceAssetDatabase()  = default;
-        ~SourceAssetDatabase() = default;
+        SourceAssetDatabase()                                      = default;
+        ~SourceAssetDatabase()                                     = default;
+        SourceAssetDatabase(const SourceAssetDatabase&)            = default;
+        SourceAssetDatabase& operator=(const SourceAssetDatabase&) = default;
+        // Publishing a fully validated snapshot must not allocate or partially copy indexes.
+        SourceAssetDatabase(SourceAssetDatabase&&) noexcept            = default;
+        SourceAssetDatabase& operator=(SourceAssetDatabase&&) noexcept = default;
         // Queries return copies; an absent entry returns an invalid value.
         SourceAssetMetadata FindByID(SourceAssetID sourceAssetID) const;
         SourceAssetID       FindIDByPath(const AssetPath& path) const;
@@ -23,9 +28,20 @@ namespace Kans
         // Snapshot for persistence and tooling; callers cannot mutate internal
         // records.
         std::vector<SourceAssetMetadata> GetAllSources() const;
+        size_t                           GetSourceCount() const noexcept { return m_DataBase.size(); }
+        // ID-only enumeration avoids copying every configuration during persistence.
+        std::vector<SourceAssetID> GetSourceIDs() const;
         // Registration never replaces an existing ID or path, even for the same
         // record.
         std::variant<std::monostate, AssetError> RegisterSource(const SourceAssetMetadata& data);
+
+        // Record-only mutations: never touch source files, sidecars or Products.
+        // Update requires an existing ID and an unchanged path. Missing records
+        // retain their path reservation until explicitly unregistered or moved.
+        [[nodiscard]] std::variant<std::monostate, AssetError> UpdateSource(const SourceAssetMetadata& data);
+        [[nodiscard]] std::variant<std::monostate, AssetError> UnregisterSource(SourceAssetID id);
+        [[nodiscard]] std::variant<std::monostate, AssetError> ChangeSourcePath(SourceAssetID    id,
+                                                                                const AssetPath& path);
 
     private:
         std::unordered_map<SourceAssetID, SourceAssetMetadata> m_DataBase;

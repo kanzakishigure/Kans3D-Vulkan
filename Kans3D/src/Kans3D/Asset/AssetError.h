@@ -15,6 +15,7 @@ namespace Kans
         DuplicateID,
         DuplicatePath,
         NotImplemented,
+        Cancelled,
     };
 
     struct AssetError

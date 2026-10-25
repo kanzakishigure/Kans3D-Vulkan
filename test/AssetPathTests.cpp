@@ -96,6 +96,16 @@ namespace
         EXPECT_EQ(first.ToString(), "Textures/Wood.png");
     }
 
+    TEST(AssetPath, UnicodeLogicalPathRoundTripsThroughUtf8)
+    {
+        const AssetPath original(std::filesystem::u8path(u8"纹理/颜色.png"));
+        ASSERT_TRUE(original.IsValid());
+        EXPECT_EQ(original.ToString(), u8"纹理/颜色.png");
+        const AssetPath restored(std::filesystem::u8path(original.ToString()));
+        EXPECT_EQ(original, restored);
+        EXPECT_EQ(original.GetHash(), restored.GetHash());
+    }
+
     TEST(AssetPath, HashSupportsLookupAfterStringRoundTrip)
     {
         const AssetPath                     original("Models/Robot/Robot.fbx");

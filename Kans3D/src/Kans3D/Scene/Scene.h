@@ -1,5 +1,6 @@
 #pragma once
 #include <entt.hpp>
+#include <glm/glm.hpp>
 #include "Kans3D/Asset/Asset.h"
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
@@ -9,6 +10,7 @@ namespace Kans
     class RenderScene;
     class SceneRenderer;
     class Entity;
+    struct SceneSnapshot;
 
     using EntityMap = std::unordered_map<UUID, Entity>;
 
@@ -29,6 +31,31 @@ namespace Kans
         void   DestroyEntity(Entity entity);
         Entity GetEntityByUUID(UUID uuid) const;
 
+        // ---- hierarchy ----
+        // Top-level entities in order.
+        std::vector<Entity> GetRootEntities() const;
+        std::vector<Entity> GetChildren(Entity entity) const;
+        Entity              GetParent(Entity entity) const;
+        // True when `ancestor` is a (transitive) parent of `entity`.
+        bool IsDescendantOf(Entity entity, Entity ancestor) const;
+        // Moves `entity` under `parent` (a null Entity: top level), before the
+        // sibling `before` (null or not a sibling: last). With `keepWorld` the
+        // local transform changes so the entity stays where it is. Returns false
+        // when `parent` is the entity itself or one of its descendants.
+        bool SetParent(Entity entity, Entity parent, Entity before, bool keepWorld);
+        // Appends `entity` to `parent`'s children, keeping its world transform.
+        bool SetParent(Entity entity, Entity parent);
+        glm::mat4 GetWorldTransform(Entity entity) const;
+        // Sets the local transform so the entity ends up at `world`.
+        void SetWorldTransform(Entity entity, const glm::mat4& world);
+        // Copies the entity with its children (new IDs), placed right after it.
+        Entity DuplicateEntity(Entity entity);
+
+        // ---- undo/redo (SceneSnapshot.h) ----
+        SceneSnapshot Capture() const;
+        // Replaces every entity with the snapshot's; UUIDs are preserved.
+        void Restore(const SceneSnapshot& snapshot);
+
         void OnRuntimeStart();
         void OnRuntimeStop();
 
@@ -40,16 +67,20 @@ namespace Kans
     private:
         template<typename T>
         void OnComponentAdd(Entity entity, T& component);
+        // Removes the entity from its parent's children or the root order.
+        void Detach(Entity entity);
+        Entity CopyEntity(Entity source, Entity parent, Entity before);
+        void DestroyNativeScriptInstances();
 
     private:
         entt::registry m_Registry;
         uint32_t       m_ViewportWidth = 0, m_ViewportHeight = 0;
         std::string    m_Name;
         EntityMap      m_EntityMap;
+        std::vector<UUID> m_RootOrder;
 
     private:
         friend class Entity;
-        friend class SceneHierachyPanel;
         friend class RenderScene;
         friend class SceneSerializer;
     };

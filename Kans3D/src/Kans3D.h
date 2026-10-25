@@ -34,8 +34,6 @@
 #include "Kans3D/Renderer/Resource/Shader.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
 
-#include "Kans3D/Renderer/Resource/Material.h"
-#include "Kans3D/Renderer/Resource/Mesh.h"
 //-----script---------------
 #include "Kans3D/Scene/ScriptableEntity.h"
 
@@ -43,7 +41,6 @@
 #include "Kans3D/Physics/ParticleSystem.h"
 //------辅助工具---------------
 #include "Kans3D/Debug/Instrumentor.h"
-#include "Kans3D/Utilities/MaterialUtils.h" //temp
 //------程序入口点--------------
 
 // #include"Kans3D/Core/EntryPoint.h"

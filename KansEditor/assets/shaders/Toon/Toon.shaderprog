@@ -1,0 +1,21 @@
+KansShaderProgram 1
+vertex=Toon.vert
+fragment=Toon.frag
+
+default BaseColor = 1 1 1 1
+default ShadowColor = 0.65 0.6 0.7 1
+default ShadowThreshold = 0.5
+default ShadowSoftness = 0.05
+default RimPower = 4
+
+hint BaseColor = color
+hint ShadowColor = color
+hint RimColor = color
+hint ShadowThreshold = range 0 1
+hint ShadowSoftness = range 0 0.5
+hint RimPower = range 0.1 16
+hint RampBlend = range 0 1
+
+group Surface = BaseColor u_Albedo
+group Shadows = ShadowColor ShadowThreshold ShadowSoftness RampBlend u_Ramp
+group Rim = RimColor RimPower

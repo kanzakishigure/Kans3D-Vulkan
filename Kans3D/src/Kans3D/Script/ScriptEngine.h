@@ -21,6 +21,7 @@ namespace Kans
     public:
         static void Init();
         static void ShutDown();
+        static bool IsInitialized();
 
         static void LoadAssembly(const std::filesystem::path& filepath);
         static bool EntityClassExists(const std::string& className);

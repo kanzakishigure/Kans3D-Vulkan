@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include "Kans3D/Asset/Asset.h"
+#include "Kans3D/Asset/Runtime/TextureData.h"
 #include "Kans3D/Core/ByteBuffer.h"
 #include "Kans3D/Renderer/RHI/RHITypeProxy.h"
 
@@ -39,6 +40,7 @@ namespace Kans
     {
 
     public:
+        [[nodiscard]] static std::variant<Ref<Texture2D>, AssetError> CreateFromProduct(const TextureData& data);
         static Ref<Texture2D> Create(const TextureSpecification& specification, const std::filesystem::path& filepath);
         static Ref<Texture2D> Create(const TextureSpecification& specification, Buffer buffer = Buffer());
     };

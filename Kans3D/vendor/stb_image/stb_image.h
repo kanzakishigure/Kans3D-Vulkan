@@ -5388,14 +5388,16 @@ static void *stbi__bmp_load(stbi__context *s, int *x, int *y, int *comp, int req
 
    if (info.hsz == 12) {
       if (info.bpp < 24)
-         psize = (info.offset - info.extra_read - 24) / 3;
+         // Kans3D: BITMAPCOREHEADER is 12 bytes, not 24.
+         psize = (info.offset - info.extra_read - info.hsz) / 3;
    } else {
       if (info.bpp < 16)
          psize = (info.offset - info.extra_read - info.hsz) >> 2;
    }
    if (psize == 0) {
-      STBI_ASSERT(info.offset == s->callback_already_read + (int) (s->img_buffer - s->img_buffer_original));
-      if (info.offset != s->callback_already_read + (s->img_buffer - s->buffer_start)) {
+      // Kans3D: memory inputs do not use buffer_start. Keep subtraction
+      // within the input buffer and allow legal gaps before pixel data.
+      if (info.offset < s->callback_already_read + (s->img_buffer - s->img_buffer_original)) {
         return stbi__errpuc("bad offset", "Corrupt BMP");
       }
    }

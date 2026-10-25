@@ -107,6 +107,7 @@ namespace Kans
         ShutDownMono();
 
         delete s_Context;
+        s_Context = nullptr;
     }
 
     void ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
@@ -125,9 +126,20 @@ namespace Kans
         return s_Context->EntityClasses.find(className) != s_Context->EntityClasses.end();
     }
 
-    void ScriptEngine::OnRuntimeStart(Scene* scene) { s_Context->SceneContext = scene; }
+    bool ScriptEngine::IsInitialized() { return s_Context && s_Context->AppDomain && s_Context->CoreAssemblyImage; }
+    void ScriptEngine::OnRuntimeStart(Scene* scene)
+    {
+        if (IsInitialized())
+            s_Context->SceneContext = scene;
+    }
 
-    void ScriptEngine::OnRuntimeEnd() { s_Context->SceneContext = nullptr; }
+    void ScriptEngine::OnRuntimeEnd()
+    {
+        if (!s_Context)
+            return;
+        s_Context->SceneContext = nullptr;
+        s_Context->EntityInstances.clear();
+    }
 
     void ScriptEngine::OnCreateEntity(Entity entity)
     {

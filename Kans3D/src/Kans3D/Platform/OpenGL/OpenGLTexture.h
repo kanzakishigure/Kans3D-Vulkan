@@ -8,6 +8,7 @@ namespace Kans
     class OpenGLTexture2D : public Texture2D
     {
     public:
+        [[nodiscard]] static std::variant<Ref<OpenGLTexture2D>, AssetError> UploadProduct(const TextureData& data);
         OpenGLTexture2D(const TextureSpecification& specification, const std::filesystem::path& filepath);
         OpenGLTexture2D(const TextureSpecification& specification, Buffer data = Buffer());
         // 重写Texture的虚析构函数，保证从虚函数表能查找到对应析构函数
@@ -21,6 +22,7 @@ namespace Kans
         virtual const std::filesystem::path& GetPath() const override;
 
     private:
+        OpenGLTexture2D() : m_Height(0), m_Width(0), m_RendererID(0), m_InternalFormat(0), m_DataFormat(0) {}
         uint32_t              m_Height;
         uint32_t              m_Width;
         uint32_t              m_RendererID;

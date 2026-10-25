@@ -1,0 +1,618 @@
+#include "ViewportPanel.h"
+#include "Kans3D/Editor/DropPlacement.h"
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <imgui_internal.h>
+#include "ImGuizmo.h"
+#include "Kans3D/Core/Math/Math.h"
+#include "Kans3D/Input/Input.h"
+#include "Kans3D/Scene/Components.h"
+#include "Kans3D/Scene/ProductModelComponent.h"
+#include "UI/EditorIcons.h"
+#include "UI/Widgets.h"
+
+namespace Kans
+{
+    using Widgets::OverlayGroup;
+    using Widgets::ToolButton;
+    using Widgets::ToolSeparator;
+
+    void ViewportPanel::SetContext(Ref<Scene> scene, Ref<RenderScene> renderScene, Ref<SceneRenderer> renderer)
+    {
+        m_Scene       = std::move(scene);
+        m_RenderScene = std::move(renderScene);
+        m_Renderer    = std::move(renderer);
+        m_Size        = {0, 0}; // Re-applies the viewport size to the new scene.
+    }
+
+    void ViewportPanel::Draw()
+    {
+        m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        m_Hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+        if (!m_Scene || !m_Renderer || !m_RenderScene)
+        {
+            ImGui::TextDisabled("No scene.");
+            return;
+        }
+        const ImVec2 size = ImGui::GetContentRegionAvail();
+        m_Min             = ImGui::GetCursorScreenPos();
+        m_Max             = {m_Min.x + size.x, m_Min.y + size.y};
+        // Resize and render in this frame, so the image always matches the panel.
+        Resize(size);
+        if (Entity selected = m_Hierarchy.GetSelected(); selected && !UsesSceneCamera())
+        {
+            // Outline the selection with its children. Models, not meshes: the renderer
+            // resolves them after this frame's asset updates.
+            std::vector<ModelDraw>      highlights;
+            std::function<void(Entity)> collect = [&](Entity entity) {
+                if (entity.HasComponent<ProductModelComponent>())
+                    highlights.push_back(
+                        {entity.GetComponent<ProductModelComponent>(), m_Scene->GetWorldTransform(entity)});
+                for (Entity child : m_Scene->GetChildren(entity))
+                    collect(child);
+            };
+            collect(selected);
+            m_Renderer->SetHighlight(std::move(highlights));
+        }
+        Render();
+
+        const auto output = static_cast<uintptr_t>(m_Renderer->GetOutput(0));
+        ImGui::Image(reinterpret_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
+        m_ImageHovered = ImGui::IsItemHovered();
+        if (m_Playing)
+        {
+            // A colored frame marks play mode; changes made now are discarded on stop.
+            ImGui::GetWindowDrawList()->AddRect(m_Min, m_Max, IM_COL32(60, 170, 255, 255), 0.0f, 0, 3.0f);
+        }
+        AcceptDrop();
+        DrawSceneOverlays();
+        DrawGizmo();
+        DrawToolbar();
+        DrawViewCube();
+        DrawStatsOverlay();
+        // After the overlays, so clicks on their widgets do not navigate.
+        HandleNavigation();
+        HandleShortcuts();
+    }
+
+    void ViewportPanel::Resize(ImVec2 size)
+    {
+        const glm::uvec2 pixels(std::max(1.0f, size.x), std::max(1.0f, size.y));
+        if (pixels == m_Size)
+            return;
+        m_Size = pixels;
+        m_Renderer->SetViewportSize(pixels.x, pixels.y);
+        m_Camera.SetViewportSize(pixels.x, pixels.y);
+        m_RenderScene->OnViewportResize(pixels.x, pixels.y);
+        m_Scene->OnViewportResize(pixels.x, pixels.y);
+    }
+
+    bool ViewportPanel::UsesSceneCamera() const
+    {
+        // Without a primary camera, play mode still shows the editor view.
+        return m_Playing && !m_UseEditorCameraInPlay && m_Scene && m_Scene->GetCameraEntity();
+    }
+
+    glm::mat4 ViewportPanel::ViewProjection() const
+    {
+        if (!UsesSceneCamera())
+            return m_Camera.GetViewProjection();
+        Entity camera = m_Scene->GetCameraEntity();
+        return camera.GetComponent<CameraComponent>().SceneCamera.GetProjectionMatrix() *
+               glm::inverse(m_Scene->GetWorldTransform(camera));
+    }
+
+    void ViewportPanel::Render()
+    {
+        const TimeStep step(ImGui::GetIO().DeltaTime);
+        m_Renderer->SetViewMode(UsesSceneCamera() ? SceneViewMode::Lit : m_ViewMode);
+        if (UsesSceneCamera())
+            m_RenderScene->OnRenderRuntime(m_Renderer, step);
+        else
+            m_RenderScene->OnRenderEditor(m_Renderer, step, m_Camera);
+    }
+
+    std::vector<MeshDraw> ViewportPanel::CollectDraws(std::vector<UUID>& entities, Entity root)
+    {
+        std::vector<MeshDraw>       draws;
+        std::function<void(Entity)> visit = [&](Entity entity) {
+            if (entity.HasComponent<ProductModelComponent>())
+            {
+                entities.push_back(entity.GetUUID());
+                m_Renderer->AppendModelDraws(entity.GetComponent<ProductModelComponent>(),
+                                             m_Scene->GetWorldTransform(entity),
+                                             uint32_t(entities.size()),
+                                             draws);
+            }
+            for (Entity child : m_Scene->GetChildren(entity))
+                visit(child);
+        };
+        if (root)
+            visit(root);
+        else
+            for (Entity entity : m_Scene->GetRootEntities())
+                visit(entity);
+        return draws;
+    }
+
+    void ViewportPanel::PickAt(ImVec2 mouse)
+    {
+        // Overlay icons (lights, cameras) take precedence over meshes.
+        float best = 14.0f * 14.0f;
+        UUID  icon = 0;
+        for (const auto& [center, id] : m_Icons)
+        {
+            const float dx = center.x - mouse.x, dy = center.y - mouse.y;
+            if (dx * dx + dy * dy < best)
+                best = dx * dx + dy * dy, icon = id;
+        }
+        if (icon)
+        {
+            m_Hierarchy.SetSelected(m_Scene->GetEntityByUUID(icon));
+            return;
+        }
+        std::vector<UUID> entities;
+        const auto        draws = CollectDraws(entities);
+        // The framebuffer's origin is its bottom-left corner.
+        const glm::uvec2 pixel(uint32_t(mouse.x - m_Min.x), uint32_t(m_Max.y - mouse.y - 1.0f));
+        const uint32_t   id = m_Renderer->Pick(draws, ViewProjection(), pixel);
+        m_Hierarchy.SetSelected(id && id <= entities.size() ? m_Scene->GetEntityByUUID(entities[id - 1]) : Entity {});
+    }
+
+    void ViewportPanel::AcceptDrop()
+    {
+        if (!ImGui::BeginDragDropTarget())
+        {
+            m_DragFile.clear();
+            return;
+        }
+        // Accepted every frame of the hover, so the model can be previewed where it would land.
+        const auto* data = ImGui::AcceptDragDropPayload("asset_payload",
+                                                        ImGuiDragDropFlags_AcceptBeforeDelivery |
+                                                            ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+        if (data)
+        {
+            const auto file = std::filesystem::u8path(std::string(static_cast<const char*>(data->Data), size_t(data->DataSize)));
+            if (file != m_DragFile)
+            {
+                m_DragFile  = file;
+                m_DragModel = m_ResolveModel && file.extension() != ".kans" ? m_ResolveModel(file) : AssetID {};
+            }
+            std::optional<glm::vec3> position;
+            if (file.extension() != ".kans" && !UsesSceneCamera())
+            {
+                position = DropPosition(ImGui::GetMousePos(), m_DragModel);
+                if (m_DragModel.IsValid())
+                {
+                    ProductModelComponent preview;
+                    preview.Model = m_DragModel;
+                    m_Renderer->SetPreview(preview, glm::translate(glm::mat4(1.0f), *position));
+                }
+            }
+            if (data->IsDelivery())
+            {
+                m_DragFile.clear();
+                if (m_FileDrop)
+                    m_FileDrop(file, position);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    glm::vec3 ViewportPanel::DropPosition(ImVec2 mouse, AssetID model)
+    {
+        const glm::vec2 pixel(mouse.x - m_Min.x, mouse.y - m_Min.y);
+        const auto [origin, direction] = m_Camera.ScreenRay(pixel);
+        // The surface under the cursor; the picker uses a bottom-left pixel origin.
+        std::vector<UUID> entities;
+        const auto        hit = m_Renderer->PickSurface(
+            CollectDraws(entities),
+            ViewProjection(),
+            {uint32_t(std::clamp(pixel.x, 0.0f, float(m_Size.x - 1))),
+             uint32_t(std::clamp(float(m_Size.y) - 1.0f - pixel.y, 0.0f, float(m_Size.y - 1)))});
+        Bounds bounds;
+        if (model.IsValid() && m_Renderer->GetAssetCache())
+            bounds = m_Renderer->GetAssetCache()->GetModelBounds(model);
+        return ComputeDropPosition(origin, direction, hit.Position, bounds, m_Camera.GetDistance());
+    }
+
+    // ---------------------------------------------------------------------- navigation
+
+    void ViewportPanel::HandleNavigation()
+    {
+        const ImGuiIO& io        = ImGui::GetIO();
+        const bool     overCube  = ImGui::IsMouseHoveringRect(m_CubeMin, m_CubeMax, false);
+        const bool     overImage = m_ImageHovered && !ImGui::IsAnyItemHovered() && !overCube;
+        if (m_Navigation == Navigation::None && overImage)
+        {
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                m_Navigation = Navigation::Look;
+            else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle))
+                m_Navigation = Navigation::Pan;
+            else if (io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                m_Navigation = Navigation::Orbit;
+            if (m_Navigation == Navigation::Look)
+                Input::SetCursorMode(CursorMode::Disable);
+            if (m_Navigation != Navigation::None)
+                ImGui::SetWindowFocus();
+            // A plain left click selects what is under the cursor.
+            else if (!io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver() &&
+                     !ImGuizmo::IsUsing())
+                PickAt(io.MousePos);
+        }
+
+        switch (m_Navigation)
+        {
+            case Navigation::Look:
+            {
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
+                    break;
+                m_Camera.Look({io.MouseDelta.x, io.MouseDelta.y});
+                const auto axis = [](ImGuiKey positive, ImGuiKey negative) {
+                    return (ImGui::IsKeyDown(positive) ? 1.0f : 0.0f) - (ImGui::IsKeyDown(negative) ? 1.0f : 0.0f);
+                };
+                const glm::vec3 direction(axis(ImGuiKey_D, ImGuiKey_A), axis(ImGuiKey_E, ImGuiKey_Q), axis(ImGuiKey_W, ImGuiKey_S));
+                if (direction != glm::vec3(0.0f))
+                    m_Camera.Fly(direction * (io.KeyShift ? 3.0f : 1.0f), io.DeltaTime);
+                if (io.MouseWheel != 0.0f)
+                    m_Camera.SetFlySpeed(m_Camera.GetFlySpeed() * std::pow(1.2f, io.MouseWheel));
+                return;
+            }
+            case Navigation::Orbit:
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                {
+                    m_Camera.Orbit({io.MouseDelta.x, io.MouseDelta.y});
+                    return;
+                }
+                break;
+            case Navigation::Pan:
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+                {
+                    m_Camera.Pan({io.MouseDelta.x, io.MouseDelta.y});
+                    return;
+                }
+                break;
+            case Navigation::None:
+                if (overImage && io.MouseWheel != 0.0f)
+                    m_Camera.Dolly(io.MouseWheel);
+                return;
+        }
+        // The navigating button was released.
+        if (m_Navigation == Navigation::Look)
+            Input::SetCursorMode(CursorMode::Normal);
+        m_Navigation = Navigation::None;
+    }
+
+    void ViewportPanel::HandleShortcuts()
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        if ((!m_Hovered && !m_Focused) || io.WantTextInput || io.KeyCtrl || m_Navigation != Navigation::None)
+            return;
+        if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
+            m_GizmoType = -1;
+        if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+            m_GizmoType = ImGuizmo::TRANSLATE;
+        if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+            m_GizmoType = ImGuizmo::ROTATE;
+        if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+            m_GizmoType = ImGuizmo::SCALE;
+        if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+            FocusSelection();
+    }
+
+    void ViewportPanel::FocusSelection()
+    {
+        Entity selected = m_Hierarchy.GetSelected();
+        if (!selected || !m_Scene)
+            return;
+        // Frame the selected entity with its children.
+        Bounds                      bounds;
+        std::function<void(Entity)> visit = [&](Entity entity) {
+            const glm::mat4 world = m_Scene->GetWorldTransform(entity);
+            Bounds          model;
+            if (entity.HasComponent<ProductModelComponent>() && m_Renderer->GetAssetCache())
+                model = m_Renderer->GetAssetCache()->GetModelBounds(entity.GetComponent<ProductModelComponent>().Model);
+            if (model.IsValid())
+                bounds.Expand(model.Transformed(world));
+            else
+                bounds.Expand(glm::vec3(world[3]));
+            for (Entity child : m_Scene->GetChildren(entity))
+                visit(child);
+        };
+        visit(selected);
+        m_Camera.Focus(bounds.Center(), std::max(bounds.Radius(), 0.5f));
+    }
+
+    // ---------------------------------------------------------------------- overlays
+
+    bool ViewportPanel::ToScreen(const glm::vec3& point, ImVec2& screen) const
+    {
+        const glm::vec4 clip = ViewProjection() * glm::vec4(point, 1.0f);
+        if (clip.w <= 1e-4f)
+            return false;
+        const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        screen = {m_Min.x + (ndc.x * 0.5f + 0.5f) * (m_Max.x - m_Min.x),
+                  m_Min.y + (0.5f - ndc.y * 0.5f) * (m_Max.y - m_Min.y)};
+        return true;
+    }
+
+    void ViewportPanel::DrawSceneOverlays()
+    {
+        m_Icons.clear();
+        if (!m_ShowIcons || UsesSceneCamera())
+            return;
+        ImDrawList*  draw     = ImGui::GetWindowDrawList();
+        const UUID   selected = m_Hierarchy.GetSelected() ? m_Hierarchy.GetSelected().GetUUID() : UUID(0);
+        const ImU32  line     = IM_COL32(230, 230, 230, 170);
+        const ImU32  accent   = IM_COL32(255, 160, 40, 255);
+        const auto   segment  = [&](const glm::vec3& a, const glm::vec3& b, ImU32 color) {
+            ImVec2 sa, sb;
+            if (ToScreen(a, sa) && ToScreen(b, sb))
+                draw->AddLine(sa, sb, color, 1.5f);
+        };
+        draw->PushClipRect(m_Min, m_Max, true);
+        std::function<void(Entity)> visit = [&](Entity entity) {
+            for (Entity child : m_Scene->GetChildren(entity))
+                visit(child);
+            const char* icon = entity.HasComponent<CameraComponent>()     ? ICON_FA_VIDEO :
+                               entity.HasComponent<DirLightComponent>()   ? ICON_FA_SUN :
+                               entity.HasComponent<PointLightComponent>() ? ICON_FA_LIGHTBULB :
+                                                                            nullptr;
+            if (!icon)
+                return;
+            const glm::mat4 world  = m_Scene->GetWorldTransform(entity);
+            const glm::vec3 origin = glm::vec3(world[3]);
+            const bool      chosen = entity.GetUUID() == selected;
+            const ImU32     color  = chosen ? accent : line;
+            if (entity.HasComponent<CameraComponent>())
+            {
+                // Frustum to a short display distance.
+                auto&           camera = entity.GetComponent<CameraComponent>().SceneCamera;
+                const float     aspect = std::max(camera.GetAspectRatio(), 0.01f);
+                const glm::mat4 projection =
+                    camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective ?
+                        glm::perspective(glm::radians(camera.GetPerspectiveVerticalFOV()), aspect, 0.1f, 2.0f) :
+                        glm::ortho(-camera.GetOrthographicSize() * aspect * 0.5f,
+                                   camera.GetOrthographicSize() * aspect * 0.5f,
+                                   -camera.GetOrthographicSize() * 0.5f,
+                                   camera.GetOrthographicSize() * 0.5f,
+                                   0.0f,
+                                   2.0f);
+                const glm::mat4 inverse = world * glm::inverse(projection);
+                glm::vec3       corners[8];
+                for (int i = 0; i < 8; ++i)
+                {
+                    const glm::vec4 point = inverse * glm::vec4((i & 1) ? 1 : -1, (i & 2) ? 1 : -1, (i & 4) ? 1 : -1, 1);
+                    corners[i]            = glm::vec3(point) / point.w;
+                }
+                const int edges[12][2] = {{0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7},
+                                          {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+                for (const auto& edge : edges)
+                    segment(corners[edge[0]], corners[edge[1]], color);
+            }
+            if (entity.HasComponent<DirLightComponent>())
+            {
+                // The light's direction, rotated with the entity.
+                glm::vec3 direction = entity.GetComponent<DirLightComponent>().Direction;
+                direction = glm::length(direction) > 1e-4f ? glm::normalize(glm::mat3(world) * direction) : glm::vec3(0, -1, 0);
+                segment(origin, origin + direction * 1.5f, color);
+            }
+            ImVec2 center;
+            if (!ToScreen(origin, center))
+                return;
+            draw->AddCircleFilled(center, 12.0f, chosen ? IM_COL32(90, 55, 10, 230) : IM_COL32(25, 25, 25, 200));
+            draw->AddCircle(center, 12.0f, color, 0, 1.5f);
+            const ImVec2 size = ImGui::CalcTextSize(icon);
+            draw->AddText({center.x - size.x * 0.5f, center.y - size.y * 0.5f}, color, icon);
+            m_Icons.emplace_back(center, entity.GetUUID());
+        };
+        for (Entity entity : m_Scene->GetRootEntities())
+            visit(entity);
+        draw->PopClipRect();
+    }
+
+    void ViewportPanel::DrawViewCube()
+    {
+        m_CubeMin = m_CubeMax = {};
+        if (UsesSceneCamera())
+            return;
+        const ImVec2 size(96.0f, 96.0f);
+        const ImVec2 position(m_Max.x - size.x - 10.0f, m_Min.y + 46.0f);
+        m_CubeMin = position;
+        m_CubeMax = {position.x + size.x, position.y + size.y};
+        glm::mat4 view = m_Camera.GetViewMatrix();
+        ImGuizmo::SetDrawlist();
+        ImGuizmo::ViewManipulate(glm::value_ptr(view), m_Camera.GetDistance(), position, size, IM_COL32(0, 0, 0, 0));
+        if (view != m_Camera.GetViewMatrix())
+            m_Camera.SetViewMatrix(view);
+    }
+
+    void ViewportPanel::DrawStatsOverlay()
+    {
+        if (!m_ShowStats)
+            return;
+        const auto&    stats = m_Renderer->GetStats();
+        const ImGuiIO& io    = ImGui::GetIO();
+        OverlayGroup({m_Min.x + 10.0f, m_Max.y - 86.0f}, [&] {
+            ImGui::Text("%.0f FPS  %.2f ms", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
+            ImGui::Text("%u x %u", m_Size.x, m_Size.y);
+            ImGui::Text("%u draw calls", stats.DrawCalls);
+            ImGui::Text("%llu triangles", static_cast<unsigned long long>(stats.Triangles));
+        });
+    }
+
+    // ---------------------------------------------------------------------- gizmo and toolbar
+
+    void ViewportPanel::DrawGizmo()
+    {
+        Entity selected = m_Hierarchy.GetSelected();
+        if (!selected || m_GizmoType < 0 || (m_Playing && !m_UseEditorCameraInPlay && m_Scene->GetCameraEntity()))
+            return;
+        ImGuizmo::SetOrthographic(m_Camera.IsOrthographic());
+        ImGuizmo::SetDrawlist();
+        ImGuizmo::SetRect(m_Min.x, m_Min.y, m_Max.x - m_Min.x, m_Max.y - m_Min.y);
+
+        // The gizmo works on the world transform; results go back to the local one.
+        glm::mat4   transform = m_Scene->GetWorldTransform(selected);
+        const bool  snap      = m_GizmoSnap || ImGui::GetIO().KeyCtrl;
+        const float step      = m_GizmoType == ImGuizmo::ROTATE ? m_SnapRotate :
+                                m_GizmoType == ImGuizmo::SCALE  ? m_SnapScale :
+                                                                  m_SnapMove;
+        const float snapValues[3] = {step, step, step};
+        ImGuizmo::Manipulate(glm::value_ptr(m_Camera.GetViewMatrix()),
+                             glm::value_ptr(m_Camera.GetProjectionMatrix()),
+                             static_cast<ImGuizmo::OPERATION>(m_GizmoType),
+                             static_cast<ImGuizmo::MODE>(m_GizmoMode),
+                             glm::value_ptr(transform),
+                             nullptr,
+                             snap ? snapValues : nullptr);
+        if (!ImGuizmo::IsUsing())
+            return;
+
+        const Entity    parent = m_Scene->GetParent(selected);
+        const glm::mat4 local  = parent ? glm::inverse(m_Scene->GetWorldTransform(parent)) * transform : transform;
+        glm::vec3       translation, rotation, scale;
+        Math::DecomposeTransform(local, translation, rotation, scale);
+        auto& tc = selected.GetComponent<TransformComponent>();
+        switch (m_GizmoType)
+        {
+            case ImGuizmo::TRANSLATE:
+                tc.Position = translation;
+                break;
+            case ImGuizmo::ROTATE:
+            {
+                // Map the stored rotation to [-pi, pi], the range the decomposition returns.
+                glm::vec3 original = tc.Rotation;
+                for (int i = 0; i < 3; ++i)
+                    original[i] = fmodf(original[i] + glm::pi<float>(), glm::two_pi<float>()) - glm::pi<float>();
+                glm::vec3 delta = rotation - original;
+                // Avoid drift from numeric precision.
+                for (int i = 0; i < 3; ++i)
+                    if (fabs(delta[i]) < 0.001f)
+                        delta[i] = 0.0f;
+                tc.Rotation += delta;
+                break;
+            }
+            case ImGuizmo::SCALE:
+                tc.Scale = scale;
+                break;
+        }
+    }
+
+    void ViewportPanel::DrawToolbar()
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 4.0f));
+
+        // Left: transform tools, space and snapping.
+        OverlayGroup({m_Min.x + 10.0f, m_Min.y + 8.0f}, [&] {
+            const std::pair<int, std::pair<const char*, const char*>> tools[] = {
+                {-1, {ICON_FA_POINTER, "Select (Q)"}},
+                {ImGuizmo::TRANSLATE, {ICON_FA_ARROWS_MOVE, "Move (W)"}},
+                {ImGuizmo::ROTATE, {ICON_FA_ROTATE, "Rotate (E)"}},
+                {ImGuizmo::SCALE, {ICON_FA_SCALE, "Scale (R)"}},
+            };
+            bool first = true;
+            for (const auto& [type, info] : tools)
+            {
+                if (!first)
+                    ImGui::SameLine();
+                first = false;
+                if (ToolButton(info.first, info.second, m_GizmoType == type))
+                    m_GizmoType = type;
+            }
+            ToolSeparator();
+            if (ToolButton(m_GizmoMode == ImGuizmo::LOCAL ? ICON_FA_CUBE : ICON_FA_GLOBE,
+                           m_GizmoMode == ImGuizmo::LOCAL ? "Local space (click for world)" :
+                                                            "World space (click for local)"))
+                m_GizmoMode = m_GizmoMode == ImGuizmo::LOCAL ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
+            ImGui::SameLine();
+            if (ToolButton(ICON_FA_MAGNET, "Snap (or hold Ctrl while dragging)", m_GizmoSnap))
+                m_GizmoSnap = !m_GizmoSnap;
+            ImGui::SameLine();
+            float*      snapStep = m_GizmoType == ImGuizmo::ROTATE ? &m_SnapRotate :
+                                   m_GizmoType == ImGuizmo::SCALE  ? &m_SnapScale :
+                                                                     &m_SnapMove;
+            const char* format   = m_GizmoType == ImGuizmo::ROTATE ? "%.0f deg" : "%.2f";
+            ImGui::SetNextItemWidth(70.0f);
+            ImGui::AlignTextToFramePadding();
+            ImGui::DragFloat("##snap", snapStep, 0.05f, 0.01f, 360.0f, format);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Snap step for the current tool");
+        });
+
+        // Right: camera, view options.
+        OverlayGroup({m_Max.x - 268.0f, m_Min.y + 8.0f}, [&] {
+            if (ToolButton(m_Camera.IsOrthographic() ? ICON_FA_VECTOR_SQUARE : ICON_FA_VIDEO, "Camera view"))
+                ImGui::OpenPopup("##CameraView");
+            if (ImGui::BeginPopup("##CameraView"))
+            {
+                const std::pair<EditorCamera::View, const char*> views[] = {
+                    {EditorCamera::View::Perspective, "Perspective"},
+                    {EditorCamera::View::Top, "Top"},
+                    {EditorCamera::View::Bottom, "Bottom"},
+                    {EditorCamera::View::Front, "Front"},
+                    {EditorCamera::View::Back, "Back"},
+                    {EditorCamera::View::Right, "Right"},
+                    {EditorCamera::View::Left, "Left"},
+                };
+                for (const auto& [view, name] : views)
+                    if (ImGui::MenuItem(name))
+                        m_Camera.SetView(view);
+                ImGui::Separator();
+                bool orthographic = m_Camera.IsOrthographic();
+                if (ImGui::MenuItem("Orthographic", nullptr, &orthographic))
+                    m_Camera.SetOrthographic(orthographic);
+                ImGui::EndPopup();
+            }
+            ImGui::SameLine();
+            if (ToolButton(ICON_FA_CROSSHAIRS, "Frame the selection (F)", false, bool(m_Hierarchy.GetSelected())))
+                FocusSelection();
+            ImGui::SameLine();
+            float speed = m_Camera.GetFlySpeed();
+            ImGui::SetNextItemWidth(110.0f);
+            ImGui::AlignTextToFramePadding();
+            if (ImGui::SliderFloat("##speed",
+                                   &speed,
+                                   EditorCamera::MinFlySpeed,
+                                   EditorCamera::MaxFlySpeed,
+                                   "%.1f m/s",
+                                   ImGuiSliderFlags_Logarithmic))
+                m_Camera.SetFlySpeed(speed);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Fly speed (right mouse + WASD/QE, Shift for faster); the wheel adjusts it while flying");
+            ImGui::SameLine();
+            if (ToolButton(ICON_FA_EYE, "View options"))
+                ImGui::OpenPopup("##ViewOptions");
+            if (ImGui::BeginPopup("##ViewOptions"))
+            {
+                ImGui::TextDisabled("Display");
+                const std::pair<SceneViewMode, const char*> modes[] = {{SceneViewMode::Lit, "Lit"},
+                                                                       {SceneViewMode::BaseColor, "Base color"},
+                                                                       {SceneViewMode::Normals, "Normals"},
+                                                                       {SceneViewMode::Wireframe, "Wireframe"}};
+                for (const auto& [mode, name] : modes)
+                    if (ImGui::RadioButton(name, m_ViewMode == mode))
+                        m_ViewMode = mode;
+                ImGui::Separator();
+                auto  resource = m_RenderScene->GetRenderResource();
+                auto& state    = resource.Piplinestate;
+                const auto label = [](const char* icon, const char* text) { return std::string(icon) + "  " + text; };
+                ImGui::Checkbox(label(ICON_FA_LIGHTBULB, "Light and camera icons").c_str(), &m_ShowIcons);
+                ImGui::Checkbox(label(ICON_FA_CHART_LINE, "Statistics").c_str(), &m_ShowStats);
+                ImGui::Checkbox(label(ICON_FA_BORDER_ALL, "Grid").c_str(), &state.EnableGridShader);
+                ImGui::Checkbox(label(ICON_FA_DRAW_POLYGON, "Outline (all models)").c_str(), &state.EnableOutline);
+                ImGui::Checkbox(label(ICON_FA_VECTOR_SQUARE, "Stencil (all models)").c_str(), &state.EnableStencil);
+                ImGui::Checkbox(label(ICON_FA_CROSSHAIRS, "Debug normals").c_str(), &state.EnableDebugNormal);
+                m_RenderScene->SetRenderResource(resource);
+                if (m_Playing)
+                {
+                    ImGui::Separator();
+                    ImGui::Checkbox("Editor camera while playing", &m_UseEditorCameraInPlay);
+                }
+                ImGui::EndPopup();
+            }
+        });
+        ImGui::PopStyleVar();
+    }
+} // namespace Kans

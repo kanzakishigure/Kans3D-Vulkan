@@ -5,19 +5,23 @@
 #include <system_error>
 #include <type_traits>
 #include <yaml-cpp/yaml.h>
+#include "SourceImportConfigurationYaml.h"
+#include "Storage/ProductFiles.h"
 
 namespace Kans
 {
     namespace
     {
-        namespace fs   = std::filesystem;
-        using Duration = fs::file_time_type::duration;
+        namespace fs                         = std::filesystem;
+        constexpr uint64_t MaximumCacheBytes = 128 * 1024 * 1024;
+        constexpr size_t   MaximumSources    = 100000;
+        using Duration                       = fs::file_time_type::duration;
         static_assert(std::is_integral<Duration::rep>::value && std::is_signed<Duration::rep>::value &&
                       sizeof(Duration::rep) <= sizeof(int64_t));
 
         AssetError Error(AssetErrorCode code, const fs::path& file, const std::string& message)
         {
-            return {code, file.generic_string() + ": " + message};
+            return {code, file.generic_u8string() + ": " + message};
         }
 
         // C++17 file_clock epochs are implementation-defined. Reject snapshots from a
@@ -60,7 +64,20 @@ namespace Kans
 
         bool Valid(const SourceAssetMetadata& data)
         {
-            return data.IsValid() && data.MetaVersion == 1 && !(data.Exists && data.Missing);
+            return data.IsValid() && (data.MetaVersion >= 1 && data.MetaVersion <= 3) && !(data.Exists && data.Missing);
+        }
+
+        std::variant<std::monostate, AssetError> CheckDestination(const fs::path& path)
+        {
+            std::error_code ec;
+            const auto      status = fs::symlink_status(path, ec);
+            if (ec && ec != std::errc::no_such_file_or_directory)
+                return Error(AssetErrorCode::IoError, path, ec.message());
+            if (status.type() == fs::file_type::not_found)
+                return std::monostate {};
+            if (!fs::is_regular_file(status))
+                return Error(AssetErrorCode::InvalidData, path, "Cache destination must be a real regular file");
+            return std::monostate {};
         }
 
         // Own only a directory created exclusively by this save. Never truncate a
@@ -89,19 +106,42 @@ namespace Kans
             return *error;
         try
         {
-            const auto document = YAML::LoadFile(cachePath.string());
+            std::error_code statusError;
+            const auto      status = fs::symlink_status(cachePath, statusError);
+            if (status.type() == fs::file_type::not_found)
+                return Error(AssetErrorCode::NotFound, cachePath, "Missing source cache");
+            if (statusError)
+                return Error(AssetErrorCode::IoError, cachePath, statusError.message());
+            if (!fs::is_regular_file(status))
+                return Error(AssetErrorCode::InvalidData, cachePath, "Source cache must be a real regular file");
+            auto bytes = ReadProductFile(cachePath, MaximumCacheBytes);
+            if (const auto* error = std::get_if<AssetError>(&bytes))
+                return *error;
+            const auto& dataBytes = std::get<std::vector<std::byte>>(bytes);
+            if (dataBytes.empty())
+                return Error(AssetErrorCode::InvalidData, cachePath, "Empty source cache");
+            const auto documents =
+                YAML::LoadAll(std::string(reinterpret_cast<const char*>(dataBytes.data()), dataBytes.size()));
+            if (documents.size() != 1)
+                return Error(AssetErrorCode::InvalidData, cachePath, "Cache requires one YAML document");
+            const auto document = documents.front();
             if (!document.IsMap() || !document["version"].IsScalar())
                 return Error(AssetErrorCode::InvalidData, cachePath, "Invalid cache header");
-            if (document["version"].as<uint32_t>() != 1)
+            const auto version = document["version"].as<uint32_t>();
+            if (version != 1 && version != 2)
                 return Error(AssetErrorCode::UnsupportedVersion, cachePath, "Unsupported cache version");
-            if (document["asset_root"].as<std::string>() != std::get<fs::path>(root).generic_string())
+            auto fields = SourceMetadataDetail::CheckFields(
+                document, {"version", "asset_root", "clock_id", "clock_period_num", "clock_period_den", "sources"});
+            if (const auto* error = std::get_if<AssetError>(&fields))
+                return *error;
+            if (document["asset_root"].as<std::string>() != std::get<fs::path>(root).generic_u8string())
                 return Error(AssetErrorCode::InvalidData, cachePath, "Cache belongs to another asset root");
             if (document["clock_id"].as<std::string>() != ClockId() ||
                 document["clock_period_num"].as<int64_t>() != Duration::period::num ||
                 document["clock_period_den"].as<int64_t>() != Duration::period::den)
                 return Error(AssetErrorCode::UnsupportedVersion, cachePath, "Incompatible file clock");
             const auto sources = document["sources"];
-            if (!sources.IsSequence())
+            if (!sources.IsSequence() || sources.size() > MaximumSources)
                 return Error(AssetErrorCode::InvalidData, cachePath, "sources must be a sequence");
 
             SourceAssetDatabase database;
@@ -109,17 +149,49 @@ namespace Kans
             {
                 if (!entry.IsMap())
                     return Error(AssetErrorCode::InvalidData, cachePath, "Source record must be a map");
-                const auto id = entry["source_id"].as<std::string>();
-                if (id.size() != 16)
+                auto checked = version == 1 ? SourceMetadataDetail::CheckFields(entry,
+                                                                                {"source_id",
+                                                                                 "path",
+                                                                                 "meta_version",
+                                                                                 "exists",
+                                                                                 "missing",
+                                                                                 "file_size",
+                                                                                 "last_write_ticks"}) :
+                                              SourceMetadataDetail::CheckFields(entry,
+                                                                                {"source_id",
+                                                                                 "path",
+                                                                                 "meta_version",
+                                                                                 "exists",
+                                                                                 "missing",
+                                                                                 "file_size",
+                                                                                 "last_write_ticks",
+                                                                                 "import"});
+                if (const auto* error = std::get_if<AssetError>(&checked))
+                    return *error;
+                if (!entry["source_id"].IsScalar() || entry["source_id"].Scalar().size() != 16 ||
+                    !entry["path"].IsScalar() ||
+                    entry["path"].Scalar().size() > SourceImportConfiguration::MaximumString ||
+                    entry["path"].Scalar().find('\0') != std::string::npos)
                     return Error(AssetErrorCode::InvalidData, cachePath, "Invalid source ID length");
+                const auto          id = entry["source_id"].as<std::string>();
                 SourceAssetMetadata data;
                 data.sourceAssetID = SourceAssetID::FromString(id);
-                data.Path          = AssetPath(entry["path"].as<std::string>());
+                data.Path          = AssetPath(fs::u8path(entry["path"].as<std::string>()));
                 data.MetaVersion   = entry["meta_version"].as<uint32_t>();
-                data.Exists        = entry["exists"].as<bool>();
-                data.Missing       = entry["missing"].as<bool>();
-                data.FileSize      = entry["file_size"].as<uint64_t>();
-                const auto ticks   = entry["last_write_ticks"].as<int64_t>();
+                if (version == 1 && data.MetaVersion != 1)
+                    return Error(
+                        AssetErrorCode::InvalidData, cachePath, "Legacy cache has unsupported metadata schema");
+                if (version == 2)
+                {
+                    auto configuration = SourceMetadataDetail::DecodeImport(entry["import"]);
+                    if (const auto* error = std::get_if<AssetError>(&configuration))
+                        return *error;
+                    data.Import = std::get<SourceImportConfiguration>(std::move(configuration));
+                }
+                data.Exists      = entry["exists"].as<bool>();
+                data.Missing     = entry["missing"].as<bool>();
+                data.FileSize    = entry["file_size"].as<uint64_t>();
+                const auto ticks = entry["last_write_ticks"].as<int64_t>();
                 if (ticks < std::numeric_limits<Duration::rep>::min() ||
                     ticks > std::numeric_limits<Duration::rep>::max() || !Valid(data))
                     return Error(AssetErrorCode::InvalidData, cachePath, "Invalid source record: " + id);
@@ -159,21 +231,28 @@ namespace Kans
         TemporaryFile temporary;
         try
         {
-            auto records = database.GetAllSources();
-            std::sort(records.begin(), records.end(), [](const auto& a, const auto& b) {
-                return a.Path.ToString() < b.Path.ToString();
-            });
+            if (std::get<fs::path>(root).generic_u8string().size() > SourceImportConfiguration::MaximumString)
+                return Error(AssetErrorCode::InvalidArgument, cachePath, "Asset root exceeds string limit");
+            auto destination = CheckDestination(cachePath);
+            if (const auto* error = std::get_if<AssetError>(&destination))
+                return *error;
+            if (database.GetSourceCount() > MaximumSources)
+                return Error(AssetErrorCode::InvalidData, cachePath, "Source cache record limit exceeded");
+            auto records = database.GetSourceIDs();
+            std::sort(
+                records.begin(), records.end(), [](const auto& a, const auto& b) { return a.GetUUID() < b.GetUUID(); });
             YAML::Emitter out;
             out << YAML::BeginMap;
-            out << YAML::Key << "version" << YAML::Value << 1;
-            out << YAML::Key << "asset_root" << YAML::Value << std::get<fs::path>(root).generic_string();
+            out << YAML::Key << "version" << YAML::Value << 2;
+            out << YAML::Key << "asset_root" << YAML::Value << std::get<fs::path>(root).generic_u8string();
             out << YAML::Key << "clock_id" << YAML::Value << ClockId();
             out << YAML::Key << "clock_period_num" << YAML::Value << Duration::period::num;
             out << YAML::Key << "clock_period_den" << YAML::Value << Duration::period::den;
             out << YAML::Key << "sources" << YAML::Value << YAML::BeginSeq;
-            for (const auto& data : records)
+            for (const auto& id : records)
             {
-                if (!Valid(data))
+                const auto data = database.FindByID(id);
+                if (!Valid(data) || data.Path.ToString().size() > SourceImportConfiguration::MaximumString)
                     return Error(
                         AssetErrorCode::InvalidData, cachePath, "Invalid source record: " + data.Path.ToString());
                 out << YAML::BeginMap;
@@ -185,11 +264,17 @@ namespace Kans
                 out << YAML::Key << "file_size" << YAML::Value << data.FileSize;
                 out << YAML::Key << "last_write_ticks" << YAML::Value
                     << static_cast<int64_t>(data.last_edit_time.time_since_epoch().count());
+                out << YAML::Key << "import" << YAML::Value;
+                SourceMetadataDetail::EncodeImport(out, data.Import);
                 out << YAML::EndMap;
+                if (out.size() > MaximumCacheBytes)
+                    return Error(AssetErrorCode::InvalidData, cachePath, "Encoded source cache exceeds byte limit");
             }
             out << YAML::EndSeq << YAML::EndMap;
             if (!out.good())
                 return Error(AssetErrorCode::InvalidData, cachePath, out.GetLastError());
+            if (out.size() >= MaximumCacheBytes)
+                return Error(AssetErrorCode::InvalidData, cachePath, "Encoded source cache exceeds byte limit");
             for (int attempt = 0; attempt < 8; ++attempt)
             {
                 fs::path candidate = cachePath;
@@ -202,18 +287,21 @@ namespace Kans
             }
             if (temporary.Directory.empty())
                 return Error(AssetErrorCode::IoError, cachePath, "Cannot create cache temporary directory");
-            const auto    payload = temporary.Directory / "payload";
-            std::ofstream stream(payload, std::ios::binary | std::ios::trunc);
-            if (!stream)
-                return Error(AssetErrorCode::IoError, cachePath, "Cannot open cache temporary file");
-            stream << out.c_str() << '\n';
-            stream.flush();
-            if (!stream)
-                return Error(AssetErrorCode::IoError, cachePath, "Cannot write cache temporary file");
-            stream.close();
-            if (!stream)
-                return Error(AssetErrorCode::IoError, cachePath, "Cannot close cache temporary file");
-            fs::rename(payload, cachePath);
+            const auto             payload = temporary.Directory / "payload";
+            std::vector<std::byte> bytes;
+            bytes.reserve(out.size() + 1);
+            for (size_t i = 0; i < out.size(); ++i)
+                bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(out.c_str()[i])));
+            bytes.push_back(std::byte {'\n'});
+            auto written = WriteProductFile(payload, bytes);
+            if (const auto* error = std::get_if<AssetError>(&written))
+                return *error;
+            destination = CheckDestination(cachePath);
+            if (const auto* error = std::get_if<AssetError>(&destination))
+                return *error;
+            auto replaced = ReplaceProductCatalog(payload, cachePath);
+            if (const auto* error = std::get_if<AssetError>(&replaced))
+                return *error;
             return std::monostate {};
         }
         catch (const YAML::Exception& exception)

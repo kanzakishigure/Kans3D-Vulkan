@@ -1,13 +1,38 @@
 #pragma once
+#include <array>
+#include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Project/Project.h"
 #include <Kans3D.h>
 
 #include "Kans3D/Editor/EditorCamera.h"
-#include "Kans3D/Editor/Panel/SceneHierachyPanel.h"
+#include "Kans3D/Editor/EditorResources.h"
 #include "Panels/ContentBrowserPanel.h"
-#include "Panels/ImporterPanel.h"
+#include "Panels/HierarchyPanel.h"
+#include "Panels/MaterialEditorPanel.h"
+#include "Panels/ProductImportPanel.h"
+#include "Panels/PropertiesPanel.h"
+#include "Panels/ViewportPanel.h"
+#include "SceneHistory.h"
+#include "UI/SceneFileDialog.h"
+#include "Kans3D/Renderer/MaterialPreviewRenderer.h"
+#include "Kans3D/Scene/ScenePlaySession.h"
+#include "UI/ConsolePanel.h"
+#include "UI/PanelManager.h"
 namespace Kans
 {
+    // Identities of the editor panels (see PanelManager).
+    namespace PanelID
+    {
+        inline constexpr const char* Viewport       = "Viewport";
+        inline constexpr const char* Hierarchy      = "Hierarchy";
+        inline constexpr const char* Properties     = "Properties";
+        inline constexpr const char* ContentBrowser = "ContentBrowser";
+        inline constexpr const char* Console        = "Console";
+        inline constexpr const char* Stats          = "Stats";
+        inline constexpr const char* AssetImporter  = "AssetImporter";
+        inline constexpr const char* MaterialEditor = "MaterialEditor";
+    } // namespace PanelID
+
     class EditorLayer : public Kans::Layer
     {
 
@@ -22,18 +47,94 @@ namespace Kans
         void         OnEvent(Kans::Event& e) override;
         virtual void OnImGuiRender() override;
 
-        bool OnKeyPressedEvent(KeyPressedEvent& e);
-
     private:
-        void                     OpenProject();
-        std::unique_ptr<Project> m_Project;
+        // ---- Assets and scenes (EditorLayerAssets.cpp) ----
+        void                                     OpenProject();
+        std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
+        std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
+        // Adds a dropped model to the scene, importing it first if needed.
+        // `parent` (may be null) receives the placed model entity; `position`
+        // (world space) is where it goes, the parent's origin otherwise.
+        void PlaceAsset(const std::filesystem::path& file, Entity parent = {}, std::optional<glm::vec3> position = {});
+        // The source of a model file in the project, if it is one.
+        std::optional<SourceAssetID>             FindModelSource(const std::filesystem::path& file);
+        void                                     PlacePendingModel();
+        // Builds the source of `file` (content browser "Import" / "Reimport").
+        void                                     ImportSource(const std::filesystem::path& file);
+        // Writes a model's embedded materials to editable .material files next to it
+        // (in a Materials folder), makes the model use them and rebuilds it.
+        void                                     ExtractMaterials(const std::filesystem::path& file);
+        // Writes `<Name>_Instance.material` next to `file` with it as the parent, builds it and opens it.
+        void                                     CreateMaterialInstance(const std::filesystem::path& file);
+        // Published Material of a .material source, or invalid.
+        AssetID                                  FindPublishedMaterial(const std::filesystem::path& file);
+        // Content-browser thumbnail of a .material file: rendered a few per frame,
+        // re-rendered when the material is rebuilt. Null until ready.
+        Ref<Texture2D> MaterialThumbnail(const std::filesystem::path& file, uint32_t size);
+        struct MaterialThumbnailEntry
+        {
+            AssetID                      Material;
+            Ref<const MaterialDataAsset> Rendered;
+            Ref<Texture2D>               Texture;
+            uint32_t                     Size = 0;
+        };
+        std::unordered_map<std::string, MaterialThumbnailEntry> m_MaterialThumbnails;
+        int                                                     m_ThumbnailBudget = 0;
+        Scope<MaterialPreviewRenderer>                          m_MaterialPreview, m_ThumbnailRenderer;
+        AssetID                                  FindPublishedModel(SourceAssetID source) const;
+        std::optional<SourceAssetID>             m_PendingPlacement;
+        UUID                                     m_PendingPlacementParent = 0;
+        std::optional<glm::vec3>                 m_PendingPlacementPosition;
+        std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
+        std::variant<std::monostate, AssetError> NewScene();
+        std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);
+        std::variant<std::monostate, AssetError> SaveScene(const std::filesystem::path& path);
+        // Logs an error and shows it in the main toolbar.
+        void Record(const std::variant<std::monostate, AssetError>& result);
+        void SaveCurrentScene();
+        void DrawSceneFileDialogs();
 
-        glm::vec2 m_ViewportSize = glm::vec2(0.0f, 0.0f);
+        // ---- UI (EditorLayerUI.cpp) ----
+        void RegisterPanels();
+        void DrawMenuBar();
+        void DrawMainToolbar();
+        void DrawStats();
+        void HandleShortcuts();
+        // Records a history step once an interaction that may have edited the scene ends.
+        void TrackSceneEdits();
+        void UndoScene(int steps = 1);
+        // Play mode: the scene runs from a snapshot that Stop restores.
+        void StartPlay();
+        void StopPlay();
+        void TogglePause();
+        void DrawPlayControls();
+        void RedoScene(int steps = 1);
+        void OpenImporter(const std::filesystem::path& file);
+        void OpenMaterial(const std::filesystem::path& file);
+        void CreateMaterial(const std::filesystem::path& directory);
 
-        bool m_ViewportFocused  = false;
-        bool m_ViewportHovered  = false;
-        bool m_CameraNavigating = false;
-        bool Switchcamera       = false;
+        enum class SceneDialog
+        {
+            None,
+            Open,
+            Save
+        };
+        SceneDialog            m_SceneDialog = SceneDialog::None;
+        std::filesystem::path  m_ScenePath;
+        SceneFileDialog        m_SceneFileDialog;
+        // Last editor error, shown in the main toolbar until dismissed.
+        std::string m_SceneFileError;
+
+        SceneHistory     m_History;
+        ScenePlaySession m_Play;
+        bool         m_EditPending = false;
+
+        Scope<EditorAssetImportService> m_AssetImports;
+        Scope<AssetManager>             m_Assets;
+        // Name of the source being imported, for the toolbar status.
+        SourceAssetID m_StatusSource;
+        std::string   m_StatusName;
+
 
         Ref<Scene>         m_ActiveScene;
         Ref<RenderScene>   m_ActiveRenderScene;
@@ -42,18 +143,14 @@ namespace Kans
         Entity m_CameraEntity;
         Entity m_SecondCameraEntity;
 
-        // Gizmo
-        int m_GizmoType = 7; // -1 = no gizmo
-        int m_GizmoMode = 0; // 0 = local
-
-        EditorCamera m_EditorCamera;
-        // We Should Have PanelManger or such things
-        // HierachyPanel
-        SceneHierachyPanel m_SceneHierachyPanel;
-        // ContentBrowserPanel
+        PanelManager        m_Panels;
+        HierarchyPanel      m_HierarchyPanel;
+        PropertiesPanel     m_PropertiesPanel {m_HierarchyPanel};
+        ViewportPanel       m_ViewportPanel {m_HierarchyPanel};
         ContentBrowserPanel m_ContentBrowserPanel;
-        // ImporterPanel
-        ImporterPanel m_ImporterPanel;
+        ProductImportPanel  m_ProductImportPanel;
+        MaterialEditorPanel m_MaterialEditorPanel;
+        ConsolePanel        m_Console;
     };
 
 } // namespace Kans

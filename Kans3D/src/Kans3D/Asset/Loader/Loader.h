@@ -18,12 +18,40 @@ namespace Kans
 
     template<typename T>
     class Loader;
-    class StaticMesh;
+    class MeshAsset;
+    class ModelAsset;
+    class MaterialDataAsset;
+    class TextureAsset;
+    class ShaderDataAsset;
     template<>
-    class Loader<StaticMesh>
+    class Loader<ShaderDataAsset>
+    {
+    public:
+        std::variant<Ref<ShaderDataAsset>, AssetError> Load(const AssetLoadContext& context) const;
+    };
+    template<>
+    class Loader<TextureAsset>
+    {
+    public:
+        [[nodiscard]] std::variant<Ref<TextureAsset>, AssetError> Load(const AssetLoadContext& context) const;
+    };
+    template<>
+    class Loader<ModelAsset>
+    {
+    public:
+        [[nodiscard]] std::variant<Ref<ModelAsset>, AssetError> Load(const AssetLoadContext& context) const;
+    };
+    template<>
+    class Loader<MaterialDataAsset>
+    {
+    public:
+        [[nodiscard]] std::variant<Ref<MaterialDataAsset>, AssetError> Load(const AssetLoadContext& context) const;
+    };
+    template<>
+    class Loader<MeshAsset>
     {
     public:
         // CPU-only Product decoding. No source paths, file IO, importer or GPU calls.
-        [[nodiscard]] std::variant<Ref<StaticMesh>, AssetError> Load(const AssetLoadContext& context) const;
+        [[nodiscard]] std::variant<Ref<MeshAsset>, AssetError> Load(const AssetLoadContext& context) const;
     };
 } // namespace Kans

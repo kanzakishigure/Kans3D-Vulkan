@@ -9,10 +9,19 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
+#include "Kans3D/Asset/Loader/Loader.h"
+#include "Kans3D/Asset/Product/ContentDigest.h"
+#include "Kans3D/Asset/Product/MeshProduct.h"
+#include "Kans3D/Asset/Product/ModelProduct.h"
+#include "Kans3D/Asset/Product/TextureProduct.h"
 #include "Kans3D/Platform/OpenGL/OpenGLRHI.h"
+#include "Kans3D/Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Kans3D/Platform/OpenGL/OpenGLTexture.h"
+#include "Kans3D/Renderer/RHI/RendererAPI.h"
 
 namespace
 {
@@ -219,5 +228,140 @@ namespace
             EXPECT_GT(pixel[0] + pixel[1] + pixel[2], 0);
             EXPECT_EQ(glGetError(), GL_NO_ERROR);
         }
+    }
+    TEST_F(OpenGLTextureMipmap, ProductUploadPreservesAuthoredMipsSrgbAndUnpackState)
+    {
+        using namespace Kans;
+        TextureData data;
+        data.Width      = 3;
+        data.Height     = 2;
+        data.ColorSpace = TextureColorSpace::SRGB;
+        data.Mips.resize(2);
+        for (unsigned y = 0; y < 2; ++y)
+            for (unsigned x = 0; x < 3; ++x)
+                for (unsigned component = 0; component < 4; ++component)
+                    data.Mips[0].Pixels.push_back(std::byte(component == 3 ? 255 : y * 30 + x * 4 + component));
+        data.Mips[1].Pixels = {std::byte {17}, std::byte {53}, std::byte {91}, std::byte {127}};
+        auto encoded        = EncodeTextureProduct(data);
+        ASSERT_TRUE(std::holds_alternative<std::vector<std::byte>>(encoded));
+        const auto& bytes  = std::get<std::vector<std::byte>>(encoded);
+        auto        loaded = Loader<TextureAsset> {}.Load(
+            {AssetID {SourceAssetID::Generate(), 1}, AssetType::Texture, bytes.data(), bytes.size()});
+        ASSERT_TRUE(std::holds_alternative<Ref<TextureAsset>>(loaded));
+        GLuint pbo = 0;
+        glGenBuffers(1, &pbo);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+        glBufferData(GL_PIXEL_UNPACK_BUFFER, 128, nullptr, GL_STATIC_DRAW);
+        const GLenum names[]  = {GL_UNPACK_ALIGNMENT,
+                                 GL_UNPACK_ROW_LENGTH,
+                                 GL_UNPACK_IMAGE_HEIGHT,
+                                 GL_UNPACK_SKIP_PIXELS,
+                                 GL_UNPACK_SKIP_ROWS,
+                                 GL_UNPACK_SKIP_IMAGES,
+                                 GL_UNPACK_SWAP_BYTES,
+                                 GL_UNPACK_LSB_FIRST};
+        const GLint  values[] = {8, 9, 11, 2, 3, 1, GL_TRUE, GL_TRUE};
+        for (size_t i = 0; i < 8; ++i)
+            glPixelStorei(names[i], values[i]);
+        const auto previousBackend = RendererAPI::Current();
+        RendererAPI::SetBackEnd(RendererAPIType::OPENGL);
+        auto uploaded = Texture2D::CreateFromProduct(std::get<Ref<TextureAsset>>(loaded)->GetData());
+        RendererAPI::SetBackEnd(previousBackend);
+        for (size_t i = 0; i < 8; ++i)
+        {
+            GLint restored = 0;
+            glGetIntegerv(names[i], &restored);
+            EXPECT_EQ(restored, values[i]);
+            glPixelStorei(names[i], i == 0 ? 4 : 0);
+        }
+        GLint bound = 0;
+        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &bound);
+        EXPECT_EQ(bound, GLint(pbo));
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glDeleteBuffers(1, &pbo);
+        ASSERT_TRUE(std::holds_alternative<Ref<Texture2D>>(uploaded));
+        const auto& texture = std::get<Ref<Texture2D>>(uploaded);
+        glBindTexture(GL_TEXTURE_2D, texture->GetRenererID());
+        GLint internal = 0, levels = 0, maximum = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &internal);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_IMMUTABLE_LEVELS, &levels);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, &maximum);
+        EXPECT_EQ(internal, GL_SRGB8_ALPHA8);
+        EXPECT_EQ(levels, 2);
+        EXPECT_EQ(maximum, 1);
+        std::vector<std::byte> actual(24);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, actual.data());
+        EXPECT_TRUE(std::equal(actual.begin(), actual.begin() + 12, data.Mips[0].Pixels.begin() + 12));
+        EXPECT_TRUE(std::equal(actual.begin() + 12, actual.end(), data.Mips[0].Pixels.begin()));
+        std::array<std::byte, 4> mip {};
+        glGetTexImage(GL_TEXTURE_2D, 1, GL_RGBA, GL_UNSIGNED_BYTE, mip.data());
+        EXPECT_TRUE(std::equal(mip.begin(), mip.end(), data.Mips[1].Pixels.begin()));
+        EXPECT_EQ(glGetError(), GL_NO_ERROR);
+    }
+
+    TEST_F(OpenGLTextureMipmap, ProductUploadSupportsOddWidthDataAndNativeFloatValues)
+    {
+        using namespace Kans;
+        for (auto format : {TexturePixelFormat::R8,
+                            TexturePixelFormat::RG8,
+                            TexturePixelFormat::RGBA8,
+                            TexturePixelFormat::RGBA32Float})
+        {
+            TextureData data;
+            data.Width     = 3;
+            data.Height    = 1;
+            data.Format    = format;
+            data.Origin    = TextureOrigin::BottomLeft;
+            data.Usage     = TextureUsage::Data;
+            data.AlphaMode = TextureAlphaMode::Opaque;
+            data.Mips.resize(1);
+            size_t components = format == TexturePixelFormat::R8 ? 1 : format == TexturePixelFormat::RG8 ? 2 : 4;
+            for (size_t i = 0; i < 3 * components; ++i)
+            {
+                if (format == TexturePixelFormat::RGBA32Float)
+                {
+                    float    value = float(i) * 0.25f - 1;
+                    uint32_t bits  = 0;
+                    std::memcpy(&bits, &value, 4);
+                    for (unsigned b = 0; b < 4; ++b)
+                        data.Mips[0].Pixels.push_back(std::byte((bits >> (b * 8)) & 255));
+                }
+                else
+                    data.Mips[0].Pixels.push_back(std::byte(i * 9 + 1));
+            }
+            auto uploaded = OpenGLTexture2D::UploadProduct(data);
+            ASSERT_TRUE(std::holds_alternative<Ref<OpenGLTexture2D>>(uploaded));
+            glBindTexture(GL_TEXTURE_2D, std::get<Ref<OpenGLTexture2D>>(uploaded)->GetRenererID());
+            const GLenum external = components == 1 ? GL_RED : components == 2 ? GL_RG : GL_RGBA;
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            if (format == TexturePixelFormat::RGBA32Float)
+            {
+                std::vector<float> actual(3 * components);
+                glGetTexImage(GL_TEXTURE_2D, 0, external, GL_FLOAT, actual.data());
+                for (size_t i = 0; i < actual.size(); ++i)
+                    EXPECT_FLOAT_EQ(actual[i], float(i) * 0.25f - 1);
+            }
+            else
+            {
+                std::vector<std::byte> actual(3 * components);
+                glGetTexImage(GL_TEXTURE_2D, 0, external, GL_UNSIGNED_BYTE, actual.data());
+                EXPECT_EQ(actual, data.Mips[0].Pixels);
+            }
+            glPixelStorei(GL_PACK_ALIGNMENT, 4);
+            EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        }
+    }
+
+    TEST_F(OpenGLTextureMipmap, ProductUploadRejectsMalformedAndUnsupportedShapes)
+    {
+        using namespace Kans;
+        TextureData data;
+        EXPECT_EQ(std::get<AssetError>(OpenGLTexture2D::UploadProduct(data)).Code, AssetErrorCode::InvalidData);
+        data.Kind  = TextureKind::Array2D;
+        data.Width = data.Height = 1;
+        data.Layers              = 2;
+        data.Mips                = {{std::vector<std::byte>(8)}};
+        EXPECT_EQ(std::get<AssetError>(OpenGLTexture2D::UploadProduct(data)).Code, AssetErrorCode::NotImplemented);
+        EXPECT_EQ(glGetError(), GL_NO_ERROR);
     }
 } // namespace

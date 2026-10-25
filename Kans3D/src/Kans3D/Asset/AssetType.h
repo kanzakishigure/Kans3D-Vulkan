@@ -19,6 +19,8 @@ namespace Kans
         Mesh       = 5,
         MeshSource = 6,
         EnvMap     = 7,
+        Model      = 8,
+        Shader     = 9,
 
     };
 } // namespace Kans

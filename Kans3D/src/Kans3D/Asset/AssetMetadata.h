@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <vector>
 #include "Kans3D/Asset/Asset.h"
 namespace Kans
 {
@@ -9,13 +10,12 @@ namespace Kans
     public:
         AssetMetadata() {}
         ~AssetMetadata() = default;
-        bool IsValid() { return assetID.IsValid(); }
+        bool IsValid() const { return assetID.IsValid() && Type != AssetType::None; }
 
     public:
-        std::filesystem::path FilePath;
-        AssetType             Type = AssetType::None;
-        AssetID               assetID;
-        bool                  IsDataLoad = false;
+        AssetType            Type = AssetType::None;
+        AssetID              assetID;
+        std::vector<AssetID> Dependencies;
     };
 
 } // namespace Kans
