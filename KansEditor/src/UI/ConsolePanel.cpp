@@ -164,7 +164,7 @@ namespace Kans
             ImGui::SetTooltip("Copy the visible messages");
         ImGui::Separator();
 
-        ImGui::BeginChild("ConsoleMessages", {0, 0}, false, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::BeginChild("ConsoleMessages", {0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
         // Follow new messages only while the view is already at the bottom.
         const bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
         size_t     total    = 0;

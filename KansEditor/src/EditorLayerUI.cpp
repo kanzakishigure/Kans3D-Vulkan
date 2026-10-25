@@ -393,9 +393,8 @@ namespace Kans
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 4.0f));
         ImGui::BeginChild("##MainToolbar",
                           {0.0f, 34.0f},
-                          false,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                              ImGuiWindowFlags_AlwaysUseWindowPadding);
+                          ImGuiChildFlags_AlwaysUseWindowPadding,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::PopStyleVar();
 
         // Scene

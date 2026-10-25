@@ -278,12 +278,14 @@ namespace Kans
                 it = it->second.Frame != m_Captures->Frame ? m_DisplayCache.erase(it) : std::next(it);
 
         const float inspector = 380.0f;
-        if (ImGui::BeginChild("##Canvas", {ImGui::GetContentRegionAvail().x - inspector, 0}, true,
+        if (ImGui::BeginChild("##Canvas",
+                              {ImGui::GetContentRegionAvail().x - inspector, 0},
+                              ImGuiChildFlags_Borders,
                               ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
             DrawCanvas();
         ImGui::EndChild();
         ImGui::SameLine();
-        if (ImGui::BeginChild("##Inspector", {0, 0}, true))
+        if (ImGui::BeginChild("##Inspector", {0, 0}, ImGuiChildFlags_Borders))
             DrawInspector();
         ImGui::EndChild();
     }
@@ -418,7 +420,7 @@ namespace Kans
                     if (const auto* image = m_Captures->Find({node.Writer, resource.ID, {0, 0}}))
                         id = Display(*image, ThumbnailSettings(resource));
                 if (id)
-                    draw->AddImage(reinterpret_cast<ImTextureID>(id), imageMin, imageMax, {0, 0}, {1, 1});
+                    draw->AddImage(static_cast<ImTextureID>(id), imageMin, imageMax, {0, 0}, {1, 1});
                 else
                     draw->AddRectFilled(imageMin, imageMax, IM_COL32(35, 35, 38, 255));
                 draw->AddRect(imageMin, imageMax, IM_COL32(70, 70, 80, 255));
@@ -607,7 +609,7 @@ namespace Kans
         const float  scale  = width / float(std::max(1u, image->Texture->GetDesc().Width));
         const ImVec2 extent = {width, float(image->Texture->GetDesc().Height) * scale};
         const ImVec2 at     = ImGui::GetCursorScreenPos();
-        ImGui::Image(reinterpret_cast<ImTextureID>(id), extent);
+        ImGui::Image(static_cast<ImTextureID>(id), extent);
         // Pixel probe: the stored value under the cursor, read back without stalling.
         if (ImGui::IsItemHovered())
         {

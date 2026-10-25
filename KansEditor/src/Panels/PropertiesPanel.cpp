@@ -208,7 +208,7 @@ namespace Kans
         const bool overridden = scene && component.Overridden && component.Overridden(entity, *scene);
         ImGui::PushID(component.Name.c_str());
         const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed |
-                                         ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap |
+                                         ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap |
                                          ImGuiTreeNodeFlags_FramePadding;
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.0f, 4.0f});
         // A prefab part's section that carries an override is tinted, as in the Hierarchy.
@@ -222,7 +222,7 @@ namespace Kans
         const float height = ImGui::GetFrameHeight();
         ImGui::PopStyleVar();
         // Settings button at the right end of the header.
-        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - height);
+        ImGui::SameLine((ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x) - height);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         if (ImGui::Button(ICON_FA_GEAR, {height, height}) || menu)
             ImGui::OpenPopup("##SectionMenu");

@@ -7,7 +7,7 @@
 
 [submodule "Kans3D/vendor/imgui"]
 	path = Kans3D/vendor/imgui
-	url = https://github.com/TheCherno/imgui.git
+	url = https://github.com/ocornut/imgui.git
 [submodule "Kans3D/vendor/yaml-cpp"]
 	path = Kans3D/vendor/yaml-cpp
 	url = https://github.com/TheCherno/yaml-cpp.git
@@ -16,7 +16,7 @@
 	url = https://github.com/TheCherno/glfw.git
 [submodule "Kans3D/vendor/ImGuizmo"]
 	path = Kans3D/vendor/ImGuizmo
-	url = https://github.com/kanzakishigure/ImGuizmo.git
+	url = https://github.com/CedricGuillemet/ImGuizmo.git
 [submodule "test"]
 	path = test
 	url = https://github.com/kanzakishigure/Kans3D-tests.git

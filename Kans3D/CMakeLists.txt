@@ -13,23 +13,32 @@ add_library(Kans3D STATIC
     ${KANS3D_SOURCES}
 )
 
-# The pinned ImGui Vulkan backend uses immutable font samplers for user images.
-# Compile an adapter copy with ordinary samplers, keeping the vendored submodule
-# untouched. Fail configuration if an ImGui upgrade changes these patch sites.
-set(KANS_IMGUI_VULKAN_SOURCE "${KANS3D_VENDOR}/imgui/backends/imgui_impl_vulkan.cpp")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${KANS_IMGUI_VULKAN_SOURCE}")
-file(READ "${KANS_IMGUI_VULKAN_SOURCE}" KANS_IMGUI_VULKAN_TEXT)
-string(REGEX MATCHALL "pImmutableSamplers = sampler" KANS_IMGUI_SAMPLER_SITES "${KANS_IMGUI_VULKAN_TEXT}")
-list(LENGTH KANS_IMGUI_SAMPLER_SITES KANS_IMGUI_SAMPLER_SITE_COUNT)
-if(NOT KANS_IMGUI_SAMPLER_SITE_COUNT EQUAL 2)
-    message(FATAL_ERROR "Review Kans3D's ImGui Vulkan sampler adapter for this ImGui version")
+# Use the stock backend: ImGui 1.92 separates sampled images and samplers.
+# Kans supplies per-image samplers through the backend's draw callback API.
+target_include_directories(Kans3D PRIVATE "${KANS3D_VENDOR}/imgui/backends")
+
+# Our GLFW checkout reports 3.4 but predates glfwGetPlatform(). Keep every other
+# backend feature test intact and gate just this API on its accompanying constant.
+set(KANS_IMGUI_GLFW_SOURCE "${KANS3D_VENDOR}/imgui/backends/imgui_impl_glfw.cpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${KANS_IMGUI_GLFW_SOURCE}")
+file(READ "${KANS_IMGUI_GLFW_SOURCE}" KANS_IMGUI_GLFW_TEXT)
+set(KANS_IMGUI_GLFW_PLATFORM_TEST "#define GLFW_HAS_GETPLATFORM            (GLFW_VERSION_COMBINED >= 3400)")
+string(REGEX MATCHALL "#define GLFW_HAS_GETPLATFORM[^\n]*" KANS_IMGUI_GLFW_PLATFORM_SITES "${KANS_IMGUI_GLFW_TEXT}")
+list(LENGTH KANS_IMGUI_GLFW_PLATFORM_SITES KANS_IMGUI_GLFW_PLATFORM_SITE_COUNT)
+if(NOT KANS_IMGUI_GLFW_PLATFORM_SITE_COUNT EQUAL 1)
+    message(FATAL_ERROR "Review Kans3D's ImGui GLFW platform feature detection for this ImGui version")
 endif()
-string(REPLACE "pImmutableSamplers = sampler;" "pImmutableSamplers = nullptr;"
-    KANS_IMGUI_VULKAN_TEXT "${KANS_IMGUI_VULKAN_TEXT}")
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imgui-vulkan")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/imgui-vulkan/imgui_impl_vulkan_kans.cpp" "${KANS_IMGUI_VULKAN_TEXT}")
-target_include_directories(Kans3D PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/imgui-vulkan" "${KANS3D_VENDOR}/imgui/backends")
+string(FIND "${KANS_IMGUI_GLFW_TEXT}" "${KANS_IMGUI_GLFW_PLATFORM_TEST}" KANS_IMGUI_GLFW_PLATFORM_OFFSET)
+if(KANS_IMGUI_GLFW_PLATFORM_OFFSET EQUAL -1)
+    message(FATAL_ERROR "ImGui GLFW platform feature detection changed")
+endif()
+string(REPLACE "${KANS_IMGUI_GLFW_PLATFORM_TEST}"
+    "#ifdef GLFW_PLATFORM_X11\n${KANS_IMGUI_GLFW_PLATFORM_TEST}\n#else\n#define GLFW_HAS_GETPLATFORM 0\n#endif"
+    KANS_IMGUI_GLFW_TEXT "${KANS_IMGUI_GLFW_TEXT}")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imgui-glfw")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/imgui-glfw/imgui_impl_glfw_kans.cpp" "${KANS_IMGUI_GLFW_TEXT}")
+set_source_files_properties("${KANS3D_SRC}/Kans3D/RHI/ImGuiPlatformBuild.cpp" PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/imgui-glfw")
 
 # ---- Precompiled header ----
 target_precompile_headers(Kans3D PRIVATE

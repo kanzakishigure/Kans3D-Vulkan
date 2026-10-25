@@ -13,6 +13,9 @@ namespace Kans
                          ImFontConfig                 config = {},
                          const ImWchar*               ranges = nullptr)
         {
+            // Keep the 1.88 rasterization settings instead of 1.92 automatic oversampling.
+            config.OversampleH = 3;
+            config.OversampleV = 1;
             // AddFontFromFileTTF asserts when reading fails. Read first so missing/unreadable resources can fall back.
             size_t bytes = 0;
             void*  data  = ImFileLoadToMemory(path.generic_string().c_str(), "rb", &bytes);
@@ -36,23 +39,29 @@ namespace Kans
 
     void LoadEditorFonts()
     {
-        auto&                io           = ImGui::GetIO();
-        static const ImWchar iconRanges[] = {0xe000, 0xf8ff, 0};
-        const auto           folder       = KansFileSystem::GetFontsFolder();
-        const auto           mergeIcons   = [&] {
+        auto& io = ImGui::GetIO();
+        // Dynamic fonts ignore GlyphRanges; exclude everything outside the legacy icon range.
+        static const ImWchar iconRanges[]     = {0xe000, 0xf8ff, 0};
+        static const ImWchar textExclusions[] = {1, 0x1f, 0x100, IM_UNICODE_CODEPOINT_MAX, 0};
+        static const ImWchar iconExclusions[] = {1, 0xdfff, 0xf900, IM_UNICODE_CODEPOINT_MAX, 0};
+        const auto           folder           = KansFileSystem::GetFontsFolder();
+        const auto           mergeIcons       = [&] {
             ImFontConfig config;
-            config.MergeMode        = true;
-            config.PixelSnapH       = true;
-            config.GlyphMinAdvanceX = 16.0f;
+            config.MergeMode          = true;
+            config.PixelSnapH         = true;
+            config.GlyphMinAdvanceX   = 16.0f;
+            config.GlyphExcludeRanges = iconExclusions;
             LoadFont(folder / "FontAwesome/fa-solid-900.ttf", 14.0f, config, iconRanges);
         };
         const auto textFont = [&](const char* name) {
-            auto* font = LoadFont(folder / name, 16.0f);
+            ImFontConfig textConfig;
+            textConfig.GlyphExcludeRanges = textExclusions;
+            auto* font                    = LoadFont(folder / name, 16.0f, textConfig);
             if (!font)
             {
                 ImFontConfig config;
                 config.SizePixels = 16.0f;
-                font              = io.Fonts->AddFontDefault(&config);
+                font              = io.Fonts->AddFontDefaultBitmap(&config);
             }
             mergeIcons();
             return font;

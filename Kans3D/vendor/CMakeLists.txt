@@ -30,7 +30,7 @@ set_target_properties(glfw PROPERTIES
     FOLDER "Dependencies"
 )
 # ============================================================
-# ImGui — StaticLib (C++17)
+# ImGui 1.92 — core, demo and C++ string helpers (C++17)
 # ============================================================
 add_library(ImGui STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui/imconfig.h
@@ -132,10 +132,10 @@ endif()
 # ImGuizmo — StaticLib (depends on ImGui)
 # ============================================================
 add_library(ImGuizmo STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo/ImGuizmo.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo/ImGuizmo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo/src/ImGuizmo.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo/src/ImGuizmo.cpp
 )
-target_include_directories(ImGuizmo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo)
+target_include_directories(ImGuizmo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo/src)
 target_link_libraries(ImGuizmo PUBLIC ImGui)
 kans_set_output_dirs(ImGuizmo)
 set_target_properties(ImGuizmo PROPERTIES

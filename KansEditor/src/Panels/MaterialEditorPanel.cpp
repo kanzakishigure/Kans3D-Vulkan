@@ -480,7 +480,7 @@ namespace Kans
                     ImGui::PushID(i);
                     const float start = ImGui::GetCursorPosX();
                     if (ImGui::Selectable(
-                            "##choice", choice.ID == current, ImGuiSelectableFlags_AllowItemOverlap, {0, Row}))
+                            "##choice", choice.ID == current, ImGuiSelectableFlags_AllowOverlap, {0, Row}))
                         SetTexture(name, choice.ID);
                     // Thumbnail and name are drawn over the selectable row.
                     ImGui::SameLine(start);
@@ -890,11 +890,8 @@ namespace Kans
         m_PreviewTexture =
             m_PreviewImage ? m_Preview->GetViewTarget().GetDevice()->GetImGuiTextureID(m_PreviewImage) : 0;
         if (m_PreviewTexture)
-            draw->AddImage(reinterpret_cast<ImTextureID>(uintptr_t(m_PreviewTexture)),
-                           at,
-                           {at.x + side, at.y + side},
-                           {0, 1},
-                           {1, 0});
+            draw->AddImage(
+                static_cast<ImTextureID>(uintptr_t(m_PreviewTexture)), at, {at.x + side, at.y + side}, {0, 1}, {1, 0});
         else
             draw->AddRectFilled(at, {at.x + side, at.y + side}, IM_COL32(40, 40, 40, 255));
         if (!m_PreviewError.empty() || !m_PreviewComplete)

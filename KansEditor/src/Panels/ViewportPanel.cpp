@@ -52,7 +52,7 @@ namespace Kans
         Render();
 
         const auto output = m_Client->GetOutput();
-        ImGui::Image(reinterpret_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
+        ImGui::Image(static_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
         m_ImageHovered = ImGui::IsItemHovered();
         if (m_Playing)
         {

@@ -142,7 +142,7 @@ namespace Kans
         m_Order.push_back(id);
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth |
-                                   ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_AllowItemOverlap;
+                                   ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_AllowOverlap;
         if (id == m_Selected)
             flags |= ImGuiTreeNodeFlags_Selected;
         if (children.empty())

@@ -27,6 +27,7 @@ namespace Kans::RenderHardware
         {
             Context         Native;
             VkDescriptorSetLayout                                   UITextureLayout = VK_NULL_HANDLE;
+            VkDescriptorSetLayout                                   UISamplerLayout = VK_NULL_HANDLE;
             std::unordered_map<uintptr_t, std::weak_ptr<VKTexture>> UITextures;
             VkPipelineCache                                       PipelineCache = VK_NULL_HANDLE;
             std::vector<VkDescriptorPool>                         DescriptorPools;
@@ -57,11 +58,13 @@ namespace Kans::RenderHardware
                         CreateFrame(frame);
                     CreateFrame(Standalone);
                     VkDescriptorSetLayoutBinding binding {
-                        0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+                        0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
                     VkDescriptorSetLayoutCreateInfo layout {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
                     layout.bindingCount = 1;
                     layout.pBindings    = &binding;
                     Check(vkCreateDescriptorSetLayout(Native.Logical, &layout, nullptr, &UITextureLayout));
+                    binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+                    Check(vkCreateDescriptorSetLayout(Native.Logical, &layout, nullptr, &UISamplerLayout));
                     VkPipelineCacheCreateInfo cache {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
                     Check(vkCreatePipelineCache(Native.Logical, &cache, nullptr, &PipelineCache));
                 }
@@ -101,6 +104,7 @@ namespace Kans::RenderHardware
             {
                 DestroyFrames();
                 vkDestroyDescriptorSetLayout(Native.Logical, UITextureLayout, nullptr);
+                vkDestroyDescriptorSetLayout(Native.Logical, UISamplerLayout, nullptr);
                 for (auto pool : DescriptorPools)
                     vkDestroyDescriptorPool(Native.Logical, pool, nullptr);
                 if (PipelineCache)
@@ -374,6 +378,7 @@ namespace Kans::RenderHardware
                 SamplerDesc     Desc;
                 Handle<Sampler> Sampling;
                 VkDescriptorSet Set;
+                VkDescriptorSet SamplerSet;
             };
             std::vector<UIView>      UIViews;
             Allocation               Memory;
@@ -1883,13 +1888,23 @@ namespace Kans::RenderHardware
                     VkWriteDescriptorSet write {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
                     write.dstSet          = set;
                     write.descriptorCount = 1;
-                    write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    write.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
                     write.pImageInfo      = &info;
                     vkUpdateDescriptorSets(Owner->Native.Logical, 1, &write, 0, nullptr);
-                    image->UIViews.push_back({desc, sampler, set});
+                    auto [samplerPool, samplerSet] = Owner->AllocateSet(Owner->UISamplerLayout);
+                    write.dstSet                   = samplerSet;
+                    write.descriptorType           = VK_DESCRIPTOR_TYPE_SAMPLER;
+                    vkUpdateDescriptorSets(Owner->Native.Logical, 1, &write, 0, nullptr);
+                    image->UIViews.push_back({desc, sampler, set, samplerSet});
                     auto previous        = std::move(image->Memory.Delete);
-                    image->Memory.Delete = [previous = std::move(previous), device = Owner->Native.Logical, pool, set] {
+                    image->Memory.Delete = [previous = std::move(previous),
+                                            device   = Owner->Native.Logical,
+                                            pool,
+                                            set,
+                                            samplerPool,
+                                            samplerSet] {
                         vkFreeDescriptorSets(device, pool, 1, &set);
+                        vkFreeDescriptorSets(device, samplerPool, 1, &samplerSet);
                         previous();
                     };
                     found                                               = image->UIViews.end() - 1;
@@ -1969,7 +1984,9 @@ namespace Kans::RenderHardware
             std::set<unsigned> flipped;
             for (const auto& command : list->CmdBuffer)
             {
-                auto found = owner->UITextures.find(reinterpret_cast<uintptr_t>(command.TextureId));
+                if (command.UserCallback)
+                    continue;
+                auto found = owner->UITextures.find(static_cast<uintptr_t>(command.GetTexID()));
                 if (found == owner->UITextures.end())
                     continue;
                 auto image = found->second.lock();
@@ -1984,15 +2001,40 @@ namespace Kans::RenderHardware
             }
         }
     }
+    namespace
+    {
+        // The stock 1.92 backend binds images at set 0 and samplers at set 1.
+        // Insert callbacks at draw boundaries so existing Image/AddImage callers retain
+        // their RHI sampler (including mip and address modes), then restore font filtering.
+        void SetImGuiSampler(const ImDrawList* list, const ImDrawCmd* command)
+        {
+            if (!command->UserCallbackData)
+            {
+                ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear(list, command);
+                return;
+            }
+            auto* render = static_cast<ImGui_ImplVulkan_RenderState*>(ImGui::GetPlatformIO().Renderer_RenderState);
+            auto  set    = reinterpret_cast<VkDescriptorSet>(command->UserCallbackData);
+            vkCmdBindDescriptorSets(
+                render->CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, render->PipelineLayout, 1, 1, &set, 0, nullptr);
+        }
+    } // namespace
     void PrepareVulkanImGuiTextures(Device& device, ImDrawData* data)
     {
+        // Resolve dynamic atlas references before inspecting draw-command texture IDs.
+        if (data->Textures)
+            for (auto* texture : *data->Textures)
+                if (texture->Status != ImTextureStatus_OK)
+                    ImGui_ImplVulkan_UpdateTexture(texture);
         auto                owner = dynamic_cast<VKDevice&>(device).GetOwner();
         Execution           execution(owner);
         std::set<uintptr_t> seen;
         for (int i = 0; i < data->CmdListsCount; ++i)
             for (const auto& command : data->CmdLists[i]->CmdBuffer)
             {
-                auto id = reinterpret_cast<uintptr_t>(command.TextureId);
+                if (command.UserCallback)
+                    continue;
+                auto id = static_cast<uintptr_t>(command.GetTexID());
                 if (!seen.insert(id).second)
                     continue;
                 auto found = owner->UITextures.find(id);
@@ -2009,6 +2051,46 @@ namespace Kans::RenderHardware
                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
             }
         execution.Submit();
+        for (auto* list : data->CmdLists)
+        {
+            // A viewport may be prepared more than once by a caller.
+            if (std::any_of(list->CmdBuffer.begin(), list->CmdBuffer.end(), [](const ImDrawCmd& cmd) {
+                    return cmd.UserCallback == SetImGuiSampler;
+                }))
+                continue;
+            ImVector<ImDrawCmd> commands;
+            commands.reserve(list->CmdBuffer.Size * 2);
+            // Sampler state survives between draw lists; establish it at each list start.
+            bool customSampler = true;
+            for (const auto& command : list->CmdBuffer)
+            {
+                if (!command.UserCallback && command.ElemCount)
+                {
+                    VkDescriptorSet sampler = VK_NULL_HANDLE;
+                    auto            found   = owner->UITextures.find(static_cast<uintptr_t>(command.GetTexID()));
+                    if (found != owner->UITextures.end())
+                        if (auto image = found->second.lock())
+                            for (const auto& view : image->UIViews)
+                                if (reinterpret_cast<uintptr_t>(view.Set) == command.GetTexID())
+                                    sampler = view.SamplerSet;
+                    if (sampler || customSampler)
+                    {
+                        ImDrawCmd callback;
+                        callback.UserCallback     = SetImGuiSampler;
+                        callback.UserCallbackData = reinterpret_cast<void*>(sampler);
+                        commands.push_back(callback);
+                    }
+                    customSampler = sampler != VK_NULL_HANDLE;
+                }
+                else if (command.UserCallback)
+                {
+                    // Callbacks may reset render state; rebind on the next image draw.
+                    customSampler = true;
+                }
+                commands.push_back(command);
+            }
+            list->CmdBuffer.swap(commands);
+        }
     }
     std::unique_ptr<Device> CreateVulkanWindowDevice(Window& window, const DeviceDesc& desc)
     {

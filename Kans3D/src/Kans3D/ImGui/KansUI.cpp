@@ -20,7 +20,7 @@ namespace Kans::UI
         // value
         ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-        float  lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+        float  lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
         ImVec2 buttonsize = {lineHeight + 3.0f, lineHeight};
         // X
         {
@@ -29,7 +29,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("X", buttonsize))
                 value.x = resetvalue;
             ImGui::PopFont();
@@ -46,7 +46,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("Y", buttonsize))
                 value.y = resetvalue;
             ImGui::PopFont();
@@ -65,7 +65,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("Z", buttonsize))
                 value.z = resetvalue;
             ImGui::PopFont();
@@ -81,7 +81,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(18 / 256.0f, 186 / 256.0f, 190 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(22 / 256.0f, 229 / 256.0f, 228 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("W", buttonsize))
                 value.w = resetvalue;
             ImGui::PopFont();
@@ -113,7 +113,7 @@ namespace Kans::UI
         // value
         ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-        float  lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+        float  lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
         ImVec2 buttonsize = {lineHeight + 3.0f, lineHeight};
         // X
         {
@@ -121,7 +121,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("X", buttonsize))
                 value.x = resetvalue;
             ImGui::PopFont();
@@ -139,7 +139,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("Y", buttonsize))
                 value.y = resetvalue;
             ImGui::PopFont();
@@ -159,7 +159,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(24 / 256.0f, 100 / 256.0f, 171 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("Z", buttonsize))
                 value.z = resetvalue;
             ImGui::PopFont();
@@ -190,7 +190,7 @@ namespace Kans::UI
         // value
         ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-        float  lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+        float  lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
         ImVec2 buttonsize = {lineHeight + 3.0f, lineHeight};
         // X
         {
@@ -198,7 +198,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("X", buttonsize))
                 value.x = resetvalue;
             ImGui::PopFont();
@@ -215,7 +215,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(43 / 256.0f, 138 / 256.0f, 62 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("Y", buttonsize))
                 value.y = resetvalue;
             ImGui::PopFont();
@@ -254,7 +254,7 @@ namespace Kans::UI
         // value
         ImGui::PushMultiItemsWidths(1, ImGui::CalcItemWidth());
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-        float  lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+        float  lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
         ImVec2 buttonsize = {ImGui::CalcItemWidth() / 2, lineHeight};
         // X
         {
@@ -262,7 +262,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("Value", buttonsize))
                 value = resetvalue;
             ImGui::PopFont();
@@ -290,7 +290,7 @@ namespace Kans::UI
         // value
         ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-        float  lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+        float  lineHeight = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
         ImVec2 buttonsize = {lineHeight + 3.0f, lineHeight};
         // X
         {
@@ -298,7 +298,7 @@ namespace Kans::UI
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(250 / 256.0f, 82 / 256.0f, 82 / 256.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(224 / 256.0f, 49 / 256.0f, 49 / 256.0f, 1.0f));
 
-            ImGui::PushFont(boldFont);
+            ImGui::PushFont(boldFont, 16.0f);
             if (ImGui::Button("Value", buttonsize))
                 value = resetvalue;
             ImGui::PopFont();

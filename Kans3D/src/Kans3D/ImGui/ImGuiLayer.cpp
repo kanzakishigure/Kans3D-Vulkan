@@ -145,9 +145,9 @@ namespace Kans
         // Tab
         colors[ImGuiCol_Tab]                = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
         colors[ImGuiCol_TabHovered]         = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_4);
-        colors[ImGuiCol_TabActive]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
-        colors[ImGuiCol_TabUnfocused]       = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-        colors[ImGuiCol_TabUnfocusedActive] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
+        colors[ImGuiCol_TabSelected]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
+        colors[ImGuiCol_TabDimmed]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
+        colors[ImGuiCol_TabDimmedSelected]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
 
         // Resize Grip
         colors[ImGuiCol_ResizeGrip]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
@@ -181,6 +181,9 @@ namespace Kans
         //========================================================
         /// Style
 
+        // 1.88 had no selected-tab overline; retain that appearance during the API upgrade.
+        style.TabBarOverlineSize = 0.0f;
+        style.TabRounding        = 4.0f; // Preserve the 1.88 default (now 5px upstream).
         style.FrameRounding     = 4.8f;
         style.FrameBorderSize   = 1.2f;
         style.IndentSpacing     = 11.0f;

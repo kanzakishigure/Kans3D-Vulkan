@@ -384,7 +384,7 @@ namespace Kans
             if (m_ShowPreview)
             {
                 ImGui::TableSetColumnIndex(2);
-                ImGui::BeginChild("##Preview", {0, 0}, false, ImGuiWindowFlags_AlwaysUseWindowPadding);
+                ImGui::BeginChild("##Preview", {0, 0}, ImGuiChildFlags_AlwaysUseWindowPadding);
                 DrawPreview();
                 ImGui::EndChild();
             }
@@ -429,7 +429,8 @@ namespace Kans
         // Right side widths are fixed; the breadcrumbs take the rest.
         const float rightWidth = 200.0f + 4 * 29.0f + (m_View == View::Grid ? 94.0f : 0.0f);
         DrawBreadcrumbs(std::max(80.0f, ImGui::GetContentRegionAvail().x - rightWidth));
-        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - rightWidth));
+        ImGui::SameLine(
+            std::max(ImGui::GetCursorPosX(), (ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x) - rightWidth));
 
         ImGui::SetNextItemWidth(200.0f);
         ImGui::InputTextWithHint("##search", ICON_FA_MAGNIFYING_GLASS " Search", m_Search.data(), m_Search.size());
@@ -634,7 +635,7 @@ namespace Kans
     void ContentBrowserPanel::DrawItems()
     {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(IM_COL32(28, 28, 28, 255)));
-        ImGui::BeginChild("##Items", {0, 0}, false, ImGuiWindowFlags_AlwaysUseWindowPadding);
+        ImGui::BeginChild("##Items", {0, 0}, ImGuiChildFlags_AlwaysUseWindowPadding);
         ImGui::PopStyleColor();
         if (m_Visible.empty())
         {
@@ -698,8 +699,8 @@ namespace Kans
                     ImGui::PushID(entry.Path.generic_u8string().c_str());
                     const ImVec2 min = ImGui::GetCursorScreenPos();
                     const ImVec2 max(min.x + cardWidth, min.y + cardHeight);
+                    ImGui::SetNextItemAllowOverlap();
                     ImGui::InvisibleButton("##card", {cardWidth, cardHeight});
-                    ImGui::SetItemAllowOverlap();
                     const bool hovered  = ImGui::IsItemHovered();
                     const bool selected = m_Selection.Contains(entry.Path);
                     HandleItem(entry);
@@ -783,7 +784,7 @@ namespace Kans
                 const ImVec2 rowStart = ImGui::GetCursorScreenPos();
                 ImGui::Selectable("##row",
                                   m_Selection.Contains(entry.Path),
-                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap,
+                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
                                   {0, rowHeight});
                 HandleItem(entry);
                 const float icon = rowHeight - 4.0f;
@@ -838,7 +839,7 @@ namespace Kans
         const float scale  = side / std::max(width, height);
         const ImVec2 size(width * scale, height * scale);
         const ImVec2 at(min.x + (side - size.x) * 0.5f, min.y + (side - size.y) * 0.5f);
-        draw->AddImage(reinterpret_cast<ImTextureID>(uintptr_t(texture->GetImGuiTextureID())),
+        draw->AddImage(static_cast<ImTextureID>(uintptr_t(texture->GetImGuiTextureID())),
                        at,
                        {at.x + size.x, at.y + size.y},
                        {0, 1},
@@ -1115,7 +1116,7 @@ namespace Kans
                 // Leave room for the details below in short panels.
                 const float limit = std::clamp(ImGui::GetContentRegionAvail().y * 0.4f, 64.0f, 260.0f);
                 const float scale = std::min(width / w, limit / h);
-                ImGui::Image(reinterpret_cast<ImTextureID>(uintptr_t(texture->GetImGuiTextureID())),
+                ImGui::Image(static_cast<ImTextureID>(uintptr_t(texture->GetImGuiTextureID())),
                              {w * scale, h * scale},
                              {0, 1},
                              {1, 0});

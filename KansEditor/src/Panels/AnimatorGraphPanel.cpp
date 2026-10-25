@@ -127,12 +127,14 @@ namespace Kans
         else
         {
             const float side = 320.0f;
-            if (ImGui::BeginChild("##graph", {ImGui::GetContentRegionAvail().x - side, 0}, true,
+            if (ImGui::BeginChild("##graph",
+                                  {ImGui::GetContentRegionAvail().x - side, 0},
+                                  ImGuiChildFlags_Borders,
                                   ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
                 changed |= DrawGraph(controller, m_Layer);
             ImGui::EndChild();
             ImGui::SameLine();
-            if (ImGui::BeginChild("##selection", {0, 0}, true))
+            if (ImGui::BeginChild("##selection", {0, 0}, ImGuiChildFlags_Borders))
                 changed |= DrawSelection(controller, m_Layer);
             ImGui::EndChild();
         }

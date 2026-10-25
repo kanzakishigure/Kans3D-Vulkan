@@ -18,7 +18,7 @@ namespace Kans::UI
     template<typename T, typename UIfunc>
     void DrawComponent(const std::string& label, Entity entity, UIfunc uifunc)
     {
-        const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_DefaultOpen |
+        const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen |
                                                  ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth |
                                                  ImGuiTreeNodeFlags_FramePadding;
         if (entity.HasComponent<T>())
@@ -26,7 +26,7 @@ namespace Kans::UI
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 4));
 
             auto  contentregion = ImGui::GetContentRegionAvail();
-            float lineHeight    = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+            float lineHeight    = ImGui::GetFontSize() + GImGui->Style.FramePadding.y * 2.0f;
 
             // component title
             bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, label.c_str());

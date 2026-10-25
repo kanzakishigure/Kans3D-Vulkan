@@ -6,7 +6,7 @@
 #include "Kans3D/RHI/FrameCapture.h"
 // Compile the pinned backend once here. Its viewport render-buffer structure is
 // used with our WSI callbacks; its old example WSI code is not used.
-#include <imgui_impl_vulkan_kans.cpp>
+#include <backends/imgui_impl_vulkan.cpp>
 
 namespace Kans::RenderHardware
 {
@@ -517,14 +517,16 @@ namespace Kans::RenderHardware
                 create.subpassCount    = 1;
                 create.pSubpasses      = &subpass;
                 Check(vkCreateRenderPass(C.Logical, &create, nullptr, &Pass));
-                VkDescriptorPoolSize       size {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16};
+                VkDescriptorPoolSize       sizes[] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 16},
+                                                      {VK_DESCRIPTOR_TYPE_SAMPLER, 16}};
                 VkDescriptorPoolCreateInfo pool {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
                 pool.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-                pool.maxSets       = 16;
-                pool.poolSizeCount = 1;
-                pool.pPoolSizes    = &size;
+                pool.maxSets       = 32;
+                pool.poolSizeCount = 2;
+                pool.pPoolSizes    = sizes;
                 Check(vkCreateDescriptorPool(C.Logical, &pool, nullptr, &Pool));
                 ImGui_ImplVulkan_InitInfo info {};
+                info.ApiVersion     = VK_API_VERSION_1_3;
                 info.Instance       = C.Instance;
                 info.PhysicalDevice = C.Physical;
                 info.Device         = C.Logical;
@@ -532,31 +534,11 @@ namespace Kans::RenderHardware
                 info.Queue          = C.Queue;
                 info.DescriptorPool = Pool;
                 info.MinImageCount = info.ImageCount = 2;
-                info.MSAASamples                     = VK_SAMPLE_COUNT_1_BIT;
+                info.PipelineInfoMain.MSAASamples    = VK_SAMPLE_COUNT_1_BIT;
                 info.CheckVkResultFn                 = Check;
-                Require(ImGui_ImplVulkan_Init(&info, Pass), "Headless ImGui initialization failed");
-                // Font upload uses a short-lived pool at initialization only.
-                VkCommandPool           commandPool;
-                VkCommandPoolCreateInfo commandCreate {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-                commandCreate.queueFamilyIndex = C.QueueFamily;
-                Check(vkCreateCommandPool(C.Logical, &commandCreate, nullptr, &commandPool));
-                VkCommandBuffer             command;
-                VkCommandBufferAllocateInfo allocate {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-                allocate.commandPool        = commandPool;
-                allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                allocate.commandBufferCount = 1;
-                Check(vkAllocateCommandBuffers(C.Logical, &allocate, &command));
-                VkCommandBufferBeginInfo begin {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-                Check(vkBeginCommandBuffer(command, &begin));
-                Require(ImGui_ImplVulkan_CreateFontsTexture(command), "Headless font upload failed");
-                Check(vkEndCommandBuffer(command));
-                VkSubmitInfo submit {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-                submit.commandBufferCount = 1;
-                submit.pCommandBuffers    = &command;
-                Check(vkQueueSubmit(C.Queue, 1, &submit, VK_NULL_HANDLE));
-                Check(vkQueueWaitIdle(C.Queue));
-                ImGui_ImplVulkan_DestroyFontUploadObjects();
-                vkDestroyCommandPool(C.Logical, commandPool, nullptr);
+                info.PipelineInfoMain.RenderPass     = Pass;
+                Require(ImGui_ImplVulkan_Init(&info), "Headless ImGui initialization failed");
+                // The backend uploads dynamic font atlas texture requests during rendering.
             }
             ~OffscreenUI() override
             {
@@ -616,13 +598,11 @@ namespace Kans::RenderHardware
                     self.C, native, surface, true, self.Main.VSync, self.DeviceOwner->GetDesc().FramesInFlight);
                 chain->FallbackExtent = {uint32_t(viewport->Size.x), uint32_t(viewport->Size.y)};
                 chain->Dirty          = true;
-                ImGui_ImplVulkan_CreatePipeline(self.C.Logical,
-                                                nullptr,
-                                                VK_NULL_HANDLE,
-                                                chain->Pass,
-                                                VK_SAMPLE_COUNT_1_BIT,
-                                                &chain->WindowPipeline,
-                                                0);
+                ImGui_ImplVulkan_PipelineInfo pipeline {};
+                pipeline.RenderPass  = chain->Pass;
+                pipeline.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+                chain->WindowPipeline =
+                    ImGui_ImplVulkan_CreatePipeline(self.C.Logical, nullptr, VK_NULL_HANDLE, &pipeline);
                 viewport->RendererUserData = IM_NEW(ImGui_ImplVulkan_ViewportData)();
                 self.Platform.emplace(viewport, std::move(chain));
             }
@@ -632,7 +612,7 @@ namespace Kans::RenderHardware
                 Current->Platform.erase(viewport);
                 if (auto* data = static_cast<ImGui_ImplVulkan_ViewportData*>(viewport->RendererUserData))
                 {
-                    ImGui_ImplVulkanH_DestroyWindowRenderBuffers(Current->C.Logical, &data->RenderBuffers, nullptr);
+                    ImGui_ImplVulkan_DestroyWindowRenderBuffers(Current->C.Logical, &data->RenderBuffers, nullptr);
                     IM_DELETE(data);
                     viewport->RendererUserData = nullptr;
                 }
@@ -662,17 +642,19 @@ namespace Kans::RenderHardware
                      window)
             {
                 Require(!Current, "Only one Vulkan ImGui renderer may be active");
-                VkDescriptorPoolSize       size {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16};
+                VkDescriptorPoolSize       sizes[] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 16},
+                                                      {VK_DESCRIPTOR_TYPE_SAMPLER, 16}};
                 VkDescriptorPoolCreateInfo pool {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
                 pool.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-                pool.maxSets       = 16;
-                pool.poolSizeCount = 1;
-                pool.pPoolSizes    = &size;
+                pool.maxSets       = 32;
+                pool.poolSizeCount = 2;
+                pool.pPoolSizes    = sizes;
                 Check(vkCreateDescriptorPool(C.Logical, &pool, nullptr, &FontPool));
                 if (window->GetNativeWindow())
                     Require(ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(window->GetNativeWindow()), true),
                             "ImGui GLFW Vulkan initialization failed");
                 ImGui_ImplVulkan_InitInfo info {};
+                info.ApiVersion                   = VK_API_VERSION_1_3;
                 info.Instance        = C.Instance;
                 info.PhysicalDevice  = C.Physical;
                 info.Device          = C.Logical;
@@ -681,21 +663,10 @@ namespace Kans::RenderHardware
                 info.DescriptorPool  = FontPool;
                 info.MinImageCount   = 2;
                 info.ImageCount      = std::max(2u, DeviceOwner->GetDesc().FramesInFlight);
-                info.MSAASamples     = VK_SAMPLE_COUNT_1_BIT;
+                info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
                 info.CheckVkResultFn = Check;
-                Require(ImGui_ImplVulkan_Init(&info, Main.Pass), "ImGui Vulkan initialization failed");
-                auto&                    slot = Main.Slots[0];
-                VkCommandBufferBeginInfo begin {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-                begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-                Check(vkBeginCommandBuffer(slot.Command, &begin));
-                Require(ImGui_ImplVulkan_CreateFontsTexture(slot.Command), "ImGui font upload failed");
-                Check(vkEndCommandBuffer(slot.Command));
-                VkSubmitInfo submit {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-                submit.commandBufferCount = 1;
-                submit.pCommandBuffers    = &slot.Command;
-                Check(vkQueueSubmit(C.Queue, 1, &submit, VK_NULL_HANDLE));
-                Check(vkQueueWaitIdle(C.Queue));
-                ImGui_ImplVulkan_DestroyFontUploadObjects();
+                info.PipelineInfoMain.RenderPass  = Main.Pass;
+                Require(ImGui_ImplVulkan_Init(&info), "ImGui Vulkan initialization failed");
                 Current                         = this;
                 auto& platform                  = ImGui::GetPlatformIO();
                 platform.Renderer_CreateWindow  = CreatePlatform;

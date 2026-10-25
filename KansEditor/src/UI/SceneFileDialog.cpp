@@ -154,11 +154,11 @@ namespace Kans
         DrawPathBar();
         const float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetStyle().ItemSpacing.y +
                              (m_Error.empty() ? 0.0f : ImGui::GetTextLineHeightWithSpacing());
-        ImGui::BeginChild("##Places", {160.0f, -footer}, true);
+        ImGui::BeginChild("##Places", {160.0f, -footer}, ImGuiChildFlags_Borders);
         DrawPlaces();
         ImGui::EndChild();
         ImGui::SameLine();
-        ImGui::BeginChild("##Entries", {0.0f, -footer}, true);
+        ImGui::BeginChild("##Entries", {0.0f, -footer}, ImGuiChildFlags_Borders);
         DrawEntries(submit);
         ImGui::EndChild();
         DrawFooter(submit);
@@ -240,7 +240,8 @@ namespace Kans
 
         // Filter on the right.
         const float width = 220.0f;
-        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - width));
+        ImGui::SameLine(
+            std::max(ImGui::GetCursorPosX(), (ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x) - width));
         ImGui::SetNextItemWidth(width);
         ImGui::InputTextWithHint("##Search", ICON_FA_MAGNIFYING_GLASS "  Filter", m_Search.data(), m_Search.size());
     }
