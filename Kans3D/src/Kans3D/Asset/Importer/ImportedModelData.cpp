@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "ImportedModelData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
+#include "FbxSkinWeights.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,7 @@
 #include <mutex>
 #include <assimp/cfileio.h>
 #include <assimp/cimport.h>
+#include <assimp/config.h>
 #include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
@@ -38,6 +40,7 @@ namespace Kans
         {
             aiFile        Handle {};
             std::ifstream Input;
+            const std::vector<char>* Memory   = nullptr;
             size_t        Size     = 0;
             size_t        Position = 0;
         };
@@ -49,6 +52,8 @@ namespace Kans
             const std::vector<std::filesystem::path>* AllowedFiles = nullptr;
             std::vector<std::filesystem::path>        DeniedFiles;
             bool                                      Failed = false;
+            std::filesystem::path                     PreparedPath;
+            std::vector<char>                         Prepared;
         };
 
         ModelFile& File(aiFile* handle) { return *reinterpret_cast<ModelFile*>(handle->UserData); }
@@ -61,6 +66,12 @@ namespace Kans
             if (file.Position >= file.Size)
                 return 0;
             const auto bytes = std::min(size * count, file.Size - file.Position);
+            if (file.Memory)
+            {
+                std::memcpy(buffer, file.Memory->data() + file.Position, bytes);
+                file.Position += bytes;
+                return bytes / size;
+            }
             file.Input.read(buffer, static_cast<std::streamsize>(bytes));
             const auto read = static_cast<size_t>(file.Input.gcount());
             file.Position += read;
@@ -93,6 +104,11 @@ namespace Kans
                 return aiReturn_FAILURE;
             if (next > file.Size || next > size_t(std::numeric_limits<std::streamoff>::max()))
                 return aiReturn_FAILURE;
+            if (file.Memory)
+            {
+                file.Position = next;
+                return aiReturn_SUCCESS;
+            }
             file.Input.clear();
             file.Input.seekg(static_cast<std::streamoff>(next));
             if (!file.Input)
@@ -142,6 +158,11 @@ namespace Kans
                 file->Input.seekg(0);
                 if (!file->Input)
                     return nullptr;
+                if (normalized == context.PreparedPath && !context.Prepared.empty())
+                {
+                    file->Memory = &context.Prepared;
+                    file->Size   = context.Prepared.size();
+                }
                 file->Handle.ReadProc     = ReadModelFile;
                 file->Handle.WriteProc    = [](aiFile*, const char*, size_t, size_t) -> size_t { return 0; };
                 file->Handle.TellProc     = [](aiFile* f) { return File(f).Position; };
@@ -179,6 +200,46 @@ namespace Kans
 
         ModelIO context;
         context.AllowedFiles = allowedFiles;
+        const auto normalized    = std::filesystem::absolute(path).lexically_normal();
+        auto       extensionText = path.extension().u8string();
+        std::transform(extensionText.begin(), extensionText.end(), extensionText.begin(), [](unsigned char c) {
+            return char(std::tolower(c));
+        });
+        if (extensionText == ".fbx" &&
+            (!allowedFiles || std::find(allowedFiles->begin(), allowedFiles->end(), normalized) != allowedFiles->end()))
+        {
+            try
+            {
+                std::ifstream input(path, std::ios::binary | std::ios::ate);
+                const auto    size = input.tellg();
+                if (size >= 27)
+                {
+                    input.seekg(0);
+                    char header[27] {};
+                    input.read(header, 27);
+                    if (std::memcmp(header, "Kaydara FBX Binary  \0\x1a\0", 23) == 0)
+                    {
+                        if (uint64_t(size) > 512ull * 1024 * 1024)
+                            return AssetError {AssetErrorCode::InvalidData, "Binary FBX exceeds input budget"};
+                        std::vector<char> bytes(size_t(size), 0);
+                        input.seekg(0);
+                        input.read(bytes.data(), size);
+                        if (!input)
+                            return AssetError {AssetErrorCode::IoError, "Cannot read binary FBX"};
+                        context.Prepared     = PrepareBinaryFbx(bytes);
+                        context.PreparedPath = normalized;
+                    }
+                }
+            }
+            catch (const std::exception& error)
+            {
+                return AssetError {AssetErrorCode::InvalidData, std::string("Binary FBX: ") + error.what()};
+            }
+        }
+        std::unique_ptr<aiPropertyStore, decltype(&aiReleasePropertyStore)> properties(aiCreatePropertyStore(),
+                                                                                       aiReleasePropertyStore);
+        if (!context.Prepared.empty())
+            aiSetImportPropertyInteger(properties.get(), AI_CONFIG_IMPORT_FBX_READ_ALL_MATERIALS, 1);
         aiFileIO io {OpenModelFile, [](aiFileIO*, aiFile* f) { delete &File(f); }, reinterpret_cast<char*>(&context)};
         // C callbacks keep STL state on our side of the DLL boundary. Serialize
         // import/error retrieval because the C error string is process-global.
@@ -189,7 +250,8 @@ namespace Kans
             std::lock_guard<std::mutex> lock(importMutex);
             const unsigned              flags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
                                                 aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace;
-            rawScene = aiImportFileEx(path.u8string().c_str(), flags | aiProcess_ValidateDataStructure, &io);
+            rawScene = aiImportFileExWithProperties(
+                path.u8string().c_str(), flags | aiProcess_ValidateDataStructure, &io, properties.get());
             if (!rawScene)
             {
                 parseError = aiGetErrorString();
@@ -199,7 +261,7 @@ namespace Kans
                 // hierarchy, skeleton and clip validation below (including sparse target indices/weights).
                 if (parseError.find("aiAnimation::mNumChannels is 0") != std::string::npos)
                 {
-                    rawScene          = aiImportFileEx(path.u8string().c_str(), flags, &io);
+                    rawScene = aiImportFileExWithProperties(path.u8string().c_str(), flags, &io, properties.get());
                     bool hasMorphOnly = false, invalid = false;
                     if (rawScene)
                     {

@@ -406,16 +406,52 @@ namespace Kans
         if (entity.HasComponent<PrefabOwnedComponent>())
         {
             const auto                       root     = GetPrefabInstanceRoot(entity);
-            std::function<glm::mat4(Entity)> relative = [&](Entity part) {
+            auto                             relative = [&](auto&& self, Entity part) -> glm::mat4 {
                 const auto parent = GetParent(part);
                 const auto matrix = part.GetComponent<TransformComponent>().GetTransform();
-                return parent && parent != root ? relative(parent) * matrix : matrix;
+                return parent && parent != root ? self(self, parent) * matrix : matrix;
             };
             // Preserve phase-2 multiplication grouping: rootWorld * modelSpace.
-            return root ? GetWorldTransform(root) * relative(entity) : local;
+            return root ? GetWorldTransform(root) * relative(relative, entity) : local;
         }
         const Entity    parent = GetParent(entity);
         return parent ? GetWorldTransform(parent) * local : local;
+    }
+
+    void Scene::UpdateMaterialParameterDrivers()
+    {
+        for (auto handle : m_Registry.view<MaterialParameterDriversComponent>())
+        {
+            auto& drivers = m_Registry.get<MaterialParameterDriversComponent>(handle);
+            if (!drivers.Values)
+                drivers.Values = CreateRef<InstanceMaterialParameters>();
+            auto& values = *drivers.Values;
+            values.resize(drivers.Bindings.size());
+            for (size_t i = 0; i < values.size(); ++i)
+            {
+                const auto& binding = drivers.Bindings[i];
+                auto&       value   = values[i];
+                if (value.Parameter != binding.Parameter)
+                    value.Parameter = binding.Parameter;
+                const auto source = GetEntityByUUID(binding.SourceEntity);
+                value.Resolved    = bool(source);
+                if (!source)
+                    continue;
+                const auto world = GetWorldTransform(source);
+                if (binding.Quantity == MaterialParameterQuantity::WorldPosition)
+                    value.Value = {world[3].x, world[3].y, world[3].z, 1};
+                else
+                {
+                    const int   axis = binding.Quantity == MaterialParameterQuantity::WorldForward ? 2 :
+                                       binding.Quantity == MaterialParameterQuantity::WorldUp      ? 1 :
+                                                                                                     0;
+                    glm::vec3   direction(world[axis]);
+                    const float length = glm::length(direction);
+                    direction          = length > 1e-20f ? direction / length : glm::vec3(0);
+                    value.Value        = {direction.x, direction.y, direction.z, 0};
+                }
+            }
+        }
     }
 
     void Scene::SetWorldTransform(Entity entity, const glm::mat4& world)
@@ -451,6 +487,7 @@ namespace Kans
         CopyComponent<MeshComponent>(source, copy);
         CopyComponent<EditableMeshComponent>(source, copy);
         CopyComponent<AnimatorComponent>(source, copy);
+        CopyComponent<MaterialParameterDriversComponent>(source, copy);
         CopyComponent<AudioSourceComponent>(source, copy);
         CopyComponent<AudioListenerComponent>(source, copy);
         if (source.HasComponent<PrefabInstanceComponent>())
@@ -489,7 +526,40 @@ namespace Kans
         const auto&  siblings = parent ? parent.GetComponent<RelationshipComponent>().Children : m_RootOrder;
         auto         at       = std::find(siblings.begin(), siblings.end(), entity.GetUUID());
         const Entity next     = at != siblings.end() && at + 1 != siblings.end() ? GetEntityByUUID(*(at + 1)) : Entity {};
-        return CopyEntity(entity, parent, next);
+        auto         copy     = CopyEntity(entity, parent, next);
+        std::unordered_map<UUID, UUID> remap;
+        auto                           pair = [&](auto&& self, Entity source, Entity target) -> void {
+            remap.emplace(source.GetUUID(), target.GetUUID());
+            const auto children = GetChildren(target);
+            size_t     ordinary = 0;
+            for (auto child : GetChildren(source))
+            {
+                Entity copied;
+                if (child.HasComponent<PrefabOwnedComponent>())
+                {
+                    const auto& owner = child.GetComponent<PrefabOwnedComponent>();
+                    auto        root  = remap.find(owner.Instance);
+                    if (root != remap.end())
+                        copied = GetEntityByUUID(PrefabEntityUUID(root->second, owner.NodeKey));
+                }
+                else
+                {
+                    while (ordinary < children.size() && children[ordinary].HasComponent<PrefabOwnedComponent>())
+                        ++ordinary;
+                    if (ordinary < children.size())
+                        copied = children[ordinary++];
+                }
+                if (copied)
+                    self(self, child, copied);
+            }
+        };
+        pair(pair, entity, copy);
+        for (const auto& [source, target] : remap)
+            if (auto copied = GetEntityByUUID(target); copied.HasComponent<MaterialParameterDriversComponent>())
+                for (auto& binding : copied.GetComponent<MaterialParameterDriversComponent>().Bindings)
+                    if (auto found = remap.find(binding.SourceEntity); found != remap.end())
+                        binding.SourceEntity = found->second;
+        return copy;
     }
 
     Entity Scene::GetEntityByUUID(UUID uuid) const
@@ -566,6 +636,10 @@ namespace Kans
     {}
     template<>
     void Scene::OnComponentAdd<AudioListenerComponent>(Entity, AudioListenerComponent&)
+    {}
+
+    template<>
+    void Scene::OnComponentAdd<MaterialParameterDriversComponent>(Entity, MaterialParameterDriversComponent&)
     {}
 
     template<>

@@ -21,6 +21,8 @@ namespace Kans
         const bool skinned     = bool(mesh.Skin && data.Palette);
         if (skinned && !shader.PrepareSkinning())
             return false;
+        const bool coverage    = data.Samples > 1 && (data.Render.AlphaMode == MaterialAlphaMode::Mask ||
+                                                      data.Render.AlphaMode == MaterialAlphaMode::Dithered);
         const bool transparent = data.Render.AlphaMode == MaterialAlphaMode::Blend;
         // Include attachment formats as well as count: display and HDR share a shader cache.
         uint32_t key = (uint32_t(skinned) << 7) | uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
@@ -31,7 +33,7 @@ namespace Kans
                          data.Samples == 2 ? 1u :
                                              0u)
                         << 4) |
-                       (uint32_t(data.Samples > 1 && data.Render.AlphaMode == MaterialAlphaMode::Mask) << 6);
+                       (uint32_t(coverage) << 6);
         for (size_t i = 0; i < data.ColorFormats.size(); ++i)
             key |= uint32_t(data.ColorFormats[i]) << (12 + i * 6);
         Handle<Pipeline> shadowPipeline;
@@ -42,7 +44,7 @@ namespace Kans
         {
             PipelineDesc desc;
             desc.Samples         = data.Samples;
-            desc.AlphaToCoverage = data.Samples > 1 && data.Render.AlphaMode == MaterialAlphaMode::Mask;
+            desc.AlphaToCoverage = coverage;
             desc.Program = data.DepthProgram ? data.DepthProgram : extraPass ? extraPass->Program : shader.Program;
             if (skinned && !data.DepthProgram)
                 desc.Program = extraPass ? extraPass->SkinnedProgram : shader.SkinnedProgram;
@@ -153,7 +155,8 @@ namespace Kans
             engine.Entries.push_back(std::move(entry));
         }
         bool complete = true;
-        auto material = cache.GetMaterialGroup(shader, bindings, &complete);
+        const auto* instance = cache.GetInstanceMaterialBindings(bindings, data.Parameters);
+        auto        material = cache.GetMaterialGroup(shader, *instance, &complete);
         if (!material)
             return false;
         commands.BindPipeline(pipeline);

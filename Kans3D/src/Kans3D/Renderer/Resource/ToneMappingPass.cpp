@@ -13,7 +13,8 @@ namespace Kans
                                  const RenderHardware::Handle<RenderHardware::Texture>&              source,
                                  const std::vector<RenderHardware::Handle<RenderHardware::Texture>>& targets,
                                  float                                                               exposure,
-                                 bool                                                                inverse)
+                                 bool                                                                inverse,
+                                 ToneMappingMode                                                     mode)
     {
         using namespace RenderHardware;
         const auto samples = source->GetDesc().Samples;
@@ -43,6 +44,7 @@ void main() {
     vec4 sampleColor = texelFetch(InputColor, ivec2(gl_FragCoord.xy), 0);
     if (p.Settings.y != 0) {
         vec3 y = decodeSRGB(sampleColor.rgb);
+        if (p.Settings.z == 1.0) { Color=vec4(y/p.Settings.x,sampleColor.a); return; }
         vec3 b = 0.59*y-0.03;
         vec3 a = 2.43*y-2.51;
         vec3 c = 0.14*y;
@@ -51,7 +53,7 @@ void main() {
     } else {
         vec3 x = max(sampleColor.rgb,vec3(0))*p.Settings.x;
         // Divide first for large values: no half-float intermediate clamping.
-        vec3 mapped = clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0,1);
+        vec3 mapped = p.Settings.z == 1.0 ? clamp(x,0,1) : clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0,1);
         Color = vec4(encodeSRGB(mapped),sampleColor.a);
     }
 })";
@@ -95,7 +97,7 @@ void main() {
                 desc.Blends[i].WriteMask = 0;
             pipeline = device.CreatePipeline(desc);
         }
-        glm::vec4 settings {EffectiveExposure(exposure), inverse ? 1.0f : 0.0f, 0, 0};
+        glm::vec4 settings {EffectiveExposure(exposure), inverse ? 1.0f : 0.0f, float(mode), 0};
         auto      buffer = device.CreateBuffer({sizeof(settings), BufferUsage::Uniform, MemoryUsage::Upload});
         buffer->Write(0, &settings, sizeof(settings));
         BindGroupDesc group;

@@ -30,7 +30,30 @@ namespace Kans
             return;
         auto&       renderer = *context.Frame;
         const auto& view     = context.View;
-        context.Graph.AddPass("Legacy geometry", context.Target, [&renderer, &view](auto& pass) {
+        auto        uses     = context.Target;
+        if (renderer.Samples == 1 && view.GetPostProcessSettings().FilterSize >= 1)
+        {
+            const auto hdr = context.Graph.ImportTexture("SceneHDR", renderer.Output.GetHDR());
+            if (!renderer.PostProcessHDR)
+            {
+                const auto display = context.Graph.ImportTexture("Debug display input", renderer.Output.GetColors()[0]);
+                context.Graph.AddPass("Debug geometry HDR prefill",
+                                      {{display, GraphAccess::SampledRead}, {hdr, GraphAccess::ColorWrite}},
+                                      [&renderer, &view](auto& pass) {
+                                          renderer.Services.GetToneMapping().Record(
+                                              pass.Device,
+                                              pass.Commands,
+                                              renderer.Output.GetColors()[0],
+                                              {renderer.Output.GetHDR()},
+                                              view.GetPostProcessSettings().Exposure,
+                                              true,
+                                              view.GetPostProcessSettings().ToneMapping);
+                                      });
+            }
+            renderer.PostProcessHDR = true;
+            uses.push_back({hdr, GraphAccess::ColorReadWrite});
+        }
+        context.Graph.AddPass("Legacy geometry", std::move(uses), [&renderer, &view](auto& pass) {
             for (const auto& draw : view.Geometry)
                 renderer.DrawModelGeometry(draw, pass.Commands);
         });

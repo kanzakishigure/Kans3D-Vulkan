@@ -72,6 +72,9 @@ namespace Kans
     {
         const auto& view = renderer.View;
         using namespace RenderHardware;
+        const bool reconstruct = view.GetPostProcessSettings().FilterSize >= 1;
+        if (reconstruct)
+            renderer.DeferToneMapping = true;
         if (renderer.Samples > 1)
         {
             BuildMSAA(graph, renderer);
@@ -79,6 +82,19 @@ namespace Kans
         }
         if (!graph.PassCount())
             Begin(graph, renderer);
+        if (renderer.HasBackgroundColor())
+        {
+            std::vector<GraphUse> background {
+                {graph.ImportTexture("SceneHDR", renderer.Output.GetHDR()), GraphAccess::ColorWrite}};
+            for (size_t i = 0; i < renderer.Output.GetColors().size(); ++i)
+                background.push_back(
+                    {graph.ImportTexture("SceneColor" + std::to_string(i), renderer.Output.GetColors()[i]),
+                     GraphAccess::ColorReadWrite});
+            graph.AddPass("Scene background (linear HDR)", background, [&renderer](auto& context) {
+                renderer.ClearBackground(context.Commands);
+            });
+            renderer.PostProcessHDR = true;
+        }
         BuildShadowPasses(graph, renderer);
         std::vector<GraphUse> target;
         for (size_t i = 0; i < renderer.Output.GetColors().size(); ++i)
@@ -104,9 +120,34 @@ namespace Kans
         RenderFeatureContext featureContext {graph, view, target, &renderer};
         for (const auto& immediate : view.ImmediateOrder)
         {
+            // Single-sample immediate draws use the compatibility display target.
+            // A skipped skybox must leave the scene-linear background available.
+            if (renderer.HasBackgroundColor() && !reconstruct &&
+                (immediate.Kind != ViewImmediateKind::Skybox ||
+                 (view.Skyboxes.at(immediate.Index).Texture && view.Environment.ShowSkybox)))
+                renderer.PostProcessHDR = false;
             featureContext.Immediate = &immediate;
             Inject(RenderExtensionPoint::Immediate, featureContext);
             auto uses = target;
+            if (reconstruct && immediate.Kind != ViewImmediateKind::Skybox && renderer.PostProcessHDR)
+            {
+                auto resolveUses = target;
+                resolveUses.pop_back();
+                resolveUses.push_back(
+                    {graph.ImportTexture("SceneHDR", renderer.Output.GetHDR()), GraphAccess::SampledRead});
+                auto commands = renderer.GetDevice()->CreateCommandList();
+                renderer.Services.GetToneMapping().Record(*renderer.GetDevice(),
+                                                          *commands,
+                                                          renderer.Output.GetHDR(),
+                                                          renderer.Output.GetColors(),
+                                                          view.GetPostProcessSettings().Exposure,
+                                                          false,
+                                                          view.GetPostProcessSettings().ToneMapping);
+                auto pass = graph.AddRecordedPass("Immediate display prefill", std::move(resolveUses), commands);
+                if (pass)
+                    graph.OrderAfter(pass, pass - 1);
+                renderer.PostProcessHDR = false;
+            }
             if (immediate.Kind == ViewImmediateKind::RecordedSprites)
             {
                 const auto& batch = view.SpriteBatches.at(immediate.Index);
@@ -147,9 +188,20 @@ namespace Kans
             else
             {
                 sampled(uses, view.Skyboxes.at(immediate.Index).Texture, "Skybox");
-                append("Skybox", std::move(uses), [&renderer, &view, immediate](auto& context) {
-                    renderer.DrawSkybox(view.Skyboxes.at(immediate.Index), context.Commands);
-                });
+                if (reconstruct)
+                {
+                    uses.push_back(
+                        {graph.ImportTexture("SceneHDR", renderer.Output.GetHDR()), GraphAccess::ColorReadWrite});
+                    auto commands = renderer.GetDevice()->CreateCommandList();
+                    renderer.DrawSkybox(view.Skyboxes.at(immediate.Index), *commands);
+                    auto pass = graph.AddRecordedPass("Skybox (HDR reconstruction input)", std::move(uses), commands);
+                    if (pass)
+                        graph.OrderAfter(pass, pass - 1);
+                }
+                else
+                    append("Skybox", std::move(uses), [&renderer, &view, immediate](auto& context) {
+                        renderer.DrawSkybox(view.Skyboxes.at(immediate.Index), context.Commands);
+                    });
             }
         }
         featureContext.Immediate = nullptr;
@@ -195,6 +247,7 @@ namespace Kans
             }
         }
         Inject(RenderExtensionPoint::AfterTransparent, featureContext);
+        AddReconstructionFilter(graph, renderer);
         Inject(RenderExtensionPoint::BeforePostProcess, featureContext);
         if (renderer.DeferToneMapping && renderer.PostProcessHDR)
         {
@@ -202,9 +255,14 @@ namespace Kans
             uses.pop_back(); // The final resolve does not access depth/stencil.
             uses.push_back({graph.ImportTexture("SceneHDR", renderer.Output.GetHDR()), GraphAccess::SampledRead});
             append("Tone mapping (ACES fitted + sRGB)", std::move(uses), [&renderer, &view](auto& context) {
-                const float exposure = view.Exposure.value_or(view.Scene.sceneCamera.camera.GetExposure());
-                renderer.Services.GetToneMapping().Record(
-                    context.Device, context.Commands, renderer.Output.GetHDR(), renderer.Output.GetColors(), exposure);
+                const float exposure = view.GetPostProcessSettings().Exposure;
+                renderer.Services.GetToneMapping().Record(context.Device,
+                                                          context.Commands,
+                                                          renderer.Output.GetHDR(),
+                                                          renderer.Output.GetColors(),
+                                                          exposure,
+                                                          false,
+                                                          view.GetPostProcessSettings().ToneMapping);
             });
         }
         // Display-space overlays follow every post effect and the final tone mapping.
@@ -212,6 +270,48 @@ namespace Kans
         if (view.EffectiveAA == AntiAliasing::FXAA)
             AddFXAA(graph, renderer);
         Inject(RenderExtensionPoint::Overlay, featureContext);
+    }
+
+    void ForwardPipeline::AddReconstructionFilter(RenderGraph& graph, RenderFrame& frame)
+    {
+        const float radius = frame.View.GetPostProcessSettings().FilterSize;
+        if (radius < 1)
+            return;
+        using namespace RenderHardware;
+        const auto hdr    = graph.ImportTexture("SceneHDR", frame.Output.GetHDR());
+        auto       append = [&](const char* name, std::vector<GraphUse> uses, RenderGraph::Record record) {
+            const auto pass = graph.AddPass(name, std::move(uses), std::move(record));
+            if (pass)
+                graph.OrderAfter(pass, pass - 1);
+        };
+        if (!frame.PostProcessHDR)
+        {
+            const auto display = graph.ImportTexture("Reconstruction display input", frame.Output.GetColors()[0]);
+            append("Reconstruction HDR prefill",
+                   {{display, GraphAccess::SampledRead}, {hdr, GraphAccess::ColorWrite}},
+                   [&frame](auto& c) {
+                       frame.Services.GetToneMapping().Record(c.Device,
+                                                              c.Commands,
+                                                              frame.Output.GetColors()[0],
+                                                              {frame.Output.GetHDR()},
+                                                              frame.View.GetPostProcessSettings().Exposure,
+                                                              true,
+                                                              frame.View.GetPostProcessSettings().ToneMapping);
+                   });
+        }
+        auto desc        = frame.Output.GetHDR()->GetDesc();
+        desc.Usage       = RenderHardware::TextureUsage::Sampled | RenderHardware::TextureUsage::CopyDestination;
+        const auto input = graph.CreateTexture("Reconstruction HDR input", desc);
+        append("Reconstruction HDR input copy",
+               {{hdr, GraphAccess::TransferRead}, {input, GraphAccess::TransferWrite}},
+               [hdr, input](auto& c) { c.Commands.CopyTexture(c.Texture(hdr), {}, c.Texture(input)); });
+        append("Radial Blackman-Harris reconstruction",
+               {{input, GraphAccess::SampledRead}, {hdr, GraphAccess::ColorWrite}},
+               [&frame, input, hdr, radius](auto& c) {
+                   frame.Output.GetReconstructionFilter().Record(
+                       c.Device, c.Commands, c.Texture(input), c.Texture(hdr), radius);
+               });
+        frame.DeferToneMapping = frame.PostProcessHDR = true;
     }
 
     void ForwardPipeline::AddFXAA(RenderGraph& graph, RenderFrame& frame)
@@ -280,6 +380,11 @@ namespace Kans
             hdr.Colors.push_back({frame.HDR(), {}, LoadOp::Clear});
             c.Commands.BeginRendering(hdr);
             c.Commands.EndRendering();
+            if (frame.HasBackgroundColor())
+            {
+                frame.ClearBackground(c.Commands);
+                frame.PostProcessHDR = true;
+            }
         });
         BuildShadowPasses(graph, frame);
         RenderFeatureContext features {graph, view, scene, &frame};
@@ -291,7 +396,8 @@ namespace Kans
             if (immediate.Kind == ViewImmediateKind::Skybox)
             {
                 const auto& sky = view.Skyboxes.at(immediate.Index);
-                uses.push_back({graph.ImportTexture("Skybox", sky.Texture), GraphAccess::SampledRead});
+                if (sky.Texture)
+                    uses.push_back({graph.ImportTexture("Skybox", sky.Texture), GraphAccess::SampledRead});
                 append("Skybox MSAA", uses, [&frame, immediate](auto& c) {
                     frame.DrawSkybox(frame.View.Skyboxes.at(immediate.Index), c.Commands);
                 });
@@ -310,12 +416,13 @@ namespace Kans
                 append("Renderer2D sprites MSAA", uses, [&frame, immediate, end](auto& c) {
                     if (frame.PostProcessHDR)
                     {
-                        frame.Services.GetToneMapping().Record(
-                            c.Device,
-                            c.Commands,
-                            frame.HDR(),
-                            frame.Colors(),
-                            frame.View.Exposure.value_or(frame.View.Scene.sceneCamera.camera.GetExposure()));
+                        frame.Services.GetToneMapping().Record(c.Device,
+                                                               c.Commands,
+                                                               frame.HDR(),
+                                                               frame.Colors(),
+                                                               frame.View.GetPostProcessSettings().Exposure,
+                                                               false,
+                                                               frame.View.GetPostProcessSettings().ToneMapping);
                         frame.PostProcessHDR = false;
                     }
                     auto& sprites = frame.Services.GetSpriteBatch();
@@ -382,10 +489,15 @@ namespace Kans
         }
         resolveUses.push_back({hdr, GraphAccess::ColorWrite});
         append("MSAA Karis HDR + sample 0 depth/stencil resolve", resolveUses, [&frame](auto& c) {
-            const float exposure = frame.View.Exposure.value_or(frame.View.Scene.sceneCamera.camera.GetExposure());
+            const float exposure = frame.View.GetPostProcessSettings().Exposure;
             if (!frame.PostProcessHDR)
-                frame.Services.GetToneMapping().Record(
-                    c.Device, c.Commands, frame.Colors()[0], {frame.HDR()}, exposure, true);
+                frame.Services.GetToneMapping().Record(c.Device,
+                                                       c.Commands,
+                                                       frame.Colors()[0],
+                                                       {frame.HDR()},
+                                                       exposure,
+                                                       true,
+                                                       frame.View.GetPostProcessSettings().ToneMapping);
             frame.Services.GetAntiAliasing().Resolve(c.Device, c.Commands, frame.HDR(), frame.Output.GetHDR());
             // Compatibility color outputs and depth/stencil use attachment resolves.
             auto render = frame.SceneTarget(LoadOp::Load);
@@ -400,17 +512,19 @@ namespace Kans
         RenderFeatureContext postFeatures {graph, view, resolved, &frame};
         // Bloom consumes the single-sample HDR resolve. Its build-time contract is HDR input.
         frame.PostProcessHDR = true;
+        AddReconstructionFilter(graph, frame);
         Inject(RenderExtensionPoint::BeforePostProcess, postFeatures);
         auto toneUses = resolved;
         toneUses.pop_back();
         toneUses.push_back({hdr, GraphAccess::SampledRead});
         append("Tone mapping (ACES fitted + sRGB)", toneUses, [&frame](auto& c) {
-            frame.Services.GetToneMapping().Record(
-                c.Device,
-                c.Commands,
-                frame.Output.GetHDR(),
-                frame.Output.GetColors(),
-                frame.View.Exposure.value_or(frame.View.Scene.sceneCamera.camera.GetExposure()));
+            frame.Services.GetToneMapping().Record(c.Device,
+                                                   c.Commands,
+                                                   frame.Output.GetHDR(),
+                                                   frame.Output.GetColors(),
+                                                   frame.View.GetPostProcessSettings().Exposure,
+                                                   false,
+                                                   frame.View.GetPostProcessSettings().ToneMapping);
             frame.DeferToneMapping = frame.PostProcessHDR = false;
         });
         Inject(RenderExtensionPoint::Overlay, postFeatures);

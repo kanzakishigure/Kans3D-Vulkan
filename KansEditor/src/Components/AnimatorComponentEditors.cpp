@@ -1,11 +1,12 @@
+#include <imgui.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <map>
-#include <imgui.h>
-#include "ComponentEditors.h"
 #include "Kans3D/Animation/AnimatorComponent.h"
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Scene/Scene.h"
+#include "ComponentEditors.h"
 #include "UI/EditorIcons.h"
 #include "UI/PropertyGrid.h"
 
@@ -35,49 +36,6 @@ namespace Kans::ComponentEditors
                 return false;
             value = buffer;
             return true;
-        }
-
-        void ListEntities(Scene& scene, Entity entity, int depth, uint64_t& id, bool& changed)
-        {
-            const uint64_t uuid = uint64_t(entity.GetUUID());
-            ImGui::PushID(&uuid);
-            ImGui::Indent(float(depth) * 10.0f);
-            if (ImGui::Selectable(entity.GetComponent<TagComponent>().Tag.c_str(), id == uuid))
-                id = uuid, changed = true;
-            ImGui::Unindent(float(depth) * 10.0f);
-            ImGui::PopID();
-            for (Entity child : scene.GetChildren(entity))
-                ListEntities(scene, child, depth + 1, id, changed);
-        }
-
-        // An entity whose world transform drives an IK target (0 = use the explicit value).
-        // Also accepts an entity dragged from the Hierarchy.
-        bool EntityField(const char* label, uint64_t& id, Scene* scene)
-        {
-            PropertyGrid::Row(label);
-            Entity      target  = scene && id ? scene->GetEntityByUUID(UUID(id)) : Entity {};
-            std::string current = !id ? "(none)" : target ? target.GetComponent<TagComponent>().Tag : "(missing)";
-            bool        changed = false;
-            ImGui::PushID(label);
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::BeginCombo("##entity", current.c_str(), ImGuiComboFlags_HeightLarge))
-            {
-                if (ImGui::Selectable("(none)", id == 0))
-                    id = 0, changed = true;
-                if (scene)
-                    for (Entity root : scene->GetRootEntities())
-                        ListEntities(*scene, root, 0, id, changed);
-                ImGui::EndCombo();
-            }
-            if (ImGui::BeginDragDropTarget())
-            {
-                if (const auto* payload = ImGui::AcceptDragDropPayload("entity_payload");
-                    payload && payload->DataSize == sizeof(uint64_t))
-                    id = *static_cast<const uint64_t*>(payload->Data), changed = true;
-                ImGui::EndDragDropTarget();
-            }
-            ImGui::PopID();
-            return changed;
         }
 
         // A joint chosen from the skeleton (empty = none).
@@ -127,6 +85,25 @@ namespace Kans::ComponentEditors
             for (const auto& child : m.Children)
                 longest = std::max(longest, MotionDuration(c, child.Motion, ui));
             return longest;
+        }
+
+        // Sampling rate of a motion, for frame-accurate preview; blend trees use their fastest clip.
+        double MotionFrameRate(const AnimationControllerData& c, uint32_t motion, ComponentUI& ui)
+        {
+            if (motion >= c.Motions.size() || !ui.GetAssets())
+                return 30;
+            const auto& m = c.Motions[motion];
+            if (m.InlineClip)
+                return m.InlineClip->FrameRate;
+            if (m.Type == AnimationMotionType::Clip)
+            {
+                auto status = ui.GetAssets()->Request<AnimationClipAsset>(m.Clip);
+                return status.IsReady() ? status.Asset->GetData().FrameRate : 30;
+            }
+            double fastest = 0;
+            for (const auto& child : m.Children)
+                fastest = std::max(fastest, MotionFrameRate(c, child.Motion, ui));
+            return fastest > 0 ? fastest : 30;
         }
 
         bool DrawParameters(AnimationControllerData& c)
@@ -548,18 +525,58 @@ namespace Kans::ComponentEditors
                             p.State = s, p.Time = 0;
                     ImGui::EndCombo();
                 }
+                const uint32_t motion   = layer.States[p.State].Motion;
+                const double   duration = std::max(MotionDuration(c, motion, ui), 1e-3);
+                const double   fps      = std::max(MotionFrameRate(c, motion, ui), 1.0);
+                // Frames are counted from 0; the last frame sits exactly at the clip's end.
+                const int  lastFrame = std::max(int(std::lround(duration * fps)), 1);
+                int        frame     = std::clamp(int(std::floor(p.Time * fps + 1e-6)), 0, lastFrame);
+                const auto seek      = [&](int to) {
+                    frame     = std::clamp(to, 0, lastFrame);
+                    p.Time    = frame / fps;
+                    p.Playing = false;
+                };
+                const bool shift = ImGui::GetIO().KeyShift; // Shift steps ten frames.
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_BACKWARD_FAST))
+                    seek(0);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("First frame");
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_BACKWARD_STEP))
+                    seek(frame - (shift ? 10 : 1));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Previous frame (Shift: 10 frames)");
                 ImGui::SameLine();
                 if (ImGui::Button(p.Playing ? ICON_FA_PAUSE : ICON_FA_PLAY))
                     p.Playing = !p.Playing;
-                const double duration =
-                    std::max(MotionDuration(c, layer.States[p.State].Motion, ui), 1e-3);
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_FORWARD_STEP))
+                    seek(frame + (shift ? 10 : 1));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Next frame (Shift: 10 frames)");
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_FORWARD_FAST))
+                    seek(lastFrame);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Last frame");
+                ImGui::SameLine();
+                int typed = frame;
+                ImGui::SetNextItemWidth(70);
+                if (ImGui::InputInt("##frame", &typed, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
+                    seek(typed);
+                ImGui::SameLine();
+                ImGui::TextDisabled("/ %d  (%.0f fps)", lastFrame, fps);
+
                 if (p.Playing)
                     p.Time = std::fmod(p.Time + ImGui::GetIO().DeltaTime * layer.States[p.State].Speed * a.Speed, duration);
-                float time = float(p.Time);
-                ImGui::SameLine();
+                // Scrubbing snaps to whole frames; the label also shows seconds for long clips.
+                int  scrub = std::clamp(int(std::floor(p.Time * fps + 1e-6)), 0, lastFrame);
+                char label[48];
+                std::snprintf(label, sizeof(label), "%d  (%.2f s)", scrub, p.Time);
                 ImGui::SetNextItemWidth(-FLT_MIN);
-                if (ImGui::SliderFloat("##time", &time, 0.0f, float(duration), "%.2f s"))
-                    p.Time = time, p.Playing = false;
+                if (ImGui::SliderInt("##time", &scrub, 0, lastFrame, label))
+                    seek(scrub);
                 scene->PreviewAnimation(entity, size_t(p.Layer), uint32_t(p.State), p.Time);
             }
             ImGui::TreePop();

@@ -60,6 +60,11 @@ namespace Kans
                             input("vec3", "kans_Normal", "kans_RawNormal");
                         if (tangent)
                             input("vec4", "kans_Tangent", "kans_RawTangent");
+                        // SPIRV-Cross lowers the vertex include's private initializer into main.
+                        // Keep its source at the raw input, before both morph accumulation and skinning.
+                        const std::string rest = "kans_RestPosition = kans_Position;";
+                        if (const auto at = source.find(rest); at != std::string::npos)
+                            source.replace(at, rest.size(), "kans_RestPosition = kans_RawPosition;");
                         const auto main = source.find("void main()");
                         if (main == std::string::npos)
                             throw std::runtime_error("Missing shader main");

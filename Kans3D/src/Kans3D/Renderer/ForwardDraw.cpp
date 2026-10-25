@@ -72,7 +72,7 @@ namespace Kans
             const auto* bindings = GetBindings(draw.Material, draw.ViewMode != SceneViewMode::Lit);
             const auto* shader   = bindings ? GetShader(draw.Material, bindings->Shader) : nullptr;
             if (shader && std::any_of(shader->Passes.begin(), shader->Passes.end(), [&](const auto& pass) {
-                    return pass.Tag == tag;
+                    return pass.Tag == tag && bindings->PassEnabled(pass.Name);
                 }))
                 return true;
         }
@@ -92,9 +92,13 @@ namespace Kans
         const auto&         ready    = view.MaterialOrder;
         auto*               commands = &commandList;
         EngineFrameUniforms frame    = View.LightingUniforms.value_or(MakeLightingUniforms(View.Scene));
-        frame.ViewProjection = View.Scene.sceneCamera.camera.GetProjectionMatrix() * View.Scene.sceneCamera.viewMatrix;
         const auto coordinates = Services.GetDevice()->GetCoordinateConventions();
-        frame.ViewProjection   = DeviceProjection(frame.ViewProjection, coordinates);
+        frame.View                      = View.Scene.sceneCamera.viewMatrix;
+        frame.Projection                = View.Scene.sceneCamera.camera.GetProjectionMatrix();
+        frame.ViewProjection            = DeviceProjection(frame.Projection * frame.View, coordinates);
+        frame.Projection                = DeviceProjection(frame.Projection, coordinates);
+        frame.InverseView               = glm::inverse(frame.View);
+        frame.InverseProjection         = glm::inverse(frame.Projection);
         frame.CameraPosition   = glm::vec4(View.Scene.sceneCamera.Position, 1.0f);
         frame.Time             = View.Time;
         const float rotation   = glm::radians(View.Environment.Rotation);
@@ -102,8 +106,7 @@ namespace Kans
                                   View.Environment.SpecularIntensity,
                                   std::cos(rotation),
                                   std::sin(rotation)};
-        if (View.Exposure)
-            frame.LightingInfo.y = *View.Exposure;
+        frame.LightingInfo.y   = View.GetPostProcessSettings().Exposure;
         using namespace RenderHardware;
         const size_t alignment   = Services.GetDevice()->GetBufferBindingAlignment(BindingType::UniformBuffer);
         const auto   align       = [alignment](size_t n) { return (n + alignment - 1) / alignment * alignment; };
@@ -115,9 +118,15 @@ namespace Kans
             Services.GetDevice()->CreateBuffer({frameStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
         auto objects = Services.GetDevice()->CreateBuffer(
             {objectStride * ready.size(), BufferUsage::Uniform, MemoryUsage::Upload});
-        bool rendering = false, hdr = DeferToneMapping && PostProcessHDR;
+        bool rendering = false, hdr = (DeferToneMapping || HasBackgroundColor()) && PostProcessHDR;
         auto resolve = [&](RenderHardware::CommandList& output) {
-            Services.GetToneMapping().Record(*Services.GetDevice(), output, HDR(), Colors(), frame.LightingInfo.y);
+            Services.GetToneMapping().Record(*Services.GetDevice(),
+                                             output,
+                                             HDR(),
+                                             Colors(),
+                                             frame.LightingInfo.y,
+                                             false,
+                                             View.GetPostProcessSettings().ToneMapping);
         };
         auto beginTarget = [&](bool nextHDR) {
             if (rendering && nextHDR == hdr)
@@ -127,8 +136,13 @@ namespace Kans
             if (hdr && !nextHDR)
                 resolve(*commands);
             if (nextHDR && !hdr)
-                Services.GetToneMapping().Record(
-                    *Services.GetDevice(), *commands, Colors()[0], {HDR()}, frame.LightingInfo.y, true);
+                Services.GetToneMapping().Record(*Services.GetDevice(),
+                                                 *commands,
+                                                 Colors()[0],
+                                                 {HDR()},
+                                                 frame.LightingInfo.y,
+                                                 true,
+                                                 View.GetPostProcessSettings().ToneMapping);
             hdr = nextHDR;
             commands->BeginRendering(SceneTarget(LoadOp::Load, hdr));
             commands->SetViewport({0, 0, float(View.Viewport.x), float(View.Viewport.y), 0, 1});
@@ -151,7 +165,7 @@ namespace Kans
                 continue;
             if (!tag.empty() &&
                 (!draw.Ready || std::none_of(shader->Passes.begin(), shader->Passes.end(), [&](const auto& pass) {
-                    return pass.Tag == tag;
+                    return pass.Tag == tag && bindings->PassEnabled(pass.Name);
                 })))
                 continue;
             const auto& render = item.Render;
@@ -188,7 +202,9 @@ namespace Kans
                                      render.DoubleSided ? 1.0f : 0.0f,
                                      render.ReceiveShadows && draw.ReceiveShadows ? 0.0f : 1.0f};
             if (Samples > 1 && !MSAAResolved && render.AlphaMode == MaterialAlphaMode::Mask)
-                object.MaterialRender.x = 3.0f;
+                object.MaterialRender.x = 4.0f;
+            if (Samples > 1 && !MSAAResolved && render.AlphaMode == MaterialAlphaMode::Dithered)
+                object.MaterialRender.x = 5.0f;
             objects->Write(range * objectStride, &object, sizeof(object));
             MaterialPassData pass;
             pass.Palette            = mesh->Skin ? Assets()->GetSkinningPalette(draw.SkinPose, mesh) :
@@ -210,6 +226,7 @@ namespace Kans
             pass.Wireframe    = draw.ViewMode == SceneViewMode::Wireframe;
             pass.WriteStencil = draw.Stencil == ModelStencilMode::WriteReference;
             pass.Render       = render;
+            pass.Parameters   = draw.Parameters;
             pass.Samples      = SceneTarget(LoadOp::Load, nextHDR).Colors[0].Target->GetDesc().Samples;
             pass.Section      = draw.Section;
             bool recorded     = false;
@@ -218,14 +235,23 @@ namespace Kans
                     RecordMaterialDraw(*Assets(), *commands, *shader, *bindings, *mesh, pass, nullptr, &recorded);
             else
                 for (const auto& extra : shader->Passes)
-                    if (extra.Tag == tag)
+                    if (extra.Tag == tag && bindings->PassEnabled(extra.Name))
                     {
                         Complete &= RecordMaterialDraw(*Assets(), *commands, *shader, *bindings, *mesh, pass, &extra);
                         ++Stats.DrawCalls;
                         Stats.Triangles += mesh->Sections[draw.Section].IndexCount / 3;
                     }
             if (tag.empty() && recorded)
+            {
                 ++View.Culling.Drawn;
+                for (const auto& extra : shader->Passes)
+                    if (extra.Tag == "AfterMain" && bindings->PassEnabled(extra.Name))
+                    {
+                        Complete &= RecordMaterialDraw(*Assets(), *commands, *shader, *bindings, *mesh, pass, &extra);
+                        ++Stats.DrawCalls;
+                        Stats.Triangles += mesh->Sections[draw.Section].IndexCount / 3;
+                    }
+            }
             if (sampled)
                 for (const auto& image : bindings->Images)
                     sampled(image);
@@ -272,7 +298,8 @@ namespace Kans
                                                                     SceneShaders::StencilFragment;
         if (!vertex)
             return;
-        const bool  hdrGeometry    = Samples > 1 && !MSAAResolved && PostProcessHDR;
+        const bool  reconstruct    = View.GetPostProcessSettings().FilterSize >= 1;
+        const bool  hdrGeometry    = (Samples > 1 && !MSAAResolved && PostProcessHDR) || (Samples == 1 && reconstruct);
         std::string fragmentSource = fragment;
         if (hdrGeometry)
         {
@@ -286,14 +313,14 @@ void main() {
     vec3 c = OUTPUT.rgb;
     vec3 y = mix(c/12.92,pow((c+0.055)/1.055,vec3(2.4)),greaterThan(c,vec3(0.04045)));
     vec3 b=0.59*y-0.03, a=2.43*y-2.51;
-    OUTPUT.rgb=2*0.14*y/max(sqrt(b*b-4*a*0.14*y)-b,vec3(1e-8))/p.Settings.w;
+    OUTPUT.rgb=(p.Settings.z==1 ? y : 2*0.14*y/max(sqrt(b*b-4*a*0.14*y)-b,vec3(1e-8)))/p.Settings.w;
 })";
             size_t atOutput;
             while ((atOutput = fragmentSource.find("OUTPUT")) != std::string::npos)
                 fragmentSource.replace(atOutput, 6, output);
         }
         PipelineDesc desc = Services.ScenePipeline(draw.ShaderName.c_str(), vertex, fragmentSource.c_str(), false);
-        if (Samples > 1)
+        if (Samples > 1 || hdrGeometry)
         {
             desc.ColorFormats.clear();
             for (const auto& color : SceneTarget(LoadOp::Load, hdrGeometry).Colors)
@@ -346,8 +373,10 @@ void main() {
         data.ViewProjection = View.Scene.sceneCamera.camera.GetProjectionMatrix() * View.Scene.sceneCamera.viewMatrix;
         data.ViewPos        = glm::vec4(View.Scene.sceneCamera.Position, 1);
         if (hdrGeometry)
-            data.Settings.w =
-                ToneMappingPass::EffectiveExposure(View.Exposure.value_or(View.Scene.sceneCamera.camera.GetExposure()));
+        {
+            data.Settings.w = ToneMappingPass::EffectiveExposure(View.GetPostProcessSettings().Exposure);
+            data.Settings.z = reconstruct ? float(View.GetPostProcessSettings().ToneMapping) : 0;
+        }
         if (const GpuMesh* mesh = GetMesh(draw.Mesh))
             ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
                 data.Transform = draw.Transform;
@@ -417,15 +446,16 @@ void main() {
         using namespace RenderHardware;
         if (!skybox || !View.Environment.ShowSkybox)
             return;
-        const bool hdrSkybox = Samples > 1 && !MSAAResolved;
+        const bool hdrSkybox = (Samples > 1 && !MSAAResolved) || View.GetPostProcessSettings().FilterSize >= 1;
         if (hdrSkybox && !PostProcessHDR)
         {
             Services.GetToneMapping().Record(*GetDevice(),
                                              commandList,
                                              Colors()[0],
                                              {HDR()},
-                                             View.Exposure.value_or(View.Scene.sceneCamera.camera.GetExposure()),
-                                             true);
+                                             View.GetPostProcessSettings().Exposure,
+                                             true,
+                                             View.GetPostProcessSettings().ToneMapping);
             PostProcessHDR = true;
         }
         auto desc = Services.ScenePipeline("skybox", SceneShaders::SkyboxVertex, SceneShaders::SkyboxFragment, true);

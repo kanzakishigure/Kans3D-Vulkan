@@ -39,6 +39,7 @@ namespace Kans
     private:
         // Scene-wide settings, shown when no entity is selected.
         void DrawSceneSettings(Scene& scene);
+        void DrawPostProcess(Scene& scene);
         void DrawHeader(Entity entity);
         void DrawPrefabPart(Entity entity);
         void DrawSection(Entity entity, const ComponentEntry& component);

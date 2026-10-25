@@ -59,16 +59,23 @@ namespace Kans::ComponentEditors
                 if (PropertyGrid::Float("Far clip", farClip, 0.1f))
                     camera.SetOrthographicFarClip(farClip);
             }
-            float exposure = camera.GetExposure();
-            if (PropertyGrid::Float("Exposure", exposure, 0.01f, 0.0f, 100.0f))
-                camera.SetExposure(exposure);
             auto antiAliasing = camera.GetAntiAliasing();
             if (DrawAntiAliasing(antiAliasing))
                 camera.SetAntiAliasing(antiAliasing);
-            auto bloom = camera.GetBloomSettings();
-            if (DrawBloomSettings(bloom,
-                                  [&](AssetID& dirt) { return ui.AssetPicker("Lens dirt", AssetType::Texture, dirt); }))
-                camera.SetBloomSettings(bloom);
+            // Post-processing normally comes from the scene; an override applies to this camera only.
+            bool overridden = camera.GetPostProcessOverride().has_value();
+            if (PropertyGrid::Checkbox("Override post", overridden))
+                camera.SetPostProcessOverride(
+                    overridden ? std::optional<PostProcessSettings>(
+                                     ui.GetScene() ? ui.GetScene()->GetPostProcessSettings() : PostProcessSettings {}) :
+                                 std::nullopt);
+            if (camera.GetPostProcessOverride())
+            {
+                auto settings = *camera.GetPostProcessOverride();
+                if (DrawPostProcessSettings(
+                        settings, [&](AssetID& dirt) { return ui.AssetPicker("Lens dirt", AssetType::Texture, dirt); }))
+                    camera.SetPostProcessOverride(settings);
+            }
         });
         PropertyGrid::End();
     }

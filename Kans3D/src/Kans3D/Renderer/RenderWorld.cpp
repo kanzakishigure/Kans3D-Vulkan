@@ -152,7 +152,14 @@ namespace Kans
             const auto& record = m_Records.at(handle);
             if (!subtree || order.EntityID == subtree ||
                 std::find(record.Ancestors.begin(), record.Ancestors.end(), subtree) != record.Ancestors.end())
+            {
+                const auto first = result.size();
                 result.insert(result.end(), record.Draws.begin(), record.Draws.end());
+                auto root = m_Scene->GetEntityByUUID(order.Root ? order.Root : order.EntityID);
+                if (root && root.HasComponent<MaterialParameterDriversComponent>())
+                    for (size_t i = first; i < result.size(); ++i)
+                        result[i].Parameters = root.GetComponent<MaterialParameterDriversComponent>().Values;
+            }
         }
         return result;
     }
@@ -169,6 +176,7 @@ namespace Kans
         if (!m_Scene)
             return;
         m_Scene->UpdatePrefabs();
+        m_Scene->UpdateMaterialParameterDrivers();
         m_Stats           = m_PendingStats;
         m_PendingStats    = {};
         using SpriteGroup = decltype(m_Scene->m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>));
@@ -333,6 +341,8 @@ namespace Kans
     }
     void RenderWorld::Extract(RenderView& output, const RenderResource& settings) const
     {
+        if (m_Scene)
+            output.Scene.PostProcess = m_Scene->GetPostProcessSettings();
         CollectLights(output.Scene);
         output.Draws.clear();
         output.Meshes.clear();
@@ -356,7 +366,8 @@ namespace Kans
                                     true,
                                     proxy.CastShadows,
                                     proxy.ReceiveShadows,
-                                    proxy.SkinPose});
+                                    proxy.SkinPose,
+                                    proxy.Parameters});
         const auto& state = settings.Piplinestate;
         for (const auto& [order, handle] : m_Order)
         {
@@ -380,7 +391,13 @@ namespace Kans
                                         true,
                                         proxy.CastShadows,
                                         proxy.ReceiveShadows,
-                                        proxy.SkinPose});
+                                        proxy.SkinPose,
+                                        proxy.Parameters});
+            if (auto root =
+                    m_Scene->GetEntityByUUID(submission.InstanceRoot ? submission.InstanceRoot : submission.EntityID);
+                root && root.HasComponent<MaterialParameterDriversComponent>())
+                for (size_t i = output.Draws.size() - record.Draws.size(); i < output.Draws.size(); ++i)
+                    output.Draws[i].Parameters = root.GetComponent<MaterialParameterDriversComponent>().Values;
             const auto& mesh = submission.Mesh;
             if (state.EnableStencil)
                 output.Geometry.push_back(

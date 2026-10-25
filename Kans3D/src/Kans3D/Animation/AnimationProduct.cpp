@@ -249,6 +249,209 @@ namespace Kans
             Require(root["version"].as<unsigned>() == 1 || root["version"].as<unsigned>() == 2);
             return root["data"];
         }
+        // Long baked FBX clips must not construct millions of YAML nodes. KCLP v3
+        // stores explicit little-endian words; small/legacy clips retain their YAML codec.
+        struct ClipWriter
+        {
+            std::vector<std::byte> Data;
+            void                   U32(uint32_t v)
+            {
+                for (int i = 0; i < 4; ++i)
+                    Data.push_back(std::byte((v >> (i * 8)) & 255));
+            }
+            void F32(float v)
+            {
+                uint32_t bits;
+                std::memcpy(&bits, &v, 4);
+                U32(bits);
+            }
+            void F64(double v)
+            {
+                uint64_t bits;
+                std::memcpy(&bits, &v, 8);
+                U32(uint32_t(bits));
+                U32(uint32_t(bits >> 32));
+            }
+            void Text(const std::string& v)
+            {
+                U32(uint32_t(v.size()));
+                for (auto c : v)
+                    Data.push_back(std::byte(uint8_t(c)));
+            }
+            template<class T>
+            void Track(const AnimationTrack<T>& track)
+            {
+                U32(uint32_t(track.Interpolation));
+                U32(uint32_t(track.Keys.size()));
+                for (const auto& key : track.Keys)
+                {
+                    F64(key.Time);
+                    if constexpr (std::is_same_v<T, float>)
+                        F32(key.Value);
+                    else if constexpr (std::is_same_v<T, glm::quat>)
+                    {
+                        F32(key.Value.x);
+                        F32(key.Value.y);
+                        F32(key.Value.z);
+                        F32(key.Value.w);
+                    }
+                    else
+                    {
+                        F32(key.Value.x);
+                        F32(key.Value.y);
+                        F32(key.Value.z);
+                    }
+                }
+            }
+        };
+        struct ClipReader
+        {
+            const std::byte* Data;
+            size_t           Size, At = 0;
+            uint32_t         U32()
+            {
+                Require(At <= Size && Size - At >= 4);
+                uint32_t v = 0;
+                for (int i = 0; i < 4; ++i)
+                    v |= uint32_t(Data[At++]) << (8 * i);
+                return v;
+            }
+            float F32()
+            {
+                auto  bits = U32();
+                float v;
+                std::memcpy(&v, &bits, 4);
+                return v;
+            }
+            double F64()
+            {
+                uint64_t bits = U32();
+                bits |= uint64_t(U32()) << 32;
+                double v;
+                std::memcpy(&v, &bits, 8);
+                return v;
+            }
+            uint32_t Count(uint32_t maximum, size_t minimumBytes)
+            {
+                auto count = U32();
+                Require(count <= maximum && count <= (Size - At) / minimumBytes);
+                return count;
+            }
+            std::string Text()
+            {
+                const auto  size = Count(4096, 1);
+                std::string result(reinterpret_cast<const char*>(Data + At), size);
+                At += size;
+                return result;
+            }
+            template<class T>
+            AnimationTrack<T> Track()
+            {
+                AnimationTrack<T> result;
+                const auto        interpolation = U32();
+                Require(interpolation <= uint32_t(TrackInterpolation::Spherical));
+                result.Interpolation        = TrackInterpolation(interpolation);
+                constexpr size_t components = std::is_same_v<T, float> ? 1 : std::is_same_v<T, glm::quat> ? 4 : 3;
+                const auto       count      = Count(1000000, 8 + components * 4);
+                result.Keys.reserve(count);
+                for (uint32_t i = 0; i < count; ++i)
+                {
+                    AnimationKey<T> key;
+                    key.Time = F64();
+                    if constexpr (std::is_same_v<T, float>)
+                        key.Value = F32();
+                    else if constexpr (std::is_same_v<T, glm::quat>)
+                    {
+                        const float x = F32(), y = F32(), z = F32(), w = F32();
+                        key.Value = {w, x, y, z};
+                    }
+                    else
+                    {
+                        const float x = F32(), y = F32(), z = F32();
+                        key.Value = {x, y, z};
+                    }
+                    result.Keys.push_back(key);
+                }
+                return result;
+            }
+        };
+        std::vector<std::byte> PackedClip(const AnimationClipData& c)
+        {
+            ClipWriter out;
+            out.U32(0x504c434b);
+            out.U32(3);
+            out.Text(c.Name);
+            out.Text(c.SourceName);
+            out.F64(c.Duration);
+            out.F64(c.FrameRate);
+            out.U32(uint32_t(c.Tracks.size()));
+            for (const auto& t : c.Tracks)
+            {
+                out.Text(t.Joint);
+                out.Track(t.Translation);
+                out.Track(t.Rotation);
+                out.Track(t.Scale);
+            }
+            out.U32(uint32_t(c.MorphTracks.size()));
+            for (const auto& t : c.MorphTracks)
+            {
+                out.Text(t.ShapeKey);
+                out.Track(t.Weight);
+            }
+            out.U32(uint32_t(c.Events.size()));
+            for (const auto& e : c.Events)
+            {
+                out.F64(e.Time);
+                out.Text(e.Name);
+                out.Text(e.Payload);
+            }
+            Require(out.Data.size() <= 512 * 1024 * 1024);
+            return std::move(out.Data);
+        }
+        AnimationClipData ReadPackedClip(const std::byte* bytes, size_t size)
+        {
+            Require(size <= 512 * 1024 * 1024);
+            ClipReader in {bytes, size};
+            Require(in.U32() == 0x504c434b && in.U32() == 3);
+            AnimationClipData c;
+            c.Name       = in.Text();
+            c.SourceName = in.Text();
+            c.Duration   = in.F64();
+            c.FrameRate  = in.F64();
+            auto count   = in.Count(65536, 28);
+            c.Tracks.reserve(count);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                JointAnimationTrack t;
+                t.Joint       = in.Text();
+                t.Translation = in.Track<glm::vec3>();
+                t.Rotation    = in.Track<glm::quat>();
+                t.Scale       = in.Track<glm::vec3>();
+                c.Tracks.push_back(std::move(t));
+            }
+            count = in.Count(65536, 12);
+            c.MorphTracks.reserve(count);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                MorphAnimationTrack t;
+                t.ShapeKey = in.Text();
+                t.Weight   = in.Track<float>();
+                c.MorphTracks.push_back(std::move(t));
+            }
+            count = in.Count(1000000, 16);
+            c.Events.reserve(count);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                AnimationEvent e;
+                e.Time    = in.F64();
+                e.Name    = in.Text();
+                e.Payload = in.Text();
+                c.Events.push_back(std::move(e));
+            }
+            Require(in.At == size);
+            Valid(ValidateAnimationClip(c));
+            return c;
+        }
         AssetError Error(const std::exception& e) { return {AssetErrorCode::InvalidData, e.what()}; }
     } // namespace
     YAML::Node EncodeAnimationControllerNode(const AnimationControllerData& c)
@@ -550,6 +753,13 @@ namespace Kans
         try
         {
             Valid(ValidateAnimationClip(c));
+            size_t keys = 0;
+            for (const auto& t : c.Tracks)
+                keys += t.Translation.Keys.size() + t.Rotation.Keys.size() + t.Scale.Keys.size();
+            for (const auto& t : c.MorphTracks)
+                keys += t.Weight.Keys.size();
+            if (keys > 100000)
+                return PackedClip(c);
             return Bytes("KCLP", Clip(c));
         }
         catch (const std::exception& e)
@@ -608,6 +818,8 @@ namespace Kans
     {
         try
         {
+            if (bytes && size >= 4 && std::memcmp(bytes, "KCLP", 4) == 0)
+                return ReadPackedClip(bytes, size);
             return ReadClip(Root(bytes, size, "KCLP"));
         }
         catch (const std::exception& e)

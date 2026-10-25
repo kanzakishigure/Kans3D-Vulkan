@@ -596,19 +596,13 @@ namespace Kans
                 bool orthographic = m_Camera.IsOrthographic();
                 if (ImGui::MenuItem("Orthographic", nullptr, &orthographic))
                     m_Camera.SetOrthographic(orthographic);
-                // The editor view's own exposure and bloom; the scene camera has its own.
+                // Exposure, tone mapping and bloom are the scene's (Properties > Post Processing).
                 ImGui::Separator();
                 if (PropertyGrid::Begin("##EditorCameraPost", 96.0f))
                 {
-                    float exposure = m_Camera.GetExposure();
-                    if (PropertyGrid::Float("Exposure", exposure, 0.01f, 0.0f, 100.0f))
-                        m_Camera.SetExposure(exposure);
                     auto antiAliasing = m_Camera.GetAntiAliasing();
                     if (DrawAntiAliasing(antiAliasing))
                         m_Camera.SetAntiAliasing(antiAliasing);
-                    auto bloom = m_Camera.GetBloomSettings();
-                    if (DrawBloomSettings(bloom))
-                        m_Camera.SetBloomSettings(bloom);
                     PropertyGrid::End();
                 }
                 ImGui::EndPopup();

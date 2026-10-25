@@ -139,6 +139,7 @@ namespace Kans
         source.Name   = data.Name;
         source.Shader = data.Shader;
         source.Render = data.Render;
+        source.DisabledPasses = data.DisabledPasses;
         std::set<uint32_t> textures;
         for (const auto& resource : MaterialShaderResources(std::get<std::vector<ShaderStageReflection>>(reflection)))
         {
@@ -215,10 +216,16 @@ namespace Kans
             for (const auto& entry : root)
             {
                 const auto field = entry.first.as<std::string>();
-                if (!fields.insert(field).second ||
-                    !std::set<std::string> {
-                        "magic", "version", "name", "shader", "parent", "parameters", "textures", "render"}
-                         .count(field))
+                if (!fields.insert(field).second || !std::set<std::string> {"magic",
+                                                                            "version",
+                                                                            "name",
+                                                                            "shader",
+                                                                            "parent",
+                                                                            "parameters",
+                                                                            "textures",
+                                                                            "render",
+                                                                            "disabled_passes"}
+                                                         .count(field))
                     return Invalid("unknown or duplicate field '" + field + "'");
             }
             if (!root["magic"] || root["magic"].as<std::string>() != "KansMaterial")
@@ -227,6 +234,20 @@ namespace Kans
                 return AssetError {AssetErrorCode::UnsupportedVersion, "Material source requires version 2, 3 or 4"};
 
             MaterialSource source;
+            if (const auto disabled = root["disabled_passes"])
+            {
+                if (!disabled.IsSequence() || disabled.size() > 32)
+                    return Invalid("invalid disabled_passes");
+                for (const auto& entry : disabled)
+                {
+                    auto name = entry.as<std::string>();
+                    if (name.empty() || name.size() > 256 ||
+                        std::find(source.DisabledPasses.begin(), source.DisabledPasses.end(), name) !=
+                            source.DisabledPasses.end())
+                        return Invalid("invalid or duplicate disabled pass");
+                    source.DisabledPasses.push_back(std::move(name));
+                }
+            }
             if (root["parent"])
             {
                 if (root["version"].as<uint32_t>() < 4)
@@ -323,9 +344,10 @@ namespace Kans
                 out << YAML::Key << "render" << YAML::Value << YAML::Flow << YAML::BeginMap;
                 if (render.AlphaMode)
                     out << YAML::Key << "alpha_mode" << YAML::Value
-                        << (state.AlphaMode == MaterialAlphaMode::Mask  ? "mask" :
-                            state.AlphaMode == MaterialAlphaMode::Blend ? "blend" :
-                                                                          "opaque");
+                        << (state.AlphaMode == MaterialAlphaMode::Mask     ? "mask" :
+                            state.AlphaMode == MaterialAlphaMode::Blend    ? "blend" :
+                            state.AlphaMode == MaterialAlphaMode::Dithered ? "dithered" :
+                                                                             "opaque");
                 if (render.AlphaCutoff)
                     out << YAML::Key << "alpha_cutoff" << YAML::Value << *render.AlphaCutoff;
                 if (render.ReceiveShadows)
@@ -341,6 +363,10 @@ namespace Kans
                 << (source.Shader.IsValid() ? source.Shader.ToString() : std::string());
             EmitMaterialRenderState(out, source.Render);
         }
+        out << YAML::Key << "disabled_passes" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+        for (const auto& name : source.DisabledPasses)
+            out << name;
+        out << YAML::EndSeq;
         out << YAML::Key << "parameters" << YAML::Value << YAML::BeginMap;
         for (const auto& [name, values] : source.Parameters)
         {
@@ -459,6 +485,10 @@ namespace Kans
         MaterialSource effective  = parent;
         effective.Name            = instance.Name;
         effective.RenderOverrides = {};
+        for (const auto& name : instance.DisabledPasses)
+            if (std::find(effective.DisabledPasses.begin(), effective.DisabledPasses.end(), name) ==
+                effective.DisabledPasses.end())
+                effective.DisabledPasses.push_back(name);
         for (const auto& [name, values] : instance.Parameters)
         {
             if (std::none_of(schema.Parameters.begin(), schema.Parameters.end(), [&](const auto& parameter) {
@@ -547,6 +577,7 @@ namespace Kans
         MaterialData data;
         data.Name = source.Name;
         data.Render = source.Render;
+        data.DisabledPasses = source.DisabledPasses;
         if (!IsValidMaterialRenderState(data.Render))
             return Invalid("invalid render state");
         if (standard)
@@ -621,6 +652,9 @@ namespace Kans
             auto packed = PackMaterialUniforms(data, shader->Code, recipe);
             if (auto* error = std::get_if<AssetError>(&packed))
                 return std::move(*error);
+            auto valid = ValidateMaterialData(data);
+            if (auto* error = std::get_if<AssetError>(&valid))
+                return *error;
             return data;
         }
         catch (const std::exception& error)

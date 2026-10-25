@@ -2,6 +2,7 @@
 #include <unordered_map>
 #include <glm/glm.hpp>
 #include "Kans3D/Asset/Manager/AssetManager.h"
+#include "Kans3D/Asset/Runtime/MaterialBindings.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Runtime/TextureData.h"
@@ -48,10 +49,26 @@ namespace Kans
     {
         mutable RenderHardware::Handle<RenderHardware::BindGroup>            Group;
         mutable std::vector<RenderHardware::Handle<RenderHardware::Texture>> Images;
+        // Replaced descriptor snapshots may still belong to unsubmitted command lists.
+        mutable std::vector<std::weak_ptr<RenderHardware::BindGroup>> RetiredGroups;
+        uint64_t                                                      SnapshotFrame = UINT64_MAX;
         AssetID Shader; // Actual program, including Standard while a custom Shader is unavailable.
         MaterialRenderState Render;
+        std::vector<std::string> DisabledPasses;
+        bool                     PassEnabled(const std::string& name) const
+        {
+            return std::find(DisabledPasses.begin(), DisabledPasses.end(), name) == DisabledPasses.end();
+        }
         std::vector<std::pair<uint32_t, GpuUniformBuffer>> Blocks;
         std::vector<std::pair<uint32_t, AssetID>>          Textures;
+        struct ParameterSlot
+        {
+            std::string Name;
+            size_t      Block = 0, Offset = 0;
+            uint32_t    Components = 0;
+        };
+        std::vector<MaterialUniformBlock>                  Defaults;
+        std::vector<ParameterSlot>                         ParameterSlots;
         GpuMaterialBindings                                Snapshot() const
         {
             GpuMaterialBindings copy;
@@ -59,7 +76,10 @@ namespace Kans
             copy.Images   = Images;
             copy.Shader   = Shader;
             copy.Render   = Render;
+            copy.DisabledPasses = DisabledPasses;
             copy.Textures = Textures;
+            copy.Defaults       = Defaults;
+            copy.ParameterSlots = ParameterSlots;
             for (const auto& block : Blocks)
                 copy.Blocks.emplace_back(block.first, block.second.Snapshot());
             return copy;
@@ -98,6 +118,9 @@ namespace Kans
         void SetTextureSampler(AssetID id, const RenderHardware::SamplerDesc& desc);
         RenderHardware::Handle<RenderHardware::BindGroup>
         GetMaterialGroup(const GpuShader& shader, const GpuMaterialBindings& bindings, bool* complete = nullptr);
+
+        const GpuMaterialBindings* GetInstanceMaterialBindings(const GpuMaterialBindings&                   base,
+                                                               const Ref<const InstanceMaterialParameters>& parameters);
 
         // Evicts resources not used for `unusedFrames` frames.
         void BeginFrame(uint64_t unusedFrames = 600);
@@ -177,6 +200,16 @@ namespace Kans
             std::vector<RenderHardware::Handle<RenderHardware::Buffer>> Pool;
         };
         std::map<std::pair<const SkinningPose*, const GpuMesh*>, PaletteEntry> m_Palettes;
+        struct InstanceBindingsEntry
+        {
+            std::weak_ptr<const InstanceMaterialParameters> Source;
+            std::weak_ptr<RenderHardware::Buffer>           Base;
+            std::vector<Scope<GpuMaterialBindings>>         Pool;
+            std::vector<MaterialUniformBlock>               Scratch;
+            uint64_t                                        LastUsedFrame = 0;
+        };
+        std::map<std::pair<const InstanceMaterialParameters*, const RenderHardware::Buffer*>, InstanceBindingsEntry>
+                                                                           m_InstanceBindings;
         uint64_t                                                           m_Frame = 0;
         std::unordered_map<AssetID, Entry<ModelAsset, ModelInstances>>     m_Models;
         std::unordered_map<AssetID, Entry<MeshAsset, GpuMesh>>             m_Meshes;

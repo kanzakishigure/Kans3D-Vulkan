@@ -186,6 +186,13 @@ namespace Kans
         if (data.Bindings)
             out << YAML::Key << "bindings" << YAML::Value << YAML::DoubleQuoted << recipe;
         EmitMaterialRenderState(out, data.Render);
+        if (!data.DisabledPasses.empty())
+        {
+            out << YAML::Key << "disabled_passes" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+            for (const auto& name : data.DisabledPasses)
+                out << name;
+            out << YAML::EndSeq;
+        }
         out << YAML::EndMap;
         return Finish(out);
     }
@@ -201,13 +208,20 @@ namespace Kans
             const auto  version       = root["version"].as<uint32_t>();
             const bool  shaderVersion = version == 4 ? bool(root["shader"]) : version >= 2;
             const bool  recipeVersion = version == 4 ? bool(root["bindings"]) : version == 3;
-            if (root.size() != (version == 4  ? 8 + size_t(shaderVersion) + size_t(recipeVersion) :
+            if (root.size() != (version == 4  ? 8 + size_t(shaderVersion) + size_t(recipeVersion) +
+                                                    size_t(bool(root["disabled_passes"])) :
                                 version == 3  ? 9 :
                                 shaderVersion ? 8 :
                                                 7) ||
                 !root["textures"].IsSequence() || root["textures"].size() > kMaximumItems)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid material Product fields"};
             MaterialData data;
+            if (auto disabled = root["disabled_passes"])
+            {
+                if (!disabled.IsSequence() || disabled.size() > 32)
+                    throw std::runtime_error("invalid disabled_passes");
+                data.DisabledPasses = disabled.as<std::vector<std::string>>();
+            }
             if (version == 4)
             {
                 if (!root["render"])

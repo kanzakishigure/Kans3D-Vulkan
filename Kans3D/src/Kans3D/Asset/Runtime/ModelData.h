@@ -51,6 +51,7 @@ namespace Kans
         Opaque = 0,
         Mask   = 1,
         Blend  = 2,
+        Dithered = 3,
     };
 
     // Render state belongs to the material, independently of its Shader.
@@ -64,6 +65,14 @@ namespace Kans
 
     [[nodiscard]] bool IsValidMaterialRenderState(const MaterialRenderState& state);
 
+    struct InstanceMaterialParameter
+    {
+        std::string          Parameter;
+        std::array<float, 4> Value {};
+        bool                 Resolved = false;
+    };
+    using InstanceMaterialParameters = std::vector<InstanceMaterialParameter>;
+
     struct MaterialData
     {
         std::string                         Name;
@@ -76,6 +85,7 @@ namespace Kans
         // Absent in KMAT v1/v2; an explicit (possibly empty) recipe is persisted in v3.
         std::optional<MaterialBindingRecipe> Bindings;
         MaterialRenderState                  Render;
+        std::vector<std::string>             DisabledPasses;
     };
 
     [[nodiscard]] std::variant<std::monostate, AssetError> ValidateMaterialData(const MaterialData& data);

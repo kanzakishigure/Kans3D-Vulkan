@@ -6,11 +6,12 @@
 #include <entt.hpp>
 #include <glm/glm.hpp>
 #include "Kans3D/Asset/Asset.h"
+#include "Kans3D/Audio/AudioClipRegistry.h"
 #include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
+#include "Kans3D/Renderer/Resource/PostProcessSettings.h"
 #include "EnvironmentSettings.h"
-#include "Kans3D/Audio/AudioClipRegistry.h"
 
 namespace Kans
 {
@@ -34,6 +35,8 @@ namespace Kans
     {
 
     public:
+        const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
+        void SetPostProcessSettings(PostProcessSettings settings) { m_PostProcessSettings = settings.Validated(); }
         Scene(const std::string& name = "UntitledScene");
         ~Scene();
 
@@ -78,6 +81,7 @@ namespace Kans
         // Nonblocking asset preparation. Pose drives prefab skeleton entities.
         bool PrepareAnimator(Entity root);
         void UpdateAnimations(double seconds);
+        void UpdateMaterialParameterDrivers();
         bool PreviewAnimation(Entity root, size_t layer, uint32_t state, double time);
         void ApplyAnimatorPose(Entity root, const struct AnimationPose& pose);
         void ResetAnimator(Entity root);
@@ -193,6 +197,7 @@ namespace Kans
         entt::registry m_Registry;
         uint32_t       m_ViewportWidth = 0, m_ViewportHeight = 0;
         std::string    m_Name;
+        PostProcessSettings                           m_PostProcessSettings;
         EnvironmentSettings                           m_EnvironmentSettings;
         bool                                          m_HasEnvironmentSettings = false;
         EntityMap      m_EntityMap;

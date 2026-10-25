@@ -14,7 +14,7 @@ namespace Kans
 #define KANS3D_ENGINE_GLSL
 #define KANS_LIGHT_COUNT 4
 #define KANS_POINT_LIGHT_LIMIT 16
-// Engine data (descriptor set 0). Matrices and positions are in world space.
+// Engine data (descriptor set 0). Lighting positions and directions are in world space.
 layout(set = 0, binding = 0, std140) uniform KansFrame
 {
     mat4  ViewProjection;
@@ -46,6 +46,10 @@ layout(set = 0, binding = 0, std140) uniform KansFrame
     vec4 ShadowPassPosition;
     vec4 PointShadowSourceRadius;
     vec4 EnvironmentInfo; // diffuse, specular, cos(rotation), sin(rotation).
+    mat4 View; // World to view: right-handed, -Z forward, +Y up.
+    mat4 Projection; // View to device clip (same correction as ViewProjection).
+    mat4 InverseView;
+    mat4 InverseProjection;
 
 } u_Frame;
 int KansPointLightCount() { return clamp(int(u_Frame.LightingInfo.x), 0, KANS_POINT_LIGHT_LIMIT); }
@@ -76,12 +80,19 @@ void KansAlphaClip(float alpha)
 {
     if (u_Object.MaterialRender.x == 1.0 && alpha < u_Object.MaterialRender.y)
         discard;
+    if (u_Object.MaterialRender.x == 3.0)
+    {
+        // Fixed 4x4 Bayer pattern at pixel centres, independent of submission and time.
+        const int bayer[16] = int[](0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5);
+        ivec2 p = ivec2(floor(gl_FragCoord.xy)) & 3;
+        if (alpha <= (float(bayer[p.y*4+p.x])+0.5)/16.0) discard;
+    }
 }
 float KansOutputAlpha(float alpha)
 {
-    if (u_Object.MaterialRender.x == 3.0)
+    if (u_Object.MaterialRender.x == 4.0)
         return clamp((alpha-u_Object.MaterialRender.y)/max(fwidth(alpha), 1e-4)+0.5, 0.0, 1.0);
-    return u_Object.MaterialRender.x == 2.0 ? alpha : 1.0;
+    return (u_Object.MaterialRender.x == 2.0 || u_Object.MaterialRender.x == 5.0) ? alpha : 1.0;
 }
 #endif
 )"},
@@ -109,6 +120,9 @@ layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_UV;
 layout(location = 3) in vec4 a_Color;
 layout(location = 4) in vec4 a_Tangent;
+// A private copy makes this independent of the deformation prologue's position alias.
+vec3 kans_RestPosition = a_Position;
+vec3 KansRestPosition() { return kans_RestPosition; }
 #endif
 )"},
                 {"Kans3D/Lighting.glsl", R"(#ifndef KANS3D_LIGHTING_GLSL
@@ -431,7 +445,11 @@ vec4 KansToneMap(vec3 color)
                   {"ShadowPass", 1712, 4, 1, 1},
                   {"ShadowPassPosition", 1728, 4, 1, 1},
                   {"PointShadowSourceRadius", 1744, 4, 1, 1},
-                  {"EnvironmentInfo", 1760, 4, 1, 1}}},
+                  {"EnvironmentInfo", 1760, 4, 1, 1},
+                  {"View", 1776, 4, 4, 1},
+                  {"Projection", 1840, 4, 4, 1},
+                  {"InverseView", 1904, 4, 4, 1},
+                  {"InverseProjection", 1968, 4, 4, 1}}},
                 {ShaderBindingKind::UniformBuffer,
                  ShaderImageDimension::Texture2D,
                  sizeof(EngineObjectUniforms),
@@ -471,7 +489,7 @@ vec4 KansToneMap(vec3 color)
                 (binding.Members.size() == expected.Members.size() ||
                  (binding.Binding == uint32_t(EngineBinding::Frame) &&
                   (binding.Members.size() == LegacyFrameMemberCount || binding.Members.size() == 7 ||
-                   binding.Members.size() == 17 || binding.Members.size() == 28)) ||
+                   binding.Members.size() == 17 || binding.Members.size() == 28 || binding.Members.size() == 29)) ||
                  (binding.Binding == uint32_t(EngineBinding::Object) &&
                   binding.Members.size() == LegacyObjectMemberCount));
             for (size_t i = 0; matches && i < binding.Members.size(); ++i)

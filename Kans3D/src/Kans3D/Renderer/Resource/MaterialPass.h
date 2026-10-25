@@ -14,6 +14,7 @@ namespace Kans
         bool                                Wireframe = false, WriteStencil = false;
         uint32_t                                                       Samples = 1;
         MaterialRenderState                 Render;
+        Ref<const InstanceMaterialParameters>                          Parameters;
         uint32_t                                                       Section = 0;
         std::shared_ptr<ShadowResources>                               Shadows;
         bool                                                           ShadowDepth = false;
