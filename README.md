@@ -6,10 +6,12 @@
   </a>
 </p>
 
+<p align="center">English · <a href="README.zh-TW.md">繁體中文</a></p>
+
 ## 3D cross-platform game engine
 
 **Kans3D is a 3D game engine with an integrated editor, written in C++.** It is a
-personal learning project that covers the whole path from importing assets to
+personal project that covers the whole path from importing assets to
 rendering, animating, playing sound and scripting a scene. It runs on Windows and
 Linux; its rendering hardware interface currently has a Vulkan backend.
 
@@ -93,14 +95,12 @@ To build manually after configuring:
 cmake --build build/windows-msvc --config Debug --target KansEditor   # or build/linux-gcc
 ```
 
-On Windows, the Vulkan SDK installer must include the shader toolchain components
-shown below. Open a new terminal after installing it so that `VULKAN_SDK` is set.
-
-<p align="center">
-  <a href="https://vulkan.lunarg.com/doc/sdk">
-    <img src="./KansEditor/Resources/ReadMeResource/VulkanOption.png" alt="Vulkan SDK install options">
-  </a>
-</p>
+On Windows, the Debug build links the Vulkan SDK's debug shader libraries, which the
+SDK installer does not install by default. On its **Select Components** page,
+check **Debuggable Shader API Libraries - 64-bit** (the setup script's winget
+install uses the defaults, so add this component yourself, for example by
+running the installer again). Open a new terminal after installing so that
+`VULKAN_SDK` is set.
 
 **Tests**
 
