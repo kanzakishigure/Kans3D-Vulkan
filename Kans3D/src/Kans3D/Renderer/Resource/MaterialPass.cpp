@@ -1,5 +1,7 @@
 #include "kspch.h"
 #include "MaterialPass.h"
+#include "Kans3D/RHI/PipelineKey.h"
+#include "ShadowMaps.h"
 
 namespace Kans
 {
@@ -9,22 +11,36 @@ namespace Kans
                             const GpuMaterialBindings&   bindings,
                             const GpuMesh&               mesh,
                             const MaterialPassData&      data,
-                            const GpuShaderPass*         extraPass)
+                            const GpuShaderPass*         extraPass,
+                            bool*                        recorded)
     {
+        if (recorded)
+            *recorded = false;
         using namespace RenderHardware;
         auto       device      = cache.GetDevice();
         const bool transparent = data.Render.AlphaMode == MaterialAlphaMode::Blend;
         // Include attachment formats as well as count: display and HDR share a shader cache.
         uint32_t key = uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
                        (uint32_t(data.Wireframe) << 2) | (uint32_t(data.WriteStencil) << 3) |
-                       (uint32_t(data.ColorFormats.size()) << 8);
+                       (uint32_t(data.ColorFormats.size()) << 8) |
+                       ((data.Samples == 8 ? 3u :
+                         data.Samples == 4 ? 2u :
+                         data.Samples == 2 ? 1u :
+                                             0u)
+                        << 4) |
+                       (uint32_t(data.Samples > 1 && data.Render.AlphaMode == MaterialAlphaMode::Mask) << 6);
         for (size_t i = 0; i < data.ColorFormats.size(); ++i)
             key |= uint32_t(data.ColorFormats[i]) << (12 + i * 6);
-        auto& pipeline = extraPass ? extraPass->Pipelines[key] : shader.Pipelines[key];
+        Handle<Pipeline> shadowPipeline;
+        auto&            pipeline = data.ShadowDepth ? shadowPipeline :
+                                    extraPass        ? extraPass->Pipelines[key] :
+                                                       shader.Pipelines[key];
         if (!pipeline)
         {
             PipelineDesc desc;
-            desc.Program                      = extraPass ? extraPass->Program : shader.Program;
+            desc.Samples         = data.Samples;
+            desc.AlphaToCoverage = data.Samples > 1 && data.Render.AlphaMode == MaterialAlphaMode::Mask;
+            desc.Program = data.DepthProgram ? data.DepthProgram : extraPass ? extraPass->Program : shader.Program;
             desc.GroupLayouts                 = {shader.EngineLayout, shader.MaterialLayout};
             desc.VertexBindings               = mesh.VertexBindings;
             desc.Attributes                   = mesh.Attributes;
@@ -64,8 +80,30 @@ namespace Kans
                 blend.DestinationAlpha         = static_cast<BlendFactor>(state.DestinationAlpha);
                 blend.WriteMask                = state.ColorWriteMask;
             }
+            if (data.ShadowDepth)
+            {
+                desc.Rasterizer.Front       = data.DepthFront;
+                desc.DepthStencilFormat     = Format::Depth32Float;
+                desc.DepthStencil.DepthTest = desc.DepthStencil.DepthWrite = true;
+                desc.DepthStencil.DepthCompare                             = CompareOp::LessEqual;
+                desc.DepthStencil.StencilTest                              = false;
+                desc.Rasterizer.DepthBiasConstant                          = data.ConstantBias;
+                desc.Rasterizer.DepthBiasSlope                             = data.SlopeBias;
+                desc.Rasterizer.Cull = data.Render.DoubleSided ? CullMode::None :
+                                       extraPass               ? static_cast<CullMode>(extraPass->State.Cull) :
+                                                                 CullMode::Back;
+            }
             desc.Blends.resize(data.ColorFormats.size(), blend);
-            pipeline = device->CreatePipeline(desc);
+            if (data.ShadowDepth)
+            {
+                auto  resources = data.Shadows ? data.Shadows : cache.GetShadowFallback();
+                auto& cached    = resources->DepthPipelines[Detail::PipelineKey(desc)];
+                if (!cached)
+                    cached = device->CreatePipeline(desc);
+                pipeline = cached;
+            }
+            else
+                pipeline = device->CreatePipeline(desc);
         }
         BindGroupDesc engine;
         engine.Layout = shader.EngineLayout;
@@ -85,6 +123,13 @@ namespace Kans
                 entry.Offset         = data.ObjectOffset;
                 entry.Bytes          = sizeof(EngineObjectUniforms);
             }
+            else if (binding.Binding >= uint32_t(EngineBinding::DirectionalShadow))
+            {
+                auto shadows = data.Shadows ? data.Shadows : cache.GetShadowFallback();
+                entry.TextureResource =
+                    binding.Binding <= 6 ? shadows->Directional : shadows->Points.at(binding.Binding - 7);
+                entry.SamplerResource = binding.Binding == 6 ? shadows->Raw : shadows->Compare;
+            }
             else
             {
                 entry.TextureResource = data.Environment.at(binding.Binding - 2);
@@ -101,7 +146,10 @@ namespace Kans
         commands.BindGroup(material);
         commands.BindVertexBuffers({{0, mesh.Vertices, 0}});
         commands.BindIndexBuffer(mesh.Indices, IndexType::Uint32);
-        commands.DrawIndexed(mesh.IndexCount);
+        const auto& section = mesh.Sections.at(data.Section);
+        commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);
+        if (recorded)
+            *recorded = true;
         return complete;
     }
 } // namespace Kans

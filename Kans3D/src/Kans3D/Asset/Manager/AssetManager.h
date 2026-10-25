@@ -37,6 +37,18 @@ namespace Kans
         AssetLoaderRegistry Loaders     = AssetLoaderRegistry::CreateDefault();
     };
 
+    // Each observer drains its own queue on the scene thread. Workers only enqueue IDs.
+    class AssetChangeObserver
+    {
+    public:
+        std::vector<AssetID> Drain();
+
+    private:
+        std::mutex           m_Mutex;
+        std::vector<AssetID> m_Changes;
+        friend class AssetManager;
+    };
+
     // Runtime CPU asset cache. Resolves AssetIDs through a Registry snapshot, reads
     // Product bytes from a provider and decodes them; never touches source files.
     //
@@ -88,11 +100,14 @@ namespace Kans
         Ref<const AssetRegistry>                                 GetRegistry() const;
         const std::string&                                       GetTarget() const { return m_Target; }
 
+        std::shared_ptr<AssetChangeObserver> ObserveChanges();
         void   Unload(AssetID id);
         size_t CollectUnused();
         size_t GetResidentCount() const;
 
     private:
+        void                                            NotifyChange(AssetID id); // m_Mutex held
+        std::vector<std::weak_ptr<AssetChangeObserver>> m_Observers;
         struct Entry
         {
             AssetLoadState            State = AssetLoadState::Loading;
@@ -108,7 +123,7 @@ namespace Kans
         // Starts a load under m_Mutex; returns the ticket identifying this attempt.
         uint64_t                                   BeginLoad(AssetID id, AssetType type);
         void                                       RunLoad(AssetID id, uint64_t ticket);
-        std::variant<Ref<const Asset>, AssetError> ReadAndDecode(AssetID id, AssetType type) const;
+        std::variant<Ref<const Asset>, AssetError> ReadAndDecode(AssetID id, AssetType type);
         void                                       WorkerLoop();
 
         Ref<IAssetProvider>       m_Provider;

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include "Components.h"
-#include "ProductModelComponent.h"
+#include "EnvironmentSettings.h"
 
 namespace Kans
 {
@@ -18,7 +18,10 @@ namespace Kans
         RelationshipComponent                  Relationship;
         std::optional<CameraComponent>         Camera;
         std::optional<SpriteRendererComponent> Sprite;
-        std::optional<ProductModelComponent>   Model;
+        std::optional<MeshComponent>             Model; // Mesh state; name retained for SceneHistory component labels.
+        std::optional<EditableMeshComponent>     Editable;
+        std::optional<PrefabInstanceComponent>   Prefab;
+        std::optional<PrefabAttachmentComponent> PrefabParent;
         std::optional<DirLightComponent>       DirLight;
         std::optional<PointLightComponent>     PointLight;
         std::optional<ScriptComponent>         Script;
@@ -27,6 +30,7 @@ namespace Kans
     struct SceneSnapshot
     {
         std::string                 Name;
+        std::optional<EnvironmentSettings> Environment;
         std::vector<UUID>           RootOrder;
         std::vector<EntitySnapshot> Entities; // Ordered by UUID.
 

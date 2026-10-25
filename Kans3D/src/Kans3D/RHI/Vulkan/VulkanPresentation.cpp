@@ -72,9 +72,9 @@ namespace Kans::RenderHardware
                             if ((format.format == native || format.format == VK_FORMAT_UNDEFINED) &&
                                 format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && !Format.format)
                                 Format = {native, format.colorSpace};
-                    Require(
-                        Format.format != VK_FORMAT_UNDEFINED,
-                        "Surface needs RGBA8/BGRA8 UNORM with sRGB nonlinear presentation to match OpenGL UI colours");
+                    Require(Format.format != VK_FORMAT_UNDEFINED,
+                            "Surface needs RGBA8/BGRA8 UNORM with sRGB nonlinear presentation to preserve editor UI "
+                            "colours");
                     VkAttachmentDescription attachment {};
                     attachment.format         = Format.format;
                     attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
@@ -139,7 +139,12 @@ namespace Kans::RenderHardware
             void DestroyCapture()
             {
                 if (CaptureBuffer)
+                {
+                    VmaAllocationInfo info {};
+                    vmaGetAllocationInfo(C.Allocator, CaptureAllocation, &info);
+                    C.BufferAllocationBytes -= info.size;
                     vmaDestroyBuffer(C.Allocator, CaptureBuffer, CaptureAllocation);
+                }
                 CaptureBuffer     = VK_NULL_HANDLE;
                 CaptureAllocation = VK_NULL_HANDLE;
                 CaptureMapped     = nullptr;
@@ -389,6 +394,7 @@ namespace Kans::RenderHardware
                 VmaAllocationInfo info {};
                 Check(vmaCreateBuffer(C.Allocator, &buffer, &allocation, &CaptureBuffer, &CaptureAllocation, &info));
                 CaptureMapped = info.pMappedData;
+                C.BufferAllocationBytes += info.size;
                 Barrier(slot.Command,
                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,

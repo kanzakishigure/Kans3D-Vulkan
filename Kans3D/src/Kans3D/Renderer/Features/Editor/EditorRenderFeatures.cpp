@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "EditorRenderFeatures.h"
-#include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Renderer/RenderFrame.h"
+#include "Kans3D/Renderer/Resource/EditorGridPass.h"
 
 namespace Kans
 {
@@ -13,20 +14,21 @@ namespace Kans
     }
     void EditorGridFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
-        if (!context.Immediate || context.Immediate->Kind != ViewImmediateKind::Grid)
+        if (!context.View.Grid.Enabled || context.View.Grids.empty())
             return;
-        auto&       renderer  = *context.Renderer;
-        const auto& view      = context.View;
-        const auto  immediate = *context.Immediate;
-        context.Graph.AddPass("Grid", context.Target, [&renderer, &view, immediate](auto& pass) {
-            renderer.DrawGrid(view.Grids.at(immediate.Index), pass.Commands);
+        auto&       renderer = *context.Frame;
+        const auto& view     = context.View;
+        context.Graph.AddPass("Grid", context.Target, [&renderer, &view](auto& pass) {
+            for (const auto& grid : view.Grids)
+                EditorGridPass::Record(
+                    renderer.Services, pass.Commands, view, grid, renderer.SceneTarget(RenderHardware::LoadOp::Load));
         });
     }
     void DebugGeometryFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
         if (context.View.Geometry.empty())
             return;
-        auto&       renderer = *context.Renderer;
+        auto&       renderer = *context.Frame;
         const auto& view     = context.View;
         context.Graph.AddPass("Legacy geometry", context.Target, [&renderer, &view](auto& pass) {
             for (const auto& draw : view.Geometry)
@@ -41,7 +43,7 @@ namespace Kans
         using namespace RenderHardware;
         auto&       graph    = context.Graph;
         const auto& view     = context.View;
-        auto&       renderer = *context.Renderer;
+        auto&       renderer = *context.Frame;
         const auto& target   = context.Target;
         const auto  depth    = target.back().Texture;
         TextureDesc desc;
@@ -55,16 +57,18 @@ namespace Kans
                 // Resolve at consumption, preserving phase one's cache replacement safety.
                 std::vector<MeshDraw> draws;
                 if (preview)
-                    renderer.AppendModelDraws(view.Preview->Model, view.Preview->Transform, 0, draws);
+                    renderer.AppendPrefabPreviewDraws(*view.Preview, draws);
                 else
-                    for (const auto& model : view.Highlight)
-                        renderer.AppendModelDraws(model.Model, model.Transform, 0, draws);
-                renderer.m_Outline.RecordMask(context.Commands,
-                                              context.Texture(mask),
-                                              draws,
-                                              view.Scene.sceneCamera.camera.GetProjectionMatrix() *
-                                                  view.Scene.sceneCamera.viewMatrix,
-                                              view.Viewport);
+                {
+                    for (auto entity : view.HighlightEntities)
+                        renderer.AppendEntityDraws(entity, 0, draws);
+                }
+                renderer.Services.GetOutlineService().RecordMask(context.Commands,
+                                                                 context.Texture(mask),
+                                                                 draws,
+                                                                 view.Scene.sceneCamera.camera.GetProjectionMatrix() *
+                                                                     view.Scene.sceneCamera.viewMatrix,
+                                                                 view.Viewport);
             });
         graph.AddPass(
             name + " composite",
@@ -72,25 +76,22 @@ namespace Kans
              {depth, GraphAccess::DepthReadWrite},
              {mask, GraphAccess::SampledRead}},
             [&renderer, &view, mask, color](auto& context) {
-                renderer.m_Outline.RecordComposite(
+                renderer.Services.GetOutlineService().RecordComposite(
                     context.Commands, renderer.SceneTarget(LoadOp::Load), context.Texture(mask), view.Viewport, color);
             });
     }
 
     void EditorSelectionFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {
-        if (!context.View.Highlight.empty())
+        if (!context.View.HighlightEntities.empty())
             AddOutline(context, "Selection", false, {1, .62f, .15f, 1});
     }
-    void EditorPreviewFeature::Prepare(RenderView& view, SceneRenderer& renderer)
+    void EditorPreviewFeature::Prepare(RenderView& view, RenderFrame& renderer)
     {
         if (!view.Preview)
             return;
         // Keep the ghost in the original shared, sorted material batch, always lit.
-        const SceneViewMode viewMode = renderer.m_ViewMode;
-        renderer.m_ViewMode          = SceneViewMode::Lit;
-        renderer.SubmitModel(view.Preview->Model, view.Preview->Transform);
-        renderer.m_ViewMode = viewMode;
+        renderer.SubmitPrefabPreview(*view.Preview);
     }
     void EditorPreviewFeature::AddPasses(RenderExtensionPoint point, const RenderFeatureContext& context)
     {

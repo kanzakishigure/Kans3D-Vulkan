@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <set>
 #include <stdexcept>
+#include "GraphCapture.h"
 
 namespace Kans
 {
@@ -11,7 +12,8 @@ namespace Kans
         bool Equal(const RenderHardware::TextureDesc& a, const RenderHardware::TextureDesc& b)
         {
             return a.Width == b.Width && a.Height == b.Height && a.MipLevels == b.MipLevels &&
-                   a.Dimension == b.Dimension && a.PixelFormat == b.PixelFormat && a.Usage == b.Usage;
+                   a.Dimension == b.Dimension && a.ArrayLayers == b.ArrayLayers && a.PixelFormat == b.PixelFormat &&
+                   a.Usage == b.Usage && a.Samples == b.Samples;
         }
         bool Reads(GraphAccess a)
         {
@@ -62,6 +64,13 @@ namespace Kans
         m_Textures = textures;
         return textures;
     }
+    void TransientTexturePool::DiscardMultisampled()
+    {
+        m_Textures.erase(std::remove_if(m_Textures.begin(),
+                                        m_Textures.end(),
+                                        [](const auto& t) { return t->GetDesc().Samples > 1; }),
+                         m_Textures.end());
+    }
     GraphTexture RenderGraph::ImportTexture(std::string name, RenderHardware::Handle<RenderHardware::Texture> image)
     {
         if (!image)
@@ -77,7 +86,8 @@ namespace Kans
     }
     GraphTexture RenderGraph::CreateTexture(std::string name, RenderHardware::TextureDesc desc)
     {
-        if (!desc.Width || !desc.Height || !desc.MipLevels ||
+        if (!desc.Width || !desc.Height || !desc.MipLevels || !desc.ArrayLayers ||
+            (desc.Dimension == RenderHardware::TextureDimension::Cube && desc.ArrayLayers != 1) ||
             (desc.Dimension == RenderHardware::TextureDimension::Cube && desc.Width != desc.Height))
             throw std::invalid_argument("RenderGraph: invalid texture description '" + name + "'");
         m_Compiled = false;
@@ -92,12 +102,14 @@ namespace Kans
     }
     GraphPass RenderGraph::AddRecordedPass(std::string                                         name,
                                            std::vector<GraphUse>                               uses,
-                                           RenderHardware::Handle<RenderHardware::CommandList> commands)
+                                           RenderHardware::Handle<RenderHardware::CommandList> commands,
+                                           std::optional<double>                               cpuRecordMilliseconds)
     {
         if (!commands)
             throw std::invalid_argument("RenderGraph: null recorded commands");
         auto pass               = AddPass(std::move(name), std::move(uses), {});
         m_Passes[pass].Commands = std::move(commands);
+        m_Passes[pass].CpuRecordMilliseconds = cpuRecordMilliseconds;
         return pass;
     }
     void RenderGraph::DependsOn(GraphPass pass, GraphPass prerequisite)
@@ -127,6 +139,8 @@ namespace Kans
         m_Order.clear();
         m_Slots.clear();
         m_CompiledResources.clear();
+        m_CompiledPasses.clear();
+        m_Statistics.clear();
         const uint32_t                     count = uint32_t(m_Passes.size()), none = uint32_t(-1);
         std::vector<std::set<GraphPass>>   edges(count), inputs(count);
         std::vector<uint32_t>              latest(m_Resources.size(), none), firstWriter(m_Resources.size(), none);
@@ -238,6 +252,36 @@ namespace Kans
         for (uint32_t i = 0; i < m_Order.size(); ++i)
             for (auto use : m_Passes[m_Order[i]].Uses)
                 m_CompiledResources[use.Texture].Accesses.push_back({m_Order[i], i, use.Access});
+        for (uint32_t p = 0; p < count; ++p)
+        {
+            auto&    pass       = m_Passes[p];
+            uint32_t occurrence = 0;
+            for (uint32_t previous = 0; previous < p; ++previous)
+                occurrence += m_Passes[previous].Name == pass.Name;
+            CompiledGraphPass info;
+            info.ID     = GraphNameID(pass.Name, false, occurrence);
+            info.Name   = pass.Name;
+            info.Culled = !live[p];
+            info.Uses   = pass.Uses;
+            if (live[p])
+                info.ExecutionIndex = uint32_t(std::find(m_Order.begin(), m_Order.end(), p) - m_Order.begin());
+            for (uint32_t dependency = 0; dependency < count; ++dependency)
+                if (edges[dependency].count(p))
+                    info.Dependencies.push_back(dependency);
+            m_Statistics.push_back(
+                {info.ID, info.Name, info.ExecutionIndex, info.Culled, pass.CpuRecordMilliseconds, {}, pass.Draws});
+            m_CompiledPasses.push_back(std::move(info));
+            for (auto use : pass.Uses)
+                m_CompiledResources[use.Texture].DeclaredAccesses.push_back(
+                    {p, m_CompiledPasses.back().ExecutionIndex, use.Access});
+        }
+        for (uint32_t r = 0; r < m_Resources.size(); ++r)
+        {
+            uint32_t occurrence = 0;
+            for (uint32_t previous = 0; previous < r; ++previous)
+                occurrence += m_Resources[previous].Name == m_Resources[r].Name;
+            m_CompiledResources[r].ID = GraphNameID(m_Resources[r].Name, true, occurrence);
+        }
         // Exported transients remain live through output consumption at the end of execution.
         std::vector<uint32_t> resources, slotLast;
         for (uint32_t r = 0; r < m_Resources.size(); ++r)
@@ -286,24 +330,61 @@ namespace Kans
         auto& pass = m_Passes[p];
         if (pass.Submitted)
             return;
-        if (pass.Commands)
-            device.Submit(pass.Commands);
-        else
+        auto commands = pass.Commands;
+        if (!commands)
         {
-            auto               commands = device.CreateCommandList();
+            const auto start = RenderClockMilliseconds();
+            commands         = device.CreateCommandList();
             RenderGraphContext context {device, *commands, *this};
             if (pass.Recorder)
                 pass.Recorder(context);
-            device.Submit(commands);
+            pass.CpuRecordMilliseconds = RenderClockMilliseconds() - start;
         }
+        pass.Draws                  = commands->GetStatistics();
+        auto& stats                 = m_Statistics.at(p);
+        stats.CpuRecordMilliseconds = pass.CpuRecordMilliseconds;
+        stats.Draws                 = pass.Draws;
+        if (m_Queries)
+        {
+            commands->WriteTimestamp(m_Queries, (stats.ExecutionIndex - m_QueryBase) * 2, true);
+            commands->WriteTimestamp(m_Queries, (stats.ExecutionIndex - m_QueryBase) * 2 + 1);
+        }
+        device.Submit(commands);
         pass.Submitted = true;
         m_Submitted.push_back(p);
     }
-    void RenderGraph::Execute(RenderHardware::Device& device, TransientTexturePool& pool)
+    void RenderGraph::BeginQueries(RenderHardware::Device& device)
+    {
+        m_QueryBase = uint32_t(m_Submitted.size());
+        if (!m_Profiler)
+            return;
+        auto pending = m_Statistics;
+        for (auto p : m_Submitted)
+            pending[p].Culled = true;
+        m_Queries = m_Profiler->Begin(device, m_Frame, pending);
+    }
+    void RenderGraph::Execute(RenderHardware::Device& device,
+                              TransientTexturePool&   pool,
+                              FrameProfiler*          profiler,
+                              uint64_t                frame,
+                              GraphCapture*           capture)
     {
         Allocate(pool, [&](const RenderHardware::TextureDesc& desc) { return device.CreateTexture(desc); });
+        if (profiler)
+            m_Profiler = profiler;
+        if (capture)
+            m_Capture = capture;
+        if (frame)
+            m_Frame = frame;
+        BeginQueries(device);
         for (auto p : m_Order)
+        {
+            const bool submitted = m_Passes[p].Submitted;
             ExecutePass(device, p);
+            if (m_Capture && !submitted)
+                m_Capture->AfterPass(*this, p);
+        }
+        m_Queries.reset();
     }
     void RenderGraph::ExecuteImportedPrefix(RenderHardware::Device& device)
     {
@@ -313,12 +394,17 @@ namespace Kans
             for (auto use : m_Passes[p].Uses)
                 if (!m_Resources[use.Texture].Imported)
                     throw std::invalid_argument("RenderGraph: prefix execution cannot use transient textures");
+        BeginQueries(device);
         for (auto p : m_Order)
         {
+            const bool submitted = m_Passes[p].Submitted;
             // An already observable operation cannot subsequently be culled.
             m_Passes[p].SideEffect = true;
             ExecutePass(device, p);
+            if (m_Capture && !submitted)
+                m_Capture->AfterPass(*this, p);
         }
+        m_Queries.reset();
     }
     RenderHardware::Handle<RenderHardware::Texture> RenderGraph::Texture(GraphTexture texture) const
     {

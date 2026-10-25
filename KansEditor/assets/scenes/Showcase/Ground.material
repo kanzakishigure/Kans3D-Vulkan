@@ -1,0 +1,11 @@
+magic: KansMaterial
+version: 4
+name: Ground
+shader: ""
+render: {alpha_mode: opaque, alpha_cutoff: 0.5, double_sided: false}
+parameters:
+  BaseColor: [0.42, 0.43, 0.45, 1]
+  Metallic: 0
+  Roughness: 0.9
+textures:
+  {}

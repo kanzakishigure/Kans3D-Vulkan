@@ -1,14 +1,28 @@
 #pragma once
+#include <memory>
+#include <optional>
+#include <set>
+#include <unordered_set>
 #include <entt.hpp>
 #include <glm/glm.hpp>
 #include "Kans3D/Asset/Asset.h"
+#include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
+#include "EnvironmentSettings.h"
 
 namespace Kans
 {
-    class RenderScene;
-    class SceneRenderer;
+    class AssetManager;
+    class AssetChangeObserver;
+    class RenderWorld;
+    class MeshAsset;
+    struct RuntimeMesh;
+    struct EditableMesh;
+    struct TransformComponent;
+    struct PrefabNodeOverride;
+    struct Bounds;
+    struct MeshMaterialSlot;
     class Entity;
     struct SceneSnapshot;
 
@@ -24,7 +38,8 @@ namespace Kans
 
         void OnUpdate(TimeStep ts);
 
-        void OnViewportResize(uint32_t width, uint32_t height);
+        void       OnViewportResize(uint32_t width, uint32_t height);
+        glm::uvec2 GetViewportSize() const { return {m_ViewportWidth, m_ViewportHeight}; }
 
         Entity CreateEntity(const std::string name = std::string());
         Entity CreateEntityWithID(UUID uuid, const std::string& name, bool runtimeMap);
@@ -51,6 +66,50 @@ namespace Kans
         // Copies the entity with its children (new IDs), placed right after it.
         Entity DuplicateEntity(Entity entity);
 
+        // Nonblocking; also called by rendering and runtime updates.
+        void         SetPrefabAssetManager(AssetManager* assets);
+        RenderWorld& GetRenderWorld() const { return *m_RenderWorld; }
+        // Resolve CPU metadata, retaining prefab data while replacement assets load.
+        Ref<const MeshAsset> ResolveMesh(Entity entity) const;
+        Ref<const RuntimeMesh> ResolveEditableMesh(Entity entity) const;
+        uint64_t               GetEditableMeshBuildCount() const { return m_EditableMeshBuildCount; }
+        void UpdatePrefabs();
+        void UpdatePrefabs(AssetManager& assets)
+        {
+            SetPrefabAssetManager(&assets);
+            UpdatePrefabs();
+        }
+        Entity              InstantiatePrefab(AssetID prefab, const glm::vec3& position = {}, UUID parent = 0);
+        Entity              GetPrefabInstanceRoot(Entity entity) const;
+        static UUID         PrefabEntityUUID(UUID instance, const std::string& nodeKey);
+        std::vector<Entity> GetMeshEntities(Entity subtree) const;
+        std::vector<Entity> GetMeshEntities() const;
+        void                CapturePrefabOverrides();
+        void   SetPrefabTransformOverride(Entity root, const std::string& key, const TransformComponent& transform);
+        void   SetPrefabMaterialOverride(Entity root, const std::string& key, uint32_t slot, AssetID material);
+        void   SetPrefabNodeRemoved(Entity root, const std::string& key, bool removed);
+        void   ClearPrefabOverride(Entity root, const std::string& key);
+        Bounds GetWorldBounds(Entity entity) const;
+        // CPU-only pre-placement bounds; empty until the prefab/meshes are ready.
+        Bounds                        GetPrefabBounds(AssetID prefab, const glm::mat4& transform = glm::mat4(1));
+        std::vector<MeshMaterialSlot> GetMeshSlots(Entity entity) const;
+        void                          UpdateBounds();
+
+        const EnvironmentSettings& GetEnvironmentSettings() const { return m_EnvironmentSettings; }
+        bool                       HasEnvironmentSettings() const { return m_HasEnvironmentSettings; }
+        // Validates and immediately notifies the render world, including map removal.
+        void SetEnvironmentSettings(EnvironmentSettings settings);
+        template<typename Fn>
+        void PatchEnvironmentSettings(Fn&& patch)
+        {
+            auto settings = m_EnvironmentSettings;
+            patch(settings);
+            if (settings != m_EnvironmentSettings)
+                SetEnvironmentSettings(std::move(settings));
+        }
+        // Restore legacy inheritance from the view/editor, including default scales.
+        void ClearEnvironmentSettings();
+
         // ---- undo/redo (SceneSnapshot.h) ----
         SceneSnapshot Capture() const;
         // Replaces every entity with the snapshot's; UUIDs are preserved.
@@ -73,15 +132,47 @@ namespace Kans
         void DestroyNativeScriptInstances();
 
     private:
+        void                                 OnRenderComponentChanged(entt::registry&, entt::entity entity);
+        void                                 OnEditableMeshChanged(entt::registry&, entt::entity entity);
+        mutable std::unordered_map<entt::entity, Ref<const RuntimeMesh>>              m_EditableMeshes;
+        mutable std::unordered_map<entt::entity, std::shared_ptr<const EditableMesh>> m_EditableSources;
+        mutable uint64_t                                                              m_EditableMeshBuildCount = 0;
+        void                                 OnEditableMeshRemoved(entt::registry&, entt::entity entity);
+        void                                 OnTransformChanged(entt::registry&, entt::entity entity);
+        void                                 OnPrefabChanged(entt::registry&, entt::entity entity);
+        void                                 DirtySubtree(Entity entity);
+        void                                 DirtyBounds(Entity entity);
+        void                                 TrackPrefabAssets(Entity root);
+        void                                 PollAssetChanges();
+        bool                                 m_SuppressNotifications = false;
+        std::unique_ptr<RenderWorld>         m_RenderWorld;
+        std::shared_ptr<AssetChangeObserver> m_AssetChanges;
+        std::unordered_set<entt::entity>     m_DirtyPrefabs, m_CapturePrefabNodes, m_DirtyBounds;
+        std::unordered_map<AssetID, std::unordered_set<entt::entity>> m_PrefabAssetUsers;
+        std::unordered_map<entt::entity, std::vector<AssetID>>        m_PrefabDependencies;
+        struct ChildBounds
+        {
+            std::unordered_map<entt::entity, Bounds> Values;
+            std::array<std::multiset<float>, 3>      Min, Max;
+            void                                     Set(entt::entity child, const Bounds& bounds);
+            Bounds                                   Aggregate() const;
+        };
+        std::unordered_map<entt::entity, ChildBounds> m_ChildBounds;
+        AssetManager*     m_PrefabAssets      = nullptr;
+        uint64_t          m_NextDrawOrder     = 1;
+        bool              m_ReconcilingPrefab = false;
+        void              ExpandPrefab(Entity root);
         entt::registry m_Registry;
         uint32_t       m_ViewportWidth = 0, m_ViewportHeight = 0;
         std::string    m_Name;
+        EnvironmentSettings                           m_EnvironmentSettings;
+        bool                                          m_HasEnvironmentSettings = false;
         EntityMap      m_EntityMap;
         std::vector<UUID> m_RootOrder;
 
     private:
         friend class Entity;
-        friend class RenderScene;
+        friend class RenderWorld;
         friend class SceneSerializer;
     };
 

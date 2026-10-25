@@ -17,7 +17,6 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group"Dependencies"
 include "Kans3D/vendor/GLFW"
-include "Kans3D/vendor/Glad"
 include "Kans3D/vendor/imgui"
 include "Kans3D/vendor/yaml-cpp"
 group""
@@ -55,7 +54,6 @@ project "Kans3D"
         
 
         "%{IncludeDir.GLFW}",
-        "%{IncludeDir.Glad}",
         "%{IncludeDir.ImGui}",
         "%{IncludeDir.GLM}",
         "%{IncludeDir.stb_image}",
@@ -71,9 +69,7 @@ project "Kans3D"
     links
     {
         "GLFW",
-        "Glad",
         "ImGui",
-        "opengl32.lib",
         "yaml-cpp",
         "%{Library.Vulkan}",
         "%{Library.mono}"
@@ -108,7 +104,6 @@ project "Kans3D"
             "%{Library.ShaderC_Debug}",
 			"%{Library.ShaderC_Utils_Debug}",
 			"%{Library.SPIRV_Cross_Debug}",
-			"%{Library.SPIRV_Cross_GLSL_Debug}",
 			"%{Library.SPIRV_Tools_Debug}",
         }
 
@@ -125,7 +120,6 @@ project "Kans3D"
 			"%{Library.ShaderC_Release}",
 			"%{Library.ShaderC_Utils_Release}",
 			"%{Library.SPIRV_Cross_Release}",
-			"%{Library.SPIRV_Cross_GLSL_Release}",
 		}
     filter "configurations:Dist"
         defines  

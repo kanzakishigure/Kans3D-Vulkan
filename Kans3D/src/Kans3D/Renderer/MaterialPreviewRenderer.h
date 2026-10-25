@@ -1,11 +1,13 @@
 #pragma once
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Renderer/Resource/SelectionTools.h"
-#include "Resource/ToneMappingPass.h"
+#include "RenderFeature.h"
+#include "RenderWorld.h"
+#include "Renderer.h"
+#include "ViewTarget.h"
 
 namespace Kans
 {
-    class SceneRenderer;
     enum class MaterialPreviewShape
     {
         Sphere,
@@ -37,25 +39,34 @@ namespace Kans
         std::vector<uint8_t> Pixels;
     };
 
-    // Render thread only; the scene's device and its context must remain alive.
-    // SceneRenderer must outlive this instance. Does not begin/end a scene/cache frame.
-    // Inputs are borrowed only during the call. GPU cache resources are resolved at draw time.
+    // Render thread only. Owns a dedicated world, target and background feature;
+    // independent of any viewport.
     class MaterialPreviewRenderer
     {
     public:
-        explicit MaterialPreviewRenderer(SceneRenderer& scene);
+        MaterialPreviewRenderer(std::shared_ptr<Renderer>            renderer,
+                                std::shared_ptr<RenderAssetCache>    assets,
+                                std::shared_ptr<EnvironmentLighting> environment = {});
+        // Rebind project resources without sharing any viewport state.
+        void SetResources(std::shared_ptr<RenderAssetCache> assets, std::shared_ptr<EnvironmentLighting> environment)
+        {
+            m_Assets      = std::move(assets);
+            m_Environment = std::move(environment);
+        }
         ~MaterialPreviewRenderer();
         MaterialPreviewRenderer(const MaterialPreviewRenderer&)            = delete;
         MaterialPreviewRenderer& operator=(const MaterialPreviewRenderer&) = delete;
 
-        // nullptr selects Standard. Requires scene.SetAssetManager, even for resolved inputs.
+        // nullptr selects Standard. Requires a cache lease, including for resolved inputs.
         // Texture belongs to this instance, valid until its next Render/RenderThumbnail or destruction.
         // Complete means every assigned asset and GPU upload was ready.
         // Unassigned samplers use declared fallbacks and are complete; unavailable assigned assets are not.
         MaterialPreviewResult
         Render(const MaterialData& material, const ShaderData* shader, const MaterialPreviewOptions& options = {});
         MaterialPreviewResult Render(AssetID material, const MaterialPreviewOptions& options = {});
-        const RenderHardware::Handle<RenderHardware::Texture>& GetHDRTarget() const { return m_HDRColor; }
+        const RenderWorld&    GetWorld() const { return m_World; }
+        const ViewTarget&     GetViewTarget() const { return *m_Target; }
+        const RenderHardware::Handle<RenderHardware::Texture>& GetHDRTarget() const { return m_Target->GetHDR(); }
         // Offscreen rendering exposes a neutral image, without exporting it to the UI.
         MaterialPreviewImageResult
         RenderImage(const MaterialData& material, const ShaderData* shader, const MaterialPreviewOptions& options = {});
@@ -69,14 +80,18 @@ namespace Kans
                                                               const MaterialPreviewOptions& options,
                                                               bool                          complete);
         bool                                  Resize(glm::uvec2 size);
-        SceneRenderer&                        m_Scene;
+        std::shared_ptr<RenderAssetCache>                m_Assets;
+        std::shared_ptr<EnvironmentLighting>             m_Environment;
+        RenderWorld                                      m_World;
+        RenderFeatureSet                                 m_Features;
         glm::uvec2                            m_Size {};
         std::shared_ptr<RenderHardware::Device>          m_Device;
-        RenderHardware::Handle<RenderHardware::Texture>  m_Color, m_Depth, m_HDRColor;
-        ToneMappingPass                                  m_ToneMapping;
+        std::shared_ptr<Renderer>                        m_Renderer;
+        std::unique_ptr<ViewTarget>                      m_Target;
         std::array<std::optional<GpuMesh>, 3> m_Shapes;
-        RenderHardware::Handle<RenderHardware::Pipeline> m_Checker;
+
         std::optional<ShaderData>             m_ShaderSource;
         Scope<GpuShader>                      m_Shader;
+        std::shared_ptr<GpuShader>            m_ResolvedShader;
     };
 } // namespace Kans

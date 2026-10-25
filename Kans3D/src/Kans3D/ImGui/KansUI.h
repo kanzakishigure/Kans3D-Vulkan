@@ -26,7 +26,6 @@ namespace Kans::UI
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 4));
 
             auto  contentregion = ImGui::GetContentRegionAvail();
-            auto& component     = entity.GetComponent<T>();
             float lineHeight    = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
 
             // component title
@@ -50,7 +49,7 @@ namespace Kans::UI
             }
             if (open)
             {
-                uifunc(component);
+                entity.PatchComponent<T>(uifunc);
                 ImGui::TreePop();
             }
             if (RemovedComponent)

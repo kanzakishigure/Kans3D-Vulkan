@@ -42,6 +42,10 @@ namespace Kans
         EditorAssetImportService& operator=(const EditorAssetImportService&) = delete;
 
         [[nodiscard]] std::variant<std::monostate, AssetError> Start(SourceAssetID source, AssetBuildOptions options);
+        // Check all published sources for a target in one background session.
+        // Source in the snapshot is invalid; Result.Root summarizes the session,
+        // including its final Registry and per-source failure warnings.
+        [[nodiscard]] std::variant<std::monostate, AssetError> StartOutdated(AssetBuildOptions options);
         // True once when a started build finishes (successfully or not).
         [[nodiscard]] std::variant<bool, AssetError>                      Poll();
         [[nodiscard]] std::variant<std::monostate, AssetError>            Cancel();
@@ -79,6 +83,7 @@ namespace Kans
         explicit EditorAssetImportService(Scope<Project> project);
         std::optional<AssetError> CheckOwner() const;
         std::optional<AssetError> CheckIdle() const;
+        std::variant<std::monostate, AssetError> StartJob(SourceAssetID source, AssetBuildOptions options);
         struct Job
         {
             std::atomic<bool> Cancel {false};

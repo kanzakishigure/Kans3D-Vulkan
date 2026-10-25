@@ -10,7 +10,6 @@ namespace Kans::RenderHardware
     enum class Backend
     {
         None,
-        OpenGL,
         Vulkan
     };
     // Startup parsing is independent of native window/device initialization.
@@ -29,7 +28,7 @@ namespace Kans::RenderHardware
     void    RequestFrameCapture(Window& window, const std::string& path);
     void    SetBackend(Backend backend);
     Backend GetBackend();
-    // Creates the native surface/context using backend-owned API hints.
+    // Creates the native surface using backend-owned API hints.
     void*                   CreateWindowSurface(Backend backend, const WindowSpecification& specification);
     std::shared_ptr<Device> InitializeDevice(Backend backend, Window* window = nullptr, const DeviceDesc& desc = {});
     // Installs a caller-created headless device (including test validation policy).

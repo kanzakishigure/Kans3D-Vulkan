@@ -41,6 +41,11 @@ namespace Kans
         std::vector<AssetBuildResult> Dependencies;
         // Successful additional sources built after the root with RebuildDependents.
         std::vector<AssetBuildResult> Dependents;
+        // BuildPublishedAssets: successful checks, once per source, dependencies
+        // first. Root is the batch summary (invalid Source), with final Registry
+        // and warnings for failed sources. Its Disposition says whether anything
+        // published, not whether every source succeeded. Single-source builds leave this empty.
+        std::vector<AssetBuildResult> CheckedSources;
     };
 
     struct SourceAssetDeletionPlan
@@ -131,6 +136,12 @@ namespace Kans
         // Uses a custom importer set instead of the default importers.
         [[nodiscard]] std::variant<AssetBuildGraphResult, AssetError>
         BuildAsset(SourceAssetID id, const AssetBuildOptions& options, const ImporterRegistry& importers);
+
+        // One session over sources with published Products for options.Target.
+        // Fingerprints skip current sources; a failed source warns and does not
+        // stop other roots. Cancellation stops the session, retaining publications.
+        [[nodiscard]] std::variant<AssetBuildGraphResult, AssetError>
+        BuildPublishedAssets(const AssetBuildOptions& options);
 
         Ref<const AssetRegistry>     GetRuntimeAssetRegistry() const;
         std::filesystem::path        GetProductDirectory() const { return m_Config.CacheDirectory / "Products"; }

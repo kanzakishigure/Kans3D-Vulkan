@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
+#include <set>
 #include <yaml-cpp/yaml.h>
 
 namespace Kans
@@ -136,6 +138,21 @@ namespace Kans
                     if (!id.IsValid())
                         return false;
             }
+            if (data.SectionIdentities.size() > kMaximumItems)
+                return false;
+            std::set<std::pair<AssetID, uint32_t>> sections;
+
+            for (const auto& identity : data.SectionIdentities)
+            {
+                if (identity.ObjectKey.empty() || !ValidName(identity.ObjectKey) || !identity.OldMesh.IsValid() ||
+                    !identity.Mesh.IsValid() || identity.Section >= kMaximumItems ||
+                    !sections.emplace(identity.Mesh, identity.Section).second)
+                    return false;
+            }
+            std::map<AssetID, uint32_t> nextSection;
+            for (const auto& identity : data.SectionIdentities)
+                if (identity.Section != nextSection[identity.Mesh]++)
+                    return false;
             return true;
         }
     } // namespace
@@ -241,15 +258,42 @@ namespace Kans
         YAML::Emitter out;
         out.SetFloatPrecision(9);
         out << YAML::BeginMap << YAML::Key << "magic" << YAML::Value << "KMOD" << YAML::Key << "version" << YAML::Value
-            << 1 << YAML::Key << "nodes" << YAML::Value << YAML::BeginSeq;
+            << 3 << YAML::Key << "nodes" << YAML::Value << YAML::BeginSeq;
         for (const auto& node : data.Nodes)
         {
             out << YAML::BeginMap << YAML::Key << "name" << YAML::Value << node.Name << YAML::Key << "parent"
                 << YAML::Value << node.Parent << YAML::Key << "transform" << YAML::Value;
             EmitFloats(out, node.LocalTransform);
+            out << YAML::Key << "key" << YAML::Value << node.Key;
             out << YAML::Key << "meshes" << YAML::Value << YAML::BeginSeq;
             for (const auto& mesh : node.Meshes)
                 out << mesh.ToString();
+            out << YAML::EndSeq << YAML::EndMap;
+        }
+        out << YAML::EndSeq << YAML::Key << "section_identities" << YAML::Value << YAML::BeginSeq;
+        for (const auto& identity : data.SectionIdentities)
+            out << YAML::BeginMap << YAML::Key << "object_key" << YAML::Value << identity.ObjectKey << YAML::Key
+                << "old_mesh" << YAML::Value << identity.OldMesh.ToString() << YAML::Key << "mesh" << YAML::Value
+                << identity.Mesh.ToString() << YAML::Key << "section" << YAML::Value << identity.Section
+                << YAML::EndMap;
+        out << YAML::EndSeq << YAML::Key << "entities" << YAML::Value << YAML::BeginSeq;
+        const auto            entities = data.Entities.empty() ? BuildPrefabEntities(data) : data.Entities;
+        std::set<std::string> keys;
+        for (size_t i = 0; i < entities.size(); ++i)
+        {
+            const auto& node = entities[i];
+            if (node.Key.empty() || !ValidName(node.Key) || !keys.insert(node.Key).second ||
+                !Finite(node.LocalTransform) || node.Parent < -1 || node.Parent >= int64_t(i))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid prefab entity identity/hierarchy"};
+            out << YAML::BeginMap << YAML::Key << "key" << YAML::Value << node.Key << YAML::Key << "name" << YAML::Value
+                << node.Name << YAML::Key << "parent" << YAML::Value << node.Parent << YAML::Key << "transform"
+                << YAML::Value;
+            EmitFloats(out, node.LocalTransform);
+            out << YAML::Key << "mesh" << YAML::Value << (node.Mesh.IsValid() ? node.Mesh.ToString() : "") << YAML::Key
+                << "section" << YAML::Value << (node.Section ? int64_t(*node.Section) : -1) << YAML::Key << "materials"
+                << YAML::Value << YAML::BeginSeq;
+            for (auto material : node.Materials)
+                out << (material.IsValid() ? material.ToString() : "");
             out << YAML::EndSeq << YAML::EndMap;
         }
         out << YAML::EndSeq << YAML::EndMap;
@@ -260,28 +304,82 @@ namespace Kans
     {
         try
         {
-            auto loaded = ReadRoot(bytes, size, "KMOD");
+            auto loaded = ReadRoot(bytes, size, "KMOD", 3);
             if (const auto* error = std::get_if<AssetError>(&loaded))
                 return *error;
             const auto& root = std::get<YAML::Node>(loaded);
-            if (root.size() != 3 || !root["nodes"].IsSequence() || root["nodes"].size() > kMaximumItems)
+            const auto  version = root["version"].as<uint32_t>();
+            if (version != 2 && version != 3)
+                return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Model Product version"};
+            if (root.size() != (version == 3 ? 5u : 4u) || !root["section_identities"].IsSequence() ||
+                root["section_identities"].size() > kMaximumItems || !root["nodes"].IsSequence() ||
+                root["nodes"].size() > kMaximumItems)
                 return AssetError {AssetErrorCode::InvalidData, "Invalid model Product fields"};
             ModelData data;
             size_t    bindings = 0;
             for (const auto& input : root["nodes"])
             {
-                if (!input.IsMap() || input.size() != 4 || !input["meshes"].IsSequence() ||
+                if (!input.IsMap() || input.size() != (version == 3 ? 5u : 4u) || !input["meshes"].IsSequence() ||
                     input["meshes"].size() > kMaximumItems - bindings)
                     return AssetError {AssetErrorCode::InvalidData, "Invalid model node fields"};
                 ModelNodeData node;
                 node.Name   = input["name"].as<std::string>();
                 node.Parent = input["parent"].as<int64_t>();
+                if (version == 3)
+                    node.Key = input["key"].as<std::string>();
                 if (!ReadFloats(input["transform"], node.LocalTransform))
                     return AssetError {AssetErrorCode::InvalidData, "Invalid model node transform"};
                 for (const auto& mesh : input["meshes"])
                     node.Meshes.push_back(AssetID::FromString(mesh.as<std::string>()));
                 bindings += node.Meshes.size();
                 data.Nodes.push_back(std::move(node));
+            }
+            for (const auto& input : root["section_identities"])
+            {
+                if (!input.IsMap() || input.size() != 4)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid model section identity fields"};
+                data.SectionIdentities.push_back({input["object_key"].as<std::string>(),
+                                                  AssetID::FromString(input["old_mesh"].as<std::string>()),
+                                                  AssetID::FromString(input["mesh"].as<std::string>()),
+                                                  input["section"].as<uint32_t>()});
+            }
+            if (version == 3)
+            {
+                const auto entities = root["entities"];
+                if (!entities.IsSequence() || entities.size() > kMaximumItems || entities.size() == 0)
+                    return AssetError {AssetErrorCode::InvalidData, "Invalid prefab entities"};
+                std::set<std::string> keys;
+                for (const auto& input : entities)
+                {
+                    if (!input.IsMap() || input.size() != 7 || !input["materials"].IsSequence() ||
+                        input["materials"].size() > kMaximumItems)
+                        return AssetError {AssetErrorCode::InvalidData, "Invalid prefab entity fields"};
+                    PrefabNodeData node;
+                    node.Key        = input["key"].as<std::string>();
+                    node.Name       = input["name"].as<std::string>();
+                    node.Parent     = input["parent"].as<int64_t>();
+                    const auto mesh = input["mesh"].as<std::string>();
+                    node.Mesh       = AssetID::FromString(mesh);
+                    auto section    = input["section"].as<int64_t>();
+                    if (node.Key.empty() || !ValidName(node.Key) || !ValidName(node.Name) ||
+                        !keys.insert(node.Key).second || node.Parent < -1 ||
+                        node.Parent >= int64_t(data.Entities.size()) ||
+                        !ReadFloats(input["transform"], node.LocalTransform) ||
+                        (!mesh.empty() && !node.Mesh.IsValid()) || section < -1 || section >= int64_t(kMaximumItems) ||
+                        (section >= 0 && !node.Mesh.IsValid()))
+                        return AssetError {AssetErrorCode::InvalidData, "Invalid prefab entity values"};
+                    if (section >= 0)
+                        node.Section = uint32_t(section);
+                    for (const auto& value : input["materials"])
+                    {
+                        const auto text = value.as<std::string>();
+                        const auto id   = AssetID::FromString(text);
+                        if (!text.empty() && !id.IsValid())
+                            return AssetError {AssetErrorCode::InvalidData, "Invalid prefab material"};
+                        node.Materials.push_back(id);
+                    }
+                    data.Entities.push_back(std::move(node));
+                }
             }
             if (!ValidModel(data))
                 return AssetError {AssetErrorCode::InvalidData, "Invalid model node hierarchy or references"};

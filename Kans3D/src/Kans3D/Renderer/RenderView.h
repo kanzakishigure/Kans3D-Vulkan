@@ -3,23 +3,53 @@
 #include <optional>
 #include <glm/glm.hpp>
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
-#include "Kans3D/Renderer/Resource/RenderScene.h"
-#include "Kans3D/Scene/ProductModelComponent.h"
+#include "Kans3D/Scene/Components.h"
+#include "Kans3D/Scene/EnvironmentSettings.h"
+#include "Graph/GraphCapture.h"
 #include "ImmediatePassState.h"
+#include "RenderSettings.h"
+#include "Resource/Camera.h"
 
 namespace Kans
 {
-    struct SceneRendererCamera
+    class Scene;
+    class RenderFeatureSet;
+    class RenderWorld;
+    struct ShadowResources;
+    struct ScenePickHit
+    {
+        UUID                     EntityID = 0, InstanceRoot = 0;
+        std::optional<glm::vec3> Position;
+    };
+    struct SceneRenderStats
+    {
+        uint32_t DrawCalls = 0;
+        uint64_t Triangles = 0;
+    };
+    struct ShadowStatistics
+    {
+        uint32_t Passes = 0, DrawCalls = 0, CastersCulled = 0;
+        uint32_t                          ShadowedLights = 0;
+        std::vector<ShadowPassStatistics> PerPass;
+    };
+    struct SpriteStatistics
+    {
+        uint32_t DrawCalls = 0, QuadCount = 0;
+        uint32_t GetTotalVertexCount() const { return QuadCount * 4; }
+        uint32_t GetTotalIndexCount() const { return QuadCount * 6; }
+    };
+    struct RenderCamera
     {
         Camera    camera;
         glm::mat4 viewMatrix;
         glm::vec3 Position;
     };
+    using SceneRendererCamera = RenderCamera; // Editor facade compatibility.
     struct SceneInfo
     {
         DirLight            dirLight;
         PointLight          pointLight;
-        SceneRendererCamera sceneCamera;
+        RenderCamera            sceneCamera;
         std::vector<PointLight> pointLights;
         bool                    HasDirectionalLight = false;
     };
@@ -39,23 +69,24 @@ namespace Kans
         Lit,
         BaseColor,
         Normals,
-        Wireframe
+        Wireframe,
+        ShadowCascades
     };
-    struct ModelDraw
+    struct PrefabPreview
     {
-        ProductModelComponent Model;
-        glm::mat4             Transform {1};
+        AssetID   Prefab;
+        glm::mat4 Transform {1};
     };
-    struct ViewModelSubmission
+    struct ViewMeshSubmission
     {
-        AssetID          Model;
+        MeshComponent    Mesh;
         glm::mat4        Transform {1};
-        ModelStencilMode Stencil       = ModelStencilMode::Disabled;
-        size_t           OverrideBegin = 0, OverrideCount = 0;
+        UUID             EntityID = 0, InstanceRoot = 0;
+        ModelStencilMode Stencil = ModelStencilMode::Disabled;
     };
     struct ViewShaderDraw
     {
-        AssetID          Mesh;
+        MeshKey          Mesh;
         glm::mat4        Transform;
         AssetID          Material;
         SceneViewMode    ViewMode;
@@ -64,13 +95,20 @@ namespace Kans
         Bounds              LocalBounds;
         MaterialRenderState Render;
         bool                Ready = false;
+        uint32_t            Section = 0;
+        UUID                EntityID = 0, InstanceRoot = 0;
+        Bounds              WorldBounds;
+        bool                HasWorldBounds = false;
+        bool                CastShadows = true, ReceiveShadows = true;
     };
     struct ViewGeometryDraw
     {
-        ProductModelComponent Model;
         glm::mat4             Transform;
         std::string           ShaderName;
         ModelGeometryMode     Mode;
+        MeshKey                 Mesh;
+        std::optional<uint32_t> Section;
+        UUID                    EntityID = 0;
     };
     struct ViewReadyDraw
     {
@@ -84,11 +122,31 @@ namespace Kans
         Ref<Texture2D> Texture;
         glm::vec4      Color;
     };
+    struct GridSettings
+    {
+        bool     Enabled    = true;
+        float    CellSize   = 1.0f;
+        uint32_t MajorEvery = 10;
+        // Display-space RGB; alpha is line opacity (scene alpha is preserved).
+        glm::vec4 MinorColor {.38f, .38f, .38f, .28f};
+        glm::vec4 MajorColor {.55f, .55f, .55f, .42f};
+        glm::vec4 XAxisColor {.85f, .16f, .16f, .75f};
+        glm::vec4 YAxisColor {.18f, .75f, .25f, .75f};
+        glm::vec4 ZAxisColor {.18f, .38f, .90f, .75f};
+        float     LineWidth = 1.0f; // Pixels; axes are 1.5 times wider.
+        // Plane radius at low camera heights; scales by max(1, height/(10*CellSize)).
+        float FadeDistance = 100.0f;
+    };
     struct ViewGrid
     {
-        float              Size, Scale;
-        glm::mat4          Transform;
-        ImmediatePassState State;
+        enum class Plane
+        {
+            XZ,
+            XY,
+            YZ
+        };
+        Plane     Surface = Plane::XZ;
+        glm::vec3 Origin {0}; // Snap offset, also the intersection of the coloured axes.
     };
     struct ViewSkybox
     {
@@ -104,63 +162,84 @@ namespace Kans
     {
         Sprites,
         RecordedSprites,
-        Grid,
         Skybox
     };
     struct ViewImmediate
     {
         ViewImmediateKind Kind;
         size_t            Index;
+        size_t            Count = SIZE_MAX;
     };
     struct ViewEnvironment
     {
         RenderHardware::Handle<RenderHardware::Texture> IrradianceMap, RadianceMap;
+        std::filesystem::path Source; // Resolved HDR path, when maps were precomputed by the caller.
     };
     // One view/frame. Owns intent, CPU sort metadata and resource handles, never borrowed meshes.
     // Matrices remain in the engine's coordinate convention until recording.
+    struct ViewMaterialResources
+    {
+        std::shared_ptr<const GpuShader>           Shader;
+        std::shared_ptr<const GpuMaterialBindings> Bindings;
+    };
     struct RenderView
     {
         SceneInfo                          Scene {};
+        GraphCaptureSettings               Debug;
+        CullingStatistics                  Culling;
+        uint32_t                           BloomMipCount = 0;
+        RenderFeatureSet* Features = nullptr; // Borrowed for this call; owned by the viewport/configuration.
+        std::shared_ptr<RenderAssetCache>                 Assets;
+        std::map<MeshKey, std::shared_ptr<const GpuMesh>> MeshResources;
+        std::map<AssetID, ViewMaterialResources>          MaterialResources;
+        std::optional<EngineFrameUniforms>                LightingUniforms;
+        std::string                                       Pipeline = "Forward";
+        std::optional<float>                              Exposure;
+        std::optional<Kans::AntiAliasing>                 AntiAliasing; // nullopt inherits the camera.
+        Kans::AntiAliasing                                EffectiveAA            = Kans::AntiAliasing::None;
+        float                                             Time         = 0;
+        uint32_t                                          MaxShadowedPointLights = 4;
+        std::shared_ptr<ShadowResources>                  Shadows;
+        ShadowStatistics                                  ShadowStats;
+        bool                                              ExtractWorld = true;
+        EnvironmentSettings Environment; // Effective settings; independent when UseWorldEnvironment is false.
+        std::optional<std::filesystem::path> EnvironmentPath; // nullopt inherits world; empty disables IBL.
+        bool                                 DrawEnvironment     = true;
+        bool                                 UseWorldEnvironment = true;
         glm::uvec2                         Viewport {0};
         SceneViewMode                      DebugMode = SceneViewMode::Lit;
-        std::vector<ViewModelSubmission>   Models;
-        std::vector<SceneMaterialOverride> MaterialOverrides;
+        std::vector<ViewMeshSubmission>    Meshes;
+        std::vector<UUID>                  HighlightEntities;
         std::vector<ViewShaderDraw>        Draws;
         std::vector<ViewReadyDraw>         MaterialOrder;
         std::vector<size_t>                Opaque, Mask, Blend; // Draw indices, in their filtered execution order.
         std::vector<ViewGeometryDraw>      Geometry;
         std::vector<ViewSprite>            Sprites;
+        GridSettings                         Grid;
         std::vector<ViewGrid>              Grids;
         std::vector<ViewSkybox>            Skyboxes;
-        std::vector<ViewSpriteBatch>       SpriteBatches; // Compatibility with direct Renderer2D callers.
+        std::vector<ViewSpriteBatch>       SpriteBatches; // Pre-recorded immediate sprite batches.
         std::vector<ViewImmediate>         ImmediateOrder;
         ViewEnvironment                    EnvironmentMaps;
         RenderHardware::Handle<RenderHardware::Texture> BrdfLUT;
-        std::vector<ModelDraw>                          Highlight;
-        std::optional<ModelDraw>                        Preview;
+        std::optional<PrefabPreview>                    Preview;
     };
-    struct ViewMeshMetadata
+    // Scene-camera game view: no editor features, highlights or previews.
+    std::optional<RenderView> MakeRuntimeView(Scene& scene, glm::uvec2 viewport);
+    // CPU-only extraction of an available mesh; absent data emits no draws.
+    void
+    ExtractMeshDraws(RenderView& view, const ViewMeshSubmission& submission, SceneViewMode mode, const GpuMesh* mesh);
+    // Planes extracted from a device view-projection matrix (Vulkan depth 0..1).
+    class Frustum
     {
-        Bounds  LocalBounds;
-        AssetID Material, AuthoredMaterial;
+    public:
+        explicit Frustum(const glm::mat4& deviceViewProjection);
+        bool Intersects(const Bounds& worldBounds) const;
+
+    private:
+        std::array<glm::vec4, 6> m_Planes;
     };
-    // Missing instances/metadata skip unloaded parts, exactly as the former SubmitModel.
-    // There is intentionally no frustum or alpha culling: phase one submitted offscreen models too.
-    void ExtractModelPart(RenderView&                  view,
-                          const ProductModelComponent& model,
-                          const glm::mat4&             transform,
-                          ModelStencilMode             stencil,
-                          SceneViewMode                mode,
-                          const ModelInstance&         instance,
-                          const ViewMeshMetadata&      metadata);
-    void ExtractModelDraws(RenderView&                                                    view,
-                           const ProductModelComponent&                                   model,
-                           const glm::mat4&                                               transform,
-                           ModelStencilMode                                               stencil,
-                           SceneViewMode                                                  mode,
-                           const ModelInstances*                                          instances,
-                           const std::function<std::optional<ViewMeshMetadata>(AssetID)>& mesh);
-    void ExtractDrawLists(RenderView& view);
+    void ExtractDrawLists(RenderView& view, const Frustum* frustum = nullptr);
     // CPU-only packing shared by rendering and analytic contract tests.
     EngineFrameUniforms MakeLightingUniforms(const SceneInfo& scene);
 } // namespace Kans

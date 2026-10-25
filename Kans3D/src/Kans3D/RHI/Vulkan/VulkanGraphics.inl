@@ -30,6 +30,9 @@ struct ShaderBinding
     BindingType      Type;
     size_t           Bytes;
     TextureDimension Dimension;
+    bool             Comparison = false;
+    bool             Unsigned   = false;
+    bool             Multisampled = false;
 };
 // IDs and member names are deliberately excluded; compare the actual native byte layout.
 std::string PushLayout(spirv_cross::Compiler& compiler, uint32_t id)
@@ -86,6 +89,14 @@ struct VKShader final : Shader
                     });
                 if (!validator.Validate(module.Words))
                     throw std::invalid_argument("Invalid shader bytecode: " + diagnostic);
+                for (size_t cursor = 5; cursor < module.Words.size(); cursor += module.Words[cursor] >> 16)
+                    if ((module.Words[cursor] & 65535) == spv::OpCapability &&
+                        module.Words[cursor + 1] == spv::CapabilitySampleRateShading)
+                    {
+                        VkPhysicalDeviceFeatures features {};
+                        vkGetPhysicalDeviceFeatures(Memory.Owner->Native.Physical, &features);
+                        Require(features.sampleRateShading, "Sample rate shading is unavailable");
+                    }
                 spirv_cross::Compiler reflection(module.Words);
                 reflection.set_entry_point(module.EntryPoint, static_cast<spv::ExecutionModel>(module.Stage));
                 auto resources = reflection.get_shader_resources();
@@ -109,9 +120,11 @@ struct VKShader final : Shader
                         if (type == BindingType::SampledTexture || type == BindingType::CombinedTextureSampler)
                         {
                             auto image = nativeType.image;
-                            Require((image.dim == spv::Dim2D || image.dim == spv::DimCube) && !image.arrayed &&
-                                        !image.ms && !image.depth,
-                                    "Unsupported shader image dimension or comparison image");
+                            Require((image.dim == spv::Dim2D || image.dim == spv::DimCube) && !image.arrayed,
+                                    "Unsupported shader image dimension");
+                            binding.Multisampled = image.ms;
+                            binding.Comparison = image.depth;
+                            binding.Unsigned = reflection.get_type(image.type).basetype == spirv_cross::SPIRType::UInt;
                             binding.Dimension =
                                 image.dim == spv::DimCube ? TextureDimension::Cube : TextureDimension::Texture2D;
                         }
@@ -122,7 +135,8 @@ struct VKShader final : Shader
                             Bindings.push_back(binding);
                         else
                             Require(old->Type == binding.Type && old->Bytes == binding.Bytes &&
-                                        old->Dimension == binding.Dimension,
+                                        old->Dimension == binding.Dimension && old->Comparison == binding.Comparison &&
+                                        old->Unsigned == binding.Unsigned && old->Multisampled == binding.Multisampled,
                                     "Shader stages disagree about a binding");
                     }
                 };
@@ -292,11 +306,15 @@ struct VKGroup final : BindGroup
             {
                 auto t = Cast<VKTexture>(entry.TextureResource, Memory.Owner);
                 Require(Has(t->Desc.Usage, TextureUsage::Sampled), "Binding texture usage mismatch");
-                images[i].imageView = t->SampledView;
-                add(t->SampledView);
-                images[i].imageLayout = Info(t->Desc.PixelFormat).Depth() ?
-                                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :
-                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                Require(entry.Aspect == TextureAspect::Default || entry.Subresource.has_value(),
+                        "Stencil requires a subresource view");
+                images[i].imageView =
+                    entry.Subresource ? t->SampleViewFor(*entry.Subresource, entry.Aspect) : t->SampledView;
+                add(images[i].imageView);
+                images[i].imageLayout =
+                    Info(t->Desc.PixelFormat).Depth() && Has(t->Desc.Usage, TextureUsage::DepthStencil) ?
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL :
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }
             if (sampler)
             {
@@ -369,6 +387,22 @@ VkBlendFactor Factor(BlendFactor factor)
 }
 void ValidatePipeline(const std::shared_ptr<State>& owner, const PipelineDesc& desc)
 {
+    Require(desc.Samples == 1 || desc.Samples == 2 || desc.Samples == 4 || desc.Samples == 8,
+            "Invalid pipeline sample count");
+    for (auto format : desc.ColorFormats)
+    {
+        TextureDesc texture;
+        texture.PixelFormat = format;
+        texture.Usage       = TextureUsage::RenderTarget;
+        Require(SupportedSamples(owner->Native, texture) & desc.Samples, "Unsupported pipeline color samples");
+    }
+    if (desc.HasDepthStencil)
+    {
+        TextureDesc texture;
+        texture.PixelFormat = desc.DepthStencilFormat;
+        texture.Usage       = TextureUsage::DepthStencil;
+        Require(SupportedSamples(owner->Native, texture) & desc.Samples, "Unsupported pipeline depth samples");
+    }
     auto shader = Cast<VKShader>(desc.Program, owner);
     Require(desc.PushConstantBytes >= shader->PushBytes && desc.PushConstantBytes <= 128 &&
                 desc.PushConstantBytes % 4 == 0,
@@ -491,7 +525,7 @@ struct VKPipeline final : Pipeline
             VkPipelineRasterizationStateCreateInfo raster {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
             VkPipelineRasterizationLineStateCreateInfoEXT line {
                 VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT};
-            if (Memory.Owner->Native.BresenhamLines)
+            if (Memory.Owner->Native.BresenhamLines && !Desc.AlphaToCoverage)
             {
                 line.lineRasterizationMode = VK_LINE_RASTERIZATION_MODE_BRESENHAM_EXT;
                 raster.pNext               = &line;
@@ -508,7 +542,8 @@ struct VKPipeline final : Pipeline
             raster.depthBiasSlopeFactor    = Desc.Rasterizer.DepthBiasSlope;
             raster.lineWidth               = 1;
             VkPipelineMultisampleStateCreateInfo multisample {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-            multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+            multisample.rasterizationSamples  = VkSampleCountFlagBits(desc.Samples);
+            multisample.alphaToCoverageEnable = desc.AlphaToCoverage;
             auto stencil                     = [](const StencilFaceState& face) {
                 return VkStencilOpState {Stencil(face.Fail),
                                          Stencil(face.Pass),

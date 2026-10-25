@@ -11,6 +11,7 @@ namespace Kans
         std::optional<MaterialAlphaMode> AlphaMode;
         std::optional<float>             AlphaCutoff;
         std::optional<bool>              DoubleSided;
+        std::optional<bool>              ReceiveShadows;
     };
 
     // Human-authored `.material` source (YAML). Parameters and textures are named:

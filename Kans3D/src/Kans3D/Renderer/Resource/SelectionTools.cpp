@@ -100,7 +100,8 @@ void main()
             commands.BindPipeline(pipeline);
             for (const auto& draw : draws)
             {
-                if (!draw.Mesh || !draw.Mesh->Vertices || !draw.Mesh->Indices)
+                if (!draw.Mesh || !draw.Mesh->Vertices || !draw.Mesh->Indices ||
+                    draw.Section >= draw.Mesh->Sections.size())
                     continue;
                 const DrawData data {projection * draw.Transform, glm::uvec4(draw.ID, 0, 0, 0)};
                 auto           buffer = device.CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
@@ -108,7 +109,8 @@ void main()
                 commands.BindGroup(device.CreateBindGroup({pipeline->GetDesc().GroupLayouts[0], {{0, buffer}}}));
                 commands.BindVertexBuffers({{0, draw.Mesh->Vertices, 0}});
                 commands.BindIndexBuffer(draw.Mesh->Indices, IndexType::Uint32);
-                commands.DrawIndexed(draw.Mesh->IndexCount);
+                const auto& section = draw.Mesh->Sections[draw.Section];
+                commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);
             }
         }
     }

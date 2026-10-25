@@ -1,4 +1,6 @@
 #pragma once
+#include <stdexcept>
+#include <type_traits>
 #include <entt.hpp>
 
 #include "Kans3D/Scene/Components.h"
@@ -19,9 +21,42 @@ namespace Kans
         {
             CORE_ASSERT(!HasComponent<T>(), "Entity Already Have component ");
 
+            if constexpr (std::is_same_v<T, MeshComponent> || std::is_same_v<T, EditableMeshComponent>)
+            {
+                using Other =
+                    std::conditional_t<std::is_same_v<T, MeshComponent>, EditableMeshComponent, MeshComponent>;
+                CORE_ASSERT(!HasComponent<Other>(), "Mesh components are mutually exclusive");
+                if (HasComponent<Other>())
+                    throw std::logic_error("Mesh components are mutually exclusive");
+            }
             T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
             m_Scene->OnComponentAdd<T>(*this, component);
             return component;
+        }
+
+        // All edits of existing components go through PatchComponent/SetComponent.
+        // References returned by GetComponent are for reads; Debug validation can
+        // detect forgotten notifications without imposing a Release ECS scan.
+        template<typename T, typename F>
+        void PatchComponent(F&& edit)
+        {
+            if constexpr (std::is_same_v<T, TransformComponent> || std::is_same_v<T, MeshComponent> ||
+                          std::is_same_v<T, EditableMeshComponent> || std::is_same_v<T, SpriteRendererComponent> ||
+                          std::is_same_v<T, DirLightComponent> || std::is_same_v<T, PointLightComponent>)
+            {
+                auto&   component = GetComponent<T>();
+                const T before    = component;
+                edit(component);
+                if (!SameRenderValue(before, component))
+                    m_Scene->m_Registry.patch<T>(m_EntityHandle);
+            }
+            else
+                m_Scene->m_Registry.patch<T>(m_EntityHandle, std::forward<F>(edit));
+        }
+        template<typename T>
+        void SetComponent(const T& value)
+        {
+            PatchComponent<T>([&](T& component) { component = value; });
         }
 
         template<typename T>
@@ -64,6 +99,31 @@ namespace Kans
         bool operator!=(const Entity& other) const { return !(*this == other); }
 
     private:
+        static bool SameRenderValue(const TransformComponent& a, const TransformComponent& b)
+        {
+            return a.GetTransform() == b.GetTransform();
+        }
+        static bool SameRenderValue(const MeshComponent& a, const MeshComponent& b)
+        {
+            return a.Mesh == b.Mesh && a.Section == b.Section && a.Materials == b.Materials &&
+                   a.CastShadows == b.CastShadows && a.ReceiveShadows == b.ReceiveShadows;
+        }
+        static bool SameRenderValue(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
+        static bool SameRenderValue(const SpriteRendererComponent& a, const SpriteRendererComponent& b)
+        {
+            return a.Color == b.Color && a.Texture == b.Texture && a.TilingFactor == b.TilingFactor;
+        }
+        static bool SameRenderValue(const PointLightComponent& a, const PointLightComponent& b)
+        {
+            return a.Diffuse_Intensity == b.Diffuse_Intensity && a.Specular_Intensity == b.Specular_Intensity &&
+                   a.Ambient_Intensity == b.Ambient_Intensity && a.Shadows == b.Shadows;
+        }
+        static bool SameRenderValue(const DirLightComponent& a, const DirLightComponent& b)
+        {
+            return a.Direction == b.Direction && a.Diffuse_Intensity == b.Diffuse_Intensity &&
+                   a.Specular_Intensity == b.Specular_Intensity && a.Ambient_Intensity == b.Ambient_Intensity &&
+                   a.Shadows == b.Shadows;
+        }
         entt::entity m_EntityHandle {entt::null};
         Scene*       m_Scene = nullptr;
     };

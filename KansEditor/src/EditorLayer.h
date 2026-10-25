@@ -1,5 +1,7 @@
 #pragma once
 #include <array>
+#include <deque>
+#include <set>
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Project/Project.h"
 #include <Kans3D.h>
@@ -8,6 +10,7 @@
 #include "Kans3D/Editor/EditorResources.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/HierarchyPanel.h"
+#include "Panels/FrameGraphPanel.h"
 #include "Panels/MaterialEditorPanel.h"
 #include "Panels/ProductImportPanel.h"
 #include "Panels/PropertiesPanel.h"
@@ -18,6 +21,7 @@
 #include "Kans3D/Scene/ScenePlaySession.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
+#include "ViewportClient.h"
 namespace Kans
 {
     // Identities of the editor panels (see PanelManager).
@@ -31,6 +35,7 @@ namespace Kans
         inline constexpr const char* Stats          = "Stats";
         inline constexpr const char* AssetImporter  = "AssetImporter";
         inline constexpr const char* MaterialEditor = "MaterialEditor";
+        inline constexpr const char* FrameGraph     = "FrameGraph";
     } // namespace PanelID
 
     class EditorLayer : public Kans::Layer
@@ -59,6 +64,7 @@ namespace Kans
         // The source of a model file in the project, if it is one.
         std::optional<SourceAssetID>             FindModelSource(const std::filesystem::path& file);
         void                                     PlacePendingModel();
+        void                                     StartPendingPlacementBuild();
         // Builds the source of `file` (content browser "Import" / "Reimport").
         void                                     ImportSource(const std::filesystem::path& file);
         // Writes a model's embedded materials to editable .material files next to it
@@ -85,6 +91,18 @@ namespace Kans
         std::optional<SourceAssetID>             m_PendingPlacement;
         UUID                                     m_PendingPlacementParent = 0;
         std::optional<glm::vec3>                 m_PendingPlacementPosition;
+        // Dropped while another build ran: build it once that build completes.
+        bool                                     m_PendingPlacementWaiting = false;
+        // Sources imported without being asked, one build after another: assets the open
+        // scene references that were never imported (e.g. the materials of a scene copied
+        // into the project) and every shader program, so it can be picked in materials.
+        // Each source is queued once per session, so a failing import is not retried in a loop.
+        void                                     QueueMissingSceneAssets();
+        void                                     QueueUnimportedShaders();
+        void                                     QueueAutoImport(SourceAssetID source);
+        void                                     StartNextAutoImport();
+        std::deque<SourceAssetID>                m_AutoImports;
+        std::set<SourceAssetID>                  m_AutoImported;
         std::variant<std::monostate, AssetError> ActivateScene(Ref<Scene> scene, std::filesystem::path path);
         std::variant<std::monostate, AssetError> NewScene();
         std::variant<std::monostate, AssetError> OpenScene(const std::filesystem::path& path);
@@ -137,8 +155,7 @@ namespace Kans
 
 
         Ref<Scene>         m_ActiveScene;
-        Ref<RenderScene>   m_ActiveRenderScene;
-        Ref<SceneRenderer> m_ViewportRenderer;
+        Scope<ViewportClient> m_Viewport;
 
         Entity m_CameraEntity;
         Entity m_SecondCameraEntity;
@@ -150,6 +167,10 @@ namespace Kans
         ContentBrowserPanel m_ContentBrowserPanel;
         ProductImportPanel  m_ProductImportPanel;
         MaterialEditorPanel m_MaterialEditorPanel;
+        FrameGraphPanel     m_FrameGraphPanel;
+        // Editor view frame times (ms) for the Stats panel's graph, oldest first.
+        std::array<float, 240> m_FrameTimes {};
+        size_t                 m_FrameTimeCursor = 0;
         ConsolePanel        m_Console;
     };
 

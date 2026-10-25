@@ -147,6 +147,7 @@ namespace Kans::RenderHardware::VulkanDetail
                         Physical    = physical;
                         Properties  = properties;
                         QueueFamily = i;
+                        TimestampValidBits = queues[i].timestampValidBits;
                         break;
                     }
                 if (Physical)
@@ -168,6 +169,7 @@ namespace Kans::RenderHardware::VulkanDetail
                         supportedFeatures.vertexPipelineStoresAndAtomics && supportedFeatures.fragmentStoresAndAtomics,
                     "Required graphics features are unavailable");
             VkPhysicalDeviceFeatures graphics {};
+            graphics.sampleRateShading              = supportedFeatures.sampleRateShading;
             graphics.fillModeNonSolid               = VK_TRUE;
             graphics.independentBlend               = VK_TRUE;
             graphics.vertexPipelineStoresAndAtomics = VK_TRUE;

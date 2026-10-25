@@ -4,9 +4,10 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include "Kans3D/Asset/Runtime/StandardShader.h"
+#include "RenderFrame.h"
 #include "Resource/InternalShader.h"
 #include "Resource/MaterialPass.h"
-#include "SceneRenderer.h"
+#include "Renderer.h"
 
 namespace Kans
 {
@@ -86,6 +87,7 @@ void main() {
                     face({0, -1, 0}, {1, 0, 0}, {0, 0, 1});
                 }
             }
+            BuildSingleSection(mesh);
             return mesh;
         }
         bool SameShader(const ShaderData& a, const ShaderData& b)
@@ -104,29 +106,78 @@ void main() {
         }
     } // namespace
 
-    MaterialPreviewRenderer::MaterialPreviewRenderer(SceneRenderer& scene) : m_Scene(scene), m_Device(scene.GetDevice())
-    {}
+    class PreviewBackgroundFeature final : public RenderFeature
+    {
+    public:
+        bool RunsAt(RenderExtensionPoint point) const override { return point == RenderExtensionPoint::BeforeOpaque; }
+        void AddPasses(RenderExtensionPoint, const RenderFeatureContext& context) override
+        {
+            auto& frame = *context.Frame;
+            context.Graph.AddPass("Preview checker", context.Target, [this, &frame](auto& context) {
+                using namespace RenderHardware;
+                if (!m_Checker)
+                {
+                    auto built = frame.Services.GetInternalProgram("MaterialChecker", CheckerVertex, CheckerFragment);
+                    if (!built)
+                        throw std::runtime_error("Preview checker shader unavailable");
+                    PipelineDesc desc;
+                    desc.Program      = std::move(built);
+                    desc.GroupLayouts = {
+                        frame.GetDevice()->CreateBindGroupLayout({0, {{0, BindingType::UniformBuffer}}})};
+                    desc.Rasterizer.Cull = CullMode::None;
+                    desc.ColorFormats    = {Format::RGBA8Unorm};
+                    desc.Blends.resize(1);
+                    desc.HasDepthStencil    = true;
+                    desc.DepthStencilFormat = Format::Depth24Stencil8;
+                    m_Checker               = frame.Services.CachedPipeline(desc);
+                }
+                auto*         commands = &context.Commands;
+                RenderingDesc target;
+                target.Colors         = {{frame.Output.GetColors()[0]}};
+                target.Depth.Target   = frame.Output.GetDepth();
+                target.Colors[0].Load = LoadOp::Load;
+                target.Depth.Load     = LoadOp::Load;
+                commands->BeginRendering(target);
+                commands->SetViewport({0, 0, float(frame.View.Viewport.x), float(frame.View.Viewport.y), 0, 1});
+                commands->SetScissor({0, 0, frame.View.Viewport.x, frame.View.Viewport.y});
+                commands->BindPipeline(m_Checker);
+                const auto      coordinates = frame.GetDevice()->GetCoordinateConventions();
+                const glm::vec4 background {float(frame.View.Viewport.x),
+                                            float(frame.View.Viewport.y),
+                                            coordinates.Origin == FramebufferOrigin::UpperLeft ? 1.0f : 0.0f,
+                                            0};
+                auto            checkerData =
+                    frame.GetDevice()->CreateBuffer({sizeof(background), BufferUsage::Uniform, MemoryUsage::Upload});
+                checkerData->Write(0, &background, sizeof(background));
+                commands->BindGroup(
+                    frame.GetDevice()->CreateBindGroup({m_Checker->GetDesc().GroupLayouts[0], {{0, checkerData}}}));
+                commands->Draw(3);
+                commands->EndRendering();
+            });
+        }
+
+    private:
+        RenderHardware::Handle<RenderHardware::Pipeline> m_Checker;
+    };
+
+    MaterialPreviewRenderer::MaterialPreviewRenderer(std::shared_ptr<Renderer>            renderer,
+                                                     std::shared_ptr<RenderAssetCache>    assets,
+                                                     std::shared_ptr<EnvironmentLighting> environment) :
+        m_Assets(std::move(assets)), m_Environment(std::move(environment)), m_Device(renderer->GetDevice()),
+        m_Renderer(std::move(renderer)), m_Target(std::make_unique<ViewTarget>(m_Device, 1, false))
+    {
+        m_World.Settings.Piplinestate.EnableGridShader = false;
+        m_Features.Register("PreviewBackground", std::make_unique<PreviewBackgroundFeature>());
+    }
     MaterialPreviewRenderer::~MaterialPreviewRenderer() = default;
 
     bool MaterialPreviewRenderer::Resize(glm::uvec2 size)
     {
         if (!size.x || !size.y || size.x > 4096 || size.y > 4096)
             return false;
-        if (size == m_Size && m_Color)
+        if (size == m_Size && m_Target->GetColors()[0])
             return true;
-        using namespace RenderHardware;
-        TextureDesc desc;
-        desc.Width       = size.x;
-        desc.Height      = size.y;
-        desc.PixelFormat = Format::RGBA8Unorm;
-        desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
-                           RenderHardware::TextureUsage::CopySource;
-        m_Color          = m_Device->CreateTexture(desc);
-        desc.PixelFormat = Format::RGBA16Float;
-        m_HDRColor       = m_Device->CreateTexture(desc);
-        desc.PixelFormat = Format::Depth24Stencil8;
-        desc.Usage       = RenderHardware::TextureUsage::DepthStencil;
-        m_Depth          = m_Device->CreateTexture(desc);
+        m_Target->Resize(size);
         m_Size = size;
         return true;
     }
@@ -147,10 +198,10 @@ void main() {
                                                                     const ShaderData*             source,
                                                                     const MaterialPreviewOptions& options)
     {
-        if (!m_Scene.GetAssetCache())
+        if (!m_Assets)
             return {};
         PreviewRetirement retirement {*m_Device};
-        auto&            cache    = *m_Scene.GetAssetCache();
+        auto&             cache    = *m_Assets;
         const GpuShader* shader   = nullptr;
         bool             complete = true;
         if (source && !IsStandardShader(material.Shader))
@@ -201,10 +252,10 @@ void main() {
     MaterialPreviewImageResult MaterialPreviewRenderer::RenderImage(AssetID                       material,
                                                                     const MaterialPreviewOptions& options)
     {
-        if (!m_Scene.GetAssetCache())
+        if (!m_Assets)
             return {};
         PreviewRetirement retirement {*m_Device};
-        auto& cache    = *m_Scene.GetAssetCache();
+        auto&             cache    = *m_Assets;
         auto  status   = cache.GetAssetManager().Request<MaterialDataAsset>(material);
         bool  complete = status.IsReady();
         if (status.Asset && !IsStandardShader(status.Asset->GetData().Shader))
@@ -236,91 +287,56 @@ void main() {
                 return {};
         }
         using namespace RenderHardware;
-        if (!m_Checker)
+        RenderView view;
+        view.Assets                     = m_Assets;
+        view.Viewport                   = options.Size;
+        view.Features                   = &m_Features;
+        view.DrawEnvironment            = false;
+        view.Exposure                   = options.Exposure;
+        view.Scene.sceneCamera.Position = {0, 0, 3.5f};
+        view.Scene.sceneCamera.camera =
+            Camera(glm::perspective(glm::radians(45.0f), float(options.Size.x) / options.Size.y, 0.1f, 20.0f));
+        view.Scene.sceneCamera.viewMatrix =
+            glm::lookAt(view.Scene.sceneCamera.Position, glm::vec3(0), glm::vec3(0, 1, 0));
+        SceneInfo lights {};
+        lights.pointLight.Position           = {-3, 4, 5};
+        lights.pointLight.Diffuse_Intensity  = {40, 40, 40};
+        lights.pointLight.Specular_Intensity = {1, 1, 1};
+        m_World.SetProceduralLights({lights.pointLight});
+        // Preserve the historical preview's legacy shader uniforms as well as its physical light.
+        EngineFrameUniforms lighting;
+        lighting.LightPositions[0] = {-3, 4, 5, 1};
+        lighting.LightColors[0]    = {40, 40, 40, 1};
+        lighting.LightDiffuse[0]   = {1, 1, 1, 1};
+        lighting.PointPositions[0] = lighting.LightPositions[0];
+        lighting.PointRadiance[0]  = lighting.LightColors[0];
+        lighting.PointSpecular[0]  = {1, 1, 1, 0};
+        lighting.LightingInfo      = {1, options.Exposure, 0, 0};
+        view.LightingUniforms      = lighting;
         {
-            auto built = CreateInternalShader(*m_Device, "MaterialChecker", CheckerVertex, CheckerFragment);
-            if (auto* error = std::get_if<AssetError>(&built))
-            {
-                if (Log::GetCoreLogger())
-                    CORE_ERROR("{}", error->Message);
-                else
-                    std::cerr << error->Message << std::endl;
-                return {};
-            }
-            PipelineDesc desc;
-            desc.Program         = std::get<Handle<RenderHardware::Shader>>(std::move(built));
-            desc.GroupLayouts    = {m_Device->CreateBindGroupLayout({0, {{0, BindingType::UniformBuffer}}})};
-            desc.Rasterizer.Cull = CullMode::None;
-            desc.ColorFormats    = {Format::RGBA8Unorm};
-            desc.Blends.resize(1);
-            desc.HasDepthStencil    = true;
-            desc.DepthStencilFormat = Format::Depth24Stencil8;
-            m_Checker               = m_Device->CreatePipeline(desc);
+            // Missing maps (no environment yet) resolve to the renderer's fallbacks.
+            const EnvironmentLighting none;
+            const auto                images = m_Renderer->GetMaterialEnvironment(m_Environment ? *m_Environment : none);
+            view.EnvironmentMaps = {images[0], images[1]};
+            view.BrdfLUT         = images[2];
         }
-        auto          commands = m_Device->CreateCommandList();
-        RenderingDesc target;
-        target.Colors       = {{m_Color}};
-        target.Depth.Target = m_Depth;
-        commands->BeginRendering(target);
-        commands->SetViewport({0, 0, float(options.Size.x), float(options.Size.y), 0, 1});
-        commands->SetScissor({0, 0, options.Size.x, options.Size.y});
-        commands->BindPipeline(m_Checker);
-        const auto      coordinates = m_Device->GetCoordinateConventions();
-        const glm::vec4 background {float(options.Size.x),
-                                    float(options.Size.y),
-                                    coordinates.Origin == FramebufferOrigin::UpperLeft ? 1.0f : 0.0f,
-                                    0};
-        auto checkerData = m_Device->CreateBuffer({sizeof(background), BufferUsage::Uniform, MemoryUsage::Upload});
-        checkerData->Write(0, &background, sizeof(background));
-        commands->BindGroup(m_Device->CreateBindGroup({m_Checker->GetDesc().GroupLayouts[0], {{0, checkerData}}}));
-        commands->Draw(3);
-        commands->EndRendering();
-        const bool hdr = shader.OutputSpace == ShaderOutputSpace::LinearHDR;
-        if (hdr)
-            m_ToneMapping.Record(*m_Device, *commands, m_Color, {m_HDRColor}, options.Exposure, true);
-        target.Colors[0].Target = hdr ? m_HDRColor : m_Color;
-        target.Colors[0].Load   = LoadOp::Load;
-        target.Depth.Load       = LoadOp::Load;
-        commands->BeginRendering(target);
-        EngineFrameUniforms frame;
-        frame.CameraPosition = {0, 0, 3.5f, 1};
-        frame.ViewProjection =
-            glm::perspective(glm::radians(45.0f), float(options.Size.x) / options.Size.y, 0.1f, 20.0f) *
-            glm::lookAt(glm::vec3(frame.CameraPosition), glm::vec3(0), glm::vec3(0, 1, 0));
-        frame.LightPositions[0] = {-3, 4, 5, 1};
-        frame.LightColors[0]    = {40, 40, 40, 1};
-        frame.LightDiffuse[0]   = {1, 1, 1, 1};
-        frame.PointPositions[0] = frame.LightPositions[0];
-        frame.PointRadiance[0]  = frame.LightColors[0];
-        frame.PointSpecular[0]  = {1, 1, 1, 0};
-        frame.LightingInfo      = {1, options.Exposure, 0, 0};
-        frame.Time              = m_Scene.GetElapsedTime();
-        frame.ViewProjection    = DeviceProjection(frame.ViewProjection, coordinates);
-        auto frameBuffer        = m_Device->CreateBuffer({sizeof(frame), BufferUsage::Uniform, MemoryUsage::Upload});
-        frameBuffer->Write(0, &frame, sizeof(frame));
-        EngineObjectUniforms object;
-        object.Transform      = glm::rotate(glm::mat4(1), options.Rotation.y, {1, 0, 0}) *
-                                glm::rotate(glm::mat4(1), options.Rotation.x, {0, 1, 0});
-        object.NormalMatrix   = glm::transpose(glm::inverse(object.Transform));
-        object.MaterialRender = {float(bindings.Render.AlphaMode),
-                                 bindings.Render.AlphaCutoff,
-                                 bindings.Render.DoubleSided ? 1.0f : 0.0f,
-                                 0};
-        auto objectBuffer     = m_Device->CreateBuffer({sizeof(object), BufferUsage::Uniform, MemoryUsage::Upload});
-        objectBuffer->Write(0, &object, sizeof(object));
-        MaterialPassData pass;
-        pass.Frame              = frameBuffer;
-        pass.Object             = objectBuffer;
-        pass.Environment        = m_Scene.GetMaterialEnvironment();
-        pass.EnvironmentSampler = m_Scene.GetMaterialEnvironmentSampler();
-        pass.Render             = bindings.Render;
-        pass.ColorFormats       = {hdr ? Format::RGBA16Float : Format::RGBA8Unorm};
-        complete &= RecordMaterialDraw(*m_Scene.GetAssetCache(), *commands, shader, bindings, *m_Shapes[shape], pass);
-        commands->EndRendering();
-        if (hdr)
-            m_ToneMapping.Record(*m_Device, *commands, m_HDRColor, {m_Color}, options.Exposure);
-        m_Device->Submit(commands);
-        return {m_Color, complete};
+        const AssetID meshID, materialID;
+        view.MeshResources[meshID] = std::make_shared<GpuMesh>(*m_Shapes[shape]);
+        auto resolvedShader        = std::make_shared<GpuShader>(shader.Snapshot());
+        if (m_ResolvedShader && m_ResolvedShader->Program == resolvedShader->Program &&
+            m_ResolvedShader->EngineLayout == resolvedShader->EngineLayout &&
+            m_ResolvedShader->MaterialLayout == resolvedShader->MaterialLayout)
+            resolvedShader->Pipelines.insert(m_ResolvedShader->Pipelines.begin(), m_ResolvedShader->Pipelines.end());
+        m_ResolvedShader                   = std::move(resolvedShader);
+        view.MaterialResources[materialID] = {m_ResolvedShader,
+                                              std::make_shared<GpuMaterialBindings>(bindings.Snapshot())};
+        const auto transform               = glm::rotate(glm::mat4(1), options.Rotation.y, {1, 0, 0}) *
+                                             glm::rotate(glm::mat4(1), options.Rotation.x, {0, 1, 0});
+        const auto bounds                  = m_Shapes[shape]->Sections[0].LocalBounds;
+        m_World.SetProceduralDraws({{meshID, materialID, 0, transform, bounds, bounds.Transformed(transform)}});
+        const auto result = m_Renderer->Render(m_World, view, *m_Target);
+        complete &= result.Complete;
+        return {m_Target->GetColors()[0], complete};
     }
 
     std::optional<MaterialThumbnail> MaterialPreviewRenderer::RenderThumbnail(AssetID                       material,
@@ -337,7 +353,7 @@ void main() {
         auto readback =
             m_Device->CreateBuffer({result.Pixels.size(), BufferUsage::CopyDestination, MemoryUsage::Readback});
         auto commands = m_Device->CreateCommandList();
-        commands->CopyTextureToBuffer(m_Color, {}, readback);
+        commands->CopyTextureToBuffer(m_Target->GetColors()[0], {}, readback);
         m_Device->Submit(commands);
         m_Device->WaitIdle();
         result.Pixels  = readback->Read(0, result.Pixels.size());

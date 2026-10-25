@@ -38,6 +38,19 @@ namespace Kans
         template<typename... Args>
         static void PrintAssertMessage(Log::Type type, std::string string, Args&&... args);
 
+        // Invoked as AssertPrinter{type}(__VA_ARGS__) so an empty argument list
+        // needs no comma elision (__VA_OPT__ is C++20-only on MSVC).
+        struct AssertPrinter
+        {
+            Log::Type Type;
+
+            template<typename... Args>
+            void operator()(Args&&... args) const
+            {
+                PrintAssertMessage(Type, "Assertion Failed", std::forward<Args>(args)...);
+            }
+        };
+
     private:
         static std::shared_ptr<spdlog::logger> s_CoreLogger;
         static std::shared_ptr<spdlog::logger> s_ClientLogger;

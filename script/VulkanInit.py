@@ -53,7 +53,6 @@ class VulkanConfiguration:
         VULKAN_SDK = os.environ.get("VULKAN_SDK")
         requestLibs = []
         requestLibs.append(Path(f"{VULKAN_SDK}/Lib/shaderc_sharedd.lib"))
-        requestLibs.append(Path(f"{VULKAN_SDK}/Lib/spirv-cross-glsld.lib"))
         requestLibs.append(Path(f"{VULKAN_SDK}/Lib/spirv-cross-hlsld.lib"))
         requestLibs.append(Path(f"{VULKAN_SDK}/Lib/shaderc_utild.lib"))
         miss = False

@@ -30,11 +30,11 @@ namespace Kans
                 return entry.Enabled;
         throw std::invalid_argument("RenderFeature: unknown feature '" + name + "'");
     }
-    void RenderFeatureSet::Prepare(RenderView& view, SceneRenderer& renderer)
+    void RenderFeatureSet::Prepare(RenderView& view, RenderFrame& frame)
     {
         for (auto& entry : m_Entries)
             if (entry.Enabled)
-                entry.Feature->Prepare(view, renderer);
+                entry.Feature->Prepare(view, frame);
     }
     void RenderFeatureSet::Inject(RenderExtensionPoint point, const RenderFeatureContext& context)
     {

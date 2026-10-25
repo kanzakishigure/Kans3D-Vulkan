@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "Kans3D/RHI/RHI.h"
+#include "Kans3D/Renderer/RenderStatistics.h"
 
 namespace Kans
 {
@@ -35,8 +36,20 @@ namespace Kans
         RenderHardware::TextureDesc         Description;
         bool                                Imported;
         uint32_t                            PhysicalSlot = uint32_t(-1);
-        std::vector<CompiledResourceAccess> Accesses;
+        std::vector<CompiledResourceAccess> Accesses; // Executed access sequence (used for allocation).
+        GraphDebugID                        ID = 0;
+        std::vector<CompiledResourceAccess> DeclaredAccesses; // Also includes culled passes, index == -1.
     };
+    struct CompiledGraphPass
+    {
+        GraphDebugID           ID = 0;
+        std::string            Name;
+        uint32_t               ExecutionIndex = uint32_t(-1);
+        bool                   Culled         = true;
+        std::vector<GraphPass> Dependencies; // Includes RAW, WAR, WAW and explicit scheduling edges.
+        std::vector<GraphUse>  Uses;
+    };
+    class GraphCapture;
     // Retain one allocation per compatible physical slot, across graph instances/frames.
     // Release unmatched descriptions after allocation (submitted commands retain old images).
     class TransientTexturePool
@@ -47,6 +60,7 @@ namespace Kans
         std::vector<RenderHardware::Handle<RenderHardware::Texture>>
                Acquire(const std::vector<RenderHardware::TextureDesc>& descriptions, const Factory& create);
         size_t Size() const { return m_Textures.size(); }
+        void   DiscardMultisampled();
 
     private:
         std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Textures;
@@ -68,7 +82,8 @@ namespace Kans
         GraphPass    AddPass(std::string name, std::vector<GraphUse> uses, Record record, bool sideEffect = false);
         GraphPass    AddRecordedPass(std::string                                         name,
                                      std::vector<GraphUse>                               uses,
-                                     RenderHardware::Handle<RenderHardware::CommandList> commands);
+                                     RenderHardware::Handle<RenderHardware::CommandList> commands,
+                                     std::optional<double>                               cpuRecordMilliseconds = {});
         void         DependsOn(GraphPass pass, GraphPass prerequisite);
         // A single scheduling predecessor, without keeping its output alive. Replaces the previous one.
         void         OrderAfter(GraphPass pass, GraphPass predecessor);
@@ -77,13 +92,33 @@ namespace Kans
         // No device calls: scheduling, culling, access sequences and alias plan are CPU only.
         void Compile();
         void Allocate(TransientTexturePool& pool, const TransientTexturePool::Factory& create);
-        void Execute(RenderHardware::Device& device, TransientTexturePool& pool);
+        // Install before pipeline construction to cover ExecuteImportedPrefix as well. Borrowed until ReleaseRecorders.
+        void SetExecutionDebug(FrameProfiler* profiler, uint64_t frame, GraphCapture* capture = nullptr)
+        {
+            m_Profiler = profiler;
+            m_Frame    = frame;
+            m_Capture  = capture;
+        }
+        void Execute(RenderHardware::Device& device,
+                     TransientTexturePool&   pool,
+                     FrameProfiler*          profiler = nullptr,
+                     uint64_t                frame    = 0,
+                     GraphCapture*           capture  = nullptr);
         // Run an imported-resource prefix without touching transient allocations.
         // Its access history survives subsequent pass additions and compilation.
         void                                      ExecuteImportedPrefix(RenderHardware::Device& device);
+        void                                      ReleaseRecorders()
+        {
+            for (auto& pass : m_Passes)
+                pass.Recorder = {};
+            m_Profiler = nullptr;
+            m_Capture  = nullptr;
+        }
         size_t                                    PassCount() const { return m_Passes.size(); }
         const std::vector<GraphPass>&             ExecutionOrder() const { return m_Order; }
         const std::vector<CompiledGraphResource>& Resources() const { return m_CompiledResources; }
+        const std::vector<CompiledGraphPass>&           Passes() const { return m_CompiledPasses; }
+        const std::vector<PassStatistics>&              Statistics() const { return m_Statistics; }
         const std::string&                        PassName(GraphPass pass) const { return m_Passes.at(pass).Name; }
         RenderHardware::Handle<RenderHardware::Texture> Texture(GraphTexture texture) const;
 
@@ -105,6 +140,8 @@ namespace Kans
             RenderHardware::Handle<RenderHardware::CommandList> Commands;
             bool                                                Submitted = false;
             GraphPass                                           OrderPredecessor = GraphPass(-1);
+            std::optional<double>                               CpuRecordMilliseconds;
+            std::optional<RenderHardware::CommandStatistics>    Draws;
         };
         std::vector<Resource>                    m_Resources;
         std::vector<Pass>                        m_Passes;
@@ -112,7 +149,15 @@ namespace Kans
         std::vector<CompiledGraphResource>       m_CompiledResources;
         std::vector<RenderHardware::TextureDesc> m_Slots;
         std::vector<GraphPass>                   m_Submitted;
+        std::vector<CompiledGraphPass>                             m_CompiledPasses;
+        std::vector<PassStatistics>                                m_Statistics;
+        RenderHardware::Handle<RenderHardware::TimestampQueryPool> m_Queries;
         void                                     ExecutePass(RenderHardware::Device& device, GraphPass pass);
+        FrameProfiler*                           m_Profiler  = nullptr;
+        GraphCapture*                            m_Capture   = nullptr;
+        uint64_t                                 m_Frame     = 0;
+        uint32_t                                 m_QueryBase = 0;
+        void                                     BeginQueries(RenderHardware::Device& device);
         bool                                     m_Compiled = false;
     };
 } // namespace Kans

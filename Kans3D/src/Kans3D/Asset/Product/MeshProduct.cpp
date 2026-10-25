@@ -1,21 +1,18 @@
 #include "kspch.h"
 #include "MeshProduct.h"
 
-#include <algorithm>
-#include <cmath>
 #include <cstring>
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 
 namespace Kans
 {
     namespace
     {
         constexpr uint32_t kMagic        = 0x48534d4b; // KMSH, little endian
-        constexpr uint32_t kVersion      = 2;
-        constexpr size_t   kHeaderBytes  = 56;
-        constexpr size_t   kVertexBytes  = 64;
+        constexpr uint32_t kVersion      = 3;
         constexpr size_t   kMaximumBytes = 512 * 1024 * 1024;
         static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559,
                       "Mesh Products require IEEE 754 binary32");
@@ -26,62 +23,112 @@ namespace Kans
             for (size_t i = 0; i < sizeof(T); ++i)
                 out.push_back(static_cast<std::byte>((value >> (i * 8)) & 255));
         }
-
-        template<typename T>
-        T Read(const std::byte*& bytes)
+        void WriteFloat(std::vector<std::byte>& out, float value)
         {
-            T value = 0;
-            for (size_t i = 0; i < sizeof(T); ++i)
-                value |= static_cast<T>(std::to_integer<uint8_t>(*bytes++)) << (i * 8);
-            return value;
+            uint32_t bits;
+            std::memcpy(&bits, &value, 4);
+            Write(out, bits);
         }
-
-        template<size_t N>
-        void WriteFloats(std::vector<std::byte>& out, const std::array<float, N>& values)
+        template<class T>
+        void WriteFloats(std::vector<std::byte>& out, const T& values)
         {
             for (float value : values)
-            {
-                uint32_t bits;
-                std::memcpy(&bits, &value, sizeof(bits));
-                Write(out, bits);
-            }
+                WriteFloat(out, value);
         }
-
-        template<size_t N>
-        bool ReadFloats(const std::byte*& bytes, std::array<float, N>& values)
+        void WriteBounds(std::vector<std::byte>& out, const Bounds& bounds)
         {
-            for (float& value : values)
-            {
-                const uint32_t bits = Read<uint32_t>(bytes);
-                std::memcpy(&value, &bits, sizeof(value));
-                if (!std::isfinite(value))
-                    return false;
-            }
-            return true;
+            for (int i = 0; i < 3; ++i)
+                WriteFloat(out, bounds.Min[i]);
+            for (int i = 0; i < 3; ++i)
+                WriteFloat(out, bounds.Max[i]);
         }
-
+        void WriteID(std::vector<std::byte>& out, AssetID id)
+        {
+            Write(out, id.GetSourceID().GetUUID());
+            Write(out, id.GetLocalID());
+        }
+        void WriteString(std::vector<std::byte>& out, const std::string& value)
+        {
+            Write(out, uint32_t(value.size()));
+            for (unsigned char c : value)
+                out.push_back(std::byte(c));
+        }
+        struct Reader
+        {
+            const std::byte* Cursor;
+            size_t           Remaining;
+            template<class T>
+            T Read()
+            {
+                if (Remaining < sizeof(T))
+                    throw std::runtime_error("Truncated Mesh Product");
+                T value = 0;
+                for (size_t i = 0; i < sizeof(T); ++i)
+                    value |= static_cast<T>(std::to_integer<uint8_t>(*Cursor++)) << (i * 8);
+                Remaining -= sizeof(T);
+                return value;
+            }
+            float Float()
+            {
+                auto  bits = Read<uint32_t>();
+                float value;
+                std::memcpy(&value, &bits, 4);
+                return value;
+            }
+            template<class T>
+            void Floats(T& values)
+            {
+                for (float& value : values)
+                    value = Float();
+            }
+            Bounds Box()
+            {
+                Bounds bounds;
+                for (int i = 0; i < 3; ++i)
+                    bounds.Min[i] = Float();
+                for (int i = 0; i < 3; ++i)
+                    bounds.Max[i] = Float();
+                return bounds;
+            }
+            AssetID ID()
+            {
+                const auto         source = Read<uint64_t>(), local = Read<uint64_t>();
+                std::ostringstream id;
+                id << std::hex << std::setw(16) << std::setfill('0') << source;
+                return AssetID(SourceAssetID::FromString(id.str()), local);
+            }
+            std::string String()
+            {
+                auto count = Read<uint32_t>();
+                if (count > 4096 || count > Remaining)
+                    throw std::runtime_error("Invalid Mesh Product string");
+                std::string result(reinterpret_cast<const char*>(Cursor), count);
+                Cursor += count;
+                Remaining -= count;
+                return result;
+            }
+        };
     } // namespace
 
     std::variant<std::vector<std::byte>, AssetError> EncodeMeshProduct(const MeshData& mesh)
     {
-        const auto vertexCount = mesh.Vertices.size();
-        const auto indexCount  = mesh.Indices.size();
-        auto       valid       = ValidateMeshData(mesh);
+        auto valid = ValidateMeshData(mesh);
         if (auto* error = std::get_if<AssetError>(&valid))
             return *error;
-        const uint64_t         size = kHeaderBytes + uint64_t(vertexCount) * kVertexBytes + uint64_t(indexCount) * 4;
+        size_t size = 56 + mesh.Vertices.size() * 64 + mesh.Indices.size() * 4 + mesh.Sections.size() * 36;
+        for (const auto& slot : mesh.MaterialSlots)
+            size += 40 + slot.Name.size() + slot.ObjectKey.size();
         std::vector<std::byte> bytes;
-        bytes.reserve(static_cast<size_t>(size));
+        bytes.reserve(size);
         Write(bytes, kMagic);
         Write(bytes, kVersion);
         Write(bytes, static_cast<uint32_t>(AssetType::StaticMesh));
-        Write(bytes, uint32_t(0));
-        Write(bytes, static_cast<uint32_t>(vertexCount));
-        Write(bytes, static_cast<uint32_t>(indexCount));
-        Write(bytes, mesh.Material.GetSourceID().GetUUID());
-        Write(bytes, mesh.Material.GetLocalID());
-        Write(bytes, mesh.AuthoredMaterial.GetSourceID().GetUUID());
-        Write(bytes, mesh.AuthoredMaterial.GetLocalID());
+        Write(bytes, static_cast<uint32_t>(mesh.VertexFormat));
+        Write(bytes, uint32_t(mesh.Vertices.size()));
+        Write(bytes, uint32_t(mesh.Indices.size()));
+        Write(bytes, uint32_t(mesh.Sections.size()));
+        Write(bytes, uint32_t(mesh.MaterialSlots.size()));
+        WriteBounds(bytes, mesh.LocalBounds);
         for (const auto& vertex : mesh.Vertices)
         {
             WriteFloats(bytes, vertex.Position);
@@ -92,60 +139,85 @@ namespace Kans
         }
         for (uint32_t index : mesh.Indices)
             Write(bytes, index);
+        for (const auto& section : mesh.Sections)
+        {
+            Write(bytes, section.FirstIndex);
+            Write(bytes, section.IndexCount);
+            Write(bytes, section.MaterialSlot);
+            WriteBounds(bytes, section.LocalBounds);
+        }
+        for (const auto& slot : mesh.MaterialSlots)
+        {
+            WriteString(bytes, slot.Name);
+            WriteString(bytes, slot.ObjectKey);
+            WriteID(bytes, slot.DefaultMaterial);
+            WriteID(bytes, slot.AuthoredMaterial);
+        }
         return bytes;
     }
 
     std::variant<MeshData, AssetError> DecodeMeshProduct(const std::byte* bytes, size_t size)
     {
-        if (!bytes || size < 40 || size > kMaximumBytes)
+        if (!bytes || size < 56 || size > kMaximumBytes)
             return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product byte length"};
-        const auto* cursor = bytes;
-        if (Read<uint32_t>(cursor) != kMagic)
-            return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product magic"};
-        const auto version = Read<uint32_t>(cursor);
-        if (version != 1 && version != kVersion)
-            return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Mesh Product version"};
-        if (Read<uint32_t>(cursor) != static_cast<uint32_t>(AssetType::StaticMesh) || Read<uint32_t>(cursor) != 0)
-            return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product type or flags"};
-        const auto     vertexCount = Read<uint32_t>(cursor);
-        const auto     indexCount  = Read<uint32_t>(cursor);
-        const auto     source      = Read<uint64_t>(cursor);
-        const auto     local       = Read<uint64_t>(cursor);
-        if (version == 2 && size < kHeaderBytes)
-            return AssetError {AssetErrorCode::InvalidData, "Truncated Mesh Product header"};
-        const auto     authoredSource = version == 2 ? Read<uint64_t>(cursor) : source;
-        const auto     authoredLocal  = version == 2 ? Read<uint64_t>(cursor) : local;
-        const uint64_t expected =
-            (version == 1 ? 40 : kHeaderBytes) + uint64_t(vertexCount) * kVertexBytes + uint64_t(indexCount) * 4;
-        if (!vertexCount || !indexCount || indexCount % 3 || expected != size || ((source != 0) != (local != 0)) ||
-            ((authoredSource != 0) != (authoredLocal != 0)))
-            return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product counts or material identity"};
-        MeshData result;
-        if (source)
+        try
         {
-            std::ostringstream id;
-            id << std::hex << std::setw(16) << std::setfill('0') << source;
-            result.Material = AssetID(SourceAssetID::FromString(id.str()), local);
+            Reader reader {bytes, size};
+            if (reader.Read<uint32_t>() != kMagic)
+                return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product magic"};
+            if (reader.Read<uint32_t>() != kVersion)
+                return AssetError {AssetErrorCode::UnsupportedVersion, "Unsupported Mesh Product version"};
+            if (reader.Read<uint32_t>() != static_cast<uint32_t>(AssetType::StaticMesh))
+                return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product type"};
+            MeshData mesh;
+            mesh.VertexFormat   = static_cast<MeshVertexFormat>(reader.Read<uint32_t>());
+            const auto vertices = reader.Read<uint32_t>(), indices = reader.Read<uint32_t>();
+            const auto sections = reader.Read<uint32_t>(), slots = reader.Read<uint32_t>();
+            if (!vertices || !indices || !sections || !slots || sections > 1000000 || slots > 1000000 ||
+                56ull + vertices * 64ull + indices * 4ull + sections * 36ull + slots * 40ull > size)
+                return AssetError {AssetErrorCode::InvalidData, "Invalid Mesh Product counts"};
+            mesh.LocalBounds = reader.Box();
+            mesh.Vertices.resize(vertices);
+            mesh.Indices.resize(indices);
+            mesh.Sections.resize(sections);
+            mesh.MaterialSlots.resize(slots);
+            for (auto& vertex : mesh.Vertices)
+            {
+                reader.Floats(vertex.Position);
+                reader.Floats(vertex.Normal);
+                reader.Floats(vertex.UV);
+                reader.Floats(vertex.Color);
+                reader.Floats(vertex.Tangent);
+            }
+            for (auto& index : mesh.Indices)
+                index = reader.Read<uint32_t>();
+            for (auto& section : mesh.Sections)
+            {
+                section.FirstIndex   = reader.Read<uint32_t>();
+                section.IndexCount   = reader.Read<uint32_t>();
+                section.MaterialSlot = reader.Read<uint32_t>();
+                section.LocalBounds  = reader.Box();
+            }
+            for (auto& slot : mesh.MaterialSlots)
+            {
+                slot.Name             = reader.String();
+                slot.ObjectKey        = reader.String();
+                slot.DefaultMaterial  = reader.ID();
+                slot.AuthoredMaterial = reader.ID();
+            }
+            if (reader.Remaining)
+                return AssetError {AssetErrorCode::InvalidData, "Trailing Mesh Product bytes"};
+            // Source compatibility for the editor's single-part API.
+            mesh.Material         = mesh.MaterialSlots.front().DefaultMaterial;
+            mesh.AuthoredMaterial = mesh.MaterialSlots.front().AuthoredMaterial;
+            auto valid            = ValidateMeshData(mesh);
+            if (auto* error = std::get_if<AssetError>(&valid))
+                return *error;
+            return mesh;
         }
-        if (authoredSource)
+        catch (const std::runtime_error& error)
         {
-            std::ostringstream id;
-            id << std::hex << std::setw(16) << std::setfill('0') << authoredSource;
-            result.AuthoredMaterial = AssetID(SourceAssetID::FromString(id.str()), authoredLocal);
+            return AssetError {AssetErrorCode::InvalidData, error.what()};
         }
-        result.Vertices.resize(vertexCount);
-        result.Indices.resize(indexCount);
-        for (auto& vertex : result.Vertices)
-            if (!ReadFloats(cursor, vertex.Position) || !ReadFloats(cursor, vertex.Normal) ||
-                !ReadFloats(cursor, vertex.UV) || !ReadFloats(cursor, vertex.Color) ||
-                !ReadFloats(cursor, vertex.Tangent))
-                return AssetError {AssetErrorCode::InvalidData, "Non-finite Mesh Product vertex"};
-        for (auto& index : result.Indices)
-        {
-            index = Read<uint32_t>(cursor);
-            if (index >= vertexCount)
-                return AssetError {AssetErrorCode::InvalidData, "Mesh Product index out of range"};
-        }
-        return result;
     }
 } // namespace Kans

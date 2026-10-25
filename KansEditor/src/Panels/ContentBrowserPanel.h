@@ -48,7 +48,7 @@ namespace Kans
         void SetExtractMaterialsCallback(PathCallback callback) { m_ExtractMaterials = std::move(callback); }
         void SetErrorCallback(std::function<void(const std::string&)> callback) { m_ReportError = std::move(callback); }
 
-        const std::filesystem::path& GetCurrentDirectory() const { return m_Current; }
+        const std::filesystem::path& GetCurrentFolder() const { return m_Current; }
         // Re-reads folders and sources on the next frame.
         void Refresh();
 

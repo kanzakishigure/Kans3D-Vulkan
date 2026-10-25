@@ -21,8 +21,7 @@
 //------Renderer---------------
 
 #include "Kans3D/Renderer/Renderer.h"
-#include "Kans3D/Renderer/Renderer2D.h"
-#include "Kans3D/Renderer/SceneRenderer.h"
+#include "Kans3D/Renderer/SpriteBatch.h"
 
 //-------Render Resource-----
 #include "Kans3D/Renderer/Resource/OrthographicCamera.h"
@@ -40,3 +39,5 @@
 
 // #include"Kans3D/Core/EntryPoint.h"
 //------------------------------
+
+#include "Kans3D/Geometry/MeshOperations.h"

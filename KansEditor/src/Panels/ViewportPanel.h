@@ -4,9 +4,9 @@
 #include <optional>
 #include <imgui.h>
 #include "Kans3D/Editor/EditorCamera.h"
-#include "Kans3D/Renderer/Resource/RenderScene.h"
-#include "Kans3D/Renderer/SceneRenderer.h"
+#include "ViewportClient.h"
 #include "HierarchyPanel.h"
+#include "MeshEditTool.h"
 
 namespace Kans
 {
@@ -27,7 +27,8 @@ namespace Kans
 
         explicit ViewportPanel(HierarchyPanel& hierarchy) : m_Hierarchy(hierarchy) {}
 
-        void SetContext(Ref<Scene> scene, Ref<RenderScene> renderScene, Ref<SceneRenderer> renderer);
+        // The viewport renders `scene` through `client` (both may be null).
+        void SetContext(Ref<Scene> scene, ViewportClient* client);
         void SetFileDropCallback(FileDrop callback) { m_FileDrop = std::move(callback); }
         void SetModelResolver(ModelResolver resolver) { m_ResolveModel = std::move(resolver); }
         // While playing, the scene renders through its primary camera unless the
@@ -56,8 +57,10 @@ namespace Kans
         bool      UsesSceneCamera() const;
         glm::mat4 ViewProjection() const;
         // Draws of every model entity, with IDs indexing `entities` (ID - 1).
-        std::vector<MeshDraw> CollectDraws(std::vector<UUID>& entities, Entity root = {});
         void                  PickAt(ImVec2 mouse);
+        // The entity a click at `mouse` would select (icons first, then meshes).
+        Entity EntityAt(ImVec2 mouse);
+        MeshEditTool::View EditView();
         void Render();
         // Icons for lights and cameras, camera frustums and light directions.
         void DrawSceneOverlays();
@@ -74,9 +77,10 @@ namespace Kans
         glm::vec3 DropPosition(ImVec2 mouse, AssetID model);
 
         HierarchyPanel&    m_Hierarchy;
+        // Vertex/edge/face editing of editable meshes.
+        MeshEditTool       m_MeshTool;
         Ref<Scene>         m_Scene;
-        Ref<RenderScene>   m_RenderScene;
-        Ref<SceneRenderer> m_Renderer;
+        ViewportClient*    m_Client = nullptr;
         FileDrop           m_FileDrop;
         ModelResolver      m_ResolveModel;
         // The file being dragged over the viewport and its model, resolved once per drag.
@@ -91,6 +95,7 @@ namespace Kans
         bool       m_Playing = false, m_UseEditorCameraInPlay = false;
 
         SceneViewMode m_ViewMode  = SceneViewMode::Lit;
+        GridSettings  m_Grid;
         bool          m_ShowIcons = true, m_ShowStats = false;
         // Clickable overlay icons of this frame, and the view cube's area.
         std::vector<std::pair<ImVec2, UUID>> m_Icons;

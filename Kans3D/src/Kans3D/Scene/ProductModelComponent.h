@@ -13,15 +13,20 @@ namespace Kans
         AssetID Authored, Replacement;
     };
 
-    // Persistent logical references to a Model Product. GPU resources live in the renderer.
+    // Decoded legacy scene data, held only in PrefabInstanceComponent::LegacyPending.
+    // Never attached to an entity or passed to the renderer.
     struct ProductModelComponent
     {
         AssetID                            Model;
         std::vector<SceneMaterialOverride> Overrides;
 
-        // The Material to draw for a part: its own override, else its material's, else its own.
-        AssetID ResolveMaterial(AssetID mesh, AssetID material, AssetID authoredMaterial = {}) const
+        // A section's legacy part override precedes a mesh-wide override, then
+        // its authored slot, bound material override and bound material.
+        AssetID
+        ResolveMaterial(AssetID mesh, AssetID material, AssetID authoredMaterial = {}, AssetID legacyPart = {}) const
         {
+            if (const auto* part = FindOverride(legacyPart))
+                return part->Replacement;
             if (const auto* part = FindOverride(mesh))
                 return part->Replacement;
             if (const auto* slot = FindOverride(authoredMaterial))

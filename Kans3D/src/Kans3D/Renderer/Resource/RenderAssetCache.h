@@ -1,16 +1,18 @@
 #pragma once
 #include <unordered_map>
 #include <glm/glm.hpp>
-#include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Runtime/TextureData.h"
+#include "Kans3D/Core/Math/Bounds.h"
 #include "Kans3D/Renderer/Resource/GpuShader.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
+#include "MeshKey.h"
 
 namespace Kans
 {
+    struct ShadowResources;
     struct GpuMesh
     {
         std::shared_ptr<RenderHardware::Device> Device;
@@ -25,6 +27,8 @@ namespace Kans
         AssetID          Material;
         AssetID          AuthoredMaterial;
         Bounds           LocalBounds; // In mesh space.
+        std::vector<MeshSection>                       Sections;
+        std::vector<MeshMaterialSlot>                  MaterialSlots;
     };
 
     struct GpuMaterial
@@ -41,12 +45,27 @@ namespace Kans
         MaterialRenderState Render;
         std::vector<std::pair<uint32_t, GpuUniformBuffer>> Blocks;
         std::vector<std::pair<uint32_t, AssetID>>          Textures;
+        GpuMaterialBindings                                Snapshot() const
+        {
+            GpuMaterialBindings copy;
+            copy.Group    = Group;
+            copy.Images   = Images;
+            copy.Shader   = Shader;
+            copy.Render   = Render;
+            copy.Textures = Textures;
+            for (const auto& block : Blocks)
+                copy.Blocks.emplace_back(block.first, block.second.Snapshot());
+            return copy;
+        }
     };
 
     struct ModelInstance
     {
         AssetID   Mesh;
         glm::mat4 Transform {1.0f}; // Model-space transform of the node.
+        uint32_t  Section = 0;
+        AssetID   Part;                // Stable pre-section part identity for scene/editor overrides.
+        bool      AllSections = false; // Unmapped/procedural models draw all mesh sections.
     };
 
     // Flattened node hierarchy of a Model asset.
@@ -76,9 +95,10 @@ namespace Kans
         // Evicts resources not used for `unusedFrames` frames.
         void BeginFrame(uint64_t unusedFrames = 600);
         void Clear();
+        std::shared_ptr<ShadowResources> GetShadowFallback();
 
         const ModelInstances* GetModel(AssetID id);
-        const GpuMesh*        GetMesh(AssetID id);
+        const GpuMesh*        GetMesh(const MeshKey& id);
         const GpuMaterial*    GetMaterial(AssetID id);
         Ref<Texture2D>        GetTexture(AssetID id);
         const GpuShader*      GetShader(AssetID id);
@@ -89,6 +109,13 @@ namespace Kans
         // custom Shaders. `standard` forces Standard for viewport debug views.
         const GpuMaterialBindings* GetMaterialBindings(AssetID material, bool standard = false);
 
+        struct EditableMeshStatistics
+        {
+            uint64_t Uploads = 0, Releases = 0;
+            double   LastUploadMilliseconds = 0;
+        };
+        const EditableMeshStatistics& GetEditableMeshStatistics() const { return m_EditableStats; }
+        size_t                        GetEditableMeshCount() const { return m_EditableMeshes.size(); }
         AssetManager& GetAssetManager() { return m_Assets; }
 
     private:
@@ -121,6 +148,15 @@ namespace Kans
         std::unordered_map<AssetID, RenderHardware::Handle<RenderHardware::Sampler>> m_TextureSamplers;
         std::array<Ref<Texture2D>, 3>                                      m_FallbackTextures;
         AssetManager&                                                      m_Assets;
+        std::shared_ptr<ShadowResources>                                             m_ShadowFallback;
+        struct EditableEntry
+        {
+            std::weak_ptr<const RuntimeMesh> Source;
+            Scope<GpuMesh>                   Value;
+            std::optional<AssetError>        ReportedError;
+        };
+        std::unordered_map<uint64_t, EditableEntry>                        m_EditableMeshes;
+        EditableMeshStatistics                                             m_EditableStats;
         uint64_t                                                           m_Frame = 0;
         std::unordered_map<AssetID, Entry<ModelAsset, ModelInstances>>     m_Models;
         std::unordered_map<AssetID, Entry<MeshAsset, GpuMesh>>             m_Meshes;

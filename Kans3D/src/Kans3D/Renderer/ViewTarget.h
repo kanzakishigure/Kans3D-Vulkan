@@ -1,0 +1,48 @@
+#pragma once
+#include <glm/glm.hpp>
+#include "Graph/RenderGraph.h"
+#include "RenderFeature.h"
+namespace Kans
+{
+    // Per-viewport allocations. Resources and pool release before the device lease.
+    struct ShadowResources;
+    class ViewTarget
+    {
+    public:
+        explicit ViewTarget(std::shared_ptr<RenderHardware::Device> device,
+                            uint32_t                                outputs      = 2,
+                            bool                                    sampledDepth = true);
+        ViewTarget(const ViewTarget&)                                                                    = delete;
+        ViewTarget&                                                         operator=(const ViewTarget&) = delete;
+        void                                                                Resize(glm::uvec2 size);
+        uint64_t                      NextFrameNumber() { return ++m_FrameNumber; }
+        FrameProfiler&                GetFrameProfiler() { return m_Profiler; }
+        std::shared_ptr<GraphCapture> GetGraphCapture(); // Lazy; only allocated on request.
+        const std::shared_ptr<RenderHardware::Device>&                      GetDevice() const { return m_Device; }
+        glm::uvec2                                                          GetSize() const { return m_Size; }
+        const std::vector<RenderHardware::Handle<RenderHardware::Texture>>& GetColors() const { return m_Colors; }
+        const RenderHardware::Handle<RenderHardware::Texture>&              GetHDR() const { return m_HDR; }
+        const RenderHardware::Handle<RenderHardware::Texture>&              GetDepth() const { return m_Depth; }
+        std::shared_ptr<ShadowResources>&                                   GetShadowStorage() { return m_Shadows; }
+        RenderFeatureSet& GetDefaultFeatures() { return m_DefaultFeatures; }
+        TransientTexturePool&                                               GetTransientPool() { return m_Pool; }
+        const TransientTexturePool&                                         GetTransientPool() const { return m_Pool; }
+        RenderHardware::RenderingDesc Target(RenderHardware::LoadOp load, bool hdr = false) const;
+        // Compatibility: output indices 2 and 3 select depth with two colors.
+        uintptr_t GetOutput(uint32_t index) const;
+
+    private:
+        std::shared_ptr<RenderHardware::Device>                      m_Device;
+        uint32_t                                                     m_OutputCount;
+        bool                                                         m_SampledDepth;
+        glm::uvec2                                                   m_Size {};
+        std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Colors;
+        RenderHardware::Handle<RenderHardware::Texture>              m_HDR, m_Depth;
+        std::shared_ptr<ShadowResources>                             m_Shadows;
+        TransientTexturePool                                         m_Pool;
+        uint64_t                                                     m_FrameNumber = 0;
+        FrameProfiler                                                m_Profiler;
+        std::shared_ptr<GraphCapture>                                m_Capture;
+        RenderFeatureSet                                             m_DefaultFeatures;
+    };
+} // namespace Kans

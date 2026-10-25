@@ -1,9 +1,15 @@
 #pragma once
 #include <string.h>
+#include <map>
+#include <optional>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "Kans3D/Asset/Runtime/MeshData.h"
+#include "Kans3D/Asset/Runtime/ModelData.h"
 
 #include "Kans3D/Core/UUID.h"
+#include "Kans3D/Geometry/Shapes.h"
+#include "Kans3D/Renderer/Resource/ShadowSettings.h"
 #include "ProductModelComponent.h"
 
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
@@ -55,13 +61,83 @@ namespace Kans
             Position(position), Rotation(rotation), Scale(scale)
         {}
 
+        // Imported matrices remain exact (including shear) until a TRS field is edited.
+        std::optional<glm::mat4> ImportedMatrix;
+        glm::vec3                ImportedPosition {0}, ImportedRotation {0}, ImportedScale {1};
+
         glm::mat4 GetTransform() const
         {
+            if (ImportedMatrix && Position == ImportedPosition && Rotation == ImportedRotation &&
+                Scale == ImportedScale)
+                return *ImportedMatrix;
             glm::mat4 translation = glm::translate(glm::mat4(1.0f), Position);
             glm::mat4 rotation    = glm::toMat4(glm::quat(Rotation));
             glm::mat4 scale       = glm::scale(glm::mat4(1.0f), Scale);
             return translation * rotation * scale;
         }
+    };
+
+    struct MeshComponent
+    {
+        AssetID                 Mesh;
+        std::vector<AssetID>    Materials;
+        std::optional<uint32_t> Section; // Empty renders all sections, in mesh order.
+        bool                    CastShadows = true, ReceiveShadows = true;
+    };
+
+    // Mutually exclusive with MeshComponent. Callers must remove the previous
+    // component explicitly; Entity::AddComponent asserts/rejects a conflict.
+    struct EditableMeshComponent
+    {
+        EditableMesh             Mesh;
+        std::optional<ShapeDesc> Shape;
+        std::vector<AssetID>     Materials;
+        bool                     CastShadows = true, ReceiveShadows = true;
+    };
+    bool operator==(const EditableMeshComponent& a, const EditableMeshComponent& b);
+    // Explicit regeneration only. PatchComponent never interprets Shape changes.
+    void RegenerateShape(EditableMeshComponent& component);
+
+    struct BoundsComponent
+    {
+        Bounds World;
+    };
+    struct PrefabOwnedComponent
+    {
+        UUID        Instance = 0;
+        std::string NodeKey;
+        size_t      Order = 0;
+    };
+    // Retains a user child's attachment even while its prefab parent is unavailable.
+    struct PrefabAttachmentComponent
+    {
+        UUID        Instance = 0;
+        std::string NodeKey;
+    };
+    struct PrefabNodeOverride
+    {
+        std::optional<TransformComponent> LocalTransform;
+        std::map<uint32_t, AssetID>       Materials;
+        bool                              Removed = false;
+    };
+    struct PrefabNodeState
+    {
+        TransformComponent BaseTransform, AppliedTransform;
+        MeshComponent      BaseMesh, AppliedMesh;
+    };
+    struct PrefabInstanceComponent
+    {
+        AssetID                                   Prefab;
+        std::map<std::string, PrefabNodeOverride> Overrides;
+        std::optional<ProductModelComponent>      LegacyPending;
+        // Runtime state; serializers omit it, snapshots use it to rebuild atomically.
+        Ref<const PrefabAsset>                    Source;
+        std::map<std::string, PrefabNodeState>    Nodes;
+        std::map<AssetID, Ref<const MeshAsset>>   MeshSources;
+        Ref<const PrefabAsset>                    ExpandedSource;
+        std::map<std::string, PrefabNodeOverride> AppliedOverrides;
+        bool                                      Expanded  = false;
+        uint64_t                                  DrawOrder = 0;
     };
 
     struct CameraComponent
@@ -121,6 +197,7 @@ namespace Kans
         glm::vec3 Diffuse_Intensity {1};
         glm::vec3 Specular_Intensity {1};
         glm::vec3 Ambient_Intensity {0};
+        ShadowSettings Shadows;
         DirLightComponent()                         = default;
         DirLightComponent(const DirLightComponent&) = default;
     };
@@ -130,6 +207,7 @@ namespace Kans
         glm::vec3 Diffuse_Intensity {1};
         glm::vec3 Specular_Intensity {1};
         glm::vec3 Ambient_Intensity {0};
+        ShadowSettings Shadows                          = ShadowSettings::PointDefaults();
         PointLightComponent()                           = default;
         PointLightComponent(const PointLightComponent&) = default;
     };
@@ -154,7 +232,12 @@ namespace Kans
                                          CameraComponent,
                                          SpriteRendererComponent,
                                          NativeScriptComponent,
-                                         ProductModelComponent,
+                                         MeshComponent,
+                                         EditableMeshComponent,
+                                         PrefabInstanceComponent,
+                                         PrefabOwnedComponent,
+                                         PrefabAttachmentComponent,
+                                         BoundsComponent,
                                          DirLightComponent,
                                          PointLightComponent,
                                          ScriptComponent>;

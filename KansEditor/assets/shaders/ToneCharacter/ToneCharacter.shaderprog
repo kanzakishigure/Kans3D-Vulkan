@@ -3,6 +3,8 @@ KansShaderProgram 1
 # Resources/Shaders/OpenGL/GenShin_Shader/ToneCharactorShader.glsl.
 vertex=ToneCharacter.vert
 fragment=ToneCharacter.frag
+# Outputs scene-linear radiance: the engine applies exposure, bloom and ACES.
+output_space=linear_hdr
 
 # Defaults of the legacy MaterialUtils::InitMaterial.
 default RampShadowRange = 0.54

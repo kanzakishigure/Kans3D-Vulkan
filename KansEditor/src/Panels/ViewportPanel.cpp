@@ -1,5 +1,6 @@
 #include "ViewportPanel.h"
 #include "Kans3D/Editor/DropPlacement.h"
+#include "Kans3D/Renderer/RenderWorld.h"
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -8,8 +9,9 @@
 #include "Kans3D/Core/Math/Math.h"
 #include "Kans3D/Input/Input.h"
 #include "Kans3D/Scene/Components.h"
-#include "Kans3D/Scene/ProductModelComponent.h"
+#include "UI/BloomSettingsWidget.h"
 #include "UI/EditorIcons.h"
+#include "UI/PropertyGrid.h"
 #include "UI/Widgets.h"
 
 namespace Kans
@@ -18,19 +20,18 @@ namespace Kans
     using Widgets::ToolButton;
     using Widgets::ToolSeparator;
 
-    void ViewportPanel::SetContext(Ref<Scene> scene, Ref<RenderScene> renderScene, Ref<SceneRenderer> renderer)
+    void ViewportPanel::SetContext(Ref<Scene> scene, ViewportClient* client)
     {
-        m_Scene       = std::move(scene);
-        m_RenderScene = std::move(renderScene);
-        m_Renderer    = std::move(renderer);
-        m_Size        = {0, 0}; // Re-applies the viewport size to the new scene.
+        m_Scene  = std::move(scene);
+        m_Client = client;
+        m_Size   = {0, 0}; // Re-applies the viewport size to the new scene.
     }
 
     void ViewportPanel::Draw()
     {
         m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         m_Hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
-        if (!m_Scene || !m_Renderer || !m_RenderScene)
+        if (!m_Scene || !m_Client)
         {
             ImGui::TextDisabled("No scene.");
             return;
@@ -40,24 +41,16 @@ namespace Kans
         m_Max             = {m_Min.x + size.x, m_Min.y + size.y};
         // Resize and render in this frame, so the image always matches the panel.
         Resize(size);
-        if (Entity selected = m_Hierarchy.GetSelected(); selected && !UsesSceneCamera())
-        {
-            // Outline the selection with its children. Models, not meshes: the renderer
-            // resolves them after this frame's asset updates.
-            std::vector<ModelDraw>      highlights;
-            std::function<void(Entity)> collect = [&](Entity entity) {
-                if (entity.HasComponent<ProductModelComponent>())
-                    highlights.push_back(
-                        {entity.GetComponent<ProductModelComponent>(), m_Scene->GetWorldTransform(entity)});
-                for (Entity child : m_Scene->GetChildren(entity))
-                    collect(child);
-            };
-            collect(selected);
-            m_Renderer->SetHighlight(std::move(highlights));
-        }
+        // Outline the selection with its descendants' meshes; the renderer resolves
+        // them after this frame's asset updates.
+        Entity selected = m_Hierarchy.GetSelected();
+        // Element editing draws its own selection instead of the entity outline.
+        const bool editing = m_MeshTool.IsEditing(selected) && !UsesSceneCamera();
+        m_Client->SetHighlight(selected && !UsesSceneCamera() && !editing ? std::vector<UUID> {selected.GetUUID()} :
+                                                                            std::vector<UUID> {});
         Render();
 
-        const auto output = static_cast<uintptr_t>(m_Renderer->GetOutput(0));
+        const auto output = m_Client->GetOutput();
         ImGui::Image(reinterpret_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
         m_ImageHovered = ImGui::IsItemHovered();
         if (m_Playing)
@@ -67,6 +60,17 @@ namespace Kans
         }
         AcceptDrop();
         DrawSceneOverlays();
+        if (editing)
+        {
+            m_MeshTool.DrawOverlay(selected, EditView());
+            if (m_MeshTool.Update(selected, EditView()) == MeshEditTool::Release::Missed)
+            {
+                // A click on no element may pick another entity; empty space keeps this one.
+                Entity hit = EntityAt(ImGui::GetIO().MousePos);
+                if (hit && hit != selected)
+                    m_Hierarchy.SetSelected(hit);
+            }
+        }
         DrawGizmo();
         DrawToolbar();
         DrawViewCube();
@@ -82,9 +86,8 @@ namespace Kans
         if (pixels == m_Size)
             return;
         m_Size = pixels;
-        m_Renderer->SetViewportSize(pixels.x, pixels.y);
+        m_Client->Resize(pixels);
         m_Camera.SetViewportSize(pixels.x, pixels.y);
-        m_RenderScene->OnViewportResize(pixels.x, pixels.y);
         m_Scene->OnViewportResize(pixels.x, pixels.y);
     }
 
@@ -105,42 +108,18 @@ namespace Kans
 
     void ViewportPanel::Render()
     {
-        const TimeStep step(ImGui::GetIO().DeltaTime);
-        m_Renderer->SetViewMode(UsesSceneCamera() ? SceneViewMode::Lit : m_ViewMode);
         // The game camera shows what the game renders: no editor grid or outlines.
-        auto& features = m_Renderer->GetFeatures();
-        for (const char* name : {"EditorGrid", "EditorSelection", "EditorPreview"})
-            features.SetEnabled(name, !UsesSceneCamera());
-        if (UsesSceneCamera())
-            m_RenderScene->OnRenderRuntime(m_Renderer, step);
-        else
-            m_RenderScene->OnRenderEditor(m_Renderer, step, m_Camera);
+        m_Client->SetViewMode(m_ViewMode);
+        m_Client->SetGrid(m_Grid);
+        if (!UsesSceneCamera() || !m_Client->RenderGame())
+            m_Client->RenderEditor(m_Camera);
     }
 
-    std::vector<MeshDraw> ViewportPanel::CollectDraws(std::vector<UUID>& entities, Entity root)
-    {
-        std::vector<MeshDraw>       draws;
-        std::function<void(Entity)> visit = [&](Entity entity) {
-            if (entity.HasComponent<ProductModelComponent>())
-            {
-                entities.push_back(entity.GetUUID());
-                m_Renderer->AppendModelDraws(entity.GetComponent<ProductModelComponent>(),
-                                             m_Scene->GetWorldTransform(entity),
-                                             uint32_t(entities.size()),
-                                             draws);
-            }
-            for (Entity child : m_Scene->GetChildren(entity))
-                visit(child);
-        };
-        if (root)
-            visit(root);
-        else
-            for (Entity entity : m_Scene->GetRootEntities())
-                visit(entity);
-        return draws;
-    }
+    MeshEditTool::View ViewportPanel::EditView() { return {m_Min, m_Max, &m_Camera, m_Scene.get()}; }
 
-    void ViewportPanel::PickAt(ImVec2 mouse)
+    void ViewportPanel::PickAt(ImVec2 mouse) { m_Hierarchy.SetSelected(EntityAt(mouse)); }
+
+    Entity ViewportPanel::EntityAt(ImVec2 mouse)
     {
         // Overlay icons (lights, cameras) take precedence over meshes.
         float best = 14.0f * 14.0f;
@@ -152,16 +131,18 @@ namespace Kans
                 best = dx * dx + dy * dy, icon = id;
         }
         if (icon)
-        {
-            m_Hierarchy.SetSelected(m_Scene->GetEntityByUUID(icon));
-            return;
-        }
-        std::vector<UUID> entities;
-        const auto        draws = CollectDraws(entities);
+            return m_Scene->GetEntityByUUID(icon);
         // The framebuffer's origin is its bottom-left corner.
         const glm::uvec2 pixel(uint32_t(mouse.x - m_Min.x), uint32_t(m_Max.y - mouse.y - 1.0f));
-        const uint32_t   id = m_Renderer->Pick(draws, ViewProjection(), pixel);
-        m_Hierarchy.SetSelected(id && id <= entities.size() ? m_Scene->GetEntityByUUID(entities[id - 1]) : Entity {});
+        const auto       hit  = m_Client->Pick(ViewProjection(), pixel);
+        Entity           part = m_Scene->GetEntityByUUID(hit.EntityID);
+        Entity           root = m_Scene->GetEntityByUUID(hit.InstanceRoot);
+        // The first click on a model selects the whole instance; clicking again inside
+        // the selected instance selects the part under the cursor.
+        Entity selected = m_Hierarchy.GetSelected();
+        if (root && !(selected && m_Scene->GetPrefabInstanceRoot(selected) == root))
+            part = root;
+        return part;
     }
 
     void ViewportPanel::AcceptDrop()
@@ -188,11 +169,7 @@ namespace Kans
             {
                 position = DropPosition(ImGui::GetMousePos(), m_DragModel);
                 if (m_DragModel.IsValid())
-                {
-                    ProductModelComponent preview;
-                    preview.Model = m_DragModel;
-                    m_Renderer->SetPreview(preview, glm::translate(glm::mat4(1.0f), *position));
-                }
+                    m_Client->SetPreview(m_DragModel, glm::translate(glm::mat4(1.0f), *position));
             }
             if (data->IsDelivery())
             {
@@ -209,15 +186,13 @@ namespace Kans
         const glm::vec2 pixel(mouse.x - m_Min.x, mouse.y - m_Min.y);
         const auto [origin, direction] = m_Camera.ScreenRay(pixel);
         // The surface under the cursor; the picker uses a bottom-left pixel origin.
-        std::vector<UUID> entities;
-        const auto        hit = m_Renderer->PickSurface(
-            CollectDraws(entities),
+        const auto hit = m_Client->Pick(
             ViewProjection(),
             {uint32_t(std::clamp(pixel.x, 0.0f, float(m_Size.x - 1))),
              uint32_t(std::clamp(float(m_Size.y) - 1.0f - pixel.y, 0.0f, float(m_Size.y - 1)))});
         Bounds bounds;
-        if (model.IsValid() && m_Renderer->GetAssetCache())
-            bounds = m_Renderer->GetAssetCache()->GetModelBounds(model);
+        if (model.IsValid() && m_Client->GetAssetCache())
+            bounds = m_Client->GetAssetCache()->GetModelBounds(model);
         return ComputeDropPosition(origin, direction, hit.Position, bounds, m_Camera.GetDistance());
     }
 
@@ -243,7 +218,12 @@ namespace Kans
             // A plain left click selects what is under the cursor.
             else if (!io.KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGuizmo::IsOver() &&
                      !ImGuizmo::IsUsing())
-                PickAt(io.MousePos);
+            {
+                if (m_MeshTool.IsEditing(m_Hierarchy.GetSelected()) && !UsesSceneCamera())
+                    m_MeshTool.Press(io.MousePos);
+                else
+                    PickAt(io.MousePos);
+            }
         }
 
         switch (m_Navigation)
@@ -291,7 +271,10 @@ namespace Kans
     void ViewportPanel::HandleShortcuts()
     {
         const ImGuiIO& io = ImGui::GetIO();
-        if ((!m_Hovered && !m_Focused) || io.WantTextInput || io.KeyCtrl || m_Navigation != Navigation::None)
+        if ((!m_Hovered && !m_Focused) || io.WantTextInput || m_Navigation != Navigation::None)
+            return;
+        m_MeshTool.HandleShortcuts(m_Hierarchy.GetSelected());
+        if (io.KeyCtrl)
             return;
         if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
             m_GizmoType = -1;
@@ -313,14 +296,14 @@ namespace Kans
         // Frame the selected entity with its children.
         Bounds                      bounds;
         std::function<void(Entity)> visit = [&](Entity entity) {
-            const glm::mat4 world = m_Scene->GetWorldTransform(entity);
-            Bounds          model;
-            if (entity.HasComponent<ProductModelComponent>() && m_Renderer->GetAssetCache())
-                model = m_Renderer->GetAssetCache()->GetModelBounds(entity.GetComponent<ProductModelComponent>().Model);
-            if (model.IsValid())
-                bounds.Expand(model.Transformed(world));
-            else
-                bounds.Expand(glm::vec3(world[3]));
+            // World bounds already include the entity's meshes and descendants; entities
+            // without geometry (lights, cameras, empty entities) contribute their position.
+            // A prefab's empty nodes (e.g. skeleton joints) are not framed: only what renders.
+            const Bounds world = m_Scene->GetWorldBounds(entity);
+            if (world.IsValid())
+                bounds.Expand(world);
+            else if (!entity.HasComponent<PrefabOwnedComponent>())
+                bounds.Expand(glm::vec3(m_Scene->GetWorldTransform(entity)[3]));
             for (Entity child : m_Scene->GetChildren(entity))
                 visit(child);
         };
@@ -436,7 +419,7 @@ namespace Kans
     {
         if (!m_ShowStats)
             return;
-        const auto&    stats = m_Renderer->GetStats();
+        const auto&    stats = m_Client->GetLastResult().Stats;
         const ImGuiIO& io    = ImGui::GetIO();
         OverlayGroup({m_Min.x + 10.0f, m_Max.y - 86.0f}, [&] {
             ImGui::Text("%.0f FPS  %.2f ms", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
@@ -453,17 +436,23 @@ namespace Kans
         Entity selected = m_Hierarchy.GetSelected();
         if (!selected || m_GizmoType < 0 || (m_Playing && !m_UseEditorCameraInPlay && m_Scene->GetCameraEntity()))
             return;
+        const bool  snap      = m_GizmoSnap || ImGui::GetIO().KeyCtrl;
+        const float step      = m_GizmoType == ImGuizmo::ROTATE ? m_SnapRotate :
+                                m_GizmoType == ImGuizmo::SCALE  ? m_SnapScale :
+                                                                  m_SnapMove;
+        const float snapValues[3] = {step, step, step};
+        if (m_MeshTool.IsEditing(selected))
+        {
+            // In element modes the gizmo moves the selected vertices, edges or faces.
+            m_MeshTool.DrawGizmo(selected, EditView(), m_GizmoType, m_GizmoMode, snap ? snapValues : nullptr);
+            return;
+        }
         ImGuizmo::SetOrthographic(m_Camera.IsOrthographic());
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect(m_Min.x, m_Min.y, m_Max.x - m_Min.x, m_Max.y - m_Min.y);
 
         // The gizmo works on the world transform; results go back to the local one.
         glm::mat4   transform = m_Scene->GetWorldTransform(selected);
-        const bool  snap      = m_GizmoSnap || ImGui::GetIO().KeyCtrl;
-        const float step      = m_GizmoType == ImGuizmo::ROTATE ? m_SnapRotate :
-                                m_GizmoType == ImGuizmo::SCALE  ? m_SnapScale :
-                                                                  m_SnapMove;
-        const float snapValues[3] = {step, step, step};
         ImGuizmo::Manipulate(glm::value_ptr(m_Camera.GetViewMatrix()),
                              glm::value_ptr(m_Camera.GetProjectionMatrix()),
                              static_cast<ImGuizmo::OPERATION>(m_GizmoType),
@@ -478,7 +467,8 @@ namespace Kans
         const glm::mat4 local  = parent ? glm::inverse(m_Scene->GetWorldTransform(parent)) * transform : transform;
         glm::vec3       translation, rotation, scale;
         Math::DecomposeTransform(local, translation, rotation, scale);
-        auto& tc = selected.GetComponent<TransformComponent>();
+        // Edit through PatchComponent so the scene's render world sees the change.
+        selected.PatchComponent<TransformComponent>([&](TransformComponent& tc) {
         switch (m_GizmoType)
         {
             case ImGuizmo::TRANSLATE:
@@ -502,6 +492,7 @@ namespace Kans
                 tc.Scale = scale;
                 break;
         }
+        });
     }
 
     void ViewportPanel::DrawToolbar()
@@ -543,7 +534,12 @@ namespace Kans
             ImGui::DragFloat("##snap", snapStep, 0.05f, 0.01f, 360.0f, format);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Snap step for the current tool");
+            // Element modes for editable meshes.
+            ToolSeparator();
+            m_MeshTool.DrawModeButtons(m_Hierarchy.GetSelected());
         });
+        if (!UsesSceneCamera())
+            m_MeshTool.DrawPanel(m_Hierarchy.GetSelected(), {m_Min.x + 10.0f, m_Min.y + 48.0f});
 
         // Right: camera, view options.
         OverlayGroup({m_Max.x - 268.0f, m_Min.y + 8.0f}, [&] {
@@ -567,6 +563,21 @@ namespace Kans
                 bool orthographic = m_Camera.IsOrthographic();
                 if (ImGui::MenuItem("Orthographic", nullptr, &orthographic))
                     m_Camera.SetOrthographic(orthographic);
+                // The editor view's own exposure and bloom; the scene camera has its own.
+                ImGui::Separator();
+                if (PropertyGrid::Begin("##EditorCameraPost", 96.0f))
+                {
+                    float exposure = m_Camera.GetExposure();
+                    if (PropertyGrid::Float("Exposure", exposure, 0.01f, 0.0f, 100.0f))
+                        m_Camera.SetExposure(exposure);
+                    auto antiAliasing = m_Camera.GetAntiAliasing();
+                    if (DrawAntiAliasing(antiAliasing))
+                        m_Camera.SetAntiAliasing(antiAliasing);
+                    auto bloom = m_Camera.GetBloomSettings();
+                    if (DrawBloomSettings(bloom))
+                        m_Camera.SetBloomSettings(bloom);
+                    PropertyGrid::End();
+                }
                 ImGui::EndPopup();
             }
             ImGui::SameLine();
@@ -594,21 +605,44 @@ namespace Kans
                 const std::pair<SceneViewMode, const char*> modes[] = {{SceneViewMode::Lit, "Lit"},
                                                                        {SceneViewMode::BaseColor, "Base color"},
                                                                        {SceneViewMode::Normals, "Normals"},
-                                                                       {SceneViewMode::Wireframe, "Wireframe"}};
+                                                                       {SceneViewMode::Wireframe, "Wireframe"},
+                                                                       {SceneViewMode::ShadowCascades, "Shadow cascades"}};
                 for (const auto& [mode, name] : modes)
                     if (ImGui::RadioButton(name, m_ViewMode == mode))
                         m_ViewMode = mode;
                 ImGui::Separator();
-                auto  resource = m_RenderScene->GetRenderResource();
+                auto  resource = m_Scene->GetRenderWorld().Settings;
                 auto& state    = resource.Piplinestate;
                 const auto label = [](const char* icon, const char* text) { return std::string(icon) + "  " + text; };
                 ImGui::Checkbox(label(ICON_FA_LIGHTBULB, "Light and camera icons").c_str(), &m_ShowIcons);
                 ImGui::Checkbox(label(ICON_FA_CHART_LINE, "Statistics").c_str(), &m_ShowStats);
                 ImGui::Checkbox(label(ICON_FA_BORDER_ALL, "Grid").c_str(), &state.EnableGridShader);
+                if (state.EnableGridShader && PropertyGrid::Begin("##Grid", 96.0f))
+                {
+                    PropertyGrid::Float("Cell size", m_Grid.CellSize, 0.01f, 0.01f, 1000.0f, "%.2f m");
+                    int major = int(m_Grid.MajorEvery);
+                    PropertyGrid::Row("Major every", "Every Nth line is a major line");
+                    if (ImGui::DragInt("##major", &major, 0.1f, 2, 100))
+                        m_Grid.MajorEvery = uint32_t(std::clamp(major, 2, 100));
+                    float opacity = m_Grid.MajorColor.a / GridSettings {}.MajorColor.a;
+                    if (PropertyGrid::Float("Opacity", opacity, 0.01f, 0.0f, 2.0f))
+                    {
+                        // One control scales every line's opacity from its default.
+                        const GridSettings defaults;
+                        m_Grid.MinorColor.a = std::min(1.0f, defaults.MinorColor.a * opacity);
+                        m_Grid.MajorColor.a = std::min(1.0f, defaults.MajorColor.a * opacity);
+                        m_Grid.XAxisColor.a = std::min(1.0f, defaults.XAxisColor.a * opacity);
+                        m_Grid.YAxisColor.a = std::min(1.0f, defaults.YAxisColor.a * opacity);
+                        m_Grid.ZAxisColor.a = std::min(1.0f, defaults.ZAxisColor.a * opacity);
+                    }
+                    PropertyGrid::Float("Line width", m_Grid.LineWidth, 0.05f, 0.5f, 4.0f, "%.2f px");
+                    PropertyGrid::Float("Fade distance", m_Grid.FadeDistance, 1.0f, 5.0f, 10000.0f, "%.0f m");
+                    PropertyGrid::End();
+                }
                 ImGui::Checkbox(label(ICON_FA_DRAW_POLYGON, "Outline (all models)").c_str(), &state.EnableOutline);
                 ImGui::Checkbox(label(ICON_FA_VECTOR_SQUARE, "Stencil (all models)").c_str(), &state.EnableStencil);
                 ImGui::Checkbox(label(ICON_FA_CROSSHAIRS, "Debug normals").c_str(), &state.EnableDebugNormal);
-                m_RenderScene->SetRenderResource(resource);
+                m_Scene->GetRenderWorld().Settings = resource;
                 if (m_Playing)
                 {
                     ImGui::Separator();

@@ -8,13 +8,14 @@
 
 namespace Kans
 {
-    class SceneRenderer;
+    struct RenderFrame;
     class RenderPipeline
     {
     public:
         virtual ~RenderPipeline() = default;
-        virtual void Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) {}
-        virtual void Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) = 0;
+        virtual void Prepare(RenderView& view) { ExtractDrawLists(view); }
+        virtual void Begin(RenderGraph& graph, RenderFrame& frame) {}
+        virtual void Build(RenderGraph& graph, RenderFrame& frame) = 0;
 
     protected:
         // Other pipelines use the same per-view features and extension-point contract.
@@ -23,8 +24,13 @@ namespace Kans
     class ForwardPipeline final : public RenderPipeline
     {
     public:
-        void Begin(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) override;
-        void Build(RenderGraph& graph, const RenderView& view, SceneRenderer& renderer) override;
+        void Prepare(RenderView& view) override;
+        void Begin(RenderGraph& graph, RenderFrame& frame) override;
+        void Build(RenderGraph& graph, RenderFrame& frame) override;
+
+    private:
+        void BuildMSAA(RenderGraph& graph, RenderFrame& frame);
+        void AddFXAA(RenderGraph& graph, RenderFrame& frame);
     };
     class RenderPipelineRegistry
     {
