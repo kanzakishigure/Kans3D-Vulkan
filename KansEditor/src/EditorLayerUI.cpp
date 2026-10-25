@@ -16,14 +16,14 @@
 namespace Kans
 {
     using Widgets::ToolButton;
-    using Widgets::ToolSeparator;
 
     namespace
     {
-        constexpr ImVec4 ErrorColor {0.95f, 0.38f, 0.35f, 1.0f};
         const ImVec4 AccentColor = EditorTheme::Colors().Accent;
 
         std::string MenuLabel(const char* icon, const char* text) { return std::string(icon) + "  " + text; }
+        // Frame padding that makes the menu bar a 36 px band (at scale 1) with centred labels.
+        ImVec2 BandPadding() { return {EditorTheme::Px(10.0f), (EditorTheme::Px(36.0f) - ImGui::GetFontSize()) * 0.5f}; }
     } // namespace
 
     // ------------------------------------------------------------------ panels
@@ -113,6 +113,7 @@ namespace Kans
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, BandPadding()); // Sets the menu bar (top band) height.
         const ImGuiWindowFlags hostFlags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking |
                                            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                                            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -121,9 +122,8 @@ namespace Kans
         ImGui::PushStyleColor(ImGuiCol_WindowBg, EditorTheme::Colors().App);
         ImGui::Begin("##EditorDockHost", nullptr, hostFlags);
         ImGui::PopStyleColor();
-        ImGui::PopStyleVar(3);
+        ImGui::PopStyleVar(4);
         DrawMenuBar();
-        DrawMainToolbar();
         const ImGuiID dockspace = ImGui::GetID("EditorDockSpace");
         m_Panels.PrepareDockSpace(dockspace, ImGui::GetContentRegionAvail());
         ImGui::DockSpace(dockspace);
@@ -269,26 +269,25 @@ namespace Kans
             m_Play.Pause();
     }
 
-    void EditorLayer::DrawPlayControls()
+    float EditorLayer::DrawPlayControls(ImVec2 position)
     {
-        using State         = ScenePlaySession::State;
-        const State   state = m_Play.GetState();
-        // Centered in the toolbar.
-        const float width = 3.0f * 30.0f + 4.0f;
-        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - width) * 0.5f));
-        if (state == State::Edit)
-        {
-            if (ToolButton(ICON_FA_PLAY, "Play (Ctrl+P)"))
-                StartPlay();
-        }
-        else if (ToolButton(ICON_FA_STOP, "Stop and restore the scene (Ctrl+P)", true))
-            StopPlay();
-        ImGui::SameLine();
-        if (ToolButton(ICON_FA_PAUSE, "Pause (Ctrl+Shift+P)", state == State::Paused, state != State::Edit))
-            TogglePause();
-        ImGui::SameLine();
-        if (ToolButton(ICON_FA_FORWARD_STEP, "Advance one frame", false, state == State::Paused))
-            m_Play.Step();
+        using State       = ScenePlaySession::State;
+        const State state = m_Play.GetState();
+        return Widgets::Pill(position, [&] {
+            if (state == State::Edit)
+            {
+                if (ToolButton(ICON_FA_PLAY, "Play (Ctrl+P)"))
+                    StartPlay();
+            }
+            else if (ToolButton(ICON_FA_STOP, "Stop and restore the scene (Ctrl+P)", true))
+                StopPlay();
+            ImGui::SameLine();
+            if (ToolButton(ICON_FA_PAUSE, "Pause (Ctrl+Shift+P)", state == State::Paused, state != State::Edit))
+                TogglePause();
+            ImGui::SameLine();
+            if (ToolButton(ICON_FA_FORWARD_STEP, "Advance one frame", false, state == State::Paused))
+                m_Play.Step();
+        });
     }
 
     // ------------------------------------------------------------------ menu bar and main toolbar
@@ -379,7 +378,11 @@ namespace Kans
 
     void EditorLayer::DrawMenuBar()
     {
-        if (!ImGui::BeginMenuBar())
+        // The band's padding centres the menu labels; menus and popups use the normal one.
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, BandPadding());
+        const bool bar = ImGui::BeginMenuBar();
+        ImGui::PopStyleVar();
+        if (!bar)
             return;
         if (ImGui::BeginMenu("File"))
         {
@@ -477,85 +480,86 @@ namespace Kans
             m_Panels.DrawWindowMenu();
             ImGui::EndMenu();
         }
+        DrawToolbar();
         ImGui::EndMenuBar();
     }
 
-    void EditorLayer::DrawMainToolbar()
+    void EditorLayer::DrawToolbar()
     {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 4.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 4.0f));
-        ImGui::BeginChild("##MainToolbar",
-                          {0.0f, 34.0f},
-                          ImGuiChildFlags_AlwaysUseWindowPadding,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::PopStyleVar();
+        // Runs inside the menu bar: groups of tool buttons on pills, play controls in the
+        // middle and the scene status on the right, all centred in the band's height.
+        const ImRect bar     = ImGui::GetCurrentWindow()->MenuBarRect();
+        const float  buttonH = EditorTheme::Px(26.0f);
+        const float  y       = bar.Min.y + (bar.GetHeight() - buttonH) * 0.5f;
+        const float  gap     = EditorTheme::Px(EditorTheme::Space2);
+        float        x       = ImGui::GetCursorScreenPos().x + EditorTheme::Px(EditorTheme::Space3);
 
-        // Scene
-        if (ToolButton(ICON_FA_FILE, "New scene (Ctrl+N)"))
-            Record(NewScene());
-        ImGui::SameLine();
-        if (ToolButton(ICON_FA_FOLDER_OPEN, "Open scene (Ctrl+O)"))
-            m_SceneDialog = SceneDialog::Open;
-        ImGui::SameLine();
-        if (ToolButton(ICON_FA_FLOPPY_DISK, "Save scene (Ctrl+S)", false, !m_Play.IsActive()))
-            SaveCurrentScene();
-        ToolSeparator();
-        {
-            const auto undo = m_History.UndoLabels();
-            const auto redo = m_History.RedoLabels();
-            const auto undoTip = undo.empty() ? std::string("Nothing to undo") : "Undo " + undo.front() + " (Ctrl+Z)";
-            const auto redoTip = redo.empty() ? std::string("Nothing to redo") : "Redo " + redo.front() + " (Ctrl+Y)";
-            const bool editing = !m_Play.IsActive();
-            if (ToolButton(ICON_FA_UNDO, undoTip.c_str(), false, editing && !undo.empty()))
-                UndoScene();
-            ImGui::SameLine();
-            if (ToolButton(ICON_FA_REDO, redoTip.c_str(), false, editing && !redo.empty()))
-                RedoScene();
-        }
-        ToolSeparator();
-        // Assets
-        if (ToolButton(ICON_FA_FILE_IMPORT, "Asset importer", m_Panels.IsOpen(PanelID::AssetImporter)))
-            m_Panels.Toggle(PanelID::AssetImporter);
-        ImGui::SameLine();
-        if (ToolButton(ICON_FA_PALETTE, "Create a material in the content browser's folder"))
-            CreateMaterial(m_ContentBrowserPanel.GetCurrentFolder());
-        ImGui::SameLine();
-        if (ToolButton(ICON_FA_ROTATE_RIGHT, "Refresh published products"))
-            Record(RefreshProductAssets());
-        ToolSeparator();
-        // Panels
-        if (ToolButton(ICON_FA_FOLDER_TREE, "Content browser (Ctrl+Space)", m_Panels.IsOpen(PanelID::ContentBrowser)))
-            m_Panels.Toggle(PanelID::ContentBrowser);
-        ImGui::SameLine();
-        const size_t errors = m_Console.ErrorCount();
-        if (ToolButton(ICON_FA_TERMINAL, "Console", m_Panels.IsOpen(PanelID::Console)))
-            m_Panels.Toggle(PanelID::Console);
-        if (errors)
-        {
-            // Error badge on the console button.
-            const ImVec2 corner = ImGui::GetItemRectMax();
-            const auto   text   = std::to_string(std::min<size_t>(errors, 99));
-            ImGui::GetWindowDrawList()->AddCircleFilled({corner.x - 4.0f, corner.y - 20.0f},
-                                                        7.0f,
-                                                        ImGui::GetColorU32(ErrorColor));
-            const ImVec2 size = ImGui::CalcTextSize(text.c_str());
-            ImGui::GetWindowDrawList()->AddText(
-                ImGui::GetFont(),
-                ImGui::GetFontSize() * 0.75f,
-                {corner.x - 4.0f - size.x * 0.375f, corner.y - 20.0f - size.y * 0.375f},
-                IM_COL32_WHITE,
-                text.c_str());
-        }
-        ImGui::SameLine();
-        if (ToolButton(ICON_FA_CHART_LINE, "Stats and render settings", m_Panels.IsOpen(PanelID::Stats)))
-            m_Panels.Toggle(PanelID::Stats);
-        DrawPlayControls();
+        x = Widgets::Pill({x, y}, [&] {
+                if (ToolButton(ICON_FA_FILE, "New scene (Ctrl+N)"))
+                    Record(NewScene());
+                ImGui::SameLine();
+                if (ToolButton(ICON_FA_FOLDER_OPEN, "Open scene (Ctrl+O)"))
+                    m_SceneDialog = SceneDialog::Open;
+                ImGui::SameLine();
+                if (ToolButton(ICON_FA_FLOPPY_DISK, "Save scene (Ctrl+S)", false, !m_Play.IsActive()))
+                    SaveCurrentScene();
+            }) + gap;
+        x = Widgets::Pill({x, y}, [&] {
+                const auto undo    = m_History.UndoLabels();
+                const auto redo    = m_History.RedoLabels();
+                const auto undoTip = undo.empty() ? std::string("Nothing to undo") : "Undo " + undo.front() + " (Ctrl+Z)";
+                const auto redoTip = redo.empty() ? std::string("Nothing to redo") : "Redo " + redo.front() + " (Ctrl+Y)";
+                const bool editing = !m_Play.IsActive();
+                if (ToolButton(ICON_FA_UNDO, undoTip.c_str(), false, editing && !undo.empty()))
+                    UndoScene();
+                ImGui::SameLine();
+                if (ToolButton(ICON_FA_REDO, redoTip.c_str(), false, editing && !redo.empty()))
+                    RedoScene();
+            }) + gap;
+        x = Widgets::Pill({x, y}, [&] {
+                if (ToolButton(ICON_FA_FILE_IMPORT, "Asset importer", m_Panels.IsOpen(PanelID::AssetImporter)))
+                    m_Panels.Toggle(PanelID::AssetImporter);
+                ImGui::SameLine();
+                if (ToolButton(ICON_FA_PALETTE, "Create a material in the content browser's folder"))
+                    CreateMaterial(m_ContentBrowserPanel.GetCurrentFolder());
+                ImGui::SameLine();
+                if (ToolButton(ICON_FA_ROTATE_RIGHT, "Refresh published products"))
+                    Record(RefreshProductAssets());
+            }) + gap;
+        x = Widgets::Pill({x, y}, [&] {
+                if (ToolButton(ICON_FA_FOLDER_TREE, "Content browser (Ctrl+Space)", m_Panels.IsOpen(PanelID::ContentBrowser)))
+                    m_Panels.Toggle(PanelID::ContentBrowser);
+                ImGui::SameLine();
+                const size_t errors = m_Console.ErrorCount();
+                if (ToolButton(ICON_FA_TERMINAL, "Console", m_Panels.IsOpen(PanelID::Console)))
+                    m_Panels.Toggle(PanelID::Console);
+                if (errors)
+                {
+                    // Error badge on the console button's top-right corner.
+                    const ImVec2 corner {ImGui::GetItemRectMax().x - EditorTheme::Px(3.0f),
+                                         ImGui::GetItemRectMin().y + EditorTheme::Px(3.0f)};
+                    const auto   text = std::to_string(std::min<size_t>(errors, 99));
+                    const float  size = ImGui::GetFontSize() * 0.7f;
+                    auto*        draw = ImGui::GetForegroundDrawList();
+                    draw->AddCircleFilled(corner, EditorTheme::Px(7.0f), ImGui::GetColorU32(EditorTheme::Colors().Danger));
+                    const ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
+                    draw->AddText(ImGui::GetFont(), size, {corner.x - extent.x * 0.5f, corner.y - extent.y * 0.5f},
+                                  IM_COL32_WHITE, text.c_str());
+                }
+                ImGui::SameLine();
+                if (ToolButton(ICON_FA_CHART_LINE, "Stats and render settings", m_Panels.IsOpen(PanelID::Stats)))
+                    m_Panels.Toggle(PanelID::Stats);
+            }) + gap;
 
-        // Right side: scene name, import status and the last error.
+        // Play controls sit in the middle of the band unless the groups reach past it.
+        const float playWidth = 3.0f * EditorTheme::Px(28.0f) + 2.0f * EditorTheme::Px(2.0f) + 2.0f * EditorTheme::Px(3.0f);
+        x = DrawPlayControls({std::max(x + gap, (bar.Min.x + bar.Max.x - playWidth) * 0.5f), y}) + gap;
+
+        // Right side: the last error, import progress and the scene name.
         std::string status = ICON_FA_CUBE "  " + (m_ScenePath.empty() ? std::string("Untitled scene") :
                                                                          m_ScenePath.filename().u8string());
         if (m_History.IsModified())
-            status += " *";
+            status += "  " ICON_FA_CIRCLE;
         if (m_Play.IsActive())
         {
             char clock[64];
@@ -588,16 +592,18 @@ namespace Kans
         const std::string importText = importing ? ICON_FA_SPINNER "  Importing " + m_StatusName + "..." : "";
         const std::string errorText =
             m_SceneFileError.empty() ? "" : ICON_FA_CIRCLE_XMARK "  " + m_SceneFileError.substr(0, 80);
-        float width = ImGui::CalcTextSize(status.c_str()).x + 16.0f;
+        const float spacing = EditorTheme::Px(EditorTheme::Space4);
+        float       width   = ImGui::CalcTextSize(status.c_str()).x;
         if (!importText.empty())
-            width += ImGui::CalcTextSize(importText.c_str()).x + 16.0f;
+            width += ImGui::CalcTextSize(importText.c_str()).x + spacing;
         if (!errorText.empty())
-            width += ImGui::CalcTextSize(errorText.c_str()).x + 16.0f;
-        ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 16.0f, ImGui::GetWindowWidth() - width - 8.0f));
-        ImGui::AlignTextToFramePadding();
+            width += ImGui::CalcTextSize(errorText.c_str()).x + spacing;
+        const float textY = bar.Min.y + (bar.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+        ImGui::SetCursorScreenPos({std::max(x, bar.Max.x - width - EditorTheme::Px(EditorTheme::Space3)), textY});
+        ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset = 0.0f; // textY is already centred.
         if (!errorText.empty())
         {
-            ImGui::TextColored(ErrorColor, "%s", errorText.c_str());
+            ImGui::TextColored(EditorTheme::Colors().Danger, "%s", errorText.c_str());
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s\nClick to open the console and dismiss.", m_SceneFileError.c_str());
             if (ImGui::IsItemClicked())
@@ -605,19 +611,20 @@ namespace Kans
                 m_SceneFileError.clear();
                 m_Panels.Open(PanelID::Console);
             }
-            ImGui::SameLine(0, 16.0f);
+            ImGui::SameLine(0, spacing);
         }
         if (!importText.empty())
         {
             ImGui::TextColored(AccentColor, "%s", importText.c_str());
-            ImGui::SameLine(0, 16.0f);
+            ImGui::SameLine(0, spacing);
         }
-        ImGui::TextDisabled("%s", status.c_str());
-        if (ImGui::IsItemHovered() && !m_ScenePath.empty())
-            ImGui::SetTooltip("%s", m_ScenePath.u8string().c_str());
-
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
+        ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextDim);
+        ImGui::TextUnformatted(status.c_str());
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s",
+                              m_ScenePath.empty() ? "Not saved yet" : m_ScenePath.u8string().c_str(),
+                              m_History.IsModified() ? "\nUnsaved changes" : "");
     }
 
     // ------------------------------------------------------------------ stats

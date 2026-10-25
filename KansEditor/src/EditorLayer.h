@@ -131,7 +131,7 @@ namespace Kans
         // ---- UI (EditorLayerUI.cpp) ----
         void RegisterPanels();
         void DrawMenuBar();
-        void DrawMainToolbar();
+        void DrawToolbar();
         void DrawStats();
         void HandleShortcuts();
         // Records a history step once an interaction that may have edited the scene ends.
@@ -141,7 +141,8 @@ namespace Kans
         void StartPlay();
         void StopPlay();
         void TogglePause();
-        void DrawPlayControls();
+        // Returns the right edge of the controls.
+        float DrawPlayControls(ImVec2 position);
         void RedoScene(int steps = 1);
         void OpenImporter(const std::filesystem::path& file);
         void OpenMaterial(const std::filesystem::path& file);
