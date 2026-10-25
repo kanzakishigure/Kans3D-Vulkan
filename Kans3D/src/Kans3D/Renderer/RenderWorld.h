@@ -20,6 +20,7 @@ namespace Kans
             Bounds    LocalBounds, WorldBounds;
             UUID      EntityID = 0, InstanceRoot = 0;
             bool      CastShadows = true, ReceiveShadows = true;
+            Ref<const SkinningPose> SkinPose;
         };
         struct Stats
         {

@@ -17,6 +17,7 @@ namespace Kans::ComponentEditors
     void DrawPrefabInstance(Entity root, ComponentUI& ui);
     void DrawMesh(Entity entity, ComponentUI& ui);
     void DrawEditableMesh(Entity entity, ComponentUI& ui);
+    void DrawAnimator(Entity entity, ComponentUI& ui);
     const char* ShapeName(ShapeType type);
     // Adds a generated shape resting on the ground plane at the entity's position.
     void CreateShape(Entity entity, ShapeType type);

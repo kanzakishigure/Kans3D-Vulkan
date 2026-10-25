@@ -28,16 +28,120 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, e.what()};
             }
         }
+        std::vector<MeshVertexData> canonical;
+        const auto*                 vertices = &data.Vertices;
+        if (!data.Skin.empty())
+        {
+            canonical               = data.Vertices;
+            const auto transform    = data.SkinBindTransform;
+            const auto normalMatrix = glm::transpose(glm::inverse(glm::mat3(transform)));
+            for (auto& vertex : canonical)
+            {
+                const auto p = transform * glm::vec4(vertex.Position[0], vertex.Position[1], vertex.Position[2], 1);
+                const auto n =
+                    glm::normalize(normalMatrix * glm::vec3(vertex.Normal[0], vertex.Normal[1], vertex.Normal[2]));
+                const auto t    = glm::normalize(glm::mat3(transform) *
+                                                 glm::vec3(vertex.Tangent[0], vertex.Tangent[1], vertex.Tangent[2]));
+                vertex.Position = {p.x, p.y, p.z};
+                vertex.Normal   = {n.x, n.y, n.z};
+                vertex.Tangent  = {
+                    t.x, t.y, t.z, vertex.Tangent[3] * (glm::determinant(glm::mat3(transform)) < 0 ? -1.f : 1.f)};
+            }
+            vertices = &canonical;
+        }
         static_assert(sizeof(MeshVertexData) == 64 && std::is_standard_layout_v<MeshVertexData>);
         GpuMesh mesh;
         mesh.Device = device;
+        mesh.VertexCount     = uint32_t(data.Vertices.size());
+        mesh.HasSkeletonSkin = !data.Skin.empty();
+        std::vector<MeshSkinVertex> morphSkin;
+        const auto*                 skinStream = &data.Skin;
+        if (data.Skin.empty() && !data.MorphTargets.empty())
+        {
+            morphSkin.resize(data.Vertices.size());
+            skinStream = &morphSkin;
+        }
+        if (!data.MorphTargets.empty())
+        {
+            // Word 0 points to the debug-normal corner map. Each key has five words:
+            // count, indices, positions, optional normals, optional tangents (absolute word offsets).
+            // Indices stay integer; stream values are IEEE float bits, avoiding std430 vec3 padding.
+            std::vector<uint32_t> sparse(1 + data.MorphTargets.size() * 5, 0);
+            const auto            transform    = glm::mat3(data.SkinBindTransform);
+            const auto            normalMatrix = glm::transpose(glm::inverse(transform));
+            const auto            nonzero      = [](const auto& v) { return v[0] != 0 || v[1] != 0 || v[2] != 0; };
+            auto                  append       = [&](glm::vec3 value) {
+                for (int c = 0; c < 3; ++c)
+                {
+                    uint32_t bits;
+                    std::memcpy(&bits, &value[c], sizeof(bits));
+                    sparse.push_back(bits);
+                }
+            };
+            for (size_t t = 0; t < data.MorphTargets.size(); ++t)
+            {
+                const auto& target = data.MorphTargets[t];
+                mesh.MorphTargets.push_back({target.Name, target.DefaultWeight});
+                size_t count   = 0;
+                bool   normals = false, tangents = false;
+                for (const auto& d : target.Deltas)
+                {
+                    count += nonzero(d.Position) || nonzero(d.Normal) || nonzero(d.Tangent);
+                    normals |= nonzero(d.Normal);
+                    tangents |= nonzero(d.Tangent);
+                }
+                const size_t descriptor = 1 + t * 5;
+                sparse[descriptor]      = uint32_t(count);
+                sparse[descriptor + 1]  = uint32_t(sparse.size());
+                for (const auto& d : target.Deltas)
+                    if (nonzero(d.Position) || nonzero(d.Normal) || nonzero(d.Tangent))
+                        sparse.push_back(d.Vertex);
+                for (int stream = 0; stream < 3; ++stream)
+                {
+                    if ((stream == 1 && !normals) || (stream == 2 && !tangents))
+                        continue;
+                    sparse[descriptor + 2 + stream] = uint32_t(sparse.size());
+                    for (const auto& d : target.Deltas)
+                    {
+                        if (!nonzero(d.Position) && !nonzero(d.Normal) && !nonzero(d.Tangent))
+                            continue;
+                        const auto& raw   = stream == 0 ? d.Position : stream == 1 ? d.Normal : d.Tangent;
+                        auto        value = glm::vec3(raw[0], raw[1], raw[2]);
+                        if (!data.Skin.empty())
+                        {
+                            const auto& v = data.Vertices[d.Vertex];
+                            if (stream == 0)
+                                value = transform * value;
+                            else if (stream == 1)
+                                value = normalMatrix * value /
+                                        std::max(glm::length(normalMatrix *
+                                                             glm::vec3(v.Normal[0], v.Normal[1], v.Normal[2])),
+                                                 1e-20f);
+                            else
+                                value = transform * value /
+                                        std::max(glm::length(transform *
+                                                             glm::vec3(v.Tangent[0], v.Tangent[1], v.Tangent[2])),
+                                                 1e-20f);
+                        }
+                        append(value);
+                    }
+                }
+            }
+            // Two debug-normal endpoints share the original indexed corner's source vertex.
+            sparse[0] = uint32_t(sparse.size());
+            sparse.insert(sparse.end(), data.Indices.begin(), data.Indices.end());
+            mesh.MorphDeltas = device->CreateBuffer({sparse.size() * sizeof(uint32_t),
+                                                     RenderHardware::BufferUsage::Storage,
+                                                     RenderHardware::MemoryUsage::Upload});
+            mesh.MorphDeltas->Write(0, sparse.data(), sparse.size() * sizeof(uint32_t));
+        }
         mesh.LocalBounds   = data.LocalBounds;
         mesh.Sections      = data.Sections;
         mesh.MaterialSlots = data.MaterialSlots;
         mesh.Vertices      = device->CreateBuffer({data.Vertices.size() * sizeof(MeshVertexData),
                                                    RenderHardware::BufferUsage::Vertex,
                                                    RenderHardware::MemoryUsage::Upload});
-        mesh.Vertices->Write(0, data.Vertices.data(), data.Vertices.size() * sizeof(MeshVertexData));
+        mesh.Vertices->Write(0, vertices->data(), vertices->size() * sizeof(MeshVertexData));
         mesh.Indices = device->CreateBuffer({data.Indices.size() * sizeof(uint32_t),
                                              RenderHardware::BufferUsage::Index,
                                              RenderHardware::MemoryUsage::Upload});
@@ -48,7 +152,7 @@ namespace Kans
         for (uint32_t index : data.Indices)
             for (float end : {0.0f, 1.0f})
             {
-                const auto& v = data.Vertices[index];
+                const auto& v = (*vertices)[index];
                 for (auto value : v.Position)
                     lines[cursor++] = value;
                 for (auto value : v.Normal)
@@ -58,10 +162,170 @@ namespace Kans
         mesh.NormalLines = device->CreateBuffer(
             {lines.size() * sizeof(float), RenderHardware::BufferUsage::Vertex, RenderHardware::MemoryUsage::Upload});
         mesh.NormalLines->Write(0, lines.data(), lines.size() * sizeof(float));
+        if (!skinStream->empty())
+        {
+            mesh.BindVertices = device->CreateBuffer({data.Vertices.size() * sizeof(MeshVertexData),
+                                                      RenderHardware::BufferUsage::Vertex,
+                                                      RenderHardware::MemoryUsage::Upload});
+            mesh.BindVertices->Write(0, data.Vertices.data(), data.Vertices.size() * sizeof(MeshVertexData));
+            cursor = 0;
+            for (uint32_t index : data.Indices)
+                for (float end : {0.0f, 1.0f})
+                {
+                    const auto& v = data.Vertices[index];
+                    for (auto value : v.Position)
+                        lines[cursor++] = value;
+                    for (auto value : v.Normal)
+                        lines[cursor++] = value;
+                    lines[cursor++] = end;
+                }
+            mesh.BindNormalLines = device->CreateBuffer({lines.size() * sizeof(float),
+                                                         RenderHardware::BufferUsage::Vertex,
+                                                         RenderHardware::MemoryUsage::Upload});
+            mesh.BindNormalLines->Write(0, lines.data(), lines.size() * sizeof(float));
+            mesh.Skin = device->CreateBuffer({skinStream->size() * sizeof(MeshSkinVertex),
+                                              RenderHardware::BufferUsage::Vertex,
+                                              RenderHardware::MemoryUsage::Upload});
+            mesh.Skin->Write(0, skinStream->data(), skinStream->size() * sizeof(MeshSkinVertex));
+            std::vector<MeshSkinVertex> normalSkin;
+            normalSkin.reserve(data.Indices.size() * 2);
+            for (auto index : data.Indices)
+            {
+                normalSkin.push_back((*skinStream)[index]);
+                normalSkin.push_back((*skinStream)[index]);
+            }
+            mesh.NormalSkin = device->CreateBuffer({normalSkin.size() * sizeof(MeshSkinVertex),
+                                                    RenderHardware::BufferUsage::Vertex,
+                                                    RenderHardware::MemoryUsage::Upload});
+            mesh.NormalSkin->Write(0, normalSkin.data(), normalSkin.size() * sizeof(MeshSkinVertex));
+            mesh.VertexBindings.push_back({1, 32, false});
+            mesh.Attributes.push_back({5, 1, 0, RenderHardware::VertexFormat::Uint4});
+            mesh.Attributes.push_back({6, 1, 16, RenderHardware::VertexFormat::Float4});
+            // Without an animator the scene still supplies the source node transform. Cancel the canonical
+            // mesh-to-model upload transform when applying default morphs through the skin variant.
+            const auto fallback =
+                !data.Skin.empty() && !data.MorphTargets.empty() ? glm::inverse(data.SkinBindTransform) : glm::mat4(1);
+            std::vector<glm::mat4> identity(std::max(size_t(1), data.JointBounds.size()), fallback);
+            if (!data.MorphTargets.empty())
+            {
+                const auto joints = identity.size();
+                size_t     active = 0;
+                for (size_t t = 0; t < mesh.MorphTargets.size(); ++t)
+                    if (mesh.MorphTargets[t].DefaultWeight != 0)
+                    {
+                        glm::mat4 item(0);
+                        item[0] = glm::vec4(mesh.MorphTargets[t].DefaultWeight, float(t), 0, 0);
+                        identity.push_back(item);
+                        ++active;
+                    }
+                glm::mat4 header(0);
+                header[0] =
+                    glm::vec4(float(joints), float(active), float(mesh.VertexCount), float(mesh.MorphTargets.size()));
+                header[3][3] = -2718;
+                identity.push_back(header);
+            }
+            mesh.BindPalette = device->CreateBuffer({identity.size() * sizeof(glm::mat4),
+                                                     RenderHardware::BufferUsage::Storage,
+                                                     RenderHardware::MemoryUsage::Upload});
+            mesh.BindPalette->Write(0, identity.data(), identity.size() * sizeof(glm::mat4));
+        }
         mesh.IndexCount  = static_cast<uint32_t>(data.Indices.size());
         mesh.Material    = data.Material;
         mesh.AuthoredMaterial = data.AuthoredMaterial;
         return mesh;
+    }
+
+    RenderHardware::Handle<RenderHardware::Buffer>
+    RenderAssetCache::GetSkinningPalette(const Ref<const SkinningPose>& pose, const GpuMesh* mesh)
+    {
+        if (mesh && !mesh->Skin)
+            return {};
+        if (!pose || pose->Palette.empty())
+        {
+            bool active = false;
+            if (mesh)
+                for (const auto& t : mesh->MorphTargets)
+                    active |= t.DefaultWeight != 0;
+            return mesh && active ? mesh->BindPalette : RenderHardware::Handle<RenderHardware::Buffer>();
+        }
+        // Preserve A1 palette sharing for meshes without morph data.
+        if (mesh && mesh->MorphTargets.empty())
+            mesh = nullptr;
+        auto& entry = m_Palettes[{pose.get(), mesh}];
+        if (entry.Source.lock() != pose || (mesh && entry.MeshSource.lock() != mesh->Vertices))
+        {
+            entry        = {};
+            entry.Source = pose;
+            if (mesh)
+                entry.MeshSource = mesh->Vertices;
+            if (mesh)
+            {
+                // Catalog topology is immutable for a prepared instance. Bind names once, never in the frame loop.
+                entry.ShapeIndices.assign(mesh->MorphTargets.size(), -1);
+                for (size_t t = 0; t < mesh->MorphTargets.size(); ++t)
+                    for (size_t k = 0; k < pose->ShapeKeys.size(); ++k)
+                        if (pose->ShapeKeys[k].Name == mesh->MorphTargets[t].Name)
+                        {
+                            entry.ShapeIndices[t] = int32_t(k);
+                            break;
+                        }
+            }
+            entry.Pool.reserve(4);
+        }
+        entry.Frame = m_Frame;
+        if (entry.Version == pose->Version && (entry.Current || !entry.Packed.empty()))
+            return entry.Current;
+        entry.Current.reset();
+        entry.Packed = pose->Palette;
+        if (mesh && !mesh->MorphTargets.empty())
+        {
+            const auto joints = entry.Packed.size();
+            size_t     active = 0;
+            entry.Packed.reserve(joints + mesh->MorphTargets.size() + 1);
+            for (size_t t = 0; t < mesh->MorphTargets.size(); ++t)
+            {
+                float      weight = mesh->MorphTargets[t].DefaultWeight;
+                const auto key    = entry.ShapeIndices[t];
+                if (key >= 0 && size_t(key) < pose->MorphWeights.size())
+                    weight = pose->MorphWeights[key];
+                if (weight == 0 || !std::isfinite(weight))
+                    continue;
+                glm::mat4 item(0);
+                item[0] = glm::vec4(weight, float(t), 0, 0);
+                entry.Packed.push_back(item);
+                ++active;
+            }
+            if (active == 0 && !mesh->HasSkeletonSkin)
+            {
+                entry.Version = pose->Version;
+                return {};
+            }
+            glm::mat4 header(0);
+            header[0] =
+                glm::vec4(float(joints), float(active), float(mesh->VertexCount), float(mesh->MorphTargets.size()));
+            header[3][3] = -2718;
+            entry.Packed.resize(joints + mesh->MorphTargets.size(), glm::mat4(0));
+            entry.Packed.push_back(header);
+        }
+        // Allocate capacity for all targets once; active counts may change without reallocating.
+        const size_t bytes =
+            (pose->Palette.size() + (mesh && !mesh->MorphTargets.empty() ? mesh->MorphTargets.size() + 1 : 0)) *
+            sizeof(glm::mat4);
+        for (const auto& buffer : entry.Pool)
+            if (buffer.use_count() == 1 && buffer->GetDesc().Bytes == bytes)
+            {
+                entry.Current = buffer;
+                break;
+            }
+        if (!entry.Current)
+        {
+            entry.Current = GetDevice()->CreateBuffer(
+                {bytes, RenderHardware::BufferUsage::Storage, RenderHardware::MemoryUsage::Upload});
+            entry.Pool.push_back(entry.Current);
+        }
+        entry.Current->Write(0, entry.Packed.data(), bytes);
+        entry.Version = pose->Version;
+        return entry.Current;
     }
 
     std::variant<ModelInstances, AssetError> FlattenModel(const ModelData& data)
@@ -443,6 +707,11 @@ namespace Kans
         if (m_Device)
             m_Device->WaitIdle();
         ++m_Frame;
+        for (auto it = m_Palettes.begin(); it != m_Palettes.end();)
+            if (it->second.Source.expired() || m_Frame - it->second.Frame > unusedFrames)
+                it = m_Palettes.erase(it);
+            else
+                ++it;
         for (auto it = m_EditableMeshes.begin(); it != m_EditableMeshes.end();)
             if (it->second.Source.expired())
             {
@@ -466,6 +735,7 @@ namespace Kans
 
     void RenderAssetCache::Clear()
     {
+        m_Palettes.clear();
 
         m_Models.clear();
         m_Meshes.clear();

@@ -69,6 +69,10 @@ namespace Kans
                                PanelDock::Floating, false);
         frameGraph.Flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
         m_Panels.Register(frameGraph, [this] { m_FrameGraphPanel.Draw(); });
+        auto animatorGraph  = spec(PanelID::AnimatorGraph, "Animator", ICON_FA_PERSON_RUNNING, PanelCategory::Scene,
+                                  PanelDock::Floating, false);
+        animatorGraph.Flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+        m_Panels.Register(animatorGraph, [this] { m_AnimatorGraphPanel.Draw(); });
     }
 
     void EditorLayer::OpenImporter(const std::filesystem::path& file)

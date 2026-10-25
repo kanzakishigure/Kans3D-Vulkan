@@ -21,7 +21,31 @@ namespace Kans
     enum class MeshVertexFormat : uint32_t
     {
         PositionNormalUVColorTangent = 1,
+        Skinned                      = 2,
     };
+
+    struct MeshSkinVertex
+    {
+        std::array<uint32_t, 4> Joints {};
+        std::array<float, 4>    Weights {};
+    };
+    // Sorted sparse deltas in source mesh space. Unlisted vertices have exactly zero delta.
+    struct MorphVertexDelta
+    {
+        uint32_t             Vertex = 0;
+        std::array<float, 3> Position {}, Normal {}, Tangent {};
+    };
+    struct MeshMorphTarget
+    {
+        std::string                   Name;
+        float                         DefaultWeight = 0;
+        std::vector<MorphVertexDelta> Deltas;
+        // Includes zero, so untouched vertices are covered as well.
+        Bounds PositionBounds;
+    };
+    // Inserts strongest influences in descending order; ties preserve source order.
+    void InsertSkinInfluence(MeshSkinVertex&, uint32_t joint, float weight);
+    bool NormalizeSkinWeights(MeshSkinVertex&);
 
     struct MeshSection
     {
@@ -50,10 +74,21 @@ namespace Kans
         std::vector<MeshSection>      Sections;
         std::vector<MeshMaterialSlot> MaterialSlots;
         Bounds                        LocalBounds;
+        AssetID                       Skeleton;
+        std::vector<MeshSkinVertex>   Skin;
+        // Each box contains model-space bind vertices with a nonzero influence from that joint.
+        std::vector<Bounds> JointBounds;
+        // Source mesh -> skeleton model space. Applied once during GPU upload; base vertex bytes stay unchanged.
+        glm::mat4 SkinBindTransform {1};
+        std::vector<MeshMorphTarget> MorphTargets;
     };
     // Explicit construction helper for procedural single-material meshes. Importers
     // build their sections and bounds in source mesh space instead.
     void                                                   BuildSingleSection(MeshData& mesh);
+    void                                                   BuildMorphBounds(MeshMorphTarget&);
+    Bounds MorphedBounds(const MeshData&, const std::vector<float>& weights);
+    // Import-only fallback, preserving the base mesh's authored normal offset.
+    void RecomputeMorphNormals(const std::vector<MeshVertexData>&, const std::vector<uint32_t>&, MeshMorphTarget&);
     [[nodiscard]] std::variant<std::monostate, AssetError> ValidateMeshData(const MeshData& mesh);
 
     // CPU runtime mesh. Rendering resources are created by the renderer's asset cache.

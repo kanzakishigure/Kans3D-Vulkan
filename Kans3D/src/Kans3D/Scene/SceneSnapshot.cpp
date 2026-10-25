@@ -81,6 +81,7 @@ namespace Kans
             return a.Diffuse_Intensity == b.Diffuse_Intensity && a.Specular_Intensity == b.Specular_Intensity &&
                    a.Ambient_Intensity == b.Ambient_Intensity;
         }
+        bool Same(const AnimatorComponent& a, const AnimatorComponent& b) { return a == b; }
         bool Same(const ScriptComponent& a, const ScriptComponent& b) { return a.ClassName == b.ClassName; }
 
         template<typename T>
@@ -116,7 +117,7 @@ namespace Kans
         return a.ID == b.ID && a.Tag == b.Tag && Same(a.Transform, b.Transform) &&
                Same(a.Relationship, b.Relationship) && Same(a.Camera, b.Camera) && Same(a.Sprite, b.Sprite) &&
                Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
-               Same(a.PrefabParent, b.PrefabParent) && Same(a.DirLight, b.DirLight) &&
+               Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) && Same(a.DirLight, b.DirLight) &&
                Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script);
     }
 
@@ -149,6 +150,7 @@ namespace Kans
             Kans::Capture(entity, item.Model);
             Kans::Capture(entity, item.Editable);
             Kans::Capture(entity, item.Prefab);
+            Kans::Capture(entity, item.Animator);
             Kans::Capture(entity, item.PrefabParent);
             if (item.Prefab)
             {
@@ -216,6 +218,7 @@ namespace Kans
             Kans::Restore(entity, item.Model);
             Kans::Restore(entity, item.Editable);
             Kans::Restore(entity, item.Prefab);
+            Kans::Restore(entity, item.Animator);
             Kans::Restore(entity, item.PrefabParent);
             Kans::Restore(entity, item.DirLight);
             Kans::Restore(entity, item.PointLight);

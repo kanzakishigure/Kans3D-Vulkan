@@ -191,6 +191,8 @@ namespace Kans
                 object.MaterialRender.x = 3.0f;
             objects->Write(range * objectStride, &object, sizeof(object));
             MaterialPassData pass;
+            pass.Palette            = mesh->Skin ? Assets()->GetSkinningPalette(draw.SkinPose, mesh) :
+                                                   RenderHardware::Handle<RenderHardware::Buffer>();
             pass.Frame              = frames;
             pass.Object             = objects;
             pass.FrameOffset        = frameRange * frameStride;
@@ -324,6 +326,16 @@ void main() {
                                    {3, 0, 32, VertexFormat::Float4},
                                    {4, 0, 48, VertexFormat::Float4}};
         }
+        const auto* geometryMesh = GetMesh(draw.Mesh);
+        if (geometryMesh && geometryMesh->Skin && draw.SkinPose)
+        {
+            desc.Program = GetSkinnedInternalProgram(*Services.GetDevice(), draw.ShaderName, vertex, fragmentSource);
+            desc.GroupLayouts.push_back(Services.GetDevice()->CreateBindGroupLayout({1, {}}));
+            desc.GroupLayouts.push_back(SkinningLayout(*Services.GetDevice()));
+            desc.VertexBindings.push_back({1, 32, false});
+            desc.Attributes.push_back({5, 1, 0, VertexFormat::Uint4});
+            desc.Attributes.push_back({6, 1, 16, VertexFormat::Float4});
+        }
         auto  pipeline = Services.CachedPipeline(desc);
         auto* commands = &commandList;
         commands->BeginRendering(SceneTarget(LoadOp::Load, hdrGeometry));
@@ -340,7 +352,24 @@ void main() {
             ForEachSection(instance, *mesh, [&](const auto& part, const auto& section) {
                 data.Transform = draw.Transform;
                 commands->BindGroup(DrawGroup(*Services.GetDevice(), desc.GroupLayouts[0], data));
-                commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0}});
+                if (mesh->Skin && draw.SkinPose)
+                {
+                    commands->BindGroup(Services.GetDevice()->CreateBindGroup({desc.GroupLayouts[1], {}}));
+                    auto palette = Assets()->GetSkinningPalette(draw.SkinPose, mesh);
+                    BindSkinning(*Services.GetDevice(),
+                                 *commands,
+                                 desc.GroupLayouts[2],
+                                 palette ? palette : mesh->BindPalette,
+                                 mesh->MorphDeltas);
+                    commands->BindVertexBuffers({{0, normals ? mesh->NormalLines : mesh->Vertices, 0},
+                                                 {1, normals ? mesh->NormalSkin : mesh->Skin, 0}});
+                }
+                else
+                    commands->BindVertexBuffers(
+                        {{0,
+                          normals ? (mesh->BindNormalLines ? mesh->BindNormalLines : mesh->NormalLines) :
+                                    (mesh->BindVertices ? mesh->BindVertices : mesh->Vertices),
+                          0}});
                 if (normals)
                     commands->Draw(section.IndexCount * 2, 1, section.FirstIndex * 2);
                 else

@@ -18,6 +18,10 @@ namespace Kans
                                    const std::string&      name,
                                    const std::string&      vertex,
                                    const std::string&      fragment);
+    RenderHardware::Handle<RenderHardware::Shader> GetSkinnedInternalProgram(RenderHardware::Device&,
+                                                                             const std::string& name,
+                                                                             const std::string& vertex,
+                                                                             const std::string& fragment);
     glm::mat4 DeviceProjection(const glm::mat4& projection, RenderHardware::CoordinateConventions coordinates);
     // Render-to-texture projection: canonical UV V=0 maps to stored row zero,
     // independently of the display framebuffer origin.

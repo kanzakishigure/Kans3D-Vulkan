@@ -662,7 +662,12 @@ namespace Kans
                                    cache                                ? cache->GetMesh(proxy.Mesh) :
                                                                           nullptr;
             if (mesh && proxy.Section < mesh->Sections.size())
-                draws.push_back({mesh, proxy.Transform, id, proxy.Section});
+                draws.push_back({mesh,
+                                 proxy.Transform,
+                                 id,
+                                 proxy.Section,
+                                 cache ? cache->GetSkinningPalette(proxy.SkinPose, mesh) :
+                                         RenderHardware::Handle<RenderHardware::Buffer>()});
         }
     }
     ScenePickHit Renderer::PickSceneSurface(RenderWorld& world, const RenderView& view, glm::uvec2 pixel)
@@ -684,7 +689,12 @@ namespace Kans
                                    cache                                ? cache->GetMesh(proxies[i].Mesh) :
                                                                           nullptr;
             if (mesh && proxies[i].Section < mesh->Sections.size())
-                draws.push_back({mesh, proxies[i].Transform, uint32_t(i + 1), proxies[i].Section});
+                draws.push_back({mesh,
+                                 proxies[i].Transform,
+                                 uint32_t(i + 1),
+                                 proxies[i].Section,
+                                 cache ? cache->GetSkinningPalette(proxies[i].SkinPose, mesh) :
+                                         RenderHardware::Handle<RenderHardware::Buffer>()});
         }
         const auto hit = m_Picker.PickSurface(draws,
                                               view.Scene.sceneCamera.camera.GetProjectionMatrix() *

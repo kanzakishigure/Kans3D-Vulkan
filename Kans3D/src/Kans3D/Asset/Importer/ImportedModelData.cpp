@@ -13,6 +13,9 @@
 #include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <yaml-cpp/yaml.h>
 
 namespace Kans
 {
@@ -162,7 +165,9 @@ namespace Kans
     } // namespace
 
     static std::variant<ImportedModelData, AssetError>
-    ParseModelCpuImpl(const std::filesystem::path& path, const std::vector<std::filesystem::path>* allowedFiles)
+    ParseModelCpuImpl(const std::filesystem::path&              path,
+                      const std::vector<std::filesystem::path>* allowedFiles,
+                      std::optional<bool>                       recomputeMorphNormals)
     {
         std::error_code error;
         if (!std::filesystem::is_regular_file(path, error))
@@ -182,13 +187,39 @@ namespace Kans
         std::string       parseError;
         {
             std::lock_guard<std::mutex> lock(importMutex);
-            rawScene =
-                aiImportFileEx(path.u8string().c_str(),
-                               aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_GenSmoothNormals |
-                                   aiProcess_CalcTangentSpace | aiProcess_ValidateDataStructure,
-                               &io);
+            const unsigned              flags = aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
+                                                aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace;
+            rawScene = aiImportFileEx(path.u8string().c_str(), flags | aiProcess_ValidateDataStructure, &io);
             if (!rawScene)
+            {
                 parseError = aiGetErrorString();
+                // Assimp's validator rejects morph-only clips by requiring a node channel. Its C API
+                // also double-releases on a failed aiApplyPostProcessing, so do not revalidate that way.
+                // Retry only this specific error, require real morph channels, then use the geometry,
+                // hierarchy, skeleton and clip validation below (including sparse target indices/weights).
+                if (parseError.find("aiAnimation::mNumChannels is 0") != std::string::npos)
+                {
+                    rawScene          = aiImportFileEx(path.u8string().c_str(), flags, &io);
+                    bool hasMorphOnly = false, invalid = false;
+                    if (rawScene)
+                    {
+                        for (unsigned i = 0; i < rawScene->mNumAnimations; ++i)
+                        {
+                            const auto& animation = *rawScene->mAnimations[i];
+                            if (!animation.mNumChannels)
+                            {
+                                hasMorphOnly |= animation.mNumMorphMeshChannels > 0;
+                                invalid |= animation.mNumMorphMeshChannels == 0;
+                            }
+                        }
+                        if (!hasMorphOnly || invalid)
+                        {
+                            aiReleaseImport(rawScene);
+                            rawScene = nullptr;
+                        }
+                    }
+                }
+            }
         }
         std::unique_ptr<const aiScene, decltype(&aiReleaseImport)> owned(rawScene, aiReleaseImport);
         const auto*                                                scene = owned.get();
@@ -201,13 +232,11 @@ namespace Kans
         if (!context.MissingMaterials.empty())
             return AssetError {AssetErrorCode::NotFound,
                                "Cannot read model material input: " + context.MissingMaterials.front().u8string()};
-        if (!scene || !scene->mRootNode || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mNumMeshes)
+        if (!scene || !scene->mRootNode || (!scene->mNumMeshes && !scene->mNumAnimations))
             return AssetError {AssetErrorCode::InvalidData, "Model parse failed: " + parseError};
         // Unsupported content is skipped so the static geometry still imports.
         ImportedModelData result;
         result.SourceFiles = context.Files;
-        if (scene->HasAnimations())
-            result.Warnings.push_back(std::to_string(scene->mNumAnimations) + " animation(s) were not imported");
         if (scene->HasTextures())
             result.Warnings.push_back(std::to_string(scene->mNumTextures) + " embedded texture(s) were not imported");
         auto extension = path.extension().u8string();
@@ -215,6 +244,44 @@ namespace Kans
             return static_cast<char>(std::tolower(c));
         });
         const bool gltfSource = extension == ".gltf" || extension == ".glb";
+        YAML::Node              gltf;
+        std::vector<YAML::Node> gltfMeshes, gltfPrimitives;
+        std::vector<size_t>     gltfMeshIndices;
+        if (gltfSource)
+        {
+            try
+            {
+                std::ifstream input(path, std::ios::binary);
+                std::string   json;
+                if (extension == ".gltf")
+                    json.assign(std::istreambuf_iterator<char>(input), {});
+                else
+                {
+                    uint32_t header[5] {};
+                    input.read(reinterpret_cast<char*>(header), sizeof(header));
+                    if (!input || header[0] != 0x46546c67 || header[4] != 0x4e4f534a || header[3] > 64 * 1024 * 1024)
+                        throw std::runtime_error("Invalid glTF JSON chunk");
+                    json.resize(header[3]);
+                    input.read(json.data(), json.size());
+                }
+                gltf             = YAML::Load(json);
+                size_t meshIndex = 0;
+                for (const auto& m : gltf["meshes"])
+                {
+                    for (const auto& primitive : m["primitives"])
+                    {
+                        gltfMeshes.push_back(m);
+                        gltfPrimitives.push_back(primitive);
+                        gltfMeshIndices.push_back(meshIndex);
+                    }
+                    ++meshIndex;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                return AssetError {AssetErrorCode::InvalidData, e.what()};
+            }
+        }
         for (uint32_t i = 0; i < scene->mNumMaterials; ++i)
         {
             const auto*          material = scene->mMaterials[i];
@@ -300,12 +367,9 @@ namespace Kans
         {
             const auto* mesh = scene->mMeshes[i];
             const std::string name = mesh->mName.C_Str();
-            if (mesh->HasBones())
-                result.Warnings.push_back("mesh '" + name + "' imported in its bind pose without skinning");
             if (mesh->GetNumUVChannels() > 1 || mesh->GetNumColorChannels() > 1)
                 result.Warnings.push_back("mesh '" + name + "' keeps only its first UV and color channel");
-            if (mesh->mNumAnimMeshes > 0)
-                result.Warnings.push_back("mesh '" + name + "' morph targets were not imported");
+
             if (!mesh->HasPositions() || !mesh->HasNormals() || mesh->mMaterialIndex >= result.Materials.size())
                 return AssetError {AssetErrorCode::InvalidData, "Model mesh has invalid geometry or material"};
             ImportedMeshData data;
@@ -352,6 +416,94 @@ namespace Kans
                     data.Indices.push_back(triangle.mIndices[corner]);
                 }
             }
+            for (uint32_t t = 0; t < mesh->mNumAnimMeshes; ++t)
+            {
+                const auto& source = *mesh->mAnimMeshes[t];
+                if (source.mNumVertices != mesh->mNumVertices)
+                    return AssetError {AssetErrorCode::InvalidData, "Morph vertex count mismatch"};
+                MeshMorphTarget target;
+                target.Name = source.mName.length ? source.mName.C_Str() : "ShapeKey" + std::to_string(t);
+                // Assimp FBX joins channel and shape names with a dot; Blender commonly repeats the
+                // same name on both. Collapse "Smile.Smile" while preserving authored names such as "Blink.L".
+                if (extension == ".fbx" && target.Name.size() % 2 == 1)
+                {
+                    const auto half = target.Name.size() / 2;
+                    if (half && target.Name[half] == '.' &&
+                        target.Name.compare(0, half, target.Name, half + 1, half) == 0)
+                        target.Name.resize(half);
+                }
+                // FBX aiAnimMesh::mWeight describes the full blend-shape endpoint (usually 1),
+                // rather than an initial expression. glTF authored defaults are restored below.
+                target.DefaultWeight = extension == ".fbx" ? 0.f : source.mWeight;
+                bool hasNormals      = source.mNormals != nullptr;
+                if (gltfSource && i < gltfMeshes.size())
+                {
+                    const auto m      = gltfMeshes[i];
+                    const auto extras = m["extras"];
+                    const auto names  = extras ? extras["targetNames"] : YAML::Node();
+                    if (names && t < names.size())
+                        target.Name = names[t].as<std::string>();
+                    const auto weights = m["weights"];
+                    if (weights && t < weights.size())
+                        target.DefaultWeight = weights[t].as<float>();
+                    std::optional<float> nodeDefault;
+                    for (const auto& node : gltf["nodes"])
+                        if (node["mesh"] && node["mesh"].as<size_t>() == gltfMeshIndices[i])
+                        {
+                            const auto overrideWeights = node["weights"];
+                            if (overrideWeights &&
+                                (!overrideWeights.IsSequence() || overrideWeights.size() != mesh->mNumAnimMeshes))
+                                return AssetError {AssetErrorCode::InvalidData, "Invalid glTF node morph weights"};
+                            const float w = overrideWeights ? overrideWeights[t].as<float>() : target.DefaultWeight;
+                            if (nodeDefault && std::abs(*nodeDefault - w) > 1e-6f)
+                                return AssetError {AssetErrorCode::InvalidData,
+                                                   "Conflicting instance defaults for shared shape key: " +
+                                                       target.Name};
+                            nodeDefault = w;
+                        }
+                    if (nodeDefault)
+                        target.DefaultWeight = *nodeDefault;
+                    const auto targets = gltfPrimitives[i]["targets"];
+                    hasNormals         = targets && t < targets.size() && bool(targets[t]["NORMAL"]);
+                }
+                for (uint32_t v = 0; v < source.mNumVertices; ++v)
+                {
+                    MorphVertexDelta d;
+                    d.Vertex = v;
+                    if (source.mVertices)
+                    {
+                        const auto x = source.mVertices[v] - mesh->mVertices[v];
+                        d.Position   = {x.x, x.y, x.z};
+                    }
+                    if (source.mNormals && hasNormals)
+                    {
+                        const auto x = source.mNormals[v] - mesh->mNormals[v];
+                        d.Normal     = {x.x, x.y, x.z};
+                    }
+                    if (source.mTangents && mesh->mTangents)
+                    {
+                        const auto x = source.mTangents[v] - mesh->mTangents[v];
+                        d.Tangent    = {x.x, x.y, x.z};
+                    }
+                    if (d.Position != std::array<float, 3> {} || d.Normal != std::array<float, 3> {} ||
+                        d.Tangent != std::array<float, 3> {})
+                        target.Deltas.push_back(d);
+                }
+                const bool unchangedNormals =
+                    std::all_of(target.Deltas.begin(), target.Deltas.end(), [](const auto& d) {
+                        return d.Normal == std::array<float, 3> {};
+                    });
+                // FBX/Assimp may fill absent target normals with the base normals, losing presence information.
+                if ((!hasNormals || (!gltfSource && unchangedNormals)) && recomputeMorphNormals.value_or(!gltfSource))
+                    RecomputeMorphNormals(data.Vertices, data.Indices, target);
+                BuildMorphBounds(target);
+                result.Warnings.push_back("mesh '" + data.Name + "' morph '" + target.Name +
+                                          "': " + std::to_string(target.Deltas.size()) + "/" +
+                                          std::to_string(data.Vertices.size()) + " sparse vertices, " +
+                                          std::to_string(target.Deltas.size() * 40) + " delta bytes (dense " +
+                                          std::to_string(data.Vertices.size() * 36) + ")");
+                data.MorphTargets.push_back(std::move(target));
+            }
             result.Meshes.push_back(std::move(data));
         }
 
@@ -382,6 +534,339 @@ namespace Kans
             for (uint32_t i = entry.first->mNumChildren; i > 0; --i)
                 pending.emplace_back(entry.first->mChildren[i - 1], index);
         }
+        bool animated = scene->HasAnimations();
+        for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
+            animated |= scene->mMeshes[i]->HasBones() || scene->mMeshes[i]->mNumAnimMeshes > 0;
+        if (animated)
+        {
+            result.Skeleton.emplace();
+            auto&                         skeleton = *result.Skeleton;
+            for (const auto& m : result.Meshes)
+                for (const auto& t : m.MorphTargets)
+                {
+                    const auto i = skeleton.FindShapeKey(t.Name);
+                    if (i < 0)
+                        skeleton.ShapeKeys.push_back({t.Name, t.DefaultWeight});
+                    else if (std::abs(skeleton.ShapeKeys[i].DefaultWeight - t.DefaultWeight) > 1e-6f)
+                        return AssetError {AssetErrorCode::InvalidData,
+                                           "Conflicting defaults for shared shape key: " + t.Name};
+                }
+            std::vector<glm::mat4>        world(result.Nodes.size());
+            std::map<std::string, size_t> paths;
+            for (size_t i = 0; i < result.Nodes.size(); ++i)
+            {
+                const auto& node   = result.Nodes[i];
+                const auto  matrix = glm::transpose(glm::make_mat4(node.LocalTransform.data()));
+                world[i]           = node.Parent < 0 ? matrix : world[node.Parent] * matrix;
+                SkeletonJoint joint;
+                joint.Name            = node.Name.empty() ? "unnamed" : node.Name;
+                joint.Path            = (node.Parent < 0 ? std::string() : skeleton.Joints[node.Parent].Path) + "/" +
+                                        std::to_string(joint.Name.size()) + ":" + joint.Name;
+                const auto occurrence = paths[joint.Path]++;
+                if (occurrence)
+                    joint.Path += "#" + std::to_string(occurrence);
+                joint.Parent = int32_t(node.Parent);
+                try
+                {
+                    joint.RestLocal = joint.BindLocal = JointTransform::FromMatrix(matrix);
+                }
+                catch (const std::exception& e)
+                {
+                    return AssetError {AssetErrorCode::InvalidData, e.what()};
+                }
+                joint.InverseBind = glm::inverse(world[i]);
+                skeleton.Joints.push_back(std::move(joint));
+                for (auto mesh : node.Meshes)
+                    if (result.Meshes[mesh].Node < 0)
+                    {
+                        result.Meshes[mesh].Node        = int32_t(i);
+                        result.Meshes[mesh].BindToModel = world[i];
+                    }
+            }
+            std::vector<bool> bound(skeleton.Joints.size());
+            auto              matrix = [](const aiMatrix4x4& m) {
+                const float values[] = {
+                    m.a1, m.a2, m.a3, m.a4, m.b1, m.b2, m.b3, m.b4, m.c1, m.c2, m.c3, m.c4, m.d1, m.d2, m.d3, m.d4};
+                return glm::transpose(glm::make_mat4(values));
+            };
+            for (uint32_t i = 0; i < scene->mNumMeshes; ++i)
+            {
+                const auto* mesh = scene->mMeshes[i];
+                auto&       data = result.Meshes[i];
+                if (!mesh->HasBones())
+                    continue;
+                if (data.Node < 0)
+                    return AssetError {AssetErrorCode::InvalidData, "Skinned mesh has no source node"};
+                const auto meshWorld = world[data.Node];
+                data.Skin.resize(data.Vertices.size());
+                std::vector<uint32_t> counts(data.Vertices.size());
+                for (uint32_t b = 0; b < mesh->mNumBones; ++b)
+                {
+                    const auto* bone = mesh->mBones[b];
+                    const auto  j    = skeleton.FindJoint(bone->mName.C_Str());
+                    if (j < 0)
+                        return AssetError {AssetErrorCode::InvalidData,
+                                           "Missing or ambiguous skin bone: " + std::string(bone->mName.C_Str())};
+                    const auto inverseBind = matrix(bone->mOffsetMatrix) * glm::inverse(meshWorld);
+                    if (!bound[j])
+                    {
+                        skeleton.Joints[j].InverseBind = inverseBind;
+                        bound[j]                       = true;
+                    }
+                    else
+                    {
+                        float difference = 0;
+                        for (int c = 0; c < 4; ++c)
+                            for (int r = 0; r < 4; ++r)
+                                difference = std::max(
+                                    difference, std::abs(inverseBind[c][r] - skeleton.Joints[j].InverseBind[c][r]));
+                        if (difference > 0.01f)
+                            return AssetError {AssetErrorCode::InvalidData,
+                                               "Meshes have incompatible bind poses for joint: " +
+                                                   skeleton.Joints[j].Name};
+                    }
+                    for (uint32_t w = 0; w < bone->mNumWeights; ++w)
+                    {
+                        const auto& influence = bone->mWeights[w];
+                        if (influence.mVertexId >= data.Skin.size() || !std::isfinite(influence.mWeight) ||
+                            influence.mWeight < 0)
+                            return AssetError {AssetErrorCode::InvalidData, "Invalid source skin influence"};
+                        if (influence.mWeight > 0)
+                            ++counts[influence.mVertexId];
+                        InsertSkinInfluence(data.Skin[influence.mVertexId], uint32_t(j), influence.mWeight);
+                    }
+                }
+                size_t truncated = 0, unweighted = 0;
+                for (size_t v = 0; v < data.Skin.size(); ++v)
+                {
+                    truncated += counts[v] > 4;
+                    if (!NormalizeSkinWeights(data.Skin[v]))
+                    {
+                        ++unweighted;
+                        data.Skin[v].Joints[0]  = uint32_t(data.Node);
+                        data.Skin[v].Weights[0] = 1;
+                    }
+                }
+                if (truncated)
+                    result.Warnings.push_back("mesh '" + data.Name + "': " + std::to_string(truncated) +
+                                              " vertices exceeded 4 influences; strongest 4 retained and renormalized");
+                if (unweighted)
+                    result.Warnings.push_back("mesh '" + data.Name + "': " + std::to_string(unweighted) +
+                                              " unweighted vertices bound to mesh node");
+            }
+            // Derive bind locals from the canonical inverse binds, independently of source rest locals.
+            for (size_t j = 0; j < skeleton.Joints.size(); ++j)
+            {
+                const auto parent = skeleton.Joints[j].Parent;
+                const auto bind   = glm::inverse(skeleton.Joints[j].InverseBind);
+                try
+                {
+                    skeleton.Joints[j].BindLocal =
+                        JointTransform::FromMatrix(parent < 0 ? bind : skeleton.Joints[parent].InverseBind * bind);
+                }
+                catch (const std::exception& e)
+                {
+                    return AssetError {AssetErrorCode::InvalidData, e.what()};
+                }
+            }
+            for (uint32_t a = 0; a < scene->mNumAnimations; ++a)
+            {
+                const auto&       animation = *scene->mAnimations[a];
+                AnimationClipData clip;
+                clip.Name       = animation.mName.length ? animation.mName.C_Str() : "Animation" + std::to_string(a);
+                clip.SourceName = path.filename().u8string();
+                clip.FrameRate  = animation.mTicksPerSecond > 0 ? animation.mTicksPerSecond : 30;
+                clip.Duration   = animation.mDuration / clip.FrameRate;
+                for (uint32_t t = 0; t < animation.mNumChannels; ++t)
+                {
+                    const auto&         channel = *animation.mChannels[t];
+                    JointAnimationTrack track;
+                    track.Joint = channel.mNodeName.C_Str();
+                    for (uint32_t k = 0; k < channel.mNumPositionKeys; ++k)
+                    {
+                        const auto& v = channel.mPositionKeys[k];
+                        track.Translation.Keys.push_back(
+                            {v.mTime / clip.FrameRate, {v.mValue.x, v.mValue.y, v.mValue.z}});
+                    }
+                    for (uint32_t k = 0; k < channel.mNumRotationKeys; ++k)
+                    {
+                        const auto& v = channel.mRotationKeys[k];
+                        track.Rotation.Keys.push_back(
+                            {v.mTime / clip.FrameRate,
+                             glm::normalize(glm::quat(v.mValue.w, v.mValue.x, v.mValue.y, v.mValue.z))});
+                    }
+                    for (uint32_t k = 0; k < channel.mNumScalingKeys; ++k)
+                    {
+                        const auto& v = channel.mScalingKeys[k];
+                        track.Scale.Keys.push_back({v.mTime / clip.FrameRate, {v.mValue.x, v.mValue.y, v.mValue.z}});
+                    }
+                    clip.Tracks.push_back(std::move(track));
+                }
+                for (uint32_t c = 0; c < animation.mNumMorphMeshChannels; ++c)
+                {
+                    const auto&             channel     = *animation.mMorphMeshChannels[c];
+                    const std::string       channelName = channel.mName.C_Str();
+                    const ImportedMeshData* mesh        = nullptr;
+                    for (const auto& m : result.Meshes)
+                        if (m.Name == channelName || (m.Node >= 0 && result.Nodes[m.Node].Name == channelName))
+                        {
+                            mesh = &m;
+                            break;
+                        }
+                    if (!mesh)
+                    {
+                        // Assimp FBX names morph channels "node*primitiveIndex" for split material meshes.
+                        auto       nodeName  = channelName;
+                        size_t     primitive = 0;
+                        const auto star      = channelName.find_last_of('*');
+                        if (star != std::string::npos && star + 1 < channelName.size())
+                        {
+                            char*      end  = nullptr;
+                            const auto part = std::strtoul(channelName.c_str() + star + 1, &end, 10);
+                            if (end && !*end)
+                            {
+                                nodeName  = channelName.substr(0, star);
+                                primitive = size_t(part);
+                            }
+                        }
+                        for (const auto& node : result.Nodes)
+                            if (node.Name == nodeName && primitive < node.Meshes.size())
+                            {
+                                mesh = &result.Meshes[node.Meshes[primitive]];
+                                break;
+                            }
+                    }
+                    if (!mesh)
+                        return AssetError {AssetErrorCode::InvalidData,
+                                           "Unbound morph animation channel: " + channelName};
+                    if (!channel.mNumKeys)
+                        return AssetError {AssetErrorCode::InvalidData, "Empty morph animation channel"};
+                    for (uint32_t k = 0; k < channel.mNumKeys; ++k)
+                        for (uint32_t v = 0; v < channel.mKeys[k].mNumValuesAndWeights; ++v)
+                            if (channel.mKeys[k].mValues[v] >= mesh->MorphTargets.size() ||
+                                !std::isfinite(channel.mKeys[k].mWeights[v]))
+                                return AssetError {AssetErrorCode::InvalidData,
+                                                   "Invalid morph animation target or weight"};
+                    for (uint32_t t = 0; t < mesh->MorphTargets.size(); ++t)
+                    {
+                        MorphAnimationTrack track;
+                        track.ShapeKey = mesh->MorphTargets[t].Name;
+                        for (uint32_t k = 0; k < channel.mNumKeys; ++k)
+                        {
+                            const auto& key   = channel.mKeys[k];
+                            float       value = 0;
+                            for (uint32_t v = 0; v < key.mNumValuesAndWeights; ++v)
+                                if (key.mValues[v] == t)
+                                    value = float(key.mWeights[v]);
+                            track.Weight.Keys.push_back({key.mTime / clip.FrameRate, value});
+                        }
+                        auto found = std::find_if(clip.MorphTracks.begin(), clip.MorphTracks.end(), [&](const auto& v) {
+                            return v.ShapeKey == track.ShapeKey;
+                        });
+                        if (found == clip.MorphTracks.end())
+                            clip.MorphTracks.push_back(std::move(track));
+                        else
+                        {
+                            if (found->Weight.Keys.size() != track.Weight.Keys.size())
+                                return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
+                            for (size_t k = 0; k < track.Weight.Keys.size(); ++k)
+                                if (found->Weight.Keys[k].Time != track.Weight.Keys[k].Time ||
+                                    std::abs(found->Weight.Keys[k].Value - track.Weight.Keys[k].Value) > 1e-6f)
+                                    return AssetError {AssetErrorCode::InvalidData, "Conflicting shared morph tracks"};
+                        }
+                    }
+                }
+                auto valid = ValidateAnimationClip(clip);
+                if (auto* e = std::get_if<AssetError>(&valid))
+                    return *e;
+                result.Clips.push_back(std::move(clip));
+            }
+        }
+        // Assimp's node-key representation drops glTF sampler interpolation. Restore the declared contract.
+        if (gltfSource && !result.Clips.empty())
+        {
+            try
+            {
+                std::ifstream input(path, std::ios::binary);
+                std::string   json;
+                if (extension == ".gltf")
+                    json.assign(std::istreambuf_iterator<char>(input), {});
+                else
+                {
+                    uint32_t header[5] {};
+                    input.read(reinterpret_cast<char*>(header), sizeof(header));
+                    if (!input || header[0] != 0x46546c67 || header[4] != 0x4e4f534a || header[3] > 64 * 1024 * 1024)
+                        return AssetError {AssetErrorCode::InvalidData, "Invalid glTF JSON chunk"};
+                    json.resize(header[3]);
+                    input.read(json.data(), json.size());
+                }
+                const auto document   = YAML::Load(json);
+                const auto animations = document["animations"];
+                for (size_t a = 0; a < result.Clips.size() && a < animations.size(); ++a)
+                {
+                    auto&      clip      = result.Clips[a];
+                    const auto animation = animations[a];
+                    for (const auto& channel : animation["channels"])
+                    {
+                        const auto node = channel["target"]["node"].as<size_t>();
+                        const auto name =
+                            document["nodes"][node]["name"].as<std::string>("nodes[" + std::to_string(node) + "]");
+                        const auto sampler       = animation["samplers"][channel["sampler"].as<size_t>()];
+                        const auto interpolation = sampler["interpolation"].as<std::string>("LINEAR");
+                        const auto property      = channel["target"]["path"].as<std::string>();
+                        if (property == "weights")
+                        {
+                            if (interpolation != "LINEAR" && interpolation != "STEP")
+                                return AssetError {AssetErrorCode::InvalidData,
+                                                   "Unsupported glTF morph interpolation: " + interpolation};
+                            for (const auto& targetNode : result.Nodes)
+                                if (targetNode.Name == name)
+                                    for (auto meshIndex : targetNode.Meshes)
+                                        for (const auto& key : result.Meshes[meshIndex].MorphTargets)
+                                            for (auto& track : clip.MorphTracks)
+                                                if (track.ShapeKey == key.Name)
+                                                    track.Weight.Interpolation = interpolation == "STEP" ?
+                                                                                     TrackInterpolation::Step :
+                                                                                     TrackInterpolation::Linear;
+                            continue;
+                        }
+                        if (interpolation != "LINEAR" && interpolation != "STEP")
+                            return AssetError {AssetErrorCode::InvalidData,
+                                               "Unsupported glTF animation interpolation: " + interpolation};
+                        for (auto& track : clip.Tracks)
+                            if (track.Joint == name)
+                            {
+                                const auto mode =
+                                    interpolation == "STEP" ? TrackInterpolation::Step : TrackInterpolation::Linear;
+                                if (property == "translation")
+                                    track.Translation.Interpolation = mode;
+                                else if (property == "scale")
+                                    track.Scale.Interpolation = mode;
+                                else if (property == "rotation")
+                                    track.Rotation.Interpolation =
+                                        mode == TrackInterpolation::Step ? mode : TrackInterpolation::Spherical;
+                            }
+                    }
+                    double interval = std::numeric_limits<double>::max();
+                    auto   rate     = [&](const auto& track) {
+                        for (size_t k = 1; k < track.Keys.size(); ++k)
+                            interval = std::min(interval, track.Keys[k].Time - track.Keys[k - 1].Time);
+                    };
+                    for (const auto& track : clip.Tracks)
+                    {
+                        rate(track.Translation);
+                        rate(track.Rotation);
+                        rate(track.Scale);
+                    }
+                    clip.FrameRate = interval > 0 && interval < std::numeric_limits<double>::max() ? 1 / interval : 30;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                return AssetError {AssetErrorCode::InvalidData,
+                                   "Cannot read glTF animation metadata: " + std::string(e.what())};
+            }
+        }
         // The engine works in meters. FBX records its unit as centimeters per unit.
         double unit = 0;
         if (scene->mMetaData)
@@ -402,15 +887,43 @@ namespace Kans
             if (node.Parent < 0)
                 for (size_t i = 0; i < 12; ++i)
                     node.LocalTransform[i] *= scale;
+        if (model.Skeleton)
+        {
+            const auto inverseScale = glm::scale(glm::mat4(1), glm::vec3(1 / scale));
+            for (auto& j : model.Skeleton->Joints)
+            {
+                j.InverseBind *= inverseScale;
+                if (j.Parent < 0)
+                {
+                    j.RestLocal.Translation *= scale;
+                    j.RestLocal.Scale *= scale;
+                    j.BindLocal.Translation *= scale;
+                    j.BindLocal.Scale *= scale;
+                    for (auto& clip : model.Clips)
+                        for (auto& track : clip.Tracks)
+                            if (track.Joint == j.Name)
+                            {
+                                for (auto& k : track.Translation.Keys)
+                                    k.Value *= scale;
+                                for (auto& k : track.Scale.Keys)
+                                    k.Value *= scale;
+                            }
+                }
+            }
+            for (auto& mesh : model.Meshes)
+                mesh.BindToModel = glm::scale(glm::mat4(1), glm::vec3(scale)) * mesh.BindToModel;
+        }
     }
 
-    std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path)
+    std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path,
+                                                              std::optional<bool>          recomputeMorphNormals)
     {
-        return ParseModelCpuImpl(path, nullptr);
+        return ParseModelCpuImpl(path, nullptr, recomputeMorphNormals);
     }
 
     std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path&              path,
-                                                              const std::vector<std::filesystem::path>& allowedFiles)
+                                                              const std::vector<std::filesystem::path>& allowedFiles,
+                                                              std::optional<bool> recomputeMorphNormals)
     {
         if (allowedFiles.empty() || allowedFiles.size() > 1024)
             return AssetError {AssetErrorCode::InvalidArgument, "Invalid model input set size"};
@@ -422,7 +935,7 @@ namespace Kans
                 return AssetError {AssetErrorCode::InvalidArgument, "Empty model input path"};
             normalized.push_back(std::filesystem::absolute(file).lexically_normal());
         }
-        return ParseModelCpuImpl(path, &normalized);
+        return ParseModelCpuImpl(path, &normalized, recomputeMorphNormals);
     }
     std::variant<std::filesystem::path, AssetError> ResolveModelTexture(const std::filesystem::path& modelFile,
                                                                         const std::string&           reference)

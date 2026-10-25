@@ -21,6 +21,8 @@ namespace Kans
         EnvMap     = 7,
         Model      = 8,
         Shader     = 9,
-
+        Skeleton            = 10,
+        AnimationClip       = 11,
+        AnimationController = 12,
     };
 } // namespace Kans

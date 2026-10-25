@@ -213,6 +213,7 @@ namespace Kans
     {
 
         UpdatePrefabs();
+        UpdateAnimations(double(ts));
 
         // update ScripteableEntity
         {
@@ -446,6 +447,7 @@ namespace Kans
         CopyComponent<SpriteRendererComponent>(source, copy);
         CopyComponent<MeshComponent>(source, copy);
         CopyComponent<EditableMeshComponent>(source, copy);
+        CopyComponent<AnimatorComponent>(source, copy);
         if (source.HasComponent<PrefabInstanceComponent>())
         {
             auto instance     = source.GetComponent<PrefabInstanceComponent>();
@@ -551,6 +553,10 @@ namespace Kans
     {
         static_assert(sizeof(T) == 0);
     }
+
+    template<>
+    void Scene::OnComponentAdd<AnimatorComponent>(Entity, AnimatorComponent&)
+    {}
 
     template<>
     void Scene::OnComponentAdd<CameraComponent>(Entity entity, CameraComponent& component)

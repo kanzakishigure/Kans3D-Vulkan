@@ -6,6 +6,7 @@
 #include <string>
 #include <variant>
 #include <vector>
+#include "Kans3D/Animation/AnimationData.h"
 #include "Kans3D/Asset/AssetError.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
@@ -20,6 +21,10 @@ namespace Kans
         uint32_t                    MaterialIndex = 0;
         std::vector<ImportedVertex> Vertices;
         std::vector<uint32_t>       Indices;
+        std::vector<MeshSkinVertex> Skin;
+        std::vector<MeshMorphTarget> MorphTargets;
+        int32_t                     Node = -1;
+        glm::mat4                   BindToModel {1};
     };
 
     struct ImportedTextureReference
@@ -31,10 +36,10 @@ namespace Kans
 
     struct ImportedMaterialData
     {
-        std::string                           Name;
-        std::array<float, 4>                  BaseColor {1, 1, 1, 1};
-        float                                 Metallic  = 0;
-        float                                 Roughness = 1;
+        std::string          Name;
+        std::array<float, 4> BaseColor {1, 1, 1, 1};
+        float                Metallic  = 0;
+        float                Roughness = 1;
         // False when the source marks the material as transparent or alpha tested.
         bool                                  Opaque = true;
         std::vector<ImportedTextureReference> Textures;
@@ -56,6 +61,8 @@ namespace Kans
         std::vector<ImportedMeshData>     Meshes;
         std::vector<ImportedMaterialData> Materials;
         std::vector<ImportedNodeData>     Nodes;
+        std::optional<SkeletonData>       Skeleton;
+        std::vector<AnimationClipData>    Clips;
         // Successfully read files, including .mtl and external glTF buffers.
         std::vector<std::filesystem::path> SourceFiles;
         // Source content that was skipped, such as animations.
@@ -63,12 +70,14 @@ namespace Kans
     };
 
     // Owns all returned data. No Assimp or rendering objects escape this boundary.
-    // Animated/skinned and embedded-texture models are explicitly rejected until
-    // their owned CPU representations are implemented.
-    [[nodiscard]] std::variant<ImportedModelData, AssetError> ParseModelCpu(const std::filesystem::path& path);
+    // Embedded textures are reported but not imported.
+    [[nodiscard]] std::variant<ImportedModelData, AssetError>
+    ParseModelCpu(const std::filesystem::path& path, std::optional<bool> recomputeMorphNormals = {});
     // Closed input IO: undeclared paths are rejected before opening them.
     [[nodiscard]] std::variant<ImportedModelData, AssetError>
-    ParseModelCpu(const std::filesystem::path& path, const std::vector<std::filesystem::path>& allowedFiles);
+    ParseModelCpu(const std::filesystem::path&              path,
+                  const std::vector<std::filesystem::path>& allowedFiles,
+                  std::optional<bool>                       recomputeMorphNormals = {});
     // Uniformly scales the model by scaling its root nodes.
     void ScaleModel(ImportedModelData& model, float scale);
     // Finds the file a model's texture reference points to. Accepts backslashes,

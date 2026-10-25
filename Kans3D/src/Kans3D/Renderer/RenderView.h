@@ -100,6 +100,7 @@ namespace Kans
         Bounds              WorldBounds;
         bool                HasWorldBounds = false;
         bool                CastShadows = true, ReceiveShadows = true;
+        Ref<const SkinningPose> SkinPose;
     };
     struct ViewGeometryDraw
     {
@@ -109,6 +110,7 @@ namespace Kans
         MeshKey                 Mesh;
         std::optional<uint32_t> Section;
         UUID                    EntityID = 0;
+        Ref<const SkinningPose> SkinPose;
     };
     struct ViewReadyDraw
     {

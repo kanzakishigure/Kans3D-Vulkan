@@ -18,9 +18,12 @@ namespace Kans
             *recorded = false;
         using namespace RenderHardware;
         auto       device      = cache.GetDevice();
+        const bool skinned     = bool(mesh.Skin && data.Palette);
+        if (skinned && !shader.PrepareSkinning())
+            return false;
         const bool transparent = data.Render.AlphaMode == MaterialAlphaMode::Blend;
         // Include attachment formats as well as count: display and HDR share a shader cache.
-        uint32_t key = uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
+        uint32_t key = (uint32_t(skinned) << 7) | uint32_t(transparent) | (uint32_t(data.Render.DoubleSided) << 1) |
                        (uint32_t(data.Wireframe) << 2) | (uint32_t(data.WriteStencil) << 3) |
                        (uint32_t(data.ColorFormats.size()) << 8) |
                        ((data.Samples == 8 ? 3u :
@@ -41,9 +44,21 @@ namespace Kans
             desc.Samples         = data.Samples;
             desc.AlphaToCoverage = data.Samples > 1 && data.Render.AlphaMode == MaterialAlphaMode::Mask;
             desc.Program = data.DepthProgram ? data.DepthProgram : extraPass ? extraPass->Program : shader.Program;
+            if (skinned && !data.DepthProgram)
+                desc.Program = extraPass ? extraPass->SkinnedProgram : shader.SkinnedProgram;
             desc.GroupLayouts                 = {shader.EngineLayout, shader.MaterialLayout};
+            if (skinned)
+                desc.GroupLayouts.push_back(shader.SkinLayout);
             desc.VertexBindings               = mesh.VertexBindings;
             desc.Attributes                   = mesh.Attributes;
+            if (!skinned && mesh.Skin)
+            {
+                desc.VertexBindings.resize(1);
+                desc.Attributes.erase(std::remove_if(desc.Attributes.begin(),
+                                                     desc.Attributes.end(),
+                                                     [](const auto& a) { return a.BufferSlot == 1; }),
+                                      desc.Attributes.end());
+            }
             desc.ColorFormats                 = data.ColorFormats;
             desc.HasDepthStencil              = true;
             desc.DepthStencilFormat           = Format::Depth24Stencil8;
@@ -144,7 +159,14 @@ namespace Kans
         commands.BindPipeline(pipeline);
         commands.BindGroup(device->CreateBindGroup(engine));
         commands.BindGroup(material);
-        commands.BindVertexBuffers({{0, mesh.Vertices, 0}});
+        if (skinned)
+        {
+            BindSkinning(
+                *device, commands, shader.SkinLayout, data.Palette ? data.Palette : mesh.BindPalette, mesh.MorphDeltas);
+            commands.BindVertexBuffers({{0, mesh.Vertices, 0}, {1, mesh.Skin, 0}});
+        }
+        else
+            commands.BindVertexBuffers({{0, mesh.BindVertices ? mesh.BindVertices : mesh.Vertices, 0}});
         commands.BindIndexBuffer(mesh.Indices, IndexType::Uint32);
         const auto& section = mesh.Sections.at(data.Section);
         commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);

@@ -5,6 +5,7 @@
 #include <functional>
 #include <set>
 #include <yaml-cpp/yaml.h>
+#include "Kans3D/Animation/AnimationProduct.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
 #include "Entity.h"
 namespace Kans
@@ -743,6 +744,19 @@ namespace Kans
             node["TransformComponent"]  = EncodeTransform(transform);
             if (entity.HasComponent<PrefabInstanceComponent>())
                 node["PrefabInstanceComponent"] = EncodePrefab(entity.GetComponent<PrefabInstanceComponent>());
+            if (entity.HasComponent<AnimatorComponent>())
+            {
+                const auto& a        = entity.GetComponent<AnimatorComponent>();
+                auto        v        = node["AnimatorComponent"];
+                v["Skeleton"]        = a.Skeleton.ToString();
+                v["Controller"]      = a.Controller.ToString();
+                v["Enabled"]         = a.Enabled;
+                v["ApplyRootMotion"] = a.ApplyRootMotion;
+                v["Speed"]           = a.Speed;
+                v["Parameters"]      = a.Parameters;
+                if (a.InlineController)
+                    v["InlineController"] = EncodeAnimationControllerNode(*a.InlineController);
+            }
             Require(!(entity.HasComponent<MeshComponent>() && entity.HasComponent<EditableMeshComponent>()),
                     "Mesh components are mutually exclusive");
             if (entity.HasComponent<EditableMeshComponent>())
@@ -898,6 +912,7 @@ namespace Kans
             Require(encoded == entities.size(), "Scene hierarchy does not reach every entity");
             YAML::Emitter output;
             output.SetFloatPrecision(std::numeric_limits<float>::max_digits10);
+            output.SetDoublePrecision(std::numeric_limits<double>::max_digits10);
             output << root;
             Require(output.good() && output.size() <= SceneBytes, "Scene serialization exceeds byte limit");
             std::error_code error;
@@ -986,6 +1001,7 @@ namespace Kans
                       "TransformComponent",
                       "ProductModelComponent",
                       "PrefabInstanceComponent",
+                      "AnimatorComponent",
                       "MeshComponent",
                       "EditableMeshComponent",
                       "PrefabParent",
@@ -1018,6 +1034,32 @@ namespace Kans
                 {
                     Require(!model, "Scene entity has both prefab and legacy model");
                     entity.AddComponent<PrefabInstanceComponent>(DecodePrefab(node["PrefabInstanceComponent"]));
+                }
+                if (node["AnimatorComponent"])
+                {
+                    const auto v = node["AnimatorComponent"];
+                    Keys(v,
+                         {"Skeleton",
+                          "Controller",
+                          "Enabled",
+                          "ApplyRootMotion",
+                          "Speed",
+                          "Parameters",
+                          "InlineController"});
+                    AnimatorComponent a;
+                    a.Skeleton        = AssetID::FromString(v["Skeleton"].as<std::string>());
+                    a.Controller      = AssetID::FromString(v["Controller"].as<std::string>());
+                    a.Enabled         = v["Enabled"].as<bool>();
+                    a.ApplyRootMotion = v["ApplyRootMotion"].as<bool>();
+                    a.Speed           = v["Speed"].as<double>();
+                    Require(std::isfinite(a.Speed), "Non-finite animator speed");
+                    Require(v["Parameters"].IsMap() && v["Parameters"].size() <= 4096, "Invalid animator parameters");
+                    a.Parameters = v["Parameters"].as<std::map<std::string, double>>();
+                    for (const auto& p : a.Parameters)
+                        Require(std::isfinite(p.second), "Non-finite animator parameter");
+                    if (v["InlineController"])
+                        a.InlineController = DecodeAnimationControllerNode(v["InlineController"]);
+                    entity.AddComponent<AnimatorComponent>(std::move(a));
                 }
                 Require(!(node["MeshComponent"] && node["EditableMeshComponent"]),
                         "Mesh components are mutually exclusive");

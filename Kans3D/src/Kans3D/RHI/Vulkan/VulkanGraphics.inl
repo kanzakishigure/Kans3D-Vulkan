@@ -113,7 +113,7 @@ struct VKShader final : Shader
                                                type,
                                                0,
                                                TextureDimension::Texture2D};
-                        Require(binding.Group < 2, "Group exceeds backend capacity");
+                        Require(binding.Group < 4, "Group exceeds backend capacity");
                         if (type == BindingType::UniformBuffer || type == BindingType::StorageBuffer)
                             binding.Bytes =
                                 reflection.get_declared_struct_size(reflection.get_type(resource.base_type_id));
@@ -203,7 +203,7 @@ struct VKLayout final : BindGroupLayout
     VkDescriptorSetLayout Native = VK_NULL_HANDLE;
     VKLayout(std::shared_ptr<State> owner, BindGroupLayoutDesc desc) : Memory(std::move(owner)), Desc(std::move(desc))
     {
-        Require(Desc.Group < 2, "Group exceeds backend capacity");
+        Require(Desc.Group < 4, "Group exceeds backend capacity");
         std::sort(Desc.Entries.begin(), Desc.Entries.end(), [](auto a, auto b) { return a.Slot < b.Slot; });
         std::vector<VkDescriptorSetLayoutBinding> bindings;
         for (auto entry : Desc.Entries)
