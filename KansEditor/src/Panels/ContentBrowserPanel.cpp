@@ -10,6 +10,7 @@
 #include "Kans3D/Editor/EditorResources.h"
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "UI/EditorIcons.h"
+#include "UI/Widgets.h"
 #include "UI/PropertyGrid.h"
 
 namespace Kans
@@ -19,11 +20,6 @@ namespace Kans
 
     namespace
     {
-        constexpr ImU32 CardColor         = IM_COL32(38, 38, 38, 255);
-        constexpr ImU32 CardHoveredColor  = IM_COL32(52, 52, 52, 255);
-        constexpr ImU32 CardSelectedColor = IM_COL32(40, 64, 96, 255);
-        constexpr ImU32 SelectionBorder   = IM_COL32(70, 150, 230, 255);
-        constexpr ImU32 FolderAccent      = IM_COL32(60, 160, 255, 140);
         constexpr ImU32 ImportedColor     = IM_COL32(90, 200, 120, 255);
         constexpr ImU32 NotImportedColor  = IM_COL32(150, 150, 150, 255);
         constexpr ImVec4 WarningColor {0.95f, 0.75f, 0.30f, 1.0f};
@@ -154,9 +150,9 @@ namespace Kans
         bool IconButton(const char* icon, const char* tooltip, bool active = false, bool enabled = true)
         {
             ImGui::PushStyleColor(ImGuiCol_Button, active ? EditorTheme::Colors().Selection : ImVec4(0, 0, 0, 0));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.40f, 0.40f, 0.40f, 0.45f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().Hover);
             ImGui::BeginDisabled(!enabled);
-            const bool clicked = ImGui::Button(icon, {26.0f, 0.0f});
+            const bool clicked = ImGui::Button(icon, {ImGui::GetFrameHeight(), 0.0f});
             ImGui::EndDisabled();
             ImGui::PopStyleColor(2);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -165,6 +161,41 @@ namespace Kans
         }
 
         std::string Label(const char* icon, const char* text) { return std::string(icon) + "  " + text; }
+
+        ImVec4 KindColor(Browser::AssetKind kind)
+        {
+            const auto& p = EditorTheme::Colors();
+            switch (kind)
+            {
+                case Browser::AssetKind::Model: return p.TypeModel;
+                case Browser::AssetKind::Texture: return p.TypeImage;
+                case Browser::AssetKind::Material: return p.TypeMaterial;
+                case Browser::AssetKind::Shader: return p.TypeShader;
+                case Browser::AssetKind::Scene: return p.TypeScene;
+                default: return p.TextDim;
+            }
+        }
+
+        // A rounded toggle with the type's colour dot; tinted while on.
+        bool KindPill(const char* name, ImVec4 color, bool on)
+        {
+            using EditorTheme::Px;
+            const float  dot  = Px(8.0f);
+            const ImVec2 text = ImGui::CalcTextSize(name);
+            const ImVec2 size {Px(10.0f) + dot + Px(6.0f) + text.x + Px(10.0f), ImGui::GetFrameHeight()};
+            const ImVec2 at   = ImGui::GetCursorScreenPos();
+            const bool   clicked = ImGui::InvisibleButton(name, size);
+            const bool   hovered = ImGui::IsItemHovered();
+            auto*        draw    = ImGui::GetWindowDrawList();
+            ImVec4       fill    = on ? ImVec4 {color.x, color.y, color.z, 0.22f} : EditorTheme::Colors().Raised;
+            if (hovered)
+                fill = on ? ImVec4 {color.x, color.y, color.z, 0.32f} : EditorTheme::Colors().Hover;
+            draw->AddRectFilled(at, {at.x + size.x, at.y + size.y}, ImGui::GetColorU32(fill), size.y * 0.5f);
+            draw->AddCircleFilled({at.x + Px(10.0f) + dot * 0.5f, at.y + size.y * 0.5f}, dot * 0.5f, ImGui::GetColorU32(color));
+            draw->AddText({at.x + Px(10.0f) + dot + Px(6.0f), at.y + (size.y - text.y) * 0.5f},
+                          ImGui::GetColorU32(on ? EditorTheme::Colors().Text : EditorTheme::Colors().TextDim), name);
+            return clicked;
+        }
     } // namespace
 
     // ====================================================================== setup
@@ -367,30 +398,38 @@ namespace Kans
         UpdateSources(false);
 
         DrawToolbar();
-        const ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV;
-        const int             columns = m_ShowPreview ? 3 : 2;
-        if (ImGui::BeginTable("##BrowserLayout", columns, flags, ImGui::GetContentRegionAvail()))
+        DrawFilterRow();
+        const ImGuiTableFlags flags   = ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV;
+        // The preview steps aside when the panel is too narrow for three columns.
+        const bool            preview = m_ShowPreview && ImGui::GetContentRegionAvail().x >= EditorTheme::Px(720.0f);
+        const int             columns = preview ? 3 : 2;
+        const float           status  = ImGui::GetFrameHeight();
+        // Children in table cells size against the window, not the cell: give them the height.
+        m_ColumnHeight = std::max(1.0f, ImGui::GetContentRegionAvail().y - status - ImGui::GetStyle().ItemSpacing.y);
+        if (ImGui::BeginTable("##BrowserLayout", columns, flags, {0.0f, m_ColumnHeight}))
         {
+            m_ColumnHeight -= 2.0f * ImGui::GetStyle().CellPadding.y; // Cells pad their content.
             ImGui::TableSetupColumn("Folders", ImGuiTableColumnFlags_WidthFixed, 210.0f);
             ImGui::TableSetupColumn("Items", ImGuiTableColumnFlags_WidthStretch);
-            if (m_ShowPreview)
+            if (preview)
                 ImGui::TableSetupColumn("Preview", ImGuiTableColumnFlags_WidthFixed, 280.0f);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::BeginChild("##Tree");
+            ImGui::BeginChild("##Tree", {0, m_ColumnHeight});
             DrawTree();
             ImGui::EndChild();
             ImGui::TableSetColumnIndex(1);
             DrawItems();
-            if (m_ShowPreview)
+            if (preview)
             {
                 ImGui::TableSetColumnIndex(2);
-                ImGui::BeginChild("##Preview", {0, 0}, ImGuiChildFlags_AlwaysUseWindowPadding);
+                ImGui::BeginChild("##Preview", {0, m_ColumnHeight}, ImGuiChildFlags_AlwaysUseWindowPadding);
                 DrawPreview();
                 ImGui::EndChild();
             }
             ImGui::EndTable();
         }
+        DrawStatusBar();
         DrawContextMenus();
         DrawDeleteDialog();
     }
@@ -399,7 +438,33 @@ namespace Kans
 
     void ContentBrowserPanel::DrawToolbar()
     {
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {3.0f, 4.0f});
+        using EditorTheme::Px;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Px(3.0f), Px(4.0f)});
+        // Create and import: the main actions, as text buttons.
+        if (Widgets::TextButton(ICON_FA_PLUS, "Add", "Create in this folder", false, true))
+            ImGui::OpenPopup("##Add");
+        if (ImGui::BeginPopup("##Add"))
+        {
+            if (ImGui::MenuItem(Label(ICON_FA_FOLDER_PLUS, "Folder").c_str()))
+                NewFolder(m_Current);
+            if (ImGui::MenuItem(Label(ICON_FA_PALETTE, "Material").c_str(), nullptr, false, bool(m_CreateMaterial)))
+                m_CreateMaterial(m_Current);
+            ImGui::EndPopup();
+        }
+        ImGui::SameLine();
+        // Imports the selected source files (or reimports them).
+        std::vector<fs::path> importable;
+        for (const auto& item : m_Selection.Items())
+            if (CanImport(item))
+                importable.push_back(item);
+        ImGui::BeginDisabled(importable.empty() || !m_Import);
+        if (Widgets::TextButton(ICON_FA_DOWNLOAD, "Import",
+                                importable.empty() ? "Select source files to import" : "Import the selected source files"))
+            for (const auto& item : importable)
+                m_Import(item);
+        ImGui::EndDisabled();
+        ImGui::SameLine(0, Px(12.0f));
+
         if (IconButton(ICON_FA_ARROW_LEFT, "Back (Alt+Left)", false, !m_Back.empty()))
         {
             m_Forward.push_back(m_Current);
@@ -425,63 +490,99 @@ namespace Kans
             if (m_Service)
                 (void)m_Service->RefreshSources();
         }
-        ImGui::SameLine();
+        ImGui::SameLine(0, Px(8.0f));
 
-        // Right side widths are fixed; the breadcrumbs take the rest.
-        const float rightWidth = 200.0f + 4 * 29.0f + (m_View == View::Grid ? 94.0f : 0.0f);
-        DrawBreadcrumbs(std::max(80.0f, ImGui::GetContentRegionAvail().x - rightWidth));
-        ImGui::SameLine(
-            std::max(ImGui::GetCursorPosX(), (ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x) - rightWidth));
-
-        ImGui::SetNextItemWidth(200.0f);
-        ImGui::InputTextWithHint("##search", ICON_FA_MAGNIFYING_GLASS " Search", m_Search.data(), m_Search.size());
-        ImGui::SameLine();
-        bool kindsFiltered = false;
-        for (int i = 1; i < Browser::AssetKindCount; ++i)
-            kindsFiltered |= !m_Filter.Kinds[i];
-        if (IconButton(ICON_FA_FILTER, "Filter by type", kindsFiltered))
-            ImGui::OpenPopup("##KindFilter");
-        if (ImGui::BeginPopup("##KindFilter"))
+        // Breadcrumbs take the rest, up to the view menu.
+        const float menu = ImGui::GetFrameHeight();
+        DrawBreadcrumbs(std::max(Px(80.0f), ImGui::GetContentRegionAvail().x - menu - Px(8.0f)));
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - menu));
+        if (IconButton(ICON_FA_GEAR, "View options"))
+            ImGui::OpenPopup("##ViewMenu");
+        if (ImGui::BeginPopup("##ViewMenu"))
         {
-            for (int i = 1; i < Browser::AssetKindCount; ++i)
-                ImGui::Checkbox(Browser::KindName(Browser::AssetKind(i)), &m_Filter.Kinds[i]);
+            if (ImGui::MenuItem(Label(ICON_FA_TABLE_CELLS_LARGE, "Grid").c_str(), nullptr, m_View == View::Grid))
+                m_View = View::Grid;
+            if (ImGui::MenuItem(Label(ICON_FA_LIST, "List").c_str(), nullptr, m_View == View::List))
+                m_View = View::List;
+            if (m_View == View::Grid)
+            {
+                ImGui::SetNextItemWidth(Px(160.0f));
+                ImGui::SliderFloat("Icon size", &m_IconSize, 48.0f, 192.0f, "%.0f px");
+            }
             ImGui::Separator();
-            if (ImGui::MenuItem("Show all"))
-                std::fill(std::begin(m_Filter.Kinds), std::end(m_Filter.Kinds), true);
+            if (ImGui::BeginMenu(Label(ICON_FA_ARROW_DOWN_A_Z, "Sort by").c_str()))
+            {
+                const char* keys[] = {"Name", "Type", "Size", "Date modified"};
+                for (int i = 0; i < 4; ++i)
+                    if (ImGui::MenuItem(keys[i], nullptr, int(m_SortKey) == i))
+                        m_SortKey = Browser::SortKey(i);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Ascending", nullptr, m_Ascending))
+                    m_Ascending = true;
+                if (ImGui::MenuItem("Descending", nullptr, !m_Ascending))
+                    m_Ascending = false;
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
+            ImGui::MenuItem(Label(ICON_FA_TABLE_COLUMNS, "Preview pane").c_str(), nullptr, &m_ShowPreview);
             ImGui::EndPopup();
         }
-        ImGui::SameLine();
-        if (IconButton(ICON_FA_ARROW_DOWN_A_Z, "Sort"))
-            ImGui::OpenPopup("##Sort");
-        if (ImGui::BeginPopup("##Sort"))
-        {
-            const char* keys[] = {"Name", "Type", "Size", "Date modified"};
-            for (int i = 0; i < 4; ++i)
-                if (ImGui::MenuItem(keys[i], nullptr, int(m_SortKey) == i))
-                    m_SortKey = Browser::SortKey(i);
-            ImGui::Separator();
-            if (ImGui::MenuItem("Ascending", nullptr, m_Ascending))
-                m_Ascending = true;
-            if (ImGui::MenuItem("Descending", nullptr, !m_Ascending))
-                m_Ascending = false;
-            ImGui::EndPopup();
-        }
-        ImGui::SameLine();
-        if (IconButton(m_View == View::Grid ? ICON_FA_LIST : ICON_FA_TABLE_CELLS_LARGE,
-                       m_View == View::Grid ? "List view" : "Grid view"))
-            m_View = m_View == View::Grid ? View::List : View::Grid;
-        if (m_View == View::Grid)
-        {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(90.0f);
-            ImGui::SliderFloat("##zoom", &m_IconSize, 48.0f, 192.0f, "%.0f px");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Icon size (Ctrl+wheel)");
-        }
-        ImGui::SameLine();
-        if (IconButton(ICON_FA_TABLE_COLUMNS, "Preview pane", m_ShowPreview))
-            m_ShowPreview = !m_ShowPreview;
         ImGui::PopStyleVar();
+    }
+
+    void ContentBrowserPanel::DrawFilterRow()
+    {
+        using EditorTheme::Px;
+        ImGui::SetNextItemWidth(std::min(Px(240.0f), ImGui::GetContentRegionAvail().x * 0.4f));
+        ImGui::InputTextWithHint("##search", ICON_FA_MAGNIFYING_GLASS "  Search", m_Search.data(), m_Search.size());
+        const bool all = m_Filter.ShowsAllTypes();
+        for (int i = 1; i < Browser::AssetKindCount; ++i)
+        {
+            const auto kind = Browser::AssetKind(i);
+            ImGui::SameLine(0, i == 1 ? Px(10.0f) : Px(4.0f));
+            ImGui::PushID(i);
+            // With every type shown no pill is "on": the first click narrows to one type.
+            if (KindPill(Browser::KindName(kind), KindColor(kind), !all && m_Filter.Kinds[i]))
+                m_Filter.TogglePill(kind);
+            ImGui::PopID();
+        }
+        if (!all)
+        {
+            ImGui::SameLine(0, Px(6.0f));
+            if (IconButton(ICON_FA_XMARK, "Show every type"))
+                std::fill(std::begin(m_Filter.Kinds), std::end(m_Filter.Kinds), true);
+        }
+    }
+
+    void ContentBrowserPanel::DrawStatusBar()
+    {
+        size_t folders = 0;
+        for (const auto& entry : m_Visible)
+            folders += entry.Directory;
+        std::string text = std::to_string(m_Visible.size() - folders) + " items";
+        if (folders)
+            text += ", " + std::to_string(folders) + (folders == 1 ? " folder" : " folders");
+        if (!m_Selection.Empty())
+            text += "  |  " + std::to_string(m_Selection.Size()) + " selected";
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", text.c_str());
+        // Import progress, on the right.
+        if (m_Service)
+            if (auto snapshot = m_Service->GetSnapshot(); std::holds_alternative<EditorAssetImportSnapshot>(snapshot))
+            {
+                const auto& state = std::get<EditorAssetImportSnapshot>(snapshot);
+                if (state.State == EditorAssetImportState::Building)
+                {
+                    std::string importing = ICON_FA_SPINNER "  Importing";
+                    for (const auto& [path, status] : m_Sources)
+                        if (status.Source.sourceAssetID == state.Source)
+                            importing += " " + fs::u8path(path).filename().u8string();
+                    const float width = ImGui::CalcTextSize(importing.c_str()).x;
+                    ImGui::SameLine(std::max(ImGui::GetCursorPosX(),
+                                             ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - width));
+                    ImGui::TextColored(EditorTheme::Colors().Accent, "%s", importing.c_str());
+                }
+            }
     }
 
     void ContentBrowserPanel::DrawBreadcrumbs(float width)
@@ -529,20 +630,34 @@ namespace Kans
                 continue;
             }
             if (i > 0)
-            {
-                ImGui::SameLine(0, 2.0f);
-                ImGui::TextDisabled(">");
-                ImGui::SameLine(0, 2.0f);
-            }
+                ImGui::SameLine(0, 0);
             ImGui::PushID(int(i));
             const bool last = i + 1 == segments.size();
             if (last)
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+                ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Text);
             if (ImGui::Button(name(i).c_str()) && !last)
                 Navigate(segments[i]);
             if (last)
                 ImGui::PopStyleColor();
             AcceptDrop(segments[i]);
+            // Each segment's subfolders, one click away.
+            if (m_Cache.HasSubdirectories(segments[i]))
+            {
+                ImGui::SameLine(0, 0);
+                ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextDim);
+                if (ImGui::Button(ICON_FA_CHEVRON_RIGHT "##sub"))
+                    ImGui::OpenPopup("##Subfolders");
+                ImGui::PopStyleColor();
+                if (ImGui::BeginPopup("##Subfolders"))
+                {
+                    for (const auto& entry : m_Cache.List(segments[i]))
+                        if (entry.Directory &&
+                            ImGui::MenuItem(Label(ICON_FA_FOLDER, entry.Name.c_str()).c_str(), nullptr,
+                                            i + 1 < segments.size() && entry.Path == segments[i + 1]))
+                            Navigate(entry.Path);
+                    ImGui::EndPopup();
+                }
+            }
             ImGui::PopID();
         }
         ImGui::PopStyleColor();
@@ -553,9 +668,16 @@ namespace Kans
 
     void ContentBrowserPanel::DrawTree()
     {
+        const auto section = [](const char* title) {
+            ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().TextDim);
+            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
+            ImGui::TextUnformatted(title);
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+        };
         if (!m_Favorites.empty())
         {
-            ImGui::TextDisabled(ICON_FA_STAR "  Favorites");
+            section("FAVORITES");
             std::string remove;
             for (const auto& favorite : m_Favorites)
             {
@@ -585,8 +707,9 @@ namespace Kans
             }
             if (!remove.empty())
                 m_Favorites.erase(std::remove(m_Favorites.begin(), m_Favorites.end(), remove), m_Favorites.end());
-            ImGui::Separator();
+            ImGui::Dummy({0, EditorTheme::Px(4.0f)});
         }
+        section("FOLDERS");
         ImGui::SetNextItemOpen(true, ImGuiCond_Once);
         DrawTreeNode(m_Root, m_Root.filename().u8string());
         m_RevealCurrent = false;
@@ -636,7 +759,7 @@ namespace Kans
     void ContentBrowserPanel::DrawItems()
     {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, EditorTheme::Colors().Inset);
-        ImGui::BeginChild("##Items", {0, 0}, ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::BeginChild("##Items", {0, m_ColumnHeight}, ImGuiChildFlags_AlwaysUseWindowPadding);
         ImGui::PopStyleColor();
         if (m_Visible.empty())
         {
@@ -706,12 +829,22 @@ namespace Kans
                     const bool selected = m_Selection.Contains(entry.Path);
                     HandleItem(entry);
 
-                    draw->AddRectFilled(
-                        min, max, selected ? CardSelectedColor : hovered ? CardHoveredColor : CardColor, 6.0f);
+                    const auto& palette = EditorTheme::Colors();
+                    const float radius  = EditorTheme::Px(6.0f);
+                    if (!entry.Directory)
+                    {
+                        // A card in the raised tone with the type's colour along its bottom edge.
+                        draw->AddRectFilled(min, max, ImGui::GetColorU32(hovered ? palette.Hover : palette.Raised), radius);
+                        draw->AddRectFilled({min.x, max.y - EditorTheme::Px(3.0f)}, max,
+                                            ImGui::GetColorU32(KindColor(entry.Kind)), radius, ImDrawFlags_RoundCornersBottom);
+                    }
+                    else if (hovered)
+                        draw->AddRectFilled(min, max, ImGui::GetColorU32(palette.Hover), radius);
                     if (selected)
-                        draw->AddRect(min, max, SelectionBorder, 6.0f, 0, 1.5f);
-                    if (entry.Directory)
-                        draw->AddRectFilled({min.x + 6.0f, max.y - 3.0f}, {max.x - 6.0f, max.y - 1.5f}, FolderAccent);
+                    {
+                        draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4 {palette.Accent.x, palette.Accent.y, palette.Accent.z, 0.18f}), radius);
+                        draw->AddRect(min, max, ImGui::GetColorU32(palette.Accent), radius, 0, EditorTheme::Px(1.5f));
+                    }
                     const ImVec2 iconMin(min.x + 8.0f, min.y + 7.0f);
                     const ImVec2 iconMax(iconMin.x + m_IconSize, iconMin.y + m_IconSize);
                     DrawIcon(entry, iconMin, iconMax);
@@ -728,7 +861,7 @@ namespace Kans
                     {
                         const auto name = Ellipsis(entry.Name, textWidth);
                         draw->AddText({min.x + (cardWidth - ImGui::CalcTextSize(name.c_str()).x) * 0.5f, nameAt.y},
-                                      IM_COL32(220, 220, 220, 255),
+                                      ImGui::GetColorU32(EditorTheme::Colors().Text),
                                       name.c_str());
                     }
                     if (details)
@@ -739,7 +872,7 @@ namespace Kans
                         const auto text = Ellipsis(info, textWidth);
                         draw->AddText({min.x + (cardWidth - ImGui::CalcTextSize(text.c_str()).x) * 0.5f,
                                        nameAt.y + lineHeight + 1.0f},
-                                      IM_COL32(130, 130, 130, 255),
+                                      ImGui::GetColorU32(EditorTheme::Colors().TextDim),
                                       text.c_str());
                     }
                     // Keep the layout cursor after the card for SameLine.

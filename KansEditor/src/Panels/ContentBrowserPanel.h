@@ -82,6 +82,8 @@ namespace Kans
         // ---- drawing ----
         void DrawToolbar();
         void DrawBreadcrumbs(float width);
+        void DrawFilterRow();
+        void DrawStatusBar();
         void DrawTree();
         void DrawTreeNode(const std::filesystem::path& directory, const std::string& label);
         void DrawItems();
@@ -134,6 +136,7 @@ namespace Kans
         View                   m_View       = View::Grid;
         float                  m_IconSize   = 88.0f;
         bool                   m_ShowPreview = true;
+        float                  m_ColumnHeight = 0.0f; // Height of the folder, item and preview columns.
         Browser::SortKey       m_SortKey    = Browser::SortKey::Name;
         bool                   m_Ascending  = true;
         Browser::Filter        m_Filter;

@@ -26,6 +26,14 @@ namespace Kans::EditorTheme
         ImVec4 Danger;
         ImVec4 Warning;
         ImVec4 Success;
+        // Asset types, the same in icons, browser cards, filter pills and pickers.
+        ImVec4 TypeModel;
+        ImVec4 TypeImage;
+        ImVec4 TypeScene;
+        ImVec4 TypeMaterial;
+        ImVec4 TypeScript;
+        ImVec4 TypeShader;
+        ImVec4 TypeAudio;
     };
 
     const Palette& Colors();

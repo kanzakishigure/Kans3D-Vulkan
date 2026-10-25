@@ -91,6 +91,11 @@ namespace Kans::Browser
 
         bool Matches(const Entry& entry) const;
         bool IsActive() const;
+        // Type pills. With every file type shown, clicking one shows only that type;
+        // otherwise a click toggles it, and turning the last one off shows them all
+        // again. Folders are always shown.
+        void TogglePill(AssetKind kind);
+        bool ShowsAllTypes() const;
     };
 
     // A path in `directory` that does not exist yet: "name.ext", "name (1).ext", ...

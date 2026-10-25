@@ -175,6 +175,28 @@ namespace Kans::Browser
         return !Text.empty() || std::any_of(std::begin(Kinds), std::end(Kinds), [](bool on) { return !on; });
     }
 
+    bool Filter::ShowsAllTypes() const
+    {
+        return std::all_of(std::begin(Kinds) + 1, std::end(Kinds), [](bool on) { return on; });
+    }
+
+    void Filter::TogglePill(AssetKind kind)
+    {
+        const int index = int(kind);
+        if (index <= 0 || index >= AssetKindCount)
+            return;
+        if (ShowsAllTypes())
+        {
+            std::fill(std::begin(Kinds) + 1, std::end(Kinds), false);
+            Kinds[index] = true;
+        }
+        else
+            Kinds[index] = !Kinds[index];
+        if (std::none_of(std::begin(Kinds) + 1, std::end(Kinds), [](bool on) { return on; }))
+            std::fill(std::begin(Kinds) + 1, std::end(Kinds), true);
+        Kinds[0] = true;
+    }
+
     fs::path UniqueChildPath(const fs::path& directory, const std::string& stem, const std::string& extension)
     {
         std::error_code error;

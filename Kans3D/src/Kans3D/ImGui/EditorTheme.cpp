@@ -27,6 +27,13 @@ namespace Kans::EditorTheme
             Rgb(232, 86, 77),   // Danger
             Rgb(232, 168, 56),  // Warning
             Rgb(76, 175, 106),  // Success
+            Rgb(240, 138, 60),  // TypeModel
+            Rgb(76, 175, 106),  // TypeImage
+            Rgb(47, 128, 237),  // TypeScene
+            Rgb(155, 107, 242), // TypeMaterial
+            Rgb(232, 197, 71),  // TypeScript
+            Rgb(60, 200, 216),  // TypeShader
+            Rgb(240, 98, 146),  // TypeAudio
         };
 
         float g_Scale = 1.0f;
