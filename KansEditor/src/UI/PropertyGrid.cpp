@@ -395,6 +395,8 @@ namespace Kans::PropertyGrid
         return true;
     }
 
+    bool RowReset(bool modified) { return ResetButton(modified); }
+
     // ---------------------------------------------------------------------- widgets
 
     void Text(const char* label, const std::string& value, bool disabled)

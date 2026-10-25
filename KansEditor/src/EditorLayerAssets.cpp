@@ -82,6 +82,8 @@ namespace Kans
         m_ContentBrowserPanel.SetErrorCallback(
             [this](const std::string& message) { Record(AssetError {AssetErrorCode::InvalidArgument, message}); });
         m_ContentBrowserPanel.Bind(m_AssetImports.get());
+        m_ProductImportPanel.SetPlaceCallback([this](const std::filesystem::path& file) { PlaceAsset(file); });
+        m_ProductImportPanel.SetOpenMaterialCallback([this](const std::filesystem::path& file) { OpenMaterial(file); });
         m_HierarchyPanel.SetFileDropCallback(
             [this](const std::filesystem::path& file, Entity parent) { PlaceAsset(file, parent); });
         CORE_INFO("Opened project '{}'", m_AssetImports->GetConfig().Name);

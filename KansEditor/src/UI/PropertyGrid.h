@@ -48,6 +48,8 @@ namespace Kans::PropertyGrid
     // Starts a row and moves to the value cell, where the next item takes the full
     // width. Returns false when the row is filtered out: then draw nothing for it.
     bool Row(const char* label, const char* tooltip = nullptr, bool modified = false);
+    // After a modified Row's value widget: its reset button; true when clicked.
+    bool RowReset(bool modified);
 
     // Read-only text, wrapped in the value column.
     void Text(const char* label, const std::string& value, bool disabled = false);
