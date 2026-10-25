@@ -1,4 +1,5 @@
 #include "ViewportPanel.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include "Kans3D/Editor/DropPlacement.h"
 #include "Kans3D/Renderer/RenderWorld.h"
 #include <glm/gtc/constants.hpp>
@@ -19,7 +20,6 @@ namespace Kans
 {
     using Widgets::OverlayGroup;
     using Widgets::ToolButton;
-    using Widgets::ToolSeparator;
 
     void ViewportPanel::SetContext(Ref<Scene> scene, ViewportClient* client)
     {
@@ -437,8 +437,8 @@ namespace Kans
         m_CubeMin = m_CubeMax = {};
         if (UsesSceneCamera())
             return;
-        const ImVec2 size(96.0f, 96.0f);
-        const ImVec2 position(m_Max.x - size.x - 10.0f, m_Min.y + 46.0f);
+        const ImVec2 size(EditorTheme::Px(96.0f), EditorTheme::Px(96.0f));
+        const ImVec2 position(m_Max.x - size.x - EditorTheme::Px(10.0f), m_Min.y + EditorTheme::Px(50.0f));
         m_CubeMin = position;
         m_CubeMax = {position.x + size.x, position.y + size.y};
         glm::mat4 view = m_Camera.GetViewMatrix();
@@ -454,7 +454,7 @@ namespace Kans
             return;
         const auto&    stats = m_Client->GetLastResult().Stats;
         const ImGuiIO& io    = ImGui::GetIO();
-        OverlayGroup({m_Min.x + 10.0f, m_Max.y - 86.0f}, [&] {
+        OverlayGroup({m_Min.x + EditorTheme::Px(10.0f), m_Max.y - EditorTheme::Px(96.0f)}, [&] {
             ImGui::Text("%.0f FPS  %.2f ms", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
             ImGui::Text("%u x %u", m_Size.x, m_Size.y);
             ImGui::Text("%u draw calls", stats.DrawCalls);
@@ -530,10 +530,12 @@ namespace Kans
 
     void ViewportPanel::DrawToolbar()
     {
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 4.0f));
+        using EditorTheme::Px;
+        const float top = m_Min.y + Px(8.0f);
+        const float gap = Px(6.0f);
 
-        // Left: transform tools, space and snapping.
-        OverlayGroup({m_Min.x + 10.0f, m_Min.y + 8.0f}, [&] {
+        // Left: transform tools; space and snapping; editable-mesh element modes.
+        float x = OverlayGroup({m_Min.x + Px(10.0f), top}, [&] {
             const std::pair<int, std::pair<const char*, const char*>> tools[] = {
                 {-1, {ICON_FA_POINTER, "Select (Q)"}},
                 {ImGuizmo::TRANSLATE, {ICON_FA_ARROWS_MOVE, "Move (W)"}},
@@ -549,11 +551,13 @@ namespace Kans
                 if (ToolButton(info.first, info.second, m_GizmoType == type))
                     m_GizmoType = type;
             }
-            ToolSeparator();
-            if (ToolButton(m_GizmoMode == ImGuizmo::LOCAL ? ICON_FA_CUBE : ICON_FA_GLOBE,
-                           m_GizmoMode == ImGuizmo::LOCAL ? "Local space (click for world)" :
-                                                            "World space (click for local)"))
-                m_GizmoMode = m_GizmoMode == ImGuizmo::LOCAL ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
+        }) + gap;
+        x = OverlayGroup({x, top}, [&] {
+            const bool local = m_GizmoMode == ImGuizmo::LOCAL;
+            if (Widgets::TextButton(local ? ICON_FA_CUBE : ICON_FA_GLOBE,
+                                    local ? "Local" : "World",
+                                    local ? "Local space (click for world)" : "World space (click for local)"))
+                m_GizmoMode = local ? ImGuizmo::WORLD : ImGuizmo::LOCAL;
             ImGui::SameLine();
             if (ToolButton(ICON_FA_MAGNET, "Snap (or hold Ctrl while dragging)", m_GizmoSnap))
                 m_GizmoSnap = !m_GizmoSnap;
@@ -561,22 +565,26 @@ namespace Kans
             float*      snapStep = m_GizmoType == ImGuizmo::ROTATE ? &m_SnapRotate :
                                    m_GizmoType == ImGuizmo::SCALE  ? &m_SnapScale :
                                                                      &m_SnapMove;
-            const char* format   = m_GizmoType == ImGuizmo::ROTATE ? "%.0f deg" : "%.2f";
-            ImGui::SetNextItemWidth(70.0f);
-            ImGui::AlignTextToFramePadding();
+            const char* format   = m_GizmoType == ImGuizmo::ROTATE ? "%.0f°" : "%.2f";
+            ImGui::SetNextItemWidth(Px(64.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {Px(6.0f), (Px(26.0f) - ImGui::GetFontSize()) * 0.5f});
             ImGui::DragFloat("##snap", snapStep, 0.05f, 0.01f, 360.0f, format);
+            ImGui::PopStyleVar();
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Snap step for the current tool");
-            // Element modes for editable meshes.
-            ToolSeparator();
-            m_MeshTool.DrawModeButtons(m_Hierarchy.GetSelected());
-        });
+        }) + gap;
+        OverlayGroup({x, top}, [&] { m_MeshTool.DrawModeButtons(m_Hierarchy.GetSelected()); });
         if (!UsesSceneCamera())
-            m_MeshTool.DrawPanel(m_Hierarchy.GetSelected(), {m_Min.x + 10.0f, m_Min.y + 48.0f});
+            m_MeshTool.DrawPanel(m_Hierarchy.GetSelected(), {m_Min.x + Px(10.0f), m_Min.y + Px(48.0f)});
 
-        // Right: camera, view options.
-        OverlayGroup({m_Max.x - 268.0f, m_Min.y + 8.0f}, [&] {
-            if (ToolButton(m_Camera.IsOrthographic() ? ICON_FA_VECTOR_SQUARE : ICON_FA_VIDEO, "Camera view"))
+        // Right: camera view, framing and fly speed, display options. Right-aligned with
+        // last frame's width, since the labels change.
+        const float right = m_Max.x - Px(10.0f);
+        const float start = right - m_RightToolbarWidth;
+        const float end   = OverlayGroup({start, top}, [&] {
+            const char* view = m_Camera.IsOrthographic() ? m_ViewName : "Perspective";
+            if (Widgets::TextButton(m_Camera.IsOrthographic() ? ICON_FA_VECTOR_SQUARE : ICON_FA_VIDEO, view, "Camera view",
+                                    false, true))
                 ImGui::OpenPopup("##CameraView");
             if (ImGui::BeginPopup("##CameraView"))
             {
@@ -589,9 +597,12 @@ namespace Kans
                     {EditorCamera::View::Right, "Right"},
                     {EditorCamera::View::Left, "Left"},
                 };
-                for (const auto& [view, name] : views)
+                for (const auto& [choice, name] : views)
                     if (ImGui::MenuItem(name))
-                        m_Camera.SetView(view);
+                    {
+                        m_Camera.SetView(choice);
+                        m_ViewName = name;
+                    }
                 ImGui::Separator();
                 bool orthographic = m_Camera.IsOrthographic();
                 if (ImGui::MenuItem("Orthographic", nullptr, &orthographic))
@@ -612,19 +623,23 @@ namespace Kans
                 FocusSelection();
             ImGui::SameLine();
             float speed = m_Camera.GetFlySpeed();
-            ImGui::SetNextItemWidth(110.0f);
-            ImGui::AlignTextToFramePadding();
-            if (ImGui::SliderFloat("##speed",
+            ImGui::SetNextItemWidth(Px(100.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {Px(6.0f), (Px(26.0f) - ImGui::GetFontSize()) * 0.5f});
+            const bool speedChanged = ImGui::SliderFloat("##speed",
                                    &speed,
                                    EditorCamera::MinFlySpeed,
                                    EditorCamera::MaxFlySpeed,
                                    "%.1f m/s",
-                                   ImGuiSliderFlags_Logarithmic))
+                                   ImGuiSliderFlags_Logarithmic);
+            ImGui::PopStyleVar();
+            if (speedChanged)
                 m_Camera.SetFlySpeed(speed);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Fly speed (right mouse + WASD/QE, Shift for faster); the wheel adjusts it while flying");
             ImGui::SameLine();
-            if (ToolButton(ICON_FA_EYE, "View options"))
+            const char* modeNames[] = {"Lit", "Base color", "Normals", "Wireframe", "Cascades"};
+            const int   modeIndex   = std::clamp(int(m_ViewMode), 0, 4);
+            if (Widgets::TextButton(ICON_FA_EYE, modeNames[modeIndex], "Display mode and view options", false, true))
                 ImGui::OpenPopup("##ViewOptions");
             if (ImGui::BeginPopup("##ViewOptions"))
             {
@@ -678,6 +693,6 @@ namespace Kans
                 ImGui::EndPopup();
             }
         });
-        ImGui::PopStyleVar();
+        m_RightToolbarWidth = end - start;
     }
 } // namespace Kans

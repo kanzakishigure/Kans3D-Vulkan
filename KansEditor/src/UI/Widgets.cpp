@@ -1,6 +1,8 @@
 #include "Widgets.h"
 #include "Kans3D/ImGui/EditorTheme.h"
 #include <imgui_internal.h>
+#include <string>
+#include "EditorIcons.h"
 
 namespace Kans::Widgets
 {
@@ -52,18 +54,43 @@ namespace Kans::Widgets
         return max.x + pad;
     }
 
-    void OverlayGroup(ImVec2 position, const std::function<void()>& contents)
+    bool TextButton(const char* icon, const char* text, const char* tooltip, bool active, bool dropdown)
     {
+        std::string label = std::string(icon) + "  " + text;
+        if (dropdown)
+            label += "  " ICON_FA_CHEVRON_DOWN;
+        ImGui::PushStyleColor(ImGuiCol_Button, active ? EditorTheme::Colors().Selection : ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().Hover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {EditorTheme::Px(8.0f), ImGui::GetStyle().FramePadding.y});
+        const bool clicked = ImGui::Button(label.c_str(), {0.0f, EditorTheme::Px(26.0f)});
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+        if (tooltip && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", tooltip);
+        return clicked;
+    }
+
+    float OverlayGroup(ImVec2 position, const std::function<void()>& contents)
+    {
+        const float pad  = EditorTheme::Px(4.0f);
         ImDrawList* draw = ImGui::GetWindowDrawList();
-        ImGui::SetCursorScreenPos(position);
+        ImGui::SetCursorScreenPos({position.x + pad, position.y + pad});
         draw->ChannelsSplit(2);
         draw->ChannelsSetCurrent(1);
         ImGui::BeginGroup();
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {EditorTheme::Px(2.0f), EditorTheme::Px(4.0f)});
         contents();
+        ImGui::PopStyleVar();
         ImGui::EndGroup();
         draw->ChannelsSetCurrent(0);
         const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
-        draw->AddRectFilled({min.x - 4.0f, min.y - 3.0f}, {max.x + 4.0f, max.y + 3.0f}, IM_COL32(18, 18, 18, 190), 6.0f);
+        // Panel tone, mostly opaque so the scene shows through without hurting legibility.
+        auto background = EditorTheme::Colors().Panel;
+        background.w    = 0.82f;
+        draw->AddRectFilled({min.x - pad, min.y - pad}, {max.x + pad, max.y + pad}, ImGui::GetColorU32(background),
+                            EditorTheme::Px(8.0f));
         draw->ChannelsMerge();
+        return max.x + pad;
     }
 } // namespace Kans::Widgets

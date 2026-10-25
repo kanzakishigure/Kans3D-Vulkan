@@ -105,6 +105,10 @@ namespace Kans
         int   m_GizmoType  = 7;
         int   m_GizmoMode  = 0;
         bool  m_GizmoSnap  = false;
+        // Last chosen orthographic view, for the camera button's label.
+        const char* m_ViewName = "Perspective";
+        // The right-hand toolbar's measured width, to right-align it.
+        float m_RightToolbarWidth = 300.0f;
         float m_SnapMove   = 0.5f;
         float m_SnapRotate = 15.0f;
         float m_SnapScale  = 0.1f;
