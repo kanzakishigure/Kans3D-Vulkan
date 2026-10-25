@@ -133,6 +133,8 @@ namespace Kans
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(Application::OnWindowClose));
         dispatcher.Dispatch<WindowResizeEvent>(BIND_EVENT_FN(Application::OnWindowResize));
+        if (e.Handled)
+            return;
 
         for (auto it = m_LayerStack.begin(); it != m_LayerStack.end(); ++it)
         {
@@ -164,9 +166,7 @@ namespace Kans
 
     bool Application::OnWindowClose(WindowCloseEvent& e)
     {
-        m_Running = false;
-
-        return true;
+        return HandleCloseRequest(m_Running, e, m_CloseRequestHandler);
     }
     bool Application::OnWindowResize(WindowResizeEvent& e)
     {

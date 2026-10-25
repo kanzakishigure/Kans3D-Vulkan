@@ -10,6 +10,15 @@
 namespace Kans
 {
 
+    // Returns true for a consumed close request, including one vetoed by the handler.
+    inline bool HandleCloseRequest(bool& running, WindowCloseEvent& event, const std::function<bool()>& handler)
+    {
+        if (!handler || handler())
+            running = false;
+        event.Handled = true;
+        return true;
+    }
+
     struct ApplicationSpecification
     {
         std::string Name = "Kans3D";
@@ -35,6 +44,7 @@ namespace Kans
         void PushLayer(Layer* layer);
         void PushOverlay(Layer* overlay);
         void Close() { m_Running = false; }
+        void SetCloseRequestHandler(std::function<bool()> handler) { m_CloseRequestHandler = std::move(handler); }
 
         // 返回的是application的单例，所以不应该将指针返回
         inline static Application& Get() { return *s_Instance; }
@@ -63,6 +73,7 @@ namespace Kans
         ImGuiLayer*   m_ImGuiLayer;
         std::string   m_CapturePath;
         uint32_t      m_CaptureAfter = 0, m_CaptureFrame = 0;
+        std::function<bool()> m_CloseRequestHandler;
         bool          m_Running   = true;
         bool          m_Minimized = false;
 

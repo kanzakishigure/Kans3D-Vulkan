@@ -7,6 +7,8 @@
 
 namespace Kans
 {
+    class ProjectConfig;
+
     class FileSystemSpecification
     {
     public:
@@ -19,7 +21,6 @@ namespace Kans
         std::filesystem::path m_ResoucesDir;
         std::filesystem::path m_FontsPath;
         std::filesystem::path m_ScriptAssemblyPath;
-        std::filesystem::path m_AssetsRoot;
         std::filesystem::path m_ShaderCachePath;
         std::string           m_RenderBackend;
 
@@ -35,8 +36,8 @@ namespace Kans
         static void ShutDown();
 
         static std::filesystem::path GetExecutableDirectory();
-        static bool IsWorkspace(const std::filesystem::path& dir);
-        static std::optional<std::filesystem::path> FindWorkspace(const std::filesystem::path& executableDir,
+        static bool IsEditorRoot(const std::filesystem::path& dir);
+        static std::optional<std::filesystem::path> FindEditorRoot(const std::filesystem::path& executableDir,
                                                                  const std::filesystem::path& currentDir);
 
         // scope cache
@@ -55,7 +56,9 @@ namespace Kans
     public:
         static const std::filesystem::path& GetShaderCacheFolder() { return s_Specification->m_ShaderCachePath; }
 
-        static const std::filesystem::path& GetAssetFolder() { return s_Specification->m_AssetsRoot; }
+        static void SetProject(const ProjectConfig& config);
+        static const std::filesystem::path& GetProjectRoot() { return s_ProjectRoot; }
+        static const std::filesystem::path& GetAssetFolder() { return s_AssetFolder; }
         static const std::filesystem::path& GetFontsFolder() { return s_Specification->m_FontsPath; }
         static std::filesystem::path        GetScriptAssemblyPath();
 
@@ -67,6 +70,7 @@ namespace Kans
 
     private:
         static FileSystemSpecification* s_Specification;
+        static std::filesystem::path s_ProjectRoot, s_AssetFolder;
     };
 
     // in scope we will load file from fileCache

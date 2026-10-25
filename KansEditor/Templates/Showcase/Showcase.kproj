@@ -1,0 +1,5 @@
+Name: Showcase
+FormatVersion: 1
+StartupScene: assets/scenes/Showcase.kans
+AssetDirectory: assets
+CacheDirectory: Cache

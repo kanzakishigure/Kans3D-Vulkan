@@ -4,6 +4,7 @@
 #include <cstring>
 #include <imgui.h>
 #include "EditorIcons.h"
+#include "Kans3D/FileSystem/FileSystem.h"
 
 namespace Kans
 {
@@ -255,8 +256,12 @@ namespace Kans
                 Navigate(path);
         };
         place(ICON_FA_HOUSE, "Project", m_Root);
-        place(ICON_FA_FOLDER, "Assets", m_Root / "assets");
-        place(ICON_FA_FOLDER, "Scenes", m_Root / "assets" / "scenes");
+        const auto& assets = KansFileSystem::GetAssetFolder();
+        if (!assets.empty() && Inside(assets, m_Root))
+        {
+            place(ICON_FA_FOLDER, "Assets", assets);
+            place(ICON_FA_FOLDER, "Scenes", assets / "scenes");
+        }
     }
 
     void SceneFileDialog::DrawEntries(const Submit& submit)

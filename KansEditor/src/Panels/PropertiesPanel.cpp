@@ -5,6 +5,7 @@
 #include <filesystem>
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Renderer/Renderer.h"
+#include "Kans3D/FileSystem/FileSystem.h"
 #include "Components/ComponentEditors.h"
 #include "UI/BloomSettingsWidget.h"
 #include "UI/EditorIcons.h"
@@ -14,6 +15,35 @@ namespace Kans
 {
     namespace
     {
+        // Once an inherited editor map becomes authored scene data, copy it into the project
+        // so the scene keeps a portable relative path and preserves the lighting it was showing.
+        std::optional<std::filesystem::path> AuthoredEnvironmentMap(const std::filesystem::path& map)
+        {
+            namespace fs = std::filesystem;
+            if (!map.is_absolute())
+                return map;
+            if (KansFileSystem::GetAssetFolder().empty())
+                return std::nullopt;
+            const auto directory = KansFileSystem::GetAssetFolder() / "Environment";
+            std::error_code ec;
+            fs::create_directories(directory, ec);
+            if (ec)
+            {
+                CORE_ERROR("Cannot copy editor environment into project: {}", ec.message());
+                return std::nullopt;
+            }
+            auto destination = directory / map.filename();
+            if (fs::exists(destination, ec))
+                destination = directory / (map.stem().string() + "-" + SourceAssetID::Generate().ToString() + map.extension().string());
+            fs::copy_file(map, destination, ec);
+            if (ec)
+            {
+                CORE_ERROR("Cannot copy editor environment into project: {}", ec.message());
+                return std::nullopt;
+            }
+            return destination.lexically_relative(KansFileSystem::GetProjectRoot());
+        }
+
         constexpr ImVec4 OverrideColor {0.40f, 0.65f, 1.0f, 1.0f};
 
         bool ContainsIgnoreCase(const std::string& text, const char* needle)
@@ -72,8 +102,8 @@ namespace Kans
         {
             m_EnvironmentMaps.clear();
             std::error_code error;
-            const auto      root = std::filesystem::current_path(error);
-            for (auto it = std::filesystem::recursive_directory_iterator(root / "assets", error);
+            const auto&     root = KansFileSystem::GetProjectRoot();
+            for (auto it = std::filesystem::recursive_directory_iterator(KansFileSystem::GetAssetFolder(), error);
                  !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error))
                 if (it->is_regular_file(error) && it->path().extension() == ".hdr")
                     m_EnvironmentMaps.push_back(it->path().lexically_relative(root));
@@ -119,8 +149,16 @@ namespace Kans
         {
             // The first edit of a scene without settings keeps the map it was showing.
             if (!authored)
-                settings.Map = m_DefaultEnvironment;
-            scene.SetEnvironmentSettings(settings);
+            {
+                auto map = AuthoredEnvironmentMap(m_DefaultEnvironment);
+                if (map)
+                {
+                    settings.Map = *map;
+                    scene.SetEnvironmentSettings(settings);
+                }
+            }
+            else
+                scene.SetEnvironmentSettings(settings);
         }
         PropertyGrid::End();
     }

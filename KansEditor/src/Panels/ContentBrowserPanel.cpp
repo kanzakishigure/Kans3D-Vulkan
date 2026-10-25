@@ -170,7 +170,7 @@ namespace Kans
 
     ContentBrowserPanel::ContentBrowserPanel()
     {
-        m_Root    = Normal(KansFileSystem::GetAssetFolder());
+        m_Root    = KansFileSystem::GetAssetFolder();
         m_Current = m_Root;
     }
 
@@ -184,6 +184,11 @@ namespace Kans
             const auto saved = m_SavedDirectory.empty() ? m_Root : Normal(m_Root / fs::u8path(m_SavedDirectory));
             std::error_code error;
             m_Current = Browser::IsWithin(saved, m_Root) && fs::is_directory(saved, error) ? saved : m_Root;
+        }
+        else
+        {
+            m_Root.clear();
+            m_Current.clear();
         }
         m_Back.clear();
         m_Forward.clear();
@@ -220,6 +225,8 @@ namespace Kans
                     // imgui.ini is read on the first frame, after Bind() chose the root.
                     m_SavedDirectory = value;
                     std::error_code error;
+                    if (m_Root.empty())
+                        return;
                     const auto      saved = Normal(m_Root / fs::u8path(m_SavedDirectory));
                     if (*value && Browser::IsWithin(saved, m_Root) && fs::is_directory(saved, error))
                     {
@@ -346,6 +353,11 @@ namespace Kans
 
     void ContentBrowserPanel::onImGuiRender()
     {
+        if (m_Root.empty())
+        {
+            ImGui::TextDisabled("No project is open.");
+            return;
+        }
         m_Thumbnails.Update();
         std::error_code error;
         if (!fs::is_directory(m_Current, error))

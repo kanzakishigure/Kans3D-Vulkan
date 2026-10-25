@@ -14,15 +14,8 @@
 
 namespace Kans
 {
-    namespace
-    {
-        // Relative to the project's asset folder.
-        constexpr const char* StartupScene = "scenes/Showcase.kans";
-        constexpr const char* DefaultEnvironment = "assets/textures/HDR/studio_country_hall_2k.hdr";
-    } // namespace
-
-
-    EditorLayer::EditorLayer() : Layer("EditorLayer") {}
+    EditorLayer::EditorLayer(std::filesystem::path projectFile)
+        : Layer("EditorLayer"), m_ProjectFile(std::move(projectFile)) {}
     void EditorLayer::OnAttach()
     {
         PROFILE_FUCTION();
@@ -83,9 +76,10 @@ namespace Kans
             m_Viewport->SetScene(m_ActiveScene);
             // Scenes without environment settings show the editor's default map; a scene's own
             // map is relative to the project directory.
-            m_ActiveScene->GetRenderWorld().EnvironmentPath = DefaultEnvironment;
+            const auto defaultEnvironment = KansFileSystem::GetResoucesFolder() / "Environment/studio_country_hall_2k.hdr";
+            m_ActiveScene->GetRenderWorld().EnvironmentPath = defaultEnvironment;
             m_ActiveScene->GetRenderWorld().EnvironmentRoot = std::filesystem::current_path();
-            m_PropertiesPanel.SetDefaultEnvironment(DefaultEnvironment);
+            m_PropertiesPanel.SetDefaultEnvironment(defaultEnvironment);
             m_Viewport->PrepareEnvironment();
             // Material previews share the viewport's renderer and environment; their
             // asset cache is bound when the project's assets are (RefreshProductAssets).
@@ -109,12 +103,8 @@ namespace Kans
             });
             auto configured = RefreshProductAssets();
             Record(configured);
-            // Until projects have their own settings, the project's showcase scene opens
-            // when it exists; otherwise the scene built above stays.
-            const auto      startup = KansFileSystem::GetAssetFolder() / StartupScene;
-            std::error_code missing;
-            if (std::holds_alternative<std::monostate>(configured) && std::filesystem::exists(startup, missing))
-                Record(OpenScene(startup));
+            if (!m_StartupScene.empty() && std::holds_alternative<std::monostate>(configured))
+                Record(OpenScene(KansFileSystem::GetProjectRoot() / m_StartupScene));
             QueueUnimportedShaders();
         }
     }

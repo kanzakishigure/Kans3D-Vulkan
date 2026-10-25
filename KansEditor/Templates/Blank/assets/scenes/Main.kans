@@ -1,0 +1,41 @@
+Version: 1
+Scene: Main
+Entities:
+  - Entity: 1
+    TagComponent: {Tag: Main Camera}
+    TransformComponent:
+      Position: [0, 0.7, 1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      ProjectionType: 0
+      PerspectiveFOV: 45
+      PerspectiveNearClip: 0.1
+      PerspectiveFarClip: 1000
+      OrthographicSize: 10
+      OrthographicNearClip: -1
+      OrthographicFarClip: 1
+      AspectRatio: 1.7777778
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 2
+    TagComponent: {Tag: Directional Light}
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirLightComponent:
+      Direction: [-0.2, -1, -0.3]
+      Diffuse_Intensity: [1, 1, 1]
+      Specular_Intensity: [1, 1, 1]
+      Ambient_Intensity: [1, 1, 1]
+  - Entity: 3
+    TagComponent: {Tag: Point Light}
+    TransformComponent:
+      Position: [20, 20, 1]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Diffuse_Intensity: [1, 1, 1]
+      Specular_Intensity: [1, 1, 1]
+      Ambient_Intensity: [1, 1, 1]

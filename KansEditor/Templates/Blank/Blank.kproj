@@ -1,0 +1,5 @@
+Name: Blank
+FormatVersion: 1
+StartupScene: assets/scenes/Main.kans
+AssetDirectory: assets
+CacheDirectory: Cache

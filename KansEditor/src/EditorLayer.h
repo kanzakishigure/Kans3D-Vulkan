@@ -46,7 +46,7 @@ namespace Kans
     {
 
     public:
-        EditorLayer();
+        explicit EditorLayer(std::filesystem::path projectFile);
         virtual ~EditorLayer() = default;
 
         virtual void OnAttach() override;
@@ -59,6 +59,7 @@ namespace Kans
     private:
         // ---- Assets and scenes (EditorLayerAssets.cpp) ----
         void                                     OpenProject();
+        std::filesystem::path m_ProjectFile, m_StartupScene;
         std::variant<std::monostate, AssetError> RefreshProductAssets(Ref<const AssetRegistry> snapshot = {});
         std::vector<EditorAssetChoice>           CollectAssetChoices(const AssetRegistry& registry) const;
         // Adds a dropped model to the scene, importing it first if needed.

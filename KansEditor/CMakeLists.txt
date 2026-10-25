@@ -48,27 +48,15 @@ if(WIN32)
             "$<TARGET_FILE_DIR:KansEditor>"
     )
 endif()   
-# project Resource
-set(DIRS_TO_COPY assets Resources)
-
-foreach(DIR ${DIRS_TO_COPY})                                                                                                       
-    add_custom_command(TARGET KansEditor POST_BUILD                                                                                
-        COMMAND ${CMAKE_COMMAND}                                                                                                   
-            -DSRC_DIR=${KANSEDITOR_DIR}/${DIR}                                                                                     
-            -DDST_DIR=$<TARGET_FILE_DIR:KansEditor>/${DIR}                                                                         
-            -DDIR_NAME=${DIR}                                                                                                      
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_Resource.cmake"                                                                     
-        VERBATIM                                                                                                                   
-    )                                                                                                                              
-endforeach()        
-
-add_custom_command(TARGET KansEditor POST_BUILD 
+# Templates and resources are editor data and must refresh on every build.
+add_custom_target(KansEditorData ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${KANSEDITOR_DIR}/Resources" "$<TARGET_FILE_DIR:KansEditor>/Resources"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${KANSEDITOR_DIR}/Templates" "$<TARGET_FILE_DIR:KansEditor>/Templates"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${KANSEDITOR_DIR}/KansEditor.ini
-        "$<TARGET_FILE_DIR:KansEditor>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${KANSEDITOR_DIR}/Project.ini
-        "$<TARGET_FILE_DIR:KansEditor>"
-    COMMAND ${CMAKE_COMMAND} -E echo "Copying Editor resources to $<TARGET_FILE_DIR:KansEditor>/"
-)
+        "${KANSEDITOR_DIR}/KansEditor.ini" "$<TARGET_FILE_DIR:KansEditor>/KansEditor.ini"
+    VERBATIM)
+
+add_dependencies(KansEditor KansEditorData)
 # ScriptCore is staged into Resources/Scripts by the root CMakeLists (KansEditorScripts).

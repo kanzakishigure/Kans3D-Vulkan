@@ -7,29 +7,35 @@
 #include "Kans3D/Scene/SceneSerializer.h"
 #include "EditorLayer.h"
 #include <set>
+#include <cstdlib>
+#include "Kans3D/Project/ProjectFile.h"
 
 namespace Kans
 {
     void EditorLayer::OpenProject()
     {
-        // Bootstrap from editor settings until project files are implemented.
-        ProjectConfig config;
-        config.Name = "KansEditor Project";
+        auto loaded = LoadProjectFile(m_ProjectFile);
+        if (const auto* error = std::get_if<AssetError>(&loaded))
+        {
+            CORE_ERROR("Cannot load project: {}", error->Message);
+            std::exit(EXIT_FAILURE);
+        }
+        const auto& file = std::get<ProjectFile>(loaded);
+        const auto config = MakeProjectConfig(m_ProjectFile.parent_path(), file);
+        m_StartupScene = file.StartupScene;
         std::error_code ec;
-        config.RootDirectory = std::filesystem::current_path(ec);
+        std::filesystem::current_path(config.RootDirectory, ec);
         if (ec)
         {
-            CORE_ERROR("Cannot resolve project root: {}", ec.message());
-            return;
+            CORE_ERROR("Cannot enter project '{}': {}", config.RootDirectory.string(), ec.message());
+            std::exit(EXIT_FAILURE);
         }
-        config.AssetDirectory = KansFileSystem::GetAssetFolder();
-        // The source asset cache lives in the project's own cache directory, so
-        // projects opened by the same editor never share (and overwrite) it.
+        KansFileSystem::SetProject(config);
         auto opened = Project::Open(config);
         if (const auto* error = std::get_if<AssetError>(&opened))
         {
             CORE_ERROR("Cannot open project: {}", error->Message);
-            return;
+            std::exit(EXIT_FAILURE);
         }
         auto project = std::move(std::get<std::unique_ptr<Project>>(opened));
         for (const auto& warning : project->GetAssetWarnings())
@@ -616,7 +622,7 @@ namespace Kans
             const auto      root = m_AssetImports ? m_AssetImports->GetConfig().RootDirectory : std::filesystem::current_path(error);
             m_SceneFileDialog.Open(m_SceneDialog == SceneDialog::Open ? SceneFileDialog::Mode::Open : SceneFileDialog::Mode::Save,
                                    root,
-                                   m_ScenePath.empty() ? root / "assets" / "scenes" : m_ScenePath);
+                                   m_ScenePath.empty() ? KansFileSystem::GetAssetFolder() / "scenes" : m_ScenePath);
             m_SceneDialog = SceneDialog::None;
         }
         m_SceneFileDialog.Draw([this](const std::filesystem::path& file) -> std::optional<std::string> {

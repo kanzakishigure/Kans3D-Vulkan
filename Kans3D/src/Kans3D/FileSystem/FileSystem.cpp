@@ -1,5 +1,6 @@
 #include "kspch.h"
 #include "Kans3D/FileSystem/FileSystem.h"
+#include "Kans3D/Project/Project.h"
 #include <mutex>
 #include <thread>
 #if defined(_WIN32)
@@ -29,34 +30,41 @@ namespace Kans
     void KansFileSystem::ResetFileCache() {}
 
     FileSystemSpecification* KansFileSystem::s_Specification = nullptr;
+    std::filesystem::path KansFileSystem::s_ProjectRoot, KansFileSystem::s_AssetFolder;
+
+    void KansFileSystem::SetProject(const ProjectConfig& config)
+    {
+        s_ProjectRoot = std::filesystem::absolute(config.RootDirectory).lexically_normal();
+        s_AssetFolder = (s_ProjectRoot / config.AssetDirectory).lexically_normal();
+    }
     void                     KansFileSystem::Init(const std::filesystem::path& configPath)
     {
 
         CORE_ASSERT(!configPath.empty(), "FileSystm init fail");
+        ShutDown();
         s_Specification = new FileSystemSpecification(configPath);
         s_Specification->ReadConfig();
     }
 
-    bool KansFileSystem::IsWorkspace(const std::filesystem::path& dir)
+    bool KansFileSystem::IsEditorRoot(const std::filesystem::path& dir)
     {
         if (dir.empty())
             return false;
 
         std::error_code error;
-        return std::filesystem::is_directory(dir / "assets", error) &&
-               std::filesystem::is_directory(dir / "Resources", error) &&
-               std::filesystem::is_regular_file(dir / "Project.ini", error);
+        return std::filesystem::is_directory(dir / "Resources", error) &&
+               std::filesystem::is_regular_file(dir / "KansEditor.ini", error);
     }
 
-    std::optional<std::filesystem::path> KansFileSystem::FindWorkspace(const std::filesystem::path& executableDir,
+    std::optional<std::filesystem::path> KansFileSystem::FindEditorRoot(const std::filesystem::path& executableDir,
                                                                     const std::filesystem::path& currentDir)
     {
-        if (IsWorkspace(executableDir))
+        if (IsEditorRoot(executableDir))
             return executableDir;
 
         for (auto dir = currentDir; !dir.empty(); dir = dir.parent_path())
         {
-            if (IsWorkspace(dir))
+            if (IsEditorRoot(dir))
                 return dir;
             if (dir == dir.parent_path())
                 break;
@@ -114,12 +122,8 @@ namespace Kans
 
     std::filesystem::path KansFileSystem::GetScriptAssemblyPath()
     {
-        auto assembly = s_Specification && !s_Specification->m_ScriptAssemblyPath.empty() ?
-                            s_Specification->m_ScriptAssemblyPath :
-                            std::filesystem::path("Resources/Scripts/ScriptCore.dll");
-        if (assembly.is_absolute())
-            return assembly;
-        return GetExecutableDirectory() / assembly;
+        return s_Specification ? s_Specification->m_ScriptAssemblyPath :
+                                 GetExecutableDirectory() / "Resources/Scripts/ScriptCore.dll";
     }
 
     std::filesystem::path KansFileSystem::GetExecutableDirectory()
@@ -141,9 +145,11 @@ namespace Kans
     {
         delete s_Specification;
         s_Specification = nullptr;
+        s_ProjectRoot.clear();
+        s_AssetFolder.clear();
     }
 
-    FileSystemSpecification::FileSystemSpecification(const std::filesystem::path& configPath) : m_ConfigPath(configPath)
+    FileSystemSpecification::FileSystemSpecification(const std::filesystem::path& configPath) : m_ConfigPath(std::filesystem::absolute(configPath).lexically_normal())
     {}
 
     void FileSystemSpecification::ReadConfig()
@@ -178,16 +184,18 @@ namespace Kans
                 {
                     m_ScriptAssemblyPath = value;
                 }
-                else if ("AssetsDir" == key)
-                {
-                    m_AssetsRoot = value;
-                }
                 else if ("ShaderCacheDir" == key)
                 {
                     m_ShaderCachePath = value;
                 }
             }
         }
+        const auto root = m_ConfigPath.parent_path();
+        auto resolve = [&](const std::filesystem::path& path) { return (root / path).lexically_normal(); };
+        m_ResoucesDir = resolve(m_ResoucesDir.empty() ? "Resources" : m_ResoucesDir);
+        m_FontsPath = resolve(m_FontsPath.empty() ? "Resources/Fonts" : m_FontsPath);
+        m_ShaderCachePath = resolve(m_ShaderCachePath.empty() ? "Resources/Cache/Shader" : m_ShaderCachePath);
+        m_ScriptAssemblyPath = resolve(m_ScriptAssemblyPath.empty() ? "Resources/Scripts/ScriptCore.dll" : m_ScriptAssemblyPath);
     }
 
 } // namespace Kans
