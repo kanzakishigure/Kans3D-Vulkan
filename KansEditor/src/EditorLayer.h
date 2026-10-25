@@ -18,6 +18,7 @@
 #include "Panels/PropertiesPanel.h"
 #include "Panels/ViewportPanel.h"
 #include "SceneHistory.h"
+#include "UnsavedChanges.h"
 #include "UI/SceneFileDialog.h"
 #include "Launcher/ProjectBrowser.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
@@ -126,6 +127,12 @@ namespace Kans
         // Logs an error and shows it in the main toolbar.
         void Record(const std::variant<std::monostate, AssetError>& result);
         void SaveCurrentScene();
+        // Runs `action` (described by `what`, e.g. "opening another scene") at once, or after
+        // asking to save the scene's unsaved changes.
+        void ConfirmDiscard(std::string what, std::function<void()> action);
+        void DrawUnsavedPrompt();
+        UnsavedChanges m_Unsaved;
+        bool           m_UnsavedPromptRequested = false;
         void DrawSceneFileDialogs();
 
         // ---- UI (EditorLayerUI.cpp) ----

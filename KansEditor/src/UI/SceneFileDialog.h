@@ -31,6 +31,8 @@ namespace Kans
         // Call every frame from the window the dialog belongs to.
         void Draw(const Submit& submit);
         Mode GetMode() const { return m_Mode; }
+        // Requested or on screen (false again once it is closed or cancelled).
+        bool IsOpen() const { return m_OpenRequested || m_Showing; }
 
     private:
         struct Entry
@@ -55,6 +57,7 @@ namespace Kans
 
         Mode                  m_Mode = Mode::Open;
         bool                  m_OpenRequested = false;
+        bool                  m_Showing       = false;
         std::filesystem::path m_Root, m_Directory;
         std::vector<Entry>    m_Entries;
         std::string           m_Error;

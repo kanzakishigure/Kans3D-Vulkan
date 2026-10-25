@@ -201,9 +201,9 @@ namespace Kans
         if (io.KeyCtrl)
         {
             if (ImGui::IsKeyPressed(ImGuiKey_N, false))
-                Record(NewScene());
+                ConfirmDiscard("creating a new scene", [this] { Record(NewScene()); });
             if (ImGui::IsKeyPressed(ImGuiKey_O, false))
-                m_SceneDialog = SceneDialog::Open;
+                ConfirmDiscard("opening another scene", [this] { m_SceneDialog = SceneDialog::Open; });
             if (!material && ImGui::IsKeyPressed(ImGuiKey_S, false))
             {
                 if (io.KeyShift)
@@ -368,12 +368,14 @@ namespace Kans
         std::error_code ec;
         if (std::filesystem::equivalent(project, m_ProjectFile, ec))
             return;
-        if (auto error = EditorProcess::LaunchWithProject(project))
-        {
-            Record(AssetError {AssetErrorCode::IoError, *error});
-            return;
-        }
-        Application::Get().Close();
+        ConfirmDiscard("switching projects", [this, project] {
+            if (auto error = EditorProcess::LaunchWithProject(project))
+            {
+                Record(AssetError {AssetErrorCode::IoError, *error});
+                return;
+            }
+            Application::Get().Close();
+        });
     }
 
     void EditorLayer::DrawMenuBar()
@@ -389,16 +391,16 @@ namespace Kans
             DrawProjectMenu();
             ImGui::Separator();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FILE, "New Scene").c_str(), "Ctrl+N"))
-                Record(NewScene());
+                ConfirmDiscard("creating a new scene", [this] { Record(NewScene()); });
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FOLDER_OPEN, "Open Scene...").c_str(), "Ctrl+O"))
-                m_SceneDialog = SceneDialog::Open;
+                ConfirmDiscard("opening another scene", [this] { m_SceneDialog = SceneDialog::Open; });
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FLOPPY_DISK, "Save Scene").c_str(), "Ctrl+S", false, !m_Play.IsActive()))
                 SaveCurrentScene();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FLOPPY_DISK, "Save Scene As...").c_str(), "Ctrl+Shift+S", false, !m_Play.IsActive()))
                 m_SceneDialog = SceneDialog::Save;
             ImGui::Separator();
             if (ImGui::MenuItem(MenuLabel(ICON_FA_XMARK, "Exit").c_str()))
-                Application::Get().Close();
+                ConfirmDiscard("exiting", [] { Application::Get().Close(); });
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit"))
@@ -496,10 +498,10 @@ namespace Kans
 
         x = Widgets::Pill({x, y}, [&] {
                 if (ToolButton(ICON_FA_FILE, "New scene (Ctrl+N)"))
-                    Record(NewScene());
+                    ConfirmDiscard("creating a new scene", [this] { Record(NewScene()); });
                 ImGui::SameLine();
                 if (ToolButton(ICON_FA_FOLDER_OPEN, "Open scene (Ctrl+O)"))
-                    m_SceneDialog = SceneDialog::Open;
+                    ConfirmDiscard("opening another scene", [this] { m_SceneDialog = SceneDialog::Open; });
                 ImGui::SameLine();
                 if (ToolButton(ICON_FA_FLOPPY_DISK, "Save scene (Ctrl+S)", false, !m_Play.IsActive()))
                     SaveCurrentScene();

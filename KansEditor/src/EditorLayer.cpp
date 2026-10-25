@@ -92,7 +92,7 @@ namespace Kans
             m_ViewportPanel.SetContext(m_ActiveScene, m_Viewport.get());
             m_ViewportPanel.SetFileDropCallback([this](const std::filesystem::path& file, std::optional<glm::vec3> position) {
                 if (file.extension() == ".kans")
-                    Record(OpenScene(file));
+                    ConfirmDiscard("opening " + file.filename().u8string(), [this, file] { Record(OpenScene(file)); });
                 else if (file.has_extension())
                     PlaceAsset(file, {}, position);
             });
@@ -107,6 +107,13 @@ namespace Kans
             QueueUnimportedShaders();
         }
         LoadLayout();
+        // Closing the window asks about unsaved changes like File > Exit.
+        Application::Get().SetCloseRequestHandler([this] {
+            if (!m_History.IsModified())
+                return true;
+            ConfirmDiscard("closing the editor", [] { Application::Get().Close(); });
+            return false;
+        });
     }
 
     void EditorLayer::LoadLayout()
@@ -126,6 +133,7 @@ namespace Kans
 
     void EditorLayer::OnDetach()
     {
+        Application::Get().SetCloseRequestHandler({});
         m_Panels.UninstallSettingsHandler();
         m_ContentBrowserPanel.UninstallSettingsHandler();
         m_ContentBrowserPanel.Bind(nullptr);

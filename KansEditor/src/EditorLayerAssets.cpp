@@ -6,6 +6,7 @@
 #include "Kans3D/FileSystem/FileSystem.h"
 #include "Kans3D/Scene/SceneSerializer.h"
 #include "EditorLayer.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include <set>
 #include <cstdlib>
 #include <ctime>
@@ -63,9 +64,7 @@ namespace Kans
         m_MaterialEditorPanel.Bind(m_AssetImports.get());
         m_ContentBrowserPanel.SetOpenFileCallback([this](const std::filesystem::path& path) {
             if (path.extension() == ".kans")
-            {
-                Record(OpenScene(path));
-            }
+                ConfirmDiscard("opening " + path.filename().u8string(), [this, path] { Record(OpenScene(path)); });
             else if (path.extension() == ".material")
                 OpenMaterial(path);
             else
@@ -625,6 +624,62 @@ namespace Kans
             Record(SaveScene(m_ScenePath));
     }
 
+    void EditorLayer::ConfirmDiscard(std::string what, std::function<void()> action)
+    {
+        // Play mode edits a copy; stopping restores the scene whose changes are at stake.
+        if (m_Play.IsActive())
+            StopPlay();
+        m_Unsaved.Request(m_History.IsModified(), std::move(what), std::move(action));
+        m_UnsavedPromptRequested = m_Unsaved.Asking();
+    }
+
+    void EditorLayer::DrawUnsavedPrompt()
+    {
+        if (m_UnsavedPromptRequested)
+        {
+            ImGui::OpenPopup("Unsaved Changes");
+            m_UnsavedPromptRequested = false;
+        }
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        if (!ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+            return;
+        const auto scene = m_ScenePath.empty() ? std::string("the untitled scene") : m_ScenePath.filename().u8string();
+        ImGui::Text("Save changes to %s before %s?", scene.c_str(), m_Unsaved.What().c_str());
+        ImGui::TextDisabled("Your changes will be lost if you don't save them.");
+        ImGui::Dummy({0, EditorTheme::Px(8.0f)});
+        std::optional<UnsavedChanges::Choice> choice;
+        const ImVec2 button {EditorTheme::Px(110.0f), 0.0f};
+        ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Colors().Accent);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, EditorTheme::Colors().AccentPressed);
+        if (ImGui::Button("Save", button) || ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+            choice = UnsavedChanges::Choice::Save;
+        ImGui::PopStyleColor(3);
+        ImGui::SameLine();
+        if (ImGui::Button("Don't Save", button))
+            choice = UnsavedChanges::Choice::Discard;
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", button) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+            choice = UnsavedChanges::Choice::Cancel;
+        if (choice)
+        {
+            ImGui::CloseCurrentPopup();
+            m_Unsaved.Resolve(*choice, [this] {
+                if (m_ScenePath.empty())
+                {
+                    // An untitled scene needs a name first; the action waits for that save.
+                    m_SceneDialog = SceneDialog::Save;
+                    return UnsavedChanges::SaveResult::NeedsPath;
+                }
+                auto saved = SaveScene(m_ScenePath);
+                Record(saved);
+                return std::holds_alternative<std::monostate>(saved) ? UnsavedChanges::SaveResult::Saved :
+                                                                       UnsavedChanges::SaveResult::Failed;
+            });
+        }
+        ImGui::EndPopup();
+    }
+
     void EditorLayer::DrawSceneFileDialogs()
     {
         // Opened here, not where requested, so the popup shares this ID stack.
@@ -637,11 +692,21 @@ namespace Kans
                                    m_ScenePath.empty() ? KansFileSystem::GetAssetFolder() / "scenes" : m_ScenePath);
             m_SceneDialog = SceneDialog::None;
         }
-        m_SceneFileDialog.Draw([this](const std::filesystem::path& file) -> std::optional<std::string> {
-            auto result = m_SceneFileDialog.GetMode() == SceneFileDialog::Mode::Open ? OpenScene(file) : SaveScene(file);
+        bool savedAs = false;
+        m_SceneFileDialog.Draw([&](const std::filesystem::path& file) -> std::optional<std::string> {
+            const bool saving = m_SceneFileDialog.GetMode() == SceneFileDialog::Mode::Save;
+            auto       result = saving ? SaveScene(file) : OpenScene(file);
             if (const auto* error = std::get_if<AssetError>(&result))
                 return error->Message;
+            savedAs = saving;
             return std::nullopt;
         });
+        // An action waiting for "Save" on an untitled scene goes on once it is saved, and is
+        // dropped if the dialog was dismissed.
+        if (savedAs)
+            m_Unsaved.SavedAs();
+        else if (m_Unsaved.WaitingForSaveAs() && !m_SceneFileDialog.IsOpen() && m_SceneDialog == SceneDialog::None)
+            m_Unsaved.SaveCancelled();
+        DrawUnsavedPrompt();
     }
 } // namespace Kans

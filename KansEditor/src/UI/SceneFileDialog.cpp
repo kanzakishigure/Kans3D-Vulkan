@@ -148,6 +148,7 @@ namespace Kans
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.0f, 10.0f});
         const bool open = ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_NoScrollbar);
         ImGui::PopStyleVar();
+        m_Showing = open;
         if (!open)
             return;
 
