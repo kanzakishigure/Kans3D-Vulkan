@@ -1,17 +1,18 @@
-#include "Kans3D/Asset/Importer/MaterialSource.h"
-#include <fstream>
 #include <imgui.h>
 #include <algorithm>
-#include "Kans3D/Asset/Storage/AssetProvider.h"
-#include "Kans3D/FileSystem/FileSystem.h"
-#include "Kans3D/Scene/SceneSerializer.h"
-#include "EditorLayer.h"
-#include "Kans3D/ImGui/EditorTheme.h"
-#include <set>
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
+#include <set>
+#include "Kans3D/Asset/Importer/MaterialSource.h"
+#include "Kans3D/Asset/Storage/AssetProvider.h"
+#include "Kans3D/FileSystem/FileSystem.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include "Kans3D/Project/ProjectFile.h"
 #include "Kans3D/Project/RecentProjects.h"
+#include "Kans3D/Scene/SceneSerializer.h"
+#include "Components/MaterialAssignment.h"
+#include "EditorLayer.h"
 #include "Launcher/LauncherModel.h"
 
 namespace Kans
@@ -123,6 +124,14 @@ namespace Kans
         m_ThumbnailRenderer->SetResources(m_Viewport->GetAssetCache(), m_Viewport->GetEnvironment());
         m_PropertiesPanel.SetAssetManager(m_Assets.get());
         m_MaterialEditorPanel.SetAssetManager(m_Assets.get());
+        m_MaterialEditorPanel.SetUsageQuery([this](AssetID material) {
+            return m_ActiveScene ? FindMaterialUses(*m_ActiveScene, material, m_Assets.get()) :
+                                   std::vector<MaterialUse> {};
+        });
+        m_MaterialEditorPanel.SetSelectCallback([this](UUID entity) {
+            if (m_ActiveScene)
+                m_HierarchyPanel.SetSelected(m_ActiveScene->GetEntityByUUID(entity));
+        });
         return std::monostate {};
     }
 

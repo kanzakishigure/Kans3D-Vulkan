@@ -1059,6 +1059,59 @@ namespace Kans
         }
     }
 
+    AssetID MaterialEditorPanel::PublishedMaterial() const
+    {
+        std::error_code error;
+        const auto      file = std::filesystem::weakly_canonical(m_File, error);
+        if (error)
+            return {};
+        for (const auto& choice : m_Choices)
+            if (choice.Type == AssetType::Material && choice.SourcePath == file)
+                return choice.ID;
+        return {};
+    }
+
+    void MaterialEditorPanel::DrawUsedBy()
+    {
+        if (!m_Usage)
+            return;
+        const AssetID material = PublishedMaterial();
+        const auto    uses     = material.IsValid() ? m_Usage(material) : std::vector<MaterialUse> {};
+        ImGui::Separator();
+        const auto title = "Used by (" + std::to_string(uses.size()) + ")###UsedBy";
+        if (!ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+        if (!material.IsValid())
+        {
+            ImGui::TextDisabled("Not imported yet: save to use it in scenes.");
+            return;
+        }
+        if (uses.empty())
+        {
+            ImGui::TextDisabled("No mesh in the open scene draws this material.");
+            return;
+        }
+        // Scrolls past a dozen rows: a character can use one material on many parts.
+        const float rows = float(std::min<size_t>(uses.size(), 12));
+        if (ImGui::BeginChild("##UsedBy", {0, rows * ImGui::GetTextLineHeightWithSpacing() + 4.0f}))
+        {
+            for (const auto& use : uses)
+            {
+                ImGui::PushID(int(use.Slot));
+                ImGui::PushID(std::to_string(uint64_t(use.Entity)).c_str());
+                if (ImGui::Selectable(use.EntityName.c_str()) && m_Select)
+                    m_Select(use.Entity);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Select %s", use.EntityName.c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s%s", use.SlotName.c_str(), use.Overridden ? "  (assigned here)" : "");
+                ImGui::PopID();
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
+    }
+
     void MaterialEditorPanel::Draw()
     {
         if (m_File.empty())
@@ -1126,6 +1179,7 @@ namespace Kans
         else
             ImGui::TextWrapped("%s", m_SchemaError.c_str());
 
+        DrawUsedBy();
         ImGui::Separator();
         TrackEdits();
         m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);

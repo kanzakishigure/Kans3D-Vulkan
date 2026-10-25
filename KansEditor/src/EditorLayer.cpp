@@ -176,6 +176,8 @@ namespace Kans
             m_Viewport->SetAssetManager(nullptr);
             m_PropertiesPanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetAssetManager(nullptr);
+            m_MaterialEditorPanel.SetUsageQuery({});
+            m_MaterialEditorPanel.SetSelectCallback({});
             m_MaterialEditorPanel.SetPreviewRenderer(nullptr);
             m_ContentBrowserPanel.SetMaterialThumbnailProvider({});
             m_PropertiesPanel.SetMaterialThumbnailProvider({});
