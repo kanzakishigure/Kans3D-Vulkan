@@ -450,29 +450,8 @@ namespace Kans
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Play"))
-        {
-            const bool active = m_Play.IsActive();
-            if (ImGui::MenuItem(MenuLabel(ICON_FA_PLAY, active ? "Resume" : "Play").c_str(),
-                                active ? nullptr : "Ctrl+P",
-                                false,
-                                !active || m_Play.GetState() == ScenePlaySession::State::Paused))
-                StartPlay();
-            if (ImGui::MenuItem(MenuLabel(ICON_FA_PAUSE, "Pause").c_str(),
-                                "Ctrl+Shift+P",
-                                false,
-                                m_Play.GetState() == ScenePlaySession::State::Playing))
-                m_Play.Pause();
-            if (ImGui::MenuItem(MenuLabel(ICON_FA_FORWARD_STEP, "Step Frame").c_str(),
-                                nullptr,
-                                false,
-                                m_Play.GetState() == ScenePlaySession::State::Paused))
-                m_Play.Step();
-            if (ImGui::MenuItem(MenuLabel(ICON_FA_STOP, "Stop").c_str(), active ? "Ctrl+P" : nullptr, false, active))
-                StopPlay();
-            ImGui::EndMenu();
-        }
-                if (ImGui::BeginMenu("Assets"))
+        // Play, pause and step live on the band's play controls (and Ctrl+P / Ctrl+Shift+P).
+        if (ImGui::BeginMenu("Assets"))
         {
             if (ImGui::MenuItem(MenuLabel(ICON_FA_FILE_IMPORT, "Asset Importer").c_str()))
                 m_Panels.Open(PanelID::AssetImporter);
