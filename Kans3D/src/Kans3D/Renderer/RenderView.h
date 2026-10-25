@@ -20,6 +20,19 @@ namespace Kans
     {
         UUID                     EntityID = 0, InstanceRoot = 0;
         std::optional<glm::vec3> Position;
+        std::optional<uint32_t>  MaterialSlot, Section;
+    };
+    struct SlotHighlight
+    {
+        UUID                    Entity = 0;
+        std::optional<uint32_t> Slot; // nullopt matches the whole subtree.
+        glm::vec4               Color {1, .62f, .15f, 1};
+    };
+    struct ViewHighlights
+    {
+        std::vector<UUID>                        Selected; // Primary first; includes mesh descendants.
+        std::vector<SlotHighlight>               Highlights;
+        std::optional<std::pair<UUID, uint32_t>> Isolate;
     };
     struct SceneRenderStats
     {
@@ -222,7 +235,7 @@ namespace Kans
         glm::uvec2                         Viewport {0};
         SceneViewMode                      DebugMode = SceneViewMode::Lit;
         std::vector<ViewMeshSubmission>    Meshes;
-        std::vector<UUID>                  HighlightEntities;
+        ViewHighlights                       Highlights;
         std::vector<ViewShaderDraw>        Draws;
         std::vector<ViewReadyDraw>         MaterialOrder;
         std::vector<size_t>                Opaque, Mask, Blend; // Draw indices, in their filtered execution order.

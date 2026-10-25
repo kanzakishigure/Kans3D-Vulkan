@@ -661,7 +661,10 @@ namespace Kans
             const auto* mesh     = resource != view.MeshResources.end() ? resource->second.get() :
                                    cache                                ? cache->GetMesh(proxy.Mesh) :
                                                                           nullptr;
-            if (mesh && proxy.Section < mesh->Sections.size())
+            if (mesh && proxy.Section < mesh->Sections.size() &&
+                (!view.Highlights.Isolate ||
+                 (world.MatchesSubtree(proxy.EntityID, proxy.InstanceRoot, view.Highlights.Isolate->first) &&
+                  mesh->Sections[proxy.Section].MaterialSlot == view.Highlights.Isolate->second)))
                 draws.push_back({mesh,
                                  proxy.Transform,
                                  id,
@@ -688,7 +691,10 @@ namespace Kans
             const auto* mesh     = resource != view.MeshResources.end() ? resource->second.get() :
                                    cache                                ? cache->GetMesh(proxies[i].Mesh) :
                                                                           nullptr;
-            if (mesh && proxies[i].Section < mesh->Sections.size())
+            if (mesh && proxies[i].Section < mesh->Sections.size() &&
+                (!view.Highlights.Isolate ||
+                 (world.MatchesSubtree(proxies[i].EntityID, proxies[i].InstanceRoot, view.Highlights.Isolate->first) &&
+                  mesh->Sections[proxies[i].Section].MaterialSlot == view.Highlights.Isolate->second)))
                 draws.push_back({mesh,
                                  proxies[i].Transform,
                                  uint32_t(i + 1),
@@ -704,7 +710,7 @@ namespace Kans
         if (!hit.ID || hit.ID > proxies.size())
             return {};
         const auto& proxy = proxies[hit.ID - 1];
-        return {proxy.EntityID, proxy.InstanceRoot, hit.Position};
+        return {proxy.EntityID, proxy.InstanceRoot, hit.Position, hit.MaterialSlot, hit.Section};
     }
 } // namespace Kans
 

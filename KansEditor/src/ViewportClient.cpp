@@ -119,7 +119,8 @@ namespace Kans
         RenderView view;
         view.Scene     = runtime->Scene;
         view.DebugMode = SceneViewMode::Lit;
-        m_Highlight.clear(); // Editor intents never reach a game view.
+        m_Highlights           = {}; // Editor intents never reach a game view.
+        m_LastEditorHighlights = {};
         m_Preview.reset();
         Render(std::move(view), false);
         return true;
@@ -143,9 +144,11 @@ namespace Kans
         view.UseWorldEnvironment = true;
         view.EnvironmentMaps     = {m_Lighting->Maps.IrradianceMap, m_Lighting->Maps.RadianceMap, m_EnvironmentSource};
         view.BrdfLUT             = m_Lighting->BrdfLUT;
-        view.HighlightEntities   = std::move(m_Highlight);
+        view.Highlights          = std::move(m_Highlights);
+        if (editorFeatures)
+            m_LastEditorHighlights = view.Highlights;
         view.Preview             = std::move(m_Preview);
-        m_Highlight.clear();
+        m_Highlights             = {};
         m_Preview.reset();
         m_Last = m_Renderer->Render(m_Scene->GetRenderWorld(), view, *m_Target);
     }
@@ -156,6 +159,7 @@ namespace Kans
             return {};
         RenderView view;
         view.Assets                       = m_Assets;
+        view.Highlights.Isolate           = m_LastEditorHighlights.Isolate;
         view.Viewport                     = m_Size;
         view.Scene.sceneCamera.camera     = Camera(viewProjection);
         view.Scene.sceneCamera.viewMatrix = glm::mat4(1);

@@ -580,8 +580,14 @@ namespace Kans
     }
     std::vector<MeshMaterialSlot> Scene::GetMeshSlots(Entity entity) const
     {
+        const auto named = [](std::vector<MeshMaterialSlot> slots) {
+            for (size_t i = 0; i < slots.size(); ++i)
+                if (slots[i].Name.empty())
+                    slots[i].Name = "Slot " + std::to_string(i);
+            return slots;
+        };
         if (entity && entity.HasComponent<EditableMeshComponent>())
-            return ResolveMesh(entity)->GetData().MaterialSlots;
+            return named(ResolveMesh(entity)->GetData().MaterialSlots);
         if (!entity || !entity.HasComponent<MeshComponent>())
             return {};
         const auto id = entity.GetComponent<MeshComponent>().Mesh;
@@ -589,14 +595,14 @@ namespace Kans
         {
             const auto mesh = m_PrefabAssets->Request<MeshAsset>(id);
             if (mesh.IsReady())
-                return mesh.Asset->GetData().MaterialSlots;
+                return named(mesh.Asset->GetData().MaterialSlots);
         }
         if (auto root = GetPrefabInstanceRoot(entity))
         {
             const auto& sources = root.GetComponent<PrefabInstanceComponent>().MeshSources;
             auto        mesh    = sources.find(id);
             if (mesh != sources.end())
-                return mesh->second->GetData().MaterialSlots;
+                return named(mesh->second->GetData().MaterialSlots);
         }
         return {};
     }

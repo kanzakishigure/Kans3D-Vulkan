@@ -47,8 +47,15 @@ namespace Kans
         Entity selected = m_Hierarchy.GetSelected();
         // Element editing draws its own selection instead of the entity outline.
         const bool editing = m_MeshTool.IsEditing(selected) && !UsesSceneCamera();
-        m_Client->SetHighlight(selected && !UsesSceneCamera() && !editing ? std::vector<UUID> {selected.GetUUID()} :
-                                                                            std::vector<UUID> {});
+        ViewHighlights highlights;
+        if (selected && !UsesSceneCamera() && !editing)
+        {
+            highlights.Selected.push_back(selected.GetUUID());
+            for (auto entity : m_Hierarchy.GetSelection())
+                if (entity != selected)
+                    highlights.Selected.push_back(entity.GetUUID());
+        }
+        m_Client->SetHighlights(std::move(highlights));
         Render();
 
         const auto output = m_Client->GetOutput();

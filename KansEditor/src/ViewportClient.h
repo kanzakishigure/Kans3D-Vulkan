@@ -55,7 +55,7 @@ namespace Kans
         // The editor view's capture store: display textures and pixel probes.
         std::shared_ptr<GraphCapture> GetGraphCapture() { return m_Target->GetGraphCapture(); }
         // Consumed by the next rendered frame.
-        void SetHighlight(std::vector<UUID> entities) { m_Highlight = std::move(entities); }
+        void SetHighlights(ViewHighlights highlights) { m_Highlights = std::move(highlights); }
         void SetPreview(AssetID prefab, const glm::mat4& transform) { m_Preview = PrefabPreview {prefab, transform}; }
 
         // Renders through the editor camera, or through the scene's primary camera
@@ -82,7 +82,8 @@ namespace Kans
         SceneViewMode                        m_ViewMode = SceneViewMode::Lit;
         GridSettings                         m_Grid;
         GraphCaptureSettings                 m_Debug;
-        std::vector<UUID>                    m_Highlight;
+        ViewHighlights                       m_Highlights;
+        ViewHighlights                       m_LastEditorHighlights;
         std::optional<PrefabPreview>         m_Preview;
         RenderResult                         m_Last;
 

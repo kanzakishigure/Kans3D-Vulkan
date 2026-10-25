@@ -42,9 +42,21 @@ void main()
     vec2 uv = gl_FragCoord.xy * texel;
     if (texture(u_Mask, uv).r > 0.5)
     {
-        o_Color = vec4(p.Color.rgb, p.Color.a * 0.12);
+        if (p.Width.y != 0)
+        {
+            // Keep slot borders inside coverage; adjacent unhighlighted slots stay unchanged.
+            for (int y = -p.Width.x; y <= p.Width.x; ++y)
+                for (int x = -p.Width.x; x <= p.Width.x; ++x)
+                    if (texture(u_Mask, uv + vec2(x, y) * texel).r < 0.5)
+                    {
+                        o_Color = p.Color;
+                        return;
+                    }
+        }
+        o_Color = vec4(p.Color.rgb, p.Color.a * (p.Width.y != 0 ? 0.28 : 0.12));
         return;
     }
+    if (p.Width.y != 0) discard;
     for (int y = -p.Width.x; y <= p.Width.x; ++y)
         for (int x = -p.Width.x; x <= p.Width.x; ++x)
             if (texture(u_Mask, uv + vec2(x, y) * texel).r > 0.5)
@@ -96,10 +108,12 @@ void main()
                         const Handle<Pipeline>&      pipeline,
                         Handle<Pipeline>&            skinnedPipeline,
                         const std::vector<MeshDraw>& draws,
-                        const glm::mat4&             projection)
+                        const glm::mat4&             projection,
+                        bool                         pick = false)
         {
-            for (const auto& draw : draws)
+            for (size_t i = 0; i < draws.size(); ++i)
             {
+                const auto& draw = draws[i];
                 if (!draw.Mesh || !draw.Mesh->Vertices || !draw.Mesh->Indices ||
                     draw.Section >= draw.Mesh->Sections.size())
                     continue;
@@ -125,7 +139,8 @@ void main()
                     active = variant;
                 }
                 commands.BindPipeline(active);
-                const DrawData data {projection * draw.Transform, glm::uvec4(draw.ID, 0, 0, 0)};
+                const DrawData data {projection * draw.Transform,
+                                     glm::uvec4(pick ? uint32_t(i + 1) : draw.ID, 0, 0, 0)};
                 auto           buffer = device.CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
                 buffer->Write(0, &data, sizeof(data));
                 commands.BindGroup(device.CreateBindGroup({pipeline->GetDesc().GroupLayouts[0], {{0, buffer}}}));
@@ -147,6 +162,16 @@ void main()
                 commands.DrawIndexed(section.IndexCount, 1, section.FirstIndex);
             }
         }
+    }
+
+    PickHit ResolveMeshPickHit(const std::vector<MeshDraw>& draws, uint32_t rasterID)
+    {
+        if (!rasterID || rasterID > draws.size())
+            return {};
+        const auto& draw = draws[rasterID - 1];
+        if (!draw.Mesh || draw.Section >= draw.Mesh->Sections.size())
+            return {};
+        return {draw.ID, {}, draw.Mesh->Sections[draw.Section].MaterialSlot, draw.Section};
     }
 
     void EntityPicker::Resize(glm::uvec2 size)
@@ -213,8 +238,13 @@ void main()
         commands->BeginRendering(target);
         commands->SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
         commands->SetScissor({int32_t(pixel.x), int32_t(row), 1, 1});
-        DrawMeshes(
-            *m_Device, *commands, m_Pipeline, m_SkinnedPipeline, draws, DeviceProjection(projection, coordinates));
+        DrawMeshes(*m_Device,
+                   *commands,
+                   m_Pipeline,
+                   m_SkinnedPipeline,
+                   draws,
+                   DeviceProjection(projection, coordinates),
+                   true);
         commands->EndRendering();
         const size_t bytes = size_t(viewport.x) * viewport.y * 4;
         auto readback      = m_Device->CreateBuffer({bytes * 2, BufferUsage::CopyDestination, MemoryUsage::Readback});
@@ -224,8 +254,9 @@ void main()
         m_Device->WaitIdle();
         const size_t offset = (size_t(row) * viewport.x + pixel.x) * 4;
         const auto   id     = readback->Read(offset, 4);
-        PickHit hit;
-        std::memcpy(&hit.ID, id.data(), 4);
+        uint32_t     rasterID = 0;
+        std::memcpy(&rasterID, id.data(), 4);
+        PickHit hit = ResolveMeshPickHit(draws, rasterID);
         if (hit.ID)
         {
             const auto z = readback->Read(bytes + offset, 4);
@@ -285,7 +316,8 @@ void main()
                                       const RenderHardware::Handle<RenderHardware::Texture>& maskTexture,
                                       const std::vector<MeshDraw>&                           draws,
                                       const glm::mat4&                                       projection,
-                                      glm::uvec2                                             viewport)
+                                      glm::uvec2                                             viewport,
+                                      RenderHardware::Handle<RenderHardware::Texture>        depth)
     {
         using namespace RenderHardware;
         if (!m_Mask)
@@ -301,15 +333,32 @@ void main()
             sampler.U = sampler.V = sampler.W = AddressMode::ClampToEdge;
             m_Sampler                         = m_Device->CreateSampler(sampler);
         }
+        auto pipeline = m_Mask;
+        if (depth)
+        {
+            if (!m_VisibleMask || m_VisibleMask->GetDesc().DepthStencilFormat != depth->GetDesc().PixelFormat)
+            {
+                auto desc                      = m_Mask->GetDesc();
+                desc.HasDepthStencil           = true;
+                desc.DepthStencilFormat        = depth->GetDesc().PixelFormat;
+                desc.DepthStencil.DepthTest    = true;
+                desc.DepthStencil.DepthCompare = CompareOp::LessEqual;
+                m_VisibleMask                  = m_Device->CreatePipeline(desc);
+                m_VisibleSkinnedPipeline.reset();
+            }
+            pipeline = m_VisibleMask;
+        }
         RenderingDesc mask;
         mask.Colors = {{maskTexture}};
+        mask.Depth.Target = depth;
+        mask.Depth.Load   = LoadOp::Load;
         commands.BeginRendering(mask);
         commands.SetViewport({0, 0, float(viewport.x), float(viewport.y), 0, 1});
         commands.SetScissor({0, 0, viewport.x, viewport.y});
         DrawMeshes(*m_Device,
                    commands,
-                   m_Mask,
-                   m_SkinnedPipeline,
+                   pipeline,
+                   depth ? m_VisibleSkinnedPipeline : m_SkinnedPipeline,
                    draws,
                    DeviceProjection(projection, m_Device->GetCoordinateConventions()));
         commands.EndRendering();
@@ -320,7 +369,8 @@ void main()
                                            const RenderHardware::Handle<RenderHardware::Texture>& maskTexture,
                                            glm::uvec2                                             viewport,
                                            const glm::vec4&                                       color,
-                                           float                                                  width)
+                                           float                                                  width,
+                                           bool                                                   surfaceHighlight)
     {
         using namespace RenderHardware;
         if (!m_Layout)
@@ -357,7 +407,8 @@ void main()
         BindGroupEntry entry;
         entry.TextureResource = maskTexture;
         entry.SamplerResource = m_Sampler;
-        const CompositeData data {color, glm::ivec4(std::clamp(int(width + 0.5f), 1, 6), 0, 0, 0)};
+        const CompositeData data {color,
+                                  glm::ivec4(std::clamp(int(width + 0.5f), 1, 6), surfaceHighlight ? 1 : 0, 0, 0)};
         auto parameters = m_Device->CreateBuffer({sizeof(data), BufferUsage::Uniform, MemoryUsage::Upload});
         parameters->Write(0, &data, sizeof(data));
         commands.BindGroup(m_Device->CreateBindGroup({m_Layout, {entry, {1, parameters}}}));

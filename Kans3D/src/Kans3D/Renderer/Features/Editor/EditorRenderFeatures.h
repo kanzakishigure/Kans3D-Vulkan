@@ -24,7 +24,11 @@ namespace Kans
         bool RunsAt(RenderExtensionPoint point) const override { return point == RenderExtensionPoint::Overlay; }
 
     protected:
-        static void AddOutline(const RenderFeatureContext& context, std::string name, bool preview, glm::vec4 color);
+        static void AddOutline(const RenderFeatureContext&  context,
+                               std::string                  name,
+                               bool                         preview,
+                               glm::vec4                    color,
+                               std::optional<SlotHighlight> highlight = {});
     };
     class EditorSelectionFeature final : public EditorOutlineFeature
     {

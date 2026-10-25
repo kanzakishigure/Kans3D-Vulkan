@@ -46,8 +46,46 @@ namespace Kans
         }
     } // namespace
 
+    bool RenderFrame::IncludesSection(UUID entity, UUID instanceRoot, const GpuMesh* mesh, uint32_t section) const
+    {
+        return !View.Highlights.Isolate ||
+               (mesh && section < mesh->Sections.size() &&
+                World.MatchesSubtree(entity, instanceRoot, View.Highlights.Isolate->first) &&
+                mesh->Sections[section].MaterialSlot == View.Highlights.Isolate->second);
+    }
+
     void RenderFrame::PrepareDrawLists()
     {
+        if (View.Highlights.Isolate)
+        {
+            View.Draws.erase(std::remove_if(View.Draws.begin(),
+                                            View.Draws.end(),
+                                            [&](const auto& draw) {
+                                                return !IncludesSection(
+                                                    draw.EntityID, draw.InstanceRoot, GetMesh(draw.Mesh), draw.Section);
+                                            }),
+                             View.Draws.end());
+            // Legacy geometry submissions may cover all sections: split before filtering.
+            std::vector<ViewGeometryDraw> geometry;
+            for (const auto& draw : View.Geometry)
+                if (const auto* mesh = GetMesh(draw.Mesh))
+                    for (uint32_t section = 0; section < mesh->Sections.size(); ++section)
+                        if ((!draw.Section || *draw.Section == section) &&
+                            IncludesSection(draw.EntityID, 0, mesh, section))
+                        {
+                            auto part    = draw;
+                            part.Section = section;
+                            geometry.push_back(std::move(part));
+                        }
+            View.Geometry = std::move(geometry);
+            View.Sprites.clear();
+            View.SpriteBatches.clear();
+            View.ImmediateOrder.erase(
+                std::remove_if(View.ImmediateOrder.begin(),
+                               View.ImmediateOrder.end(),
+                               [](const auto& item) { return item.Kind != ViewImmediateKind::Skybox; }),
+                View.ImmediateOrder.end());
+        }
         for (auto& draw : View.Draws)
         {
             const auto* mesh     = GetMesh(draw.Mesh);

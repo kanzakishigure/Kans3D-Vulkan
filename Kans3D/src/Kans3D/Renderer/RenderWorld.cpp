@@ -147,10 +147,28 @@ namespace Kans
         const auto                          found = m_Records.find(entity);
         return found == m_Records.end() ? empty : found->second.Draws;
     }
+    bool RenderWorld::MatchesSubtree(UUID entity, UUID instanceRoot, UUID subtree) const
+    {
+        if (!subtree)
+            return false;
+        if (entity == subtree || instanceRoot == subtree)
+            return true;
+        if (m_Scene)
+            for (auto parent = m_Scene->GetEntityByUUID(entity); parent; parent = m_Scene->GetParent(parent))
+                if (parent.GetUUID() == subtree)
+                    return true;
+        return false;
+    }
     std::vector<RenderWorld::DrawProxy> RenderWorld::CollectDraws(UUID subtree) const
     {
         if (!m_Scene)
-            return m_ProceduralDraws;
+        {
+            std::vector<DrawProxy> result;
+            for (const auto& draw : m_ProceduralDraws)
+                if (!subtree || MatchesSubtree(draw.EntityID, draw.InstanceRoot, subtree))
+                    result.push_back(draw);
+            return result;
+        }
         std::vector<DrawProxy> result;
         for (const auto& [order, handle] : m_Order)
         {

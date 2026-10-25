@@ -420,6 +420,8 @@ namespace Kans
                     continue;
                 }
                 const auto* mesh     = frame.GetMesh(proxy.Mesh);
+                if (!frame.IncludesSection(proxy.EntityID, proxy.InstanceRoot, mesh, proxy.Section))
+                    continue;
                 const auto* bindings = frame.GetBindings(proxy.Material, false);
                 const auto* shader   = bindings ? frame.GetShader(proxy.Material, bindings->Shader) : nullptr;
                 if (!mesh || proxy.Section >= mesh->Sections.size() || !bindings || !shader ||

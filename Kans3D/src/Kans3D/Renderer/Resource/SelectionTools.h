@@ -23,7 +23,11 @@ namespace Kans
     {
         uint32_t                 ID = 0;
         std::optional<glm::vec3> Position;
+        std::optional<uint32_t>  MaterialSlot, Section;
     };
+
+    // Raster IDs are draw indices + 1, independent of caller IDs (which may repeat).
+    PickHit ResolveMeshPickHit(const std::vector<MeshDraw>& draws, uint32_t rasterID);
 
     // Finds what is under a pixel by rendering the draws' IDs into an integer
     // target; only the requested pixel is rasterized.
@@ -76,18 +80,21 @@ namespace Kans
                         const RenderHardware::Handle<RenderHardware::Texture>& mask,
                         const std::vector<MeshDraw>&                           draws,
                         const glm::mat4&                                       projection,
-                        glm::uvec2                                             viewport);
+                        glm::uvec2                                             viewport,
+                        RenderHardware::Handle<RenderHardware::Texture>        depth = {});
         void RecordComposite(RenderHardware::CommandList&                           commands,
                              const RenderHardware::RenderingDesc&                   target,
                              const RenderHardware::Handle<RenderHardware::Texture>& mask,
                              glm::uvec2                                             viewport,
                              const glm::vec4&                                       color,
-                             float                                                  width = 2.0f);
+                             float                                                  width            = 2.0f,
+                             bool                                                   surfaceHighlight = false);
 
     private:
         void       Resize(glm::uvec2 size);
         std::shared_ptr<RenderHardware::Device>                 m_Device;
-        RenderHardware::Handle<RenderHardware::Pipeline>        m_Mask, m_Composite, m_SkinnedPipeline;
+        RenderHardware::Handle<RenderHardware::Pipeline>        m_Mask, m_Composite, m_SkinnedPipeline, m_VisibleMask,
+            m_VisibleSkinnedPipeline;
         RenderHardware::Handle<RenderHardware::BindGroupLayout> m_Layout;
         RenderHardware::Handle<RenderHardware::Sampler>         m_Sampler;
         RenderHardware::Handle<RenderHardware::Texture>         m_Texture;
