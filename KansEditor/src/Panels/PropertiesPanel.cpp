@@ -1,4 +1,5 @@
 #include "PropertiesPanel.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include <imgui.h>
 #include <algorithm>
 #include <cctype>
@@ -44,7 +45,7 @@ namespace Kans
             return destination.lexically_relative(KansFileSystem::GetProjectRoot());
         }
 
-        constexpr ImVec4 OverrideColor {0.40f, 0.65f, 1.0f, 1.0f};
+        const ImVec4 OverrideColor = EditorTheme::Colors().AccentHover;
 
         bool ContainsIgnoreCase(const std::string& text, const char* needle)
         {
@@ -422,7 +423,7 @@ namespace Kans
         bool       picked     = false;
         const bool overridden = current != imported;
         if (overridden)
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.20f, 0.30f, 0.45f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, EditorTheme::Colors().Selection);
         const bool open = ImGui::BeginCombo("##material", MaterialName(current).c_str(), ImGuiComboFlags_HeightLarge);
         if (overridden)
             ImGui::PopStyleColor();

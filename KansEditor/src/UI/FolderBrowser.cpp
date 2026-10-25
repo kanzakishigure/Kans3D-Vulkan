@@ -1,4 +1,5 @@
 #include "FolderBrowser.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include <algorithm>
 #include <cctype>
 #include <imgui.h>
@@ -144,7 +145,7 @@ namespace Kans
                 ImGui::PushID(entry.Name.c_str());
                 const auto label = std::string(entry.Project ? ICON_FA_CUBE "  " : ICON_FA_FOLDER "  ") + entry.Name;
                 if (entry.Project)
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_CheckMark));
+                    ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().AccentHover);
                 if (ImGui::Selectable(label.c_str(), m_Selected == entry.Path, ImGuiSelectableFlags_AllowDoubleClick))
                 {
                     m_Selected = entry.Path;
@@ -164,7 +165,7 @@ namespace Kans
         ImGui::EndChild();
 
         if (!m_Error.empty())
-            ImGui::TextColored({0.95f, 0.45f, 0.40f, 1.0f}, ICON_FA_TRIANGLE_EXCLAMATION " %s", m_Error.c_str());
+            ImGui::TextColored(EditorTheme::Colors().Danger, ICON_FA_TRIANGLE_EXCLAMATION " %s", m_Error.c_str());
         else
             ImGui::TextDisabled("%s", (m_Selected.empty() ? m_Directory : m_Selected).u8string().c_str());
 

@@ -22,7 +22,6 @@ namespace Kans
         void End();
 
     public:
-        void SetDarkThemeColors();
 
     private:
         std::unique_ptr<RenderHardware::ImGuiRenderer> m_Renderer;

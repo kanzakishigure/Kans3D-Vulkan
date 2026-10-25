@@ -1,4 +1,5 @@
 #include "ContentBrowserPanel.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -152,7 +153,7 @@ namespace Kans
         // Transparent icon button.
         bool IconButton(const char* icon, const char* tooltip, bool active = false, bool enabled = true)
         {
-            ImGui::PushStyleColor(ImGuiCol_Button, active ? ImVec4(0.26f, 0.59f, 0.98f, 0.45f) : ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_Button, active ? EditorTheme::Colors().Selection : ImVec4(0, 0, 0, 0));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.40f, 0.40f, 0.40f, 0.45f));
             ImGui::BeginDisabled(!enabled);
             const bool clicked = ImGui::Button(icon, {26.0f, 0.0f});
@@ -634,7 +635,7 @@ namespace Kans
 
     void ContentBrowserPanel::DrawItems()
     {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(IM_COL32(28, 28, 28, 255)));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, EditorTheme::Colors().Inset);
         ImGui::BeginChild("##Items", {0, 0}, ImGuiChildFlags_AlwaysUseWindowPadding);
         ImGui::PopStyleColor();
         if (m_Visible.empty())

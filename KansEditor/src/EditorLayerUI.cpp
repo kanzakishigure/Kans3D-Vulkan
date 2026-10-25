@@ -1,4 +1,5 @@
 #include "EditorLayer.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include "Kans3D/Project/RecentProjects.h"
 #include "Launcher/EditorProcess.h"
 #include <imgui.h>
@@ -20,7 +21,7 @@ namespace Kans
     namespace
     {
         constexpr ImVec4 ErrorColor {0.95f, 0.38f, 0.35f, 1.0f};
-        constexpr ImVec4 AccentColor {0.26f, 0.59f, 0.98f, 1.0f};
+        const ImVec4 AccentColor = EditorTheme::Colors().Accent;
 
         std::string MenuLabel(const char* icon, const char* text) { return std::string(icon) + "  " + text; }
     } // namespace
@@ -116,7 +117,10 @@ namespace Kans
                                            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                                            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+        // The host's tone is what shows in the gaps between docked panels.
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, EditorTheme::Colors().App);
         ImGui::Begin("##EditorDockHost", nullptr, hostFlags);
+        ImGui::PopStyleColor();
         ImGui::PopStyleVar(3);
         DrawMenuBar();
         DrawMainToolbar();

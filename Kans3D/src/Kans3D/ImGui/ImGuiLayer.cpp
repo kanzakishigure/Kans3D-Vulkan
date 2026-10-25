@@ -7,7 +7,7 @@
 #include "Kans3D/Core/Application.h"
 
 #include "Kans3D/FileSystem/FileSystem.h"
-#include "Kans3D/ImGui/Colors.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include "ImGuizmo.h"
 // Temp
 
@@ -35,22 +35,7 @@ namespace Kans
 
         LoadEditorFonts();
 
-        // Setup Dear ImGui style
-        ImGui::StyleColorsDark();
-        // ImGui::StyleColorsClassic();
-        //  When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to
-        //  regular ones.
-        ImGuiStyle& style = ImGui::GetStyle();
-        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-        {
-            style.WindowRounding              = 0.0f;
-            style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-        }
-
-        // kans
-        // use custom theme
-
-        SetDarkThemeColors();
+        EditorTheme::Apply();
 
         m_Renderer = RenderHardware::CreateImGuiRenderer(RenderHardware::GetBackend(), &Application::Get().GetWindow());
     }
@@ -103,94 +88,6 @@ namespace Kans
             e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
             e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
         }
-    }
-
-    void ImGuiLayer::SetDarkThemeColors()
-    {
-
-        auto& colors = ImGui::GetStyle().Colors;
-        auto& style  = ImGui::GetStyle();
-        //========================================================
-        /// Colors
-
-        // Window Background
-        colors[ImGuiCol_WindowBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-        colors[ImGuiCol_ChildBg]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::background);
-        colors[ImGuiCol_PopupBg]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundPopup);
-        colors[ImGuiCol_Border]   = ImColor(73, 80, 87, 220);
-
-        // Headers
-        colors[ImGuiCol_Header]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-        colors[ImGuiCol_HeaderHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-        colors[ImGuiCol_HeaderActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-
-        // Text
-        colors[ImGuiCol_Text] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
-
-        // Frame BG
-        colors[ImGuiCol_FrameBg]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
-        colors[ImGuiCol_FrameBgHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
-        colors[ImGuiCol_FrameBgActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::propertyField);
-
-        // Buttons
-        colors[ImGuiCol_Button]        = ImColor(56, 56, 56, 200);
-        colors[ImGuiCol_ButtonHovered] = ImColor(70, 70, 70, 255);
-        colors[ImGuiCol_ButtonActive]  = ImColor(56, 56, 56, 200);
-
-        // Title
-        colors[ImGuiCol_TitleBg]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-        colors[ImGuiCol_TitleBgActive]    = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-        colors[ImGuiCol_TitleBgCollapsed] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_9);
-
-        // Tab
-        colors[ImGuiCol_Tab]                = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-        colors[ImGuiCol_TabHovered]         = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_4);
-        colors[ImGuiCol_TabSelected]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
-        colors[ImGuiCol_TabDimmed]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebar);
-        colors[ImGuiCol_TabDimmedSelected]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::blue_7);
-
-        // Resize Grip
-        colors[ImGuiCol_ResizeGrip]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
-        colors[ImGuiCol_ResizeGripHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_6);
-        colors[ImGuiCol_ResizeGripActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_7);
-
-        // CheckBox
-        colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_5);
-        colors[ImGuiCol_CheckMark] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
-
-        // Tabs
-        colors[ImGuiCol_TableHeaderBg]    = ImGui::ColorConvertU32ToFloat4(Colors::Theme::header);
-        colors[ImGuiCol_TableBorderLight] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
-
-        // Slider
-        colors[ImGuiCol_SliderGrab]       = ImVec4(0.51f, 0.51f, 0.51f, 0.7f);
-        colors[ImGuiCol_SliderGrabActive] = ImVec4(0.66f, 0.66f, 0.66f, 1.0f);
-
-        colors[ImGuiCol_MenuBarBg] = ImColor(0, 0, 0, 0);
-
-        // Separator
-        colors[ImGuiCol_Separator]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
-        colors[ImGuiCol_SeparatorActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::highlight);
-        colors[ImGuiCol_SeparatorHovered] = ImColor(39, 185, 242, 150);
-
-        // Scrollbar
-        colors[ImGuiCol_ScrollbarBg]          = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
-        colors[ImGuiCol_ScrollbarGrab]        = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_7);
-        colors[ImGuiCol_ScrollbarGrabHovered] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::gray_5);
-        colors[ImGuiCol_ScrollbarGrabActive]  = ImGui::ColorConvertU32ToFloat4(Colors::Theme::indigo_4);
-        //========================================================
-        /// Style
-
-        // 1.88 had no selected-tab overline; retain that appearance during the API upgrade.
-        style.TabBarOverlineSize = 0.0f;
-        style.TabRounding        = 4.0f; // Preserve the 1.88 default (now 5px upstream).
-        style.FrameRounding     = 4.8f;
-        style.FrameBorderSize   = 1.2f;
-        style.IndentSpacing     = 11.0f;
-        style.WindowPadding     = ImVec2(1.1, 1.4);
-        style.GrabRounding      = 3.0;
-        style.ScrollbarRounding = 12.0;
-        style.ScrollbarSize     = 10.0f;
     }
 
 } // namespace Kans

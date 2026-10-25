@@ -1,4 +1,5 @@
 #include "ProjectBrowser.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 #include <algorithm>
 #include <cctype>
 #include <ctime>
@@ -12,8 +13,8 @@ namespace Kans
     namespace fs = std::filesystem;
     namespace
     {
-        constexpr ImVec4 Accent {0.11f, 0.49f, 0.84f, 1.0f};
-        constexpr ImVec4 ErrorText {0.95f, 0.45f, 0.40f, 1.0f};
+        const ImVec4& Accent    = EditorTheme::Colors().Accent;
+        const ImVec4& ErrorText = EditorTheme::Colors().Danger;
 
         ImFont* BoldFont()
         {
@@ -33,8 +34,8 @@ namespace Kans
         {
             ImGui::BeginDisabled(!enabled);
             ImGui::PushStyleColor(ImGuiCol_Button, Accent);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {Accent.x + 0.08f, Accent.y + 0.08f, Accent.z + 0.06f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {Accent.x - 0.04f, Accent.y - 0.06f, Accent.z - 0.08f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Colors().AccentHover);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, EditorTheme::Colors().AccentPressed);
             const bool pressed = ImGui::Button(label);
             ImGui::PopStyleColor(3);
             ImGui::EndDisabled();
@@ -144,7 +145,7 @@ namespace Kans
 
     void ProjectBrowser::DrawSidebar(float width)
     {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, EditorTheme::Colors().App);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.0f, 20.0f});
         ImGui::BeginChild("##ProjectBrowserSidebar", {width, 0}, ImGuiChildFlags_AlwaysUseWindowPadding);
         ImGui::Indent(4.0f);
@@ -212,7 +213,7 @@ namespace Kans
         int         remove   = -1;
         const float line     = ImGui::GetTextLineHeight();
         const float rowHeight = line * 2.0f + 18.0f;
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, EditorTheme::Colors().Raised);
         if (ImGui::BeginChild("##RecentList", {0, -footer}, ImGuiChildFlags_None))
         {
             int shown = 0;
@@ -331,7 +332,7 @@ namespace Kans
             auto*       draw    = ImGui::GetWindowDrawList();
             const bool  hovered = ImGui::IsItemHovered();
             const ImVec2 bottom {top.x + cardWidth, top.y + cardHeight};
-            draw->AddRectFilled(top, bottom, ImGui::GetColorU32(hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), 6.0f);
+            draw->AddRectFilled(top, bottom, ImGui::GetColorU32(hovered ? EditorTheme::Colors().Hover : EditorTheme::Colors().Raised), 6.0f);
             if (selected)
                 draw->AddRect(top, bottom, ImGui::GetColorU32(Accent), 6.0f, 0, 2.0f);
             ImGui::PushFont(nullptr, 28.0f);

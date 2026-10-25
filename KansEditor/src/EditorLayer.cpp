@@ -10,7 +10,6 @@
 #include "Kans3D/Renderer/Features/Editor/EditorRenderFeatures.h"
 #include <Kans3D/Core/Hash.h>
 #include <Kans3D/Core/UUID.h>
-#include <Kans3D/ImGui/Colors.h>
 
 namespace Kans
 {

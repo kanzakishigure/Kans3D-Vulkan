@@ -1,12 +1,13 @@
 #include "Widgets.h"
+#include "Kans3D/ImGui/EditorTheme.h"
 
 namespace Kans::Widgets
 {
     bool ToolButton(const char* icon, const char* tooltip, bool active, bool enabled)
     {
-        ImGui::PushStyleColor(ImGuiCol_Button, active ? ImVec4(0.26f, 0.59f, 0.98f, 0.45f) : ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Button, active ? EditorTheme::Colors().Selection : ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.40f, 0.40f, 0.40f, 0.45f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.26f, 0.59f, 0.98f, 0.65f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
         ImGui::BeginDisabled(!enabled);
         const bool clicked = ImGui::Button(icon, {28.0f, 26.0f});
         ImGui::EndDisabled();
