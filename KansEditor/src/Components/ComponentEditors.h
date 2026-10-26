@@ -21,6 +21,8 @@ namespace Kans::ComponentEditors
     void DrawTransform(Entity entity, ComponentUI& ui);
     void DrawCamera(Entity entity, ComponentUI& ui);
     void DrawSprite(Entity entity, ComponentUI& ui);
+    void DrawUIScreen(Entity entity, ComponentUI& ui);
+    void DrawUIWorld(Entity entity, ComponentUI& ui);
     void DrawText(Entity entity, ComponentUI& ui);
     void DrawDirectionalLight(Entity entity, ComponentUI& ui);
     void DrawPointLight(Entity entity, ComponentUI& ui);

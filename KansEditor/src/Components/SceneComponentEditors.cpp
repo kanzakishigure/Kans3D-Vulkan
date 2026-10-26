@@ -106,18 +106,6 @@ namespace Kans::ComponentEditors
         });
     }
 
-    void DrawSprite(Entity entity, ComponentUI& ui)
-    {
-        if (!PropertyGrid::Begin("##Sprite"))
-            return;
-        entity.PatchComponent<SpriteRendererComponent>([&](SpriteRendererComponent& c) {
-            PropertyGrid::Color4("Color", c.Color);
-            PropertyGrid::Float("Tiling", c.TilingFactor, 0.01f, 0.0f, 100.0f);
-            ui.AssetPicker("Texture", AssetType::Texture, c.Texture);
-        });
-        PropertyGrid::End();
-    }
-
     void DrawDirectionalLight(Entity entity, ComponentUI&)
     {
         static const DirLightComponent defaults = [] {
