@@ -187,6 +187,9 @@ endif()
 # Stage the full managed output even when only a consumer target is requested.
 # A separate copy target avoids relying on a native relink when C# alone changed.
 if(DOTNET)
+    # The test executables share one output directory, so the copies run one after another
+    # instead of writing the same files in parallel.
+    set(KANS_PREVIOUS_SCRIPTS "")
     foreach(consumer KansEditor SceneRender Kans3DTests RenderFeatureTests GpuTests
             RHIConformanceTests WindowPresentationTests AnimationPerformanceTests ScriptingTests)
         if(TARGET ${consumer})
@@ -195,6 +198,10 @@ if(DOTNET)
                 COMMAND ${CMAKE_COMMAND} -E copy_directory "${KANS_MANAGED_OUTPUT}" "$<TARGET_FILE_DIR:${consumer}>/Resources/Scripts"
                 DEPENDS KansScriptCore VERBATIM)
             add_dependencies(${consumer} ${consumer}Scripts)
+            if(KANS_PREVIOUS_SCRIPTS)
+                add_dependencies(${consumer}Scripts ${KANS_PREVIOUS_SCRIPTS})
+            endif()
+            set(KANS_PREVIOUS_SCRIPTS ${consumer}Scripts)
             if(WIN32)
                 add_custom_command(TARGET ${consumer}Scripts POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
