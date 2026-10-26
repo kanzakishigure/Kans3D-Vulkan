@@ -6,7 +6,7 @@ namespace Kans
     AnimatorComponent::AnimatorComponent(const AnimatorComponent& c) :
         Skeleton(c.Skeleton), Controller(c.Controller), InlineController(c.InlineController), Enabled(c.Enabled),
         ApplyRootMotion(c.ApplyRootMotion), Speed(c.Speed), Parameters(c.Parameters), SkeletonSource(c.SkeletonSource),
-        ControllerSource(c.ControllerSource), ClipSources(c.ClipSources)
+        ControllerSource(c.ControllerSource), ClipSources(c.ClipSources), ActionSources(c.ActionSources)
     {}
     AnimatorComponent& AnimatorComponent::operator=(const AnimatorComponent& c)
     {

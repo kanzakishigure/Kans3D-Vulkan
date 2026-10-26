@@ -15,6 +15,7 @@ namespace Kans
         Ref<const SkeletonAsset>                         SkeletonSource;
         Ref<const AnimationControllerAsset>              ControllerSource;
         std::map<AssetID, Ref<const AnimationClipAsset>> ClipSources;
+        std::map<AssetID, Ref<const ActionAsset>>        ActionSources;
         Ref<Animator>                                    Player;
         Ref<SkinningPose>                                SkinPose;
         std::vector<UUID>                                JointEntities;

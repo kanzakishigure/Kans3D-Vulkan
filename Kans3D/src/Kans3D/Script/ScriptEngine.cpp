@@ -6,6 +6,7 @@
 #include "Kans3D/Scene/Scene.h"
 #include "ScriptAgent.h"
 #include "ScriptUI.h"
+#include "ScriptAnimation.h"
 #if defined(_WIN32)
 #include <Windows.h>
 #else
@@ -259,6 +260,7 @@ namespace Kans
         if (!s_Initialized || s_Scene)
             return;
         ScriptUI::Reset();
+        ScriptAnimation::Reset();
         scene->UI().Reset();
         s_Scene = scene;
         s_Api.SetPlaying(1);
@@ -270,6 +272,7 @@ namespace Kans
         if (s_Initialized)
             s_Api.SetPlaying(0);
         ScriptUI::Reset();
+        ScriptAnimation::Reset();
         if (s_Scene)
             s_Scene->UI().Reset();
         s_Instances.clear();
@@ -299,6 +302,7 @@ namespace Kans
         if (s_Initialized && s_Scene)
         {
             ScriptUI::BeginFrame();
+            ScriptAnimation::BeginFrame();
             ++s_UpdateTransitions;
             s_UpdateOrder.clear();
             s_UpdateOrder.reserve(s_Instances.size());

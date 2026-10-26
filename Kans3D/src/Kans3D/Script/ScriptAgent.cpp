@@ -4,6 +4,7 @@
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Scene.h"
+#include "ScriptAnimation.h"
 #include "ScriptEngine.h"
 #include "ScriptUI.h"
 
@@ -45,6 +46,8 @@ namespace Kans
                     return 0;
                 switch (Scripting::ComponentType(type))
                 {
+                    case Scripting::ComponentType::AnimatorComponent:
+                        return entity.HasComponent<AnimatorComponent>();
                     case Scripting::ComponentType::TransformComponent:
                         return entity.HasComponent<TransformComponent>();
                     case Scripting::ComponentType::MaterialComponent:
@@ -212,6 +215,7 @@ namespace Kans
                                   &ClearMaterialParameter,
                                   &GetMaterialParameter};
         ScriptUI::Install(api);
+        ScriptAnimation::Install(api);
         return api;
     }
 } // namespace Kans

@@ -28,5 +28,6 @@ namespace Kans
         Font                = 14,
         UI                  = 15,
         Expression          = 16,
+        Action              = 17,
     };
 } // namespace Kans

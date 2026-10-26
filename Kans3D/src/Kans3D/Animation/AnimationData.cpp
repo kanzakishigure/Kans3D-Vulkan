@@ -111,8 +111,8 @@ namespace Kans
             result.Rotation = glm::normalize(result.Rotation);
             return result;
         }
-        glm::vec3      skew;
-        glm::vec4      perspective;
+        glm::vec3 skew;
+        glm::vec4 perspective;
         if (!glm::decompose(matrix, result.Scale, result.Rotation, result.Translation, skew, perspective))
             throw std::invalid_argument("Singular joint transform");
         result.Rotation = glm::normalize(result.Rotation);
@@ -395,8 +395,11 @@ namespace Kans
         for (uint32_t i = 0; i < c.Motions.size(); ++i)
             if (!visit(i, 0))
                 return Invalid("Invalid motion graph (cycle, depth, clip or blend tree)");
+        std::set<std::string> slots;
         for (const auto& layer : c.Layers)
         {
+            if (!layer.Slot.empty() && (!Text(layer.Slot) || !slots.insert(layer.Slot).second))
+                return Invalid("Duplicate or invalid animation slot: " + layer.Slot);
             if (layer.States.empty() || layer.States.size() > 4096 || layer.Transitions.size() > 16384 ||
                 layer.EntryState >= layer.States.size() || !std::isfinite(layer.Weight) || layer.Weight < 0 ||
                 layer.Weight > 1 || layer.Mode > AnimationLayerMode::Additive || !Text(layer.Name))

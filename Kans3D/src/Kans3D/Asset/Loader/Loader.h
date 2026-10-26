@@ -89,6 +89,8 @@ namespace Kans
                     return DecodeSkeletonProduct(context.Data, context.Size);
                 else if constexpr (Type == AssetType::AnimationClip)
                     return DecodeAnimationClipProduct(context.Data, context.Size);
+                else if constexpr (Type == AssetType::Action)
+                    return DecodeActionProduct(context.Data, context.Size);
                 else if constexpr (Type == AssetType::Expression)
                     return DecodeExpressionProduct(context.Data, context.Size);
                 else

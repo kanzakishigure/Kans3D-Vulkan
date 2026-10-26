@@ -26,9 +26,16 @@ namespace Kans.Interop
         public float PositionX, PositionY, DeltaX, DeltaY;
     }
     [StructLayout(LayoutKind.Sequential)]
+    internal struct AnimationEventData
+    {
+        public ulong Entity;
+        public double Time;
+        public int Kind, Interrupted;
+    }
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct NativeApi
     {
-        public const uint ApiVersion = 3;
+        public const uint ApiVersion = 4;
         public uint Version, Size;
         public delegate* unmanaged[Cdecl]<int, byte*, void> Log;
         public delegate* unmanaged[Cdecl]<ulong, uint, int> HasComponent;
@@ -46,6 +53,8 @@ namespace Kans.Interop
         internal delegate* unmanaged[Cdecl]<WidgetAddress*, byte*, int, PropertyValue*, byte*, int, int> WidgetProperty;
         internal delegate* unmanaged[Cdecl]<int, UIEventData*, int, byte*, int, int> ReadUIEvent;
         internal delegate* unmanaged[Cdecl]<int, WidgetAddress*, PropertyValue*, int> UIUtility;
+        internal delegate* unmanaged[Cdecl]<ulong, int, byte*, byte*, byte*, byte*, float, float, float, int> AnimationCommand;
+        internal delegate* unmanaged[Cdecl]<int, AnimationEventData*, int, byte*, int, int> ReadAnimationEvent;
     }
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct ManagedApi

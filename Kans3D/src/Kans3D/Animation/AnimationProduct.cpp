@@ -874,7 +874,9 @@ namespace Kans
         for (const auto& l : c.Layers)
         {
             YAML::Node v;
-            v["name"]           = l.Name;
+            v["name"] = l.Name;
+            if (!l.Slot.empty())
+                v["slot"] = l.Slot;
             v["weight"]         = l.Weight;
             v["mode"]           = int(l.Mode);
             v["entry"]          = l.EntryState;
@@ -1008,6 +1010,8 @@ namespace Kans
         for (const auto& v : n["layers"])
         {
             AnimationLayer l;
+            if (v["slot"])
+                l.Slot = v["slot"].as<std::string>();
             l.ShapeKeyMask = ReadShapeKeyWeights(v["shape_key_mask"]);
             l.Name         = v["name"].as<std::string>();
             l.Weight       = v["weight"].as<float>();

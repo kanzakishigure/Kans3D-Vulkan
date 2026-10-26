@@ -3,6 +3,8 @@
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Renderer/RenderWorld.h"
 #include "Kans3D/Renderer/Resource/Skinning.h"
+#include "Kans3D/Script/ScriptAnimation.h"
+#include "Kans3D/Script/ScriptEngine.h"
 #include "Entity.h"
 #include "Scene.h"
 namespace Kans
@@ -92,10 +94,38 @@ namespace Kans
         player->EvaluateControllerIK = false;
         if (root.HasComponent<ShapeKeysComponent>())
             player->BaseShapeKeyWeights = root.GetComponent<ShapeKeysComponent>().Weights;
-        auto valid = player->Prepare(a.SkeletonSource->GetData(), controller, [&](AssetID id) {
-            auto found = a.ClipSources.find(id);
-            return found == a.ClipSources.end() ? nullptr : &found->second->GetData();
-        });
+        auto valid = player->Prepare(
+            a.SkeletonSource->GetData(),
+            controller,
+            [this, rootID = root.GetUUID()](AssetID id) -> const AnimationClipData* {
+                auto entity = GetEntityByUUID(rootID);
+                if (!entity || !entity.HasComponent<AnimatorComponent>())
+                    return nullptr;
+                auto& sources = entity.GetComponent<AnimatorComponent>().ClipSources;
+                if (!sources.count(id) && m_PrefabAssets)
+                {
+                    // An explicit play request must start on this fixed step, including a cold asset cache.
+                    auto loaded = m_PrefabAssets->Load<AnimationClipAsset>(id);
+                    if (auto asset = std::get_if<Ref<const AnimationClipAsset>>(&loaded))
+                        sources.emplace(id, *asset);
+                }
+                auto found = sources.find(id);
+                return found == sources.end() ? nullptr : &found->second->GetData();
+            },
+            [this, rootID = root.GetUUID()](AssetID id) -> const ActionData* {
+                auto entity = GetEntityByUUID(rootID);
+                if (!entity || !entity.HasComponent<AnimatorComponent>())
+                    return nullptr;
+                auto& sources = entity.GetComponent<AnimatorComponent>().ActionSources;
+                if (!sources.count(id) && m_PrefabAssets)
+                {
+                    auto loaded = m_PrefabAssets->Load<ActionAsset>(id);
+                    if (auto asset = std::get_if<Ref<const ActionAsset>>(&loaded))
+                        sources.emplace(id, *asset);
+                }
+                auto found = sources.find(id);
+                return found == sources.end() ? nullptr : &found->second->GetData();
+            });
         if (auto* error = std::get_if<AssetError>(&valid))
         {
             a.LastError = *error;
@@ -166,6 +196,7 @@ namespace Kans
             a.Player.reset();
             a.ControllerSource.reset();
             a.ClipSources.clear();
+            a.ActionSources.clear();
             if (a.Skeleton.IsValid() && a.SkeletonSource && a.SkeletonSource->assetID != a.Skeleton)
                 a.SkeletonSource.reset();
             a.Events.clear();
@@ -352,6 +383,10 @@ namespace Kans
                     transform.ImportedScale    = transform.Scale;
                     animator.Player->SetIKWorldTransform(GetWorldTransform(root));
                 });
+            // Keep the Advance event sink within std::function's inline storage (one capture).
+            if (ScriptEngine::GetSceneContext() == this)
+                for (const auto& event : a.Events)
+                    ScriptAnimation::Queue(root.GetUUID(), event);
             ApplyAnimatorPose(root, a.Player->GetPose());
         }
         UpdateModelPoses();

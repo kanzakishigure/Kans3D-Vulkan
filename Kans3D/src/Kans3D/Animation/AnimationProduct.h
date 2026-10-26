@@ -3,6 +3,10 @@
 #include "AnimationData.h"
 namespace Kans
 {
+    YAML::Node                                       EncodeActionNode(const ActionData&);
+    ActionData                                       DecodeActionNode(const YAML::Node&);
+    std::variant<std::vector<std::byte>, AssetError> EncodeActionProduct(const ActionData&);
+    std::variant<ActionData, AssetError>             DecodeActionProduct(const std::byte*, size_t);
     YAML::Node                                       EncodeExpressionNode(const ExpressionData&);
     ExpressionData                                   DecodeExpressionNode(const YAML::Node&);
     std::variant<std::vector<std::byte>, AssetError> EncodeExpressionProduct(const ExpressionData&);

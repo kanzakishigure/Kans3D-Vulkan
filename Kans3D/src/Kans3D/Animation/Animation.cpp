@@ -272,7 +272,8 @@ namespace Kans
     }
     AnimationValidation Animator::Prepare(const SkeletonData&            skeleton,
                                           const AnimationControllerData& controller,
-                                          const ClipResolver&            resolve)
+                                          const ClipResolver&            resolve,
+                                          const ActionResolver&          resolveAction)
     {
         m_Skeleton = nullptr;
         auto valid = ValidateSkeleton(skeleton);
@@ -281,7 +282,15 @@ namespace Kans
         valid = ValidateAnimationController(controller);
         if (std::holds_alternative<AssetError>(valid))
             return valid;
-        m_Controller = &controller;
+        m_Controller     = &controller;
+        m_ClipResolver   = resolve;
+        m_ActionResolver = resolveAction;
+        m_Actions.assign(controller.Layers.size(), {});
+        m_ActionStatus.assign(controller.Layers.size(), {});
+        m_ActionEvents.clear();
+        m_ActionError.reset();
+        for (size_t l = 0; l < controller.Layers.size(); ++l)
+            m_ActionStatus[l].Slot = controller.Layers[l].Slot;
         m_Parameters.clear();
         for (const auto& p : controller.Parameters)
             m_Parameters.push_back(p.Default);
@@ -529,6 +538,7 @@ namespace Kans
             if (auto saved = BaseShapeKeyWeights.find(m_Skeleton->ShapeKeys[k].Name);
                 saved != BaseShapeKeyWeights.end())
                 out.MorphWeights[k] += (saved->second - m_Rest.MorphWeights[k]) * (1 - out.MorphInfluence[k]);
+        ApplyAction(layer, out);
         if (m_Modifier)
             m_Modifier(*m_Skeleton, out);
         if (EvaluateControllerIK)
@@ -766,6 +776,7 @@ namespace Kans
             auto&       s     = m_Status[l];
             auto&       work  = m_Work[l];
             const auto& layer = m_Controller->Layers[l];
+            work.RootDelta    = {};
             // One transition per layer per update. Any-state has priority and obeys the active transition's
             // interruption rule.
             const auto                 permission      = s.Transitioning ? s.Interruption : AnimationInterruption::Both;
@@ -862,6 +873,8 @@ namespace Kans
                         work.UseFrozen  = false;
                     }
                 }
+                work.RootDelta.Translation += work.RootDelta.Rotation * delta.Translation;
+                work.RootDelta.Rotation = glm::normalize(work.RootDelta.Rotation * delta.Rotation);
                 if (l == 0)
                 {
                     const float weight = work.Weight * (m_Root >= 0 ? work.Mask[m_Root] : 0);
@@ -893,6 +906,40 @@ namespace Kans
             else
                 advance(seconds);
         }
+        for (size_t l = 0; l < m_Status.size(); ++l)
+        {
+            auto       delta      = m_Work[l].RootDelta;
+            const bool actionRoot = m_Root >= 0 && m_ActionStatus[l].Playing && m_Actions[l].Data.RootMotion;
+            AdvanceAction(l, seconds, delta);
+            if (!actionRoot)
+                continue;
+            const float maskWeight = m_Work[l].Weight * m_Work[l].Mask[m_Root];
+            if (l == 0)
+            {
+                m_RootDelta.Translation = delta.Translation * maskWeight;
+                m_RootDelta.Rotation = BlendAnimationRotations(glm::quat(1, 0, 0, 0), delta.Rotation, maskWeight, true);
+            }
+            else
+            {
+                const auto& action   = m_Actions[l];
+                const float coverage = maskWeight * action.RootCoverage;
+                if (m_Controller->Layers[l].Mode == AnimationLayerMode::Override)
+                {
+                    m_RootDelta.Translation *= 1 - coverage;
+                    m_RootDelta.Rotation =
+                        BlendAnimationRotations(glm::quat(1, 0, 0, 0), m_RootDelta.Rotation, 1 - coverage, true);
+                }
+                m_RootDelta.Translation += action.RootDelta.Translation * maskWeight;
+                m_RootDelta.Rotation = glm::normalize(
+                    m_RootDelta.Rotation *
+                    BlendAnimationRotations(glm::quat(1, 0, 0, 0), action.RootDelta.Rotation, maskWeight, true));
+            }
+        }
+        auto actionEvents = std::move(m_ActionEvents);
+        m_ActionEvents.clear();
+        if (sink)
+            for (const auto& e : actionEvents)
+                sink(e);
         if (applyMotion)
             applyMotion(m_RootDelta);
         RebuildPose();
@@ -1302,6 +1349,7 @@ namespace Kans
                 }
                 BlendAnimationPoses(m_Pose, w.Source, w.Weight, m_Pose, w.Mask, w.DrivenMorphMask);
             }
+            ApplyAction(l, m_Pose);
         }
         if (ExtractRootMotion && m_Root >= 0)
         {

@@ -9,7 +9,7 @@
 
 namespace Kans::Scripting
 {
-    constexpr uint32_t ApiVersion = 3;
+    constexpr uint32_t ApiVersion = 4;
     enum class ComponentType : uint32_t
     {
 #define KANS_COMPONENT(id, name) name = id,
@@ -40,7 +40,13 @@ namespace Kans::Scripting
         Value    Payload;
         float    PositionX = 0, PositionY = 0, DeltaX = 0, DeltaY = 0;
     };
-    // ABI v3: UTF-8, NUL terminated strings; Cdecl callbacks; int32 booleans/status;
+    struct AnimationEventData
+    {
+        uint64_t Entity = 0;
+        double   Time   = 0;
+        int32_t  Kind = 0, Interrupted = 0;
+    };
+    // ABI v4: UTF-8, NUL terminated strings; Cdecl callbacks; int32 booleans/status;
     // no engine pointers cross this boundary. Handles are opaque uint64 values.
     struct NativeApi
     {
@@ -63,8 +69,18 @@ namespace Kans::Scripting
             nullptr;
         int32_t(KANS_SCRIPT_CALL* WidgetProperty)(const WidgetAddress*, const char*, int32_t, Value*, char*, int32_t) =
             nullptr;
-        int32_t(KANS_SCRIPT_CALL* ReadUIEvent)(int32_t, UIEventData*, int32_t, char*, int32_t) = nullptr;
-        int32_t(KANS_SCRIPT_CALL* UIUtility)(int32_t, const WidgetAddress*, Value*)            = nullptr;
+        int32_t(KANS_SCRIPT_CALL* ReadUIEvent)(int32_t, UIEventData*, int32_t, char*, int32_t)               = nullptr;
+        int32_t(KANS_SCRIPT_CALL* UIUtility)(int32_t, const WidgetAddress*, Value*)                          = nullptr;
+        int32_t(KANS_SCRIPT_CALL* AnimationCommand)(uint64_t,
+                                                    int32_t,
+                                                    const char*,
+                                                    const char*,
+                                                    const char*,
+                                                    const char*,
+                                                    float,
+                                                    float,
+                                                    float)                                                   = nullptr;
+        int32_t(KANS_SCRIPT_CALL* ReadAnimationEvent)(int32_t, AnimationEventData*, int32_t, char*, int32_t) = nullptr;
     };
     struct ManagedApi
     {
@@ -86,6 +102,6 @@ namespace Kans::Scripting
     static_assert(sizeof(Vector3) == 12);
     static_assert(sizeof(Value) == 24);
     static_assert(sizeof(UIEventData) == 64);
-    static_assert(sizeof(NativeApi) == 8 + 16 * sizeof(void*));
+    static_assert(sizeof(NativeApi) == 8 + 18 * sizeof(void*));
     static_assert(sizeof(ManagedApi) == 8 + 12 * sizeof(void*));
 } // namespace Kans::Scripting

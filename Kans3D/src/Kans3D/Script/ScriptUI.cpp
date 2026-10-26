@@ -126,6 +126,8 @@ namespace Kans::ScriptUI
                     return 0;
                 switch (Scripting::ComponentType(type))
                 {
+                    case Scripting::ComponentType::AnimatorComponent:
+                        return Add<AnimatorComponent>(e);
                     case Scripting::ComponentType::TransformComponent:
                         return Add<TransformComponent>(e);
                     case Scripting::ComponentType::CameraComponent:

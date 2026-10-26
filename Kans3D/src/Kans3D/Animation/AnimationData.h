@@ -234,6 +234,23 @@ namespace Kans
         const AnimationCompressionStatistics&                   GetCompressionStatistics() const { return Compression; }
         size_t                                                  ResidentBytes() const;
     };
+    struct ActionSection
+    {
+        std::string Name;
+        double      Start = 0, End = 0;
+        std::string Next;
+    };
+    struct ActionData
+    {
+        AssetID                     Clip;
+        std::string                 Slot;
+        double                      BlendIn = .2, BlendOut = .2, Speed = 1;
+        bool                        RootMotion = true;
+        std::vector<ActionSection>  Sections;
+        std::vector<AnimationEvent> Events;
+    };
+    // With a clip, also checks section/event bounds. Asset import resolves the clip before encoding.
+    std::variant<std::monostate, AssetError> ValidateAction(const ActionData&, const AnimationClipData* = nullptr);
     struct AnimationNameMapping
     {
         std::string                        StripPrefix;
@@ -343,8 +360,9 @@ namespace Kans
         std::vector<ShapeKeyWeight>
             ShapeKeyMask; // Nonempty masks jointly select channels; a face-only mask selects no joints.
         std::vector<AvatarMaskEntry>
-                 Mask; // Both masks empty = all channels; otherwise unlisted channels have zero weight.
-        uint32_t EntryState = 0;
+                    Mask; // Both masks empty = all channels; otherwise unlisted channels have zero weight.
+        std::string Slot; // Empty = no action slot. Unique within the controller.
+        uint32_t    EntryState = 0;
         std::vector<AnimationState>      States;
         std::vector<AnimationTransition> Transitions;
     };
@@ -414,6 +432,7 @@ namespace Kans
     private:
         T m_Data;
     };
+    using ActionAsset        = AnimationDataAsset<ActionData, AssetType::Action>;
     using SkeletonAsset      = AnimationDataAsset<SkeletonData, AssetType::Skeleton>;
     using AnimationClipAsset = AnimationDataAsset<AnimationClipData, AssetType::AnimationClip>;
     struct ExpressionData

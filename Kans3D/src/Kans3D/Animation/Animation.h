@@ -30,6 +30,15 @@ namespace Kans
                                     const std::vector<float>& morphMask = {});
     // Caller-owned output has child count entries. Cartesian gradient-band interpolation, normalized to unity.
     void AnimationBlendWeights(const AnimationMotion&, glm::vec2 parameter, std::vector<float>& output);
+    enum class AnimationEventKind : uint8_t
+    {
+        Clip,
+        Action,
+        ActionStarted,
+        SectionChanged,
+        ActionBlendingOut,
+        ActionEnded
+    };
     struct AnimationEventOccurrence
     {
         const AnimationEvent* Event        = nullptr;
@@ -37,6 +46,12 @@ namespace Kans
         int64_t               Cycle        = 0;
         uint32_t              Layer        = 0;
         bool                  Backwards    = false;
+        AnimationEventKind    Kind         = AnimationEventKind::Clip;
+        std::string           Slot, Section;
+        AssetID               Action, Clip;
+        bool                  Interrupted = false;
+        // Own action/lifecycle events so queued occurrences survive interruption and asset unload.
+        std::shared_ptr<const AnimationEvent> OwnedEvent;
     };
     using AnimationEventSink = std::function<void(const AnimationEventOccurrence&)>;
     // Forward (from,to], backward [to,from). Equal endpoints produce no events.
@@ -60,24 +75,44 @@ namespace Kans
         float                 CrossfadeWeight() const;
     };
 
+    struct AnimatorActionStatus
+    {
+        std::string Slot, Section;
+        AssetID     Action, Clip;
+        double      Time    = 0;
+        float       Weight  = 0;
+        bool        Playing = false, BlendingOut = false;
+    };
     // CPU evaluator. Prepare allocates/binds once. Advance, EvaluateState and RebuildPose reuse storage.
     // Data passed to Prepare must outlive this object. Copying the evaluator is safe while data stays alive.
     struct IKComponent;
     class Animator
     {
     public:
-        using ClipResolver = std::function<const AnimationClipData*(AssetID)>;
-        AnimationValidation   Prepare(const SkeletonData&, const AnimationControllerData&, const ClipResolver& = {});
-        bool                  IsPrepared() const { return m_Skeleton != nullptr; }
-        bool                  SetFloat(const std::string&, float);
-        bool                  SetInt(const std::string&, int);
-        bool                  SetBool(const std::string&, bool);
-        bool                  SetTrigger(const std::string&);
-        bool                  ResetTrigger(const std::string&);
-        std::optional<double> GetParameter(const std::string&) const;
-        bool                  SetLayerWeight(size_t, float);
-        bool                  Play(size_t layer, uint32_t state, double time = 0);
-        bool                  CrossFade(size_t layer, uint32_t state, double seconds, double time = 0);
+        using ClipResolver   = std::function<const AnimationClipData*(AssetID)>;
+        using ActionResolver = std::function<const ActionData*(AssetID)>;
+        AnimationValidation Prepare(const SkeletonData&,
+                                    const AnimationControllerData&,
+                                    const ClipResolver&   = {},
+                                    const ActionResolver& = {});
+        bool                PlayAction(AssetID, std::optional<std::string> slot = {}, float speedScale = 1);
+        bool PlayClip(const std::string& slot, AssetID clip, double blendIn, double blendOut, double speed = 1);
+        bool StopAction(const std::string& slot, double blendOut);
+        bool JumpToSection(const std::string& slot, const std::string& name);
+        bool SetNextSection(const std::string& slot, const std::string& from, const std::string& to);
+        bool IsActionPlaying(const std::string& slot) const;
+        const std::vector<AnimatorActionStatus>& GetActions() const { return m_ActionStatus; }
+        const std::optional<AssetError>&         GetActionError() const { return m_ActionError; }
+        bool                                     IsPrepared() const { return m_Skeleton != nullptr; }
+        bool                                     SetFloat(const std::string&, float);
+        bool                                     SetInt(const std::string&, int);
+        bool                                     SetBool(const std::string&, bool);
+        bool                                     SetTrigger(const std::string&);
+        bool                                     ResetTrigger(const std::string&);
+        std::optional<double>                    GetParameter(const std::string&) const;
+        bool                                     SetLayerWeight(size_t, float);
+        bool                                     Play(size_t layer, uint32_t state, double time = 0);
+        bool                         CrossFade(size_t layer, uint32_t state, double seconds, double time = 0);
         const std::vector<ShapeKey>& GetShapeKeys() const
         {
             static const std::vector<ShapeKey> empty;
@@ -176,6 +211,34 @@ namespace Kans
         bool            Conditions(const AnimationTransition&) const;
         bool            Exit(const AnimationTransition&, size_t layer, uint32_t state, double from, double to) const;
         void            Consume(const AnimationTransition&);
+        struct ActionWork
+        {
+            RootMotionDelta    RootDelta;
+            float              RootCoverage = 0;
+            ActionData         Data;
+            BoundAnimationClip Binding;
+            AnimationPose      Pose, Frozen;
+            size_t             Section = 0;
+            double             Age = 0, StopElapsed = 0, StopDuration = 0;
+            float              FrozenWeight = 0, StopWeight = 0;
+            bool               HasFrozen = false, Stopping = false, AtEnd = false, Entered = true;
+            int64_t            Cycle = 0;
+        };
+        int32_t SlotLayer(const std::string&) const;
+        bool    StartAction(AssetID, ActionData, const std::string&, double);
+        float   ActionWeight(size_t) const;
+        void    SampleAction(size_t);
+        void    ApplyAction(size_t, AnimationPose&);
+        void    ActionEvent(size_t, AnimationEventKind, const AnimationEvent* = nullptr, bool interrupted = false);
+        void    FinishAction(size_t, bool interrupted = false);
+        void    AdvanceAction(size_t, double seconds, RootMotionDelta&);
+        JointTransform                        ActionRoot(size_t, double);
+        ClipResolver                          m_ClipResolver;
+        ActionResolver                        m_ActionResolver;
+        std::vector<ActionWork>               m_Actions;
+        std::vector<AnimatorActionStatus>     m_ActionStatus;
+        std::vector<AnimationEventOccurrence> m_ActionEvents;
+        std::optional<AssetError>             m_ActionError;
         struct LayerWork
         {
             AnimationPose      Source, Target, Frozen;
@@ -183,6 +246,7 @@ namespace Kans
             JointTransform     FrozenRootReference;
             std::vector<float> Mask, MorphMask, DrivenMorphMask;
             float              Weight = 1;
+            RootMotionDelta    RootDelta;
         };
         const SkeletonData*                     m_Skeleton   = nullptr;
         const AnimationControllerData*          m_Controller = nullptr;
