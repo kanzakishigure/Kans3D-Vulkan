@@ -723,9 +723,6 @@ namespace Kans
             ImGui::Checkbox("Outline", &state.EnableOutline);
             ImGui::Checkbox("Stencil", &state.EnableStencil);
             ImGui::Checkbox("Debug normals", &state.EnableDebugNormal);
-            ImGui::Checkbox("EnableToneShader", &state.EnableToneShader);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Not used by the current renderer: use a ToneCharacter material instead.");
             ImGui::Checkbox("EnableDefaultShader", &state.EnableDefaultShader);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Not used by the current renderer: models are always drawn.");

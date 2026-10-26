@@ -26,7 +26,6 @@ namespace Kans
     struct PipLineState
     {
         bool EnableOutline       = false;
-        bool EnableToneShader    = false;
         bool EnableStencil       = false;
         bool EnableDebugNormal   = false;
         bool EnableDefaultShader = true;
