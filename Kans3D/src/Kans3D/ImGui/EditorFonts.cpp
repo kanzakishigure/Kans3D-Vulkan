@@ -41,8 +41,9 @@ namespace Kans
     {
         auto& io = ImGui::GetIO();
         // Dynamic fonts ignore GlyphRanges; exclude everything outside the legacy icon range.
+        // Text keeps Latin-1 plus the ellipsis, which cut labels end with.
         static const ImWchar iconRanges[]     = {0xe000, 0xf8ff, 0};
-        static const ImWchar textExclusions[] = {1, 0x1f, 0x100, IM_UNICODE_CODEPOINT_MAX, 0};
+        static const ImWchar textExclusions[] = {1, 0x1f, 0x100, 0x2025, 0x2027, IM_UNICODE_CODEPOINT_MAX, 0};
         static const ImWchar iconExclusions[] = {1, 0xdfff, 0xf900, IM_UNICODE_CODEPOINT_MAX, 0};
         const auto           folder           = KansFileSystem::GetFontsFolder();
         const auto           mergeIcons       = [&] {

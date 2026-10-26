@@ -1,5 +1,6 @@
 #include "MaterialSlotRow.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 #include "Kans3D/ImGui/EditorTheme.h"
 #include "Kans3D/Renderer/Resource/Texture.h"
@@ -47,18 +48,29 @@ namespace Kans::Widgets
         ImGui::SameLine();
 
         ImGui::BeginGroup();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(title.c_str());
-        ImGui::SameLine();
-        ImGui::TextColored(colors.TextDim, "%s", detail.c_str());
-        // The four tools sit at the right end (SameLine offsets are group-relative here, so push them).
-        ImGui::SameLine();
-        const float tools = 4 * EditorTheme::Px(28.0f) + 3 * style.ItemSpacing.x;
-        if (const float gap = ImGui::GetContentRegionAvail().x - tools; gap > style.ItemSpacing.x)
+        // The four tools keep the right end; the title and detail share what is left, the title
+        // giving way first, both cut with an ellipsis and shown in full in the tooltip.
+        const float  tools = 4 * EditorTheme::Px(28.0f) + 3 * style.ItemSpacing.x;
+        const float  text  = std::max(0.0f, ImGui::GetContentRegionAvail().x - tools - style.ItemSpacing.x);
+        const ImVec2 line  = ImGui::GetCursorScreenPos();
+        const float  textY = line.y + style.FramePadding.y, bottom = textY + ImGui::GetTextLineHeight();
+        const ImVec2 titleSize = ImGui::CalcTextSize(title.c_str()), detailSize = ImGui::CalcTextSize(detail.c_str());
+        const float  titleWidth =
+            std::min(titleSize.x, std::max(text - detailSize.x - style.ItemSpacing.x, text * 0.5f));
+        const float detailX = line.x + titleWidth + style.ItemSpacing.x, right = line.x + text;
+        ImGui::RenderTextEllipsis(draw, {line.x, textY}, {line.x + titleWidth, bottom}, line.x + titleWidth,
+                                  title.c_str(), nullptr, &titleSize);
+        if (detailX < right)
         {
-            ImGui::Dummy({gap - style.ItemSpacing.x, 0});
-            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, colors.TextDim);
+            ImGui::RenderTextEllipsis(draw, {detailX, textY}, {right, bottom}, right, detail.c_str(), nullptr,
+                                      &detailSize);
+            ImGui::PopStyleColor();
         }
+        ImGui::Dummy({text, ImGui::GetFrameHeight()});
+        if (ImGui::IsItemHovered() && titleSize.x + style.ItemSpacing.x + detailSize.x > text)
+            ImGui::SetTooltip("%s  %s", title.c_str(), detail.c_str());
+        ImGui::SameLine();
         if (ToolButton(ICON_FA_EYE, "Highlight these parts in the viewport", highlighted))
             ui.ToggleSlotHighlight(parts);
         ImGui::SameLine();
