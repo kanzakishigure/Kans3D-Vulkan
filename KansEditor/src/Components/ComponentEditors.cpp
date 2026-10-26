@@ -61,8 +61,22 @@ namespace Kans
                 scene.SetPrefabMaterialOverride(root, owned.NodeKey, slot, material);
         };
 
-        auto& text = registry.Register<TextComponent>("Text", "T", "Rendering");
-        text.Draw  = [](Entity, ComponentUI&) {}; // Properties fields are supplied separately.
+        auto& text    = registry.Register<TextComponent>("Text", ICON_FA_FONT, "Rendering");
+        text.IconRank = 6;
+        text.Add      = [](Entity e) { e.AddComponent<TextComponent>().Text = "Text"; };
+        // Reset keeps the string and the font: it restores the style.
+        text.Reset = [](Entity e) {
+            e.PatchComponent<TextComponent>([](auto& c) {
+                TextComponent style;
+                style.Text = c.Text;
+                style.Font = c.Font;
+                c          = style;
+            });
+        };
+        text.Draw        = DrawText;
+        text.CreateName  = "Text";
+        text.CreateOrder = 5;
+        text.Create      = text.Add;
 
         auto& camera    = registry.Register<CameraComponent>("Camera", ICON_FA_VIDEO, "Rendering");
         camera.IconRank = 1;

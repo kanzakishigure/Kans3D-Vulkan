@@ -45,6 +45,8 @@ namespace Kans
         static const ImWchar iconRanges[]     = {0xe000, 0xf8ff, 0};
         static const ImWchar textExclusions[] = {1, 0x1f, 0x100, 0x2025, 0x2027, IM_UNICODE_CODEPOINT_MAX, 0};
         static const ImWchar iconExclusions[] = {1, 0xdfff, 0xf900, IM_UNICODE_CODEPOINT_MAX, 0};
+        // CJK and other scripts come from the engine's Noto Sans CJK, after Latin-1 and the icons.
+        static const ImWchar cjkExclusions[]  = {1, 0xff, 0xe000, 0xf8ff, 0};
         const auto           folder           = KansFileSystem::GetFontsFolder();
         const auto           mergeIcons       = [&] {
             ImFontConfig config;
@@ -65,6 +67,13 @@ namespace Kans
                 font              = io.Fonts->AddFontDefaultBitmap(&config);
             }
             mergeIcons();
+            ImFontConfig cjk;
+            cjk.MergeMode          = true;
+            cjk.FontNo             = 3; // Faces: JP, KR, SC, TC, HK. TC is the engine's default region.
+            cjk.GlyphExcludeRanges = cjkExclusions;
+            // Pixel size spans ascent to descent, which is taller in Noto CJK than in Roboto: match the em.
+            cjk.ExtraSizeScale = 1.2f;
+            LoadFont(folder / "NotoSansCJK/NotoSansCJK-Regular.ttc", 16.0f, cjk);
             return font;
         };
         io.FontDefault = textFont("Roboto/Roboto-Regular.ttf");
