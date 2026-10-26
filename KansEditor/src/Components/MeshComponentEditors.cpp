@@ -114,6 +114,14 @@ namespace Kans::ComponentEditors
                 scene->ClearPrefabOverride(root, key);
     }
 
+    void DrawMeshMaterials(Entity                               entity,
+                           ComponentUI&                         ui,
+                           Scene&                               scene,
+                           const MeshAsset*                     data,
+                           Entity                               root,
+                           bool                                 owned,
+                           const std::vector<MeshMaterialSlot>& slots);
+
     void DrawMesh(Entity entity, ComponentUI& ui)
     {
         Scene*        scene  = ui.GetScene();
@@ -121,10 +129,14 @@ namespace Kans::ComponentEditors
         auto&         mesh   = entity.GetComponent<MeshComponent>();
         Entity        root   = scene ? scene->GetPrefabInstanceRoot(entity) : Entity {};
         const bool    owned  = root && entity.HasComponent<PrefabOwnedComponent>();
-        if (PropertyGrid::Begin("##Mesh"))
+        Ref<const MeshAsset> data;
+        if (assets && mesh.Mesh.IsValid())
+            if (auto loaded = assets->Request<MeshAsset>(mesh.Mesh); loaded.IsReady())
+                data = loaded.Asset;
+        if (PropertyGrid::BeginGroup("Mesh"))
         {
             if (owned)
-                PropertyGrid::Text("Mesh", mesh.Section ? "Section " + std::to_string(*mesh.Section + 1) : "All sections");
+                PropertyGrid::Text("Mesh", mesh.Section ? "Section " + std::to_string(*mesh.Section) : "All sections");
             else
             {
                 AssetID chosen = mesh.Mesh;
@@ -133,17 +145,40 @@ namespace Kans::ComponentEditors
                         m.Mesh = chosen;
                         m.Materials.clear();
                     });
-                // A prefab part's flags come from the prefab and are restored when it
-                // re-expands; use the material's receive_shadows for parts instead.
-                bool cast = mesh.CastShadows, receive = mesh.ReceiveShadows;
-                if (PropertyGrid::Checkbox("Cast shadows", cast) | PropertyGrid::Checkbox("Receive shadows", receive))
-                    entity.PatchComponent<MeshComponent>([&](MeshComponent& m) {
-                        m.CastShadows    = cast;
-                        m.ReceiveShadows = receive;
-                    });
             }
-            // Read by post-process materials. Unlike the shadow flags, a prefab part keeps
-            // these as a prefab override, so they are editable on parts too.
+            if (data)
+            {
+                const auto& d = data->GetData();
+                PropertyGrid::Text("Geometry",
+                                   std::to_string(d.Vertices.size()) + " vertices, " +
+                                       std::to_string(d.Indices.size() / 3) + " triangles" +
+                                       (d.HasSmoothNormals() ? ", smooth normals" : ""),
+                                   true);
+            }
+            PropertyGrid::EndGroup();
+        }
+        const auto slots =
+            mesh.Mesh.IsValid() && scene ? scene->GetMeshSlots(entity) : std::vector<MeshMaterialSlot> {};
+        if (mesh.Mesh.IsValid() && scene && slots.empty())
+            ImGui::TextDisabled("Loading mesh...");
+        if (!slots.empty())
+            DrawMeshMaterials(entity, ui, *scene, data.get(), root, owned, slots);
+        // A prefab part's shadow flags come from the prefab and are restored when it
+        // re-expands; use the material's receive_shadows for parts instead.
+        if (!owned && PropertyGrid::BeginGroup("Lighting"))
+        {
+            bool cast = mesh.CastShadows, receive = mesh.ReceiveShadows;
+            if (PropertyGrid::Checkbox("Cast shadows", cast) | PropertyGrid::Checkbox("Receive shadows", receive))
+                entity.PatchComponent<MeshComponent>([&](MeshComponent& m) {
+                    m.CastShadows    = cast;
+                    m.ReceiveShadows = receive;
+                });
+            PropertyGrid::EndGroup();
+        }
+        // Read by post-process materials; folded until used. Unlike the shadow flags, a
+        // prefab part keeps these as a prefab override, so they are editable on parts too.
+        if (PropertyGrid::BeginGroup("Rendering", nullptr, nullptr, mesh.RenderCustomDepth))
+        {
             bool custom  = mesh.RenderCustomDepth;
             int  stencil = mesh.CustomStencil;
             if (PropertyGrid::Checkbox("Custom depth", custom) |
@@ -152,33 +187,23 @@ namespace Kans::ComponentEditors
                     m.RenderCustomDepth = custom;
                     m.CustomStencil     = uint8_t(std::clamp(stencil, 0, 255));
                 });
-            PropertyGrid::End();
+            PropertyGrid::EndGroup();
         }
-        if (!mesh.Mesh.IsValid() || !scene)
-            return;
-        const auto slots = scene->GetMeshSlots(entity);
-        if (slots.empty())
-        {
-            ImGui::TextDisabled("Loading mesh...");
-            return;
-        }
-        if (assets)
-            if (const auto data = assets->Request<MeshAsset>(mesh.Mesh); data.IsReady())
-            {
-                const auto& d = data.Asset->GetData();
-                ImGui::TextDisabled("%zu vertices, %zu triangles%s",
-                                    d.Vertices.size(),
-                                    d.Indices.size() / 3,
-                                    d.HasSmoothNormals() ? ", smooth normals" : "");
-            }
+    }
+
+    void DrawMeshMaterials(Entity                               entity,
+                           ComponentUI&                         ui,
+                           Scene&                               scene,
+                           const MeshAsset*                     data,
+                           Entity                               root,
+                           bool                                 owned,
+                           const std::vector<MeshMaterialSlot>& slots)
+    {
+        const auto& mesh = entity.GetComponent<MeshComponent>();
         // A part shows only the slots its sections use.
         std::vector<uint32_t> shown;
-        if (mesh.Section && assets)
-        {
-            if (const auto data = assets->Request<MeshAsset>(mesh.Mesh);
-                data.IsReady() && *mesh.Section < data.Asset->GetData().Sections.size())
-                shown.push_back(data.Asset->GetData().Sections[*mesh.Section].MaterialSlot);
-        }
+        if (mesh.Section && data && *mesh.Section < data->GetData().Sections.size())
+            shown.push_back(data->GetData().Sections[*mesh.Section].MaterialSlot);
         if (shown.empty())
             for (uint32_t slot = 0; slot < slots.size(); ++slot)
                 shown.push_back(slot);
@@ -192,12 +217,11 @@ namespace Kans::ComponentEditors
         }
         // Sections per slot, for the part counts.
         std::vector<size_t> sections(slots.size(), 0);
-        if (assets)
-            if (const auto data = assets->Request<MeshAsset>(mesh.Mesh); data.IsReady())
-                for (const auto& section : data.Asset->GetData().Sections)
-                    if (section.MaterialSlot < sections.size())
-                        ++sections[section.MaterialSlot];
-        if (!PropertyGrid::BeginGroup("Materials"))
+        if (data)
+            for (const auto& section : data->GetData().Sections)
+                if (section.MaterialSlot < sections.size())
+                    ++sections[section.MaterialSlot];
+        if (!PropertyGrid::BeginGroup(("Materials (" + std::to_string(shown.size()) + ")").c_str()))
             return;
         PropertyGrid::BeginFree();
         for (uint32_t slot : shown)
@@ -208,10 +232,11 @@ namespace Kans::ComponentEditors
             const AssetID current =
                 slot < mesh.Materials.size() && mesh.Materials[slot].IsValid() ? mesh.Materials[slot] : imported;
             AssetID    chosen;
-            const auto label  = slots[slot].Name.empty() ? "Slot " + std::to_string(slot + 1) : slots[slot].Name;
-            const auto detail = owned ? std::string("Slot ") + std::to_string(slot + 1) : Parts(sections[slot]);
-            if (Widgets::MaterialSlotRow(ui, label, detail, {{entity.GetUUID(), slot}}, imported, current, chosen))
-                AssignMaterial(*scene, entity, slot, chosen);
+            // GetMeshSlots names unnamed slots "Slot <index>", 0-based like the scene file and scripts.
+            const auto detail = owned ? "Slot " + std::to_string(slot) : Parts(sections[slot]);
+            if (Widgets::MaterialSlotRow(
+                    ui, slots[slot].Name, detail, {{entity.GetUUID(), slot}}, imported, current, chosen))
+                AssignMaterial(scene, entity, slot, chosen);
             ImGui::PopID();
         }
         PropertyGrid::EndFree();

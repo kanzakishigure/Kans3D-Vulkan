@@ -390,6 +390,11 @@ namespace Kans
             ImGui::TextDisabled("No project is open.");
             return;
         }
+        if (m_FocusRequested)
+        {
+            ImGui::SetWindowFocus(); // Brings a docked tab to the front.
+            m_FocusRequested = false;
+        }
         m_Thumbnails.Update();
         std::error_code error;
         if (!fs::is_directory(m_Current, error))
@@ -810,6 +815,9 @@ namespace Kans
         ImGuiListClipper clipper;
         const int        rows = int((m_Visible.size() + m_Columns - 1) / m_Columns);
         clipper.Begin(rows, cardHeight + gap);
+        const auto scrollTo = ScrollTarget();
+        if (scrollTo >= 0)
+            clipper.IncludeItemByIndex(scrollTo / m_Columns);
         while (clipper.Step())
             for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
                 for (int column = 0; column < m_Columns; ++column)
@@ -825,6 +833,8 @@ namespace Kans
                     const ImVec2 max(min.x + cardWidth, min.y + cardHeight);
                     ImGui::SetNextItemAllowOverlap();
                     ImGui::InvisibleButton("##card", {cardWidth, cardHeight});
+                    if (index == size_t(scrollTo))
+                        ScrolledTo();
                     const bool hovered  = ImGui::IsItemHovered();
                     const bool selected = m_Selection.Contains(entry.Path);
                     HandleItem(entry);
@@ -908,6 +918,9 @@ namespace Kans
         const float     rowHeight = ImGui::GetFrameHeight();
         ImGuiListClipper clipper;
         clipper.Begin(int(m_Visible.size()), rowHeight);
+        const auto scrollTo = ScrollTarget();
+        if (scrollTo >= 0)
+            clipper.IncludeItemByIndex(scrollTo);
         while (clipper.Step())
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
             {
@@ -920,6 +933,8 @@ namespace Kans
                                   m_Selection.Contains(entry.Path),
                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
                                   {0, rowHeight});
+                if (i == scrollTo)
+                    ScrolledTo();
                 HandleItem(entry);
                 const float icon = rowHeight - 4.0f;
                 DrawIcon(entry, {rowStart.x, rowStart.y + 2.0f}, {rowStart.x + icon, rowStart.y + 2.0f + icon});
@@ -1722,6 +1737,35 @@ namespace Kans
     {
         if (m_ReportError)
             m_ReportError(error.Message);
+    }
+
+    int ContentBrowserPanel::ScrollTarget() const
+    {
+        if (m_ScrollTo.empty())
+            return -1;
+        for (size_t i = 0; i < m_Visible.size(); ++i)
+            if (m_Visible[i].Path == m_ScrollTo)
+                return int(i);
+        return -1;
+    }
+
+    void ContentBrowserPanel::ScrolledTo()
+    {
+        ImGui::SetScrollHereY(0.5f);
+        m_ScrollTo.clear();
+    }
+
+    void ContentBrowserPanel::Reveal(const fs::path& file)
+    {
+        const auto target = Normal(file);
+        if (!Browser::IsWithin(target, m_Root))
+            return;
+        Navigate(target.parent_path());
+        m_Search.fill(0); // A search could hide the file.
+        Refresh();
+        m_Selection.Set(target);
+        m_ScrollTo       = target;
+        m_FocusRequested = true;
     }
 
     void ContentBrowserPanel::SelectAfterChange(const std::vector<fs::path>& paths)

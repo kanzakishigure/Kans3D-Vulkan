@@ -89,6 +89,14 @@ namespace Kans
         void                                     ExtractMaterials(const std::filesystem::path& file);
         // Writes `<Name>_Instance.material` next to `file` with it as the parent, builds it and opens it.
         void                                     CreateMaterialInstance(const std::filesystem::path& file);
+        // Writes `<directory>/<stem>_Instance.material` (numbered when taken) with `parent`, and
+        // starts its build; the written file, or empty on failure.
+        std::filesystem::path
+        WriteMaterialInstance(AssetID parent, const std::filesystem::path& directory, const std::string& stem);
+        // A slot row's Create Material Instance: the instance goes beside `source` (the parent's
+        // .material, or the model holding it) and replaces the material on `parts` once imported.
+        void CreateSlotInstance(AssetID parent, const std::filesystem::path& source, const SlotParts& parts);
+        void AssignPendingSlotInstances();
         // Published Material of a .material source, or invalid.
         AssetID                                  FindPublishedMaterial(const std::filesystem::path& file);
         // Content-browser thumbnail of a .material file: rendered a few per frame,
@@ -106,6 +114,8 @@ namespace Kans
         Scope<MaterialPreviewRenderer>                          m_MaterialPreview, m_ThumbnailRenderer;
         AssetID                                  FindPublishedModel(SourceAssetID source) const;
         std::optional<SourceAssetID>             m_PendingPlacement;
+        // Instances created from slot rows, assigned to their slots when their build is published.
+        std::vector<std::pair<std::filesystem::path, SlotParts>> m_PendingSlotInstances;
         UUID                                     m_PendingPlacementParent = 0;
         std::optional<glm::vec3>                 m_PendingPlacementPosition;
         // Dropped while another build ran: build it once that build completes.

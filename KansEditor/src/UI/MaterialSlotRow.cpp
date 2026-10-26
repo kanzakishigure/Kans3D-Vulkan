@@ -106,6 +106,26 @@ namespace Kans::Widgets
         const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
         if (hovered)
             ui.HoverSlot(parts);
+        // Double-clicking the preview opens the material; the row's menu holds the rest.
+        if (ImGui::IsMouseHoveringRect(at, end) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+            ui.CanOpenMaterial(current))
+            ui.OpenMaterial(current);
+        if (ImGui::BeginPopupContextItem("##slotMenu"))
+        {
+            const bool file = ui.CanOpenMaterial(current);
+            if (ImGui::MenuItem(ICON_FA_PEN "  Open in Material Editor", nullptr, false, file))
+                ui.OpenMaterial(current);
+            if (!file && current.IsValid())
+                ImGui::SetItemTooltip("Inside its model; create an instance to edit it");
+            if (ImGui::MenuItem(ICON_FA_FOLDER "  Show in Content Browser", nullptr, false, current.IsValid()))
+                ui.RevealAsset(current);
+            ImGui::Separator();
+            if (ImGui::MenuItem(ICON_FA_CLONE "  Create Material Instance", nullptr, false, current.IsValid()))
+                ui.CreateMaterialInstance(current, parts);
+            ImGui::SetItemTooltip("A new material with %s as its parent, used by this slot",
+                                  ui.MaterialName(current).c_str());
+            ImGui::EndPopup();
+        }
         if (const AssetID dropped = ui.AcceptMaterialDrop(); dropped.IsValid())
         {
             chosen = dropped;

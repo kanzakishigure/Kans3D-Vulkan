@@ -56,6 +56,8 @@ namespace Kans
         }
         // Re-reads folders and sources on the next frame.
         void Refresh();
+        // Opens the file's folder, selects the file, scrolls to it and focuses the panel.
+        void Reveal(const std::filesystem::path& file);
 
         // View settings and favorites are saved in imgui.ini.
         void InstallSettingsHandler();
@@ -108,6 +110,9 @@ namespace Kans
 
         // ---- actions ----
         void Open(const Browser::Entry& entry);
+        // Index of m_ScrollTo in the listing, or -1; ScrolledTo scrolls to the last item and clears it.
+        int  ScrollTarget() const;
+        void ScrolledTo();
         void StartRename(const std::filesystem::path& item);
         void CommitRename();
         void RequestDelete(std::vector<std::filesystem::path> items);
@@ -157,6 +162,8 @@ namespace Kans
         // Bytes to select when the rename field opens: the name without its
         // extension (the whole name for folders); -1 once applied.
         int m_RenameSelection = -1;
+        std::filesystem::path                   m_ScrollTo; // Scrolled into view once it is listed (Reveal).
+        bool                                    m_FocusRequested = false;
         std::vector<std::filesystem::path> m_Clipboard;
         bool                               m_ClipboardCut = false;
         std::vector<std::filesystem::path> m_DragItems;

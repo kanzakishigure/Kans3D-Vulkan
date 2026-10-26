@@ -36,6 +36,14 @@ namespace Kans
         {
             m_BrowserSelection = std::move(selection);
         }
+        // Material actions of the slot rows: open a .material file, show a file in the Content
+        // Browser, and create an instance of a material (its ID and source file) for some slots.
+        struct MaterialActions
+        {
+            std::function<void(const std::filesystem::path&)>                            Open, Reveal;
+            std::function<void(AssetID, const std::filesystem::path&, const SlotParts&)> CreateInstance;
+        };
+        void SetMaterialActions(MaterialActions actions) { m_MaterialActions = std::move(actions); }
         // Adds the slot rows' hovered, highlighted and isolated parts to the viewport's highlights.
         void AppendSlotHighlights(ViewHighlights& highlights) const;
 
@@ -55,6 +63,10 @@ namespace Kans
         void           ToggleSlotHighlight(const SlotParts& parts) override;
         bool IsSlotIsolated(const SlotParts& parts) override { return !parts.empty() && m_IsolatedSlot == parts; }
         void ToggleSlotIsolate(const SlotParts& parts) override;
+        bool           CanOpenMaterial(AssetID material) override;
+        void           OpenMaterial(AssetID material) override;
+        void           RevealAsset(AssetID asset) override;
+        void           CreateMaterialInstance(AssetID parent, const SlotParts& parts) override;
 
     private:
         // Scene-wide settings, shown when no entity is selected.
@@ -69,6 +81,8 @@ namespace Kans
         void DrawAddComponent(Entity entity);
         // The published asset of `type` whose source is `file`, or invalid.
         AssetID ChoiceFor(const std::filesystem::path& file, AssetType type) const;
+        // The source file an asset was imported from, or empty.
+        std::filesystem::path SourceOf(AssetID asset) const;
 
         HierarchyPanel&                m_Hierarchy;
         std::vector<EditorAssetChoice> m_AssetChoices;
@@ -84,6 +98,7 @@ namespace Kans
         std::filesystem::path              m_DefaultEnvironment;
         ThumbnailProvider                                   m_Thumbnail;
         std::function<std::vector<std::filesystem::path>()> m_BrowserSelection;
+        MaterialActions                                     m_MaterialActions;
         // Slot rows' viewport feedback; pinned and isolated rows reset when the selection changes.
         SlotParts              m_HoveredSlot, m_IsolatedSlot;
         std::vector<SlotParts> m_HighlightedSlots;

@@ -89,9 +89,9 @@ namespace Kans::ComponentEditors
     void DrawEditableMesh(Entity entity, ComponentUI& ui)
     {
         const auto& component = entity.GetComponent<EditableMeshComponent>();
-        if (component.Shape)
+        if (PropertyGrid::BeginGroup("Mesh"))
         {
-            if (PropertyGrid::Begin("##Shape"))
+            if (component.Shape)
             {
                 PropertyGrid::Text("Shape", ShapeName(component.Shape->Type));
                 ShapeDesc shape = *component.Shape;
@@ -100,30 +100,14 @@ namespace Kans::ComponentEditors
                         c.Shape = shape;
                         RegenerateShape(c);
                     });
-                PropertyGrid::End();
             }
-        }
-        else
-            ImGui::TextDisabled("Edited mesh (shape parameters no longer apply).");
-        ImGui::TextDisabled("%zu vertices, %zu faces", component.Mesh.Positions.size(), component.Mesh.Faces.size());
-
-        if (PropertyGrid::Begin("##Shadows"))
-        {
-            bool cast = component.CastShadows, receive = component.ReceiveShadows;
-            if (PropertyGrid::Checkbox("Cast shadows", cast) | PropertyGrid::Checkbox("Receive shadows", receive))
-                entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
-                    c.CastShadows    = cast;
-                    c.ReceiveShadows = receive;
-                });
-            bool custom  = component.RenderCustomDepth;
-            int  stencil = component.CustomStencil;
-            if (PropertyGrid::Checkbox("Custom depth", custom) |
-                (custom && PropertyGrid::Int("Custom stencil", stencil, 0, 255)))
-                entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
-                    c.RenderCustomDepth = custom;
-                    c.CustomStencil     = uint8_t(std::clamp(stencil, 0, 255));
-                });
-            PropertyGrid::End();
+            else
+                PropertyGrid::Text("Shape", "Edited (shape parameters no longer apply)", true);
+            PropertyGrid::Text("Geometry",
+                               std::to_string(component.Mesh.Positions.size()) + " vertices, " +
+                                   std::to_string(component.Mesh.Faces.size()) + " faces",
+                               true);
+            PropertyGrid::EndGroup();
         }
 
         // One slot per material index the faces use (faces pick their slot in face mode).
@@ -131,10 +115,7 @@ namespace Kans::ComponentEditors
         for (const auto& face : component.Mesh.Faces)
             used = std::max(used, face.Material + 1);
         const auto slots = std::max<size_t>({used, component.Materials.size(), 1});
-        if (!ImGui::TreeNodeEx("##Materials", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
-                               "Materials (%zu)", slots))
-            return;
-        if (PropertyGrid::Begin("##Slots"))
+        if (PropertyGrid::BeginGroup(("Materials (" + std::to_string(slots) + ")").c_str()))
         {
             for (uint32_t slot = 0; slot < slots; ++slot)
             {
@@ -149,12 +130,37 @@ namespace Kans::ComponentEditors
                     });
                 ImGui::PopID();
             }
-            PropertyGrid::End();
+            PropertyGrid::BeginFree();
+            if (ImGui::Button(ICON_FA_PLUS "  Add slot", {-FLT_MIN, 0.0f}))
+                entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
+                    c.Materials.resize(std::max<size_t>(c.Materials.size(), slots) + 1);
+                });
+            PropertyGrid::EndFree();
+            PropertyGrid::EndGroup();
         }
-        if (ImGui::Button(ICON_FA_PLUS "  Add slot", {-FLT_MIN, 0.0f}))
-            entity.PatchComponent<EditableMeshComponent>(
-                [&](EditableMeshComponent& c) { c.Materials.resize(std::max<size_t>(c.Materials.size(), slots) + 1); });
-        ImGui::TreePop();
+        if (PropertyGrid::BeginGroup("Lighting"))
+        {
+            bool cast = component.CastShadows, receive = component.ReceiveShadows;
+            if (PropertyGrid::Checkbox("Cast shadows", cast) | PropertyGrid::Checkbox("Receive shadows", receive))
+                entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
+                    c.CastShadows    = cast;
+                    c.ReceiveShadows = receive;
+                });
+            PropertyGrid::EndGroup();
+        }
+        // Read by post-process materials; folded until used.
+        if (PropertyGrid::BeginGroup("Rendering", nullptr, nullptr, component.RenderCustomDepth))
+        {
+            bool custom  = component.RenderCustomDepth;
+            int  stencil = component.CustomStencil;
+            if (PropertyGrid::Checkbox("Custom depth", custom) |
+                (custom && PropertyGrid::Int("Custom stencil", stencil, 0, 255)))
+                entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
+                    c.RenderCustomDepth = custom;
+                    c.CustomStencil     = uint8_t(std::clamp(stencil, 0, 255));
+                });
+            PropertyGrid::EndGroup();
+        }
     }
 
     void CreateShape(Entity entity, ShapeType type)

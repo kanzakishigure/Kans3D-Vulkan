@@ -80,6 +80,12 @@ namespace Kans
             [this](const std::filesystem::path& path) { ExtractMaterials(path); });
         m_ContentBrowserPanel.SetCreateInstanceCallback(
             [this](const std::filesystem::path& path) { CreateMaterialInstance(path); });
+        m_PropertiesPanel.SetMaterialActions(
+            {[this](const std::filesystem::path& file) { OpenMaterial(file); },
+             [this](const std::filesystem::path& file) { m_ContentBrowserPanel.Reveal(file); },
+             [this](AssetID parent, const std::filesystem::path& source, const SlotParts& parts) {
+                 CreateSlotInstance(parent, source, parts);
+             }});
         m_ContentBrowserPanel.SetErrorCallback(
             [this](const std::string& message) { Record(AssetError {AssetErrorCode::InvalidArgument, message}); });
         m_ContentBrowserPanel.Bind(m_AssetImports.get());
@@ -371,11 +377,18 @@ namespace Kans
             Record(AssetError {AssetErrorCode::NotFound, "Import the material before creating an instance of it"});
             return;
         }
+        if (const auto target = WriteMaterialInstance(parent, file.parent_path(), file.stem().u8string());
+            !target.empty())
+            OpenMaterial(target);
+    }
+
+    std::filesystem::path
+    EditorLayer::WriteMaterialInstance(AssetID parent, const std::filesystem::path& directory, const std::string& stem)
+    {
         std::filesystem::path target;
         for (int index = 0; index < 1000; ++index)
         {
-            target = file.parent_path() / (file.stem().u8string() + "_Instance" +
-                                           (index ? std::to_string(index) : std::string()) + ".material");
+            target = directory / (stem + "_Instance" + (index ? std::to_string(index) : std::string()) + ".material");
             std::error_code error;
             if (!std::filesystem::exists(target, error))
                 break;
@@ -389,7 +402,7 @@ namespace Kans
             if (!output)
             {
                 Record(AssetError {AssetErrorCode::IoError, "Cannot write " + target.u8string()});
-                return;
+                return {};
             }
         }
         Record(m_AssetImports->RefreshSources());
@@ -409,7 +422,47 @@ namespace Kans
                 }
         }
         m_ContentBrowserPanel.Refresh();
+        return target;
+    }
+
+    void EditorLayer::CreateSlotInstance(AssetID parent, const std::filesystem::path& source, const SlotParts& parts)
+    {
+        if (!m_AssetImports)
+            return;
+        // A material inside a model is named after the model and the material.
+        std::string stem = source.stem().u8string();
+        if (source.extension() != ".material" && m_Assets)
+            if (const auto material = m_Assets->Request<MaterialDataAsset>(parent);
+                material.IsReady() && !material.Asset->GetData().Name.empty())
+            {
+                std::string name = material.Asset->GetData().Name;
+                for (char& c : name)
+                    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || (c & 0x80)))
+                        c = '_';
+                stem += "_" + name;
+            }
+        const auto target = WriteMaterialInstance(parent, source.parent_path(), stem);
+        if (target.empty())
+            return;
+        m_PendingSlotInstances.push_back({target, parts});
         OpenMaterial(target);
+    }
+
+    void EditorLayer::AssignPendingSlotInstances()
+    {
+        auto assigned = [&](const auto& pending) {
+            const AssetID instance = FindPublishedMaterial(pending.first);
+            if (!instance.IsValid())
+                return false;
+            if (m_ActiveScene)
+                for (const auto& [id, slot] : pending.second)
+                    if (Entity entity = m_ActiveScene->GetEntityByUUID(id))
+                        AssignMaterial(*m_ActiveScene, entity, slot, instance);
+            return true;
+        };
+        m_PendingSlotInstances.erase(
+            std::remove_if(m_PendingSlotInstances.begin(), m_PendingSlotInstances.end(), assigned),
+            m_PendingSlotInstances.end());
     }
 
     void EditorLayer::ImportSource(const std::filesystem::path& file)

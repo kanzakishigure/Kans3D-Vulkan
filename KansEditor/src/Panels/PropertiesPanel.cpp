@@ -513,6 +513,37 @@ namespace Kans
         return nullptr;
     }
 
+    std::filesystem::path PropertiesPanel::SourceOf(AssetID asset) const
+    {
+        for (const auto& choice : m_AssetChoices)
+            if (choice.ID == asset)
+                return choice.SourcePath;
+        return {};
+    }
+
+    bool PropertiesPanel::CanOpenMaterial(AssetID material)
+    {
+        return m_MaterialActions.Open && SourceOf(material).extension() == ".material";
+    }
+
+    void PropertiesPanel::OpenMaterial(AssetID material)
+    {
+        if (CanOpenMaterial(material))
+            m_MaterialActions.Open(SourceOf(material));
+    }
+
+    void PropertiesPanel::RevealAsset(AssetID asset)
+    {
+        if (const auto file = SourceOf(asset); !file.empty() && m_MaterialActions.Reveal)
+            m_MaterialActions.Reveal(file);
+    }
+
+    void PropertiesPanel::CreateMaterialInstance(AssetID parent, const SlotParts& parts)
+    {
+        if (const auto file = SourceOf(parent); !file.empty() && m_MaterialActions.CreateInstance)
+            m_MaterialActions.CreateInstance(parent, file, parts);
+    }
+
     AssetID PropertiesPanel::BrowserMaterial()
     {
         if (!m_BrowserSelection)

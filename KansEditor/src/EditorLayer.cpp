@@ -182,6 +182,8 @@ namespace Kans
             m_ContentBrowserPanel.SetMaterialThumbnailProvider({});
             m_PropertiesPanel.SetMaterialThumbnailProvider({});
             m_PropertiesPanel.SetBrowserSelection({});
+            m_PropertiesPanel.SetMaterialActions({});
+            m_PendingSlotInstances.clear();
             m_ViewportPanel.SetHighlightSource({});
             m_ViewportPanel.SetMaterialDropCallback({});
             m_MaterialThumbnails.clear();
@@ -216,6 +218,7 @@ namespace Kans
             else if (const auto& snapshot = std::get<std::optional<Ref<const AssetRegistry>>>(changed); snapshot)
             {
                 Record(RefreshProductAssets(*snapshot));
+                AssignPendingSlotInstances();
                 QueueUnimportedShaders(); // Sources were refreshed: new shader files are imported.
             }
             auto completed = m_AssetImports->Poll();
@@ -225,6 +228,7 @@ namespace Kans
             {
                 // Dependencies can be published even when the root build fails.
                 Record(RefreshProductAssets());
+                AssignPendingSlotInstances();
                 if (m_PendingPlacement && m_PendingPlacementWaiting)
                     StartPendingPlacementBuild();
                 else

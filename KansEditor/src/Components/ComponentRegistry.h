@@ -46,6 +46,13 @@ namespace Kans
         virtual void ToggleSlotHighlight(const SlotParts& parts) = 0;
         virtual bool IsSlotIsolated(const SlotParts& parts)      = 0;
         virtual void ToggleSlotIsolate(const SlotParts& parts)   = 0;
+        // A material that is its own file opens in the Material Editor; one inside a model cannot.
+        virtual bool CanOpenMaterial(AssetID material) = 0;
+        virtual void OpenMaterial(AssetID material)    = 0;
+        // Selects the asset's source file (a model for its embedded materials) in the Content Browser.
+        virtual void RevealAsset(AssetID asset) = 0;
+        // Writes an instance of `parent` beside its source and assigns it to `parts` once imported.
+        virtual void CreateMaterialInstance(AssetID parent, const SlotParts& parts) = 0;
     };
 
     // Everything the editor knows about one component type: how it is named, shown,
