@@ -44,6 +44,7 @@ namespace Kans
             std::function<void(AssetID, const std::filesystem::path&, const SlotParts&)> CreateInstance;
         };
         void SetMaterialActions(MaterialActions actions) { m_MaterialActions = std::move(actions); }
+        void SetOpenAnimatorGraph(std::function<void()> open) { m_OpenAnimatorGraph = std::move(open); }
         // Adds the slot rows' hovered, highlighted and isolated parts to the viewport's highlights.
         void AppendSlotHighlights(ViewHighlights& highlights) const;
 
@@ -67,6 +68,11 @@ namespace Kans
         void           OpenMaterial(AssetID material) override;
         void           RevealAsset(AssetID asset) override;
         void           CreateMaterialInstance(AssetID parent, const SlotParts& parts) override;
+        void           OpenAnimatorGraph() override
+        {
+            if (m_OpenAnimatorGraph)
+                m_OpenAnimatorGraph();
+        }
 
     private:
         // Scene-wide settings, shown when no entity is selected.
@@ -99,6 +105,7 @@ namespace Kans
         ThumbnailProvider                                   m_Thumbnail;
         std::function<std::vector<std::filesystem::path>()> m_BrowserSelection;
         MaterialActions                                     m_MaterialActions;
+        std::function<void()>                               m_OpenAnimatorGraph;
         // Slot rows' viewport feedback; pinned and isolated rows reset when the selection changes.
         SlotParts              m_HoveredSlot, m_IsolatedSlot;
         std::vector<SlotParts> m_HighlightedSlots;

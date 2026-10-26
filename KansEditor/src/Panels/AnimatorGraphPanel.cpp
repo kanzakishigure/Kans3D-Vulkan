@@ -1,9 +1,11 @@
 #include "AnimatorGraphPanel.h"
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
 #include "Kans3D/Animation/AnimatorComponent.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Scene.h"
+#include "Components/ComponentEditors.h"
 #include "UI/EditorIcons.h"
 #include "UI/PropertyGrid.h"
 
@@ -14,11 +16,13 @@ namespace Kans
         constexpr float NodeWidth = 150.0f, NodeHeight = 44.0f;
         const ImVec2    AnyStatePosition {-200.0f, 0.0f};
 
+        // A name field; full width unless the caller set the next item's width.
         bool InputName(const char* id, std::string& value)
         {
             char buffer[128] = {};
             value.copy(buffer, sizeof(buffer) - 1);
-            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (!(ImGui::GetCurrentContext()->NextItemData.HasFlags & ImGuiNextItemDataFlags_HasWidth))
+                ImGui::SetNextItemWidth(-FLT_MIN);
             if (!ImGui::InputText(id, buffer, sizeof(buffer)))
                 return false;
             value = buffer;
@@ -115,6 +119,13 @@ namespace Kans
                     m_Layer = i;
                     ImGui::EndTabItem();
                 }
+            if (ImGui::TabItemButton(ICON_FA_PLUS "##addlayer", ImGuiTabItemFlags_Trailing))
+            {
+                controller.Layers.push_back({"Layer" + std::to_string(controller.Layers.size())});
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Add a layer");
             if (ImGui::BeginTabItem(ICON_FA_FACE_SMILE " Expressions"))
             {
                 m_Layer = controller.Layers.size();
@@ -367,10 +378,7 @@ namespace Kans
             return changed;
         }
         if (m_SelectedState < 0 || size_t(m_SelectedState) >= layer.States.size())
-        {
-            ImGui::TextDisabled("Select a state or a transition.");
-            return false;
-        }
+            return DrawLayerSettings(controller, layerIndex);
         auto& state = layer.States[m_SelectedState];
         if (PropertyGrid::Begin("##state"))
         {
@@ -463,6 +471,106 @@ namespace Kans
                 layer.EntryState = layer.States.empty() ? 0 : uint32_t(layer.States.size() - 1);
             m_SelectedState = -1;
             changed         = true;
+        }
+        return changed;
+    }
+
+    bool AnimatorGraphPanel::DrawLayerSettings(AnimationControllerData& controller, size_t layerIndex)
+    {
+        auto&               layer    = controller.Layers[layerIndex];
+        bool                changed  = false;
+        Scene*              scene    = m_Hierarchy.GetScene();
+        Entity              root     = scene->GetEntityByUUID(m_Entity);
+        const auto&         a        = root.GetComponent<AnimatorComponent>();
+        const SkeletonData* skeleton = a.SkeletonSource ? &a.SkeletonSource->GetData() : nullptr;
+        ImGui::TextDisabled("Select a state or a transition to edit it.");
+        if (PropertyGrid::BeginGroup("Layer"))
+        {
+            if (PropertyGrid::Row("Name"))
+                changed |= InputName("##layername", layer.Name);
+            changed |= PropertyGrid::Float("Weight", layer.Weight, 0.01f, 0.0f, 1.0f);
+            const char* modes[] = {"Override", "Additive"};
+            int         mode    = int(layer.Mode);
+            if (PropertyGrid::Combo("Mode", modes, 2, mode))
+                layer.Mode = AnimationLayerMode(mode), changed = true;
+            if (layerIndex > 0)
+            {
+                PropertyGrid::BeginFree();
+                if (ImGui::Button(ICON_FA_TRASH "  Remove layer", {-FLT_MIN, 0}))
+                {
+                    controller.Layers.erase(controller.Layers.begin() + long(layerIndex));
+                    m_Layer = layerIndex - 1;
+                    PropertyGrid::EndFree();
+                    PropertyGrid::EndGroup();
+                    return true;
+                }
+                PropertyGrid::EndFree();
+            }
+            PropertyGrid::EndGroup();
+        }
+        // Joints the layer affects; empty: every joint and shape key.
+        if (PropertyGrid::BeginGroup(
+                ("Mask (" + std::to_string(layer.Mask.size()) + ")").c_str(), nullptr, nullptr, !layer.Mask.empty()))
+        {
+            for (size_t i = 0; i < layer.Mask.size(); ++i)
+            {
+                auto& m = layer.Mask[i];
+                ImGui::PushID(int(i));
+                changed |= ComponentEditors::JointCombo("Joint", m.Joint, skeleton);
+                changed |= PropertyGrid::Float("Weight", m.Weight, 0.01f, 0.0f, 1.0f);
+                changed |= PropertyGrid::Checkbox("With children", m.IncludeChildren);
+                PropertyGrid::BeginFree();
+                if (ImGui::SmallButton(ICON_FA_TRASH " Remove joint"))
+                    layer.Mask.erase(layer.Mask.begin() + long(i)), --i, changed = true;
+                PropertyGrid::EndFree();
+                ImGui::PopID();
+            }
+            PropertyGrid::BeginFree();
+            if (layer.Mask.empty())
+                ImGui::TextDisabled("Empty: the layer affects every joint and shape key.");
+            if (ImGui::Button(ICON_FA_PLUS "  Joint", {-FLT_MIN, 0}))
+                layer.Mask.push_back({}), changed = true;
+            PropertyGrid::EndFree();
+            PropertyGrid::EndGroup();
+        }
+        // The controller's parameters (shared by every layer) and their defaults.
+        if (PropertyGrid::BeginGroup(("Parameters (" + std::to_string(controller.Parameters.size()) + ")").c_str()))
+        {
+            const char* types[] = {"Float", "Int", "Bool", "Trigger"};
+            PropertyGrid::BeginFree();
+            for (size_t i = 0; i < controller.Parameters.size(); ++i)
+            {
+                auto& p = controller.Parameters[i];
+                ImGui::PushID(int(i));
+                const float spacing = ImGui::GetStyle().ItemSpacing.x, remove = ImGui::GetFrameHeight();
+                const float avail = ImGui::GetContentRegionAvail().x - remove - 3 * spacing;
+                ImGui::SetNextItemWidth(avail * 0.45f);
+                changed |= InputName("##name", p.Name);
+                ImGui::SameLine();
+                int type = int(p.Type);
+                ImGui::SetNextItemWidth(avail * 0.3f);
+                if (ImGui::Combo("##type", &type, types, 4))
+                    p.Type = AnimationParameterType(type), changed = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(avail * 0.25f);
+                float value = float(p.Default);
+                if (p.Type != AnimationParameterType::Trigger && ImGui::DragFloat("##default", &value, 0.01f))
+                    p.Default = value, changed = true;
+                if (p.Type == AnimationParameterType::Trigger)
+                    ImGui::Dummy({avail * 0.25f, ImGui::GetFrameHeight()});
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Default value");
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_TRASH, {remove, remove}))
+                    controller.Parameters.erase(controller.Parameters.begin() + long(i)), --i, changed = true;
+                ImGui::PopID();
+            }
+            if (ImGui::Button(ICON_FA_PLUS "  Parameter", {-FLT_MIN, 0}))
+                controller.Parameters.push_back(
+                    {"Param" + std::to_string(controller.Parameters.size()), AnimationParameterType::Float, 0}),
+                    changed = true;
+            PropertyGrid::EndFree();
+            PropertyGrid::EndGroup();
         }
         return changed;
     }

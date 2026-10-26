@@ -53,6 +53,8 @@ namespace Kans
         virtual void RevealAsset(AssetID asset) = 0;
         // Writes an instance of `parent` beside its source and assigns it to `parts` once imported.
         virtual void CreateMaterialInstance(AssetID parent, const SlotParts& parts) = 0;
+        // Shows the Animator graph window (for the selected model).
+        virtual void OpenAnimatorGraph() {}
     };
 
     // Everything the editor knows about one component type: how it is named, shown,

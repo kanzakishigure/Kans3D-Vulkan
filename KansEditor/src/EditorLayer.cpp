@@ -240,8 +240,10 @@ namespace Kans
             }
         }
 
-        // The scene only runs in play mode.
-        m_Play.Update(*m_ActiveScene, ts);
+        // The scene only runs in play mode; IK and saved shape keys of models without an
+        // Animator still show while editing.
+        if (!m_Play.Update(*m_ActiveScene, ts) && !m_Play.IsActive())
+            m_ActiveScene->UpdateModelPoses();
         // The viewport panel renders the scene during the UI frame.
     }
 

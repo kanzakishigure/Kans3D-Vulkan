@@ -77,6 +77,7 @@ namespace Kans
                                   PanelDock::Floating, false);
         animatorGraph.Flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
         m_Panels.Register(animatorGraph, [this] { m_AnimatorGraphPanel.Draw(); });
+        m_PropertiesPanel.SetOpenAnimatorGraph([this] { m_Panels.Open(PanelID::AnimatorGraph); });
     }
 
     void EditorLayer::OpenImporter(const std::filesystem::path& file)

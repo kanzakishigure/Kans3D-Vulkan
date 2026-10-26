@@ -549,6 +549,9 @@ namespace Kans
             return;
         }
         const auto& m = m_Controller->Motions[motion];
+        // A clip state without its clip yet (or an empty blend tree) samples the rest pose and has no events.
+        if (m.Type == AnimationMotionType::Clip || m.Children.empty())
+            return;
         AnimationBlendWeights(m, {float(Value(m.ParameterX)), float(Value(m.ParameterY))}, m_Weights[motion]);
         // Events from the dominant child only, preventing duplicate footsteps in a blend. Ties use child order.
         size_t best       = 0;

@@ -1,5 +1,6 @@
 #include "ComponentEditors.h"
 #include "Kans3D/Animation/AnimatorComponent.h"
+#include "Kans3D/Animation/DeformationComponents.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Scene.h"
@@ -146,6 +147,15 @@ namespace Kans
         animator.Copy     = {};
         animator.Paste    = {};
         animator.Draw     = DrawAnimator;
+
+        // On the model root, beside its Animator (or alone, on the bind pose).
+        auto& ik    = registry.Register<IKComponent>("IK", ICON_FA_LINK, "Animation");
+        ik.IconRank = 8;
+        ik.Draw     = DrawIK;
+
+        auto& shapeKeys    = registry.Register<ShapeKeysComponent>("Shape Keys", ICON_FA_FACE_SMILE, "Animation");
+        shapeKeys.IconRank = 8;
+        shapeKeys.Draw     = DrawShapeKeys;
 
         auto& drivers = registry.Register<MaterialParameterDriversComponent>(
             "Material Parameter Drivers", ICON_FA_SLIDERS, "Rendering");

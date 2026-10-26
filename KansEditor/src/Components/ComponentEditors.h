@@ -4,6 +4,11 @@
 #include "Kans3D/Geometry/Shapes.h"
 #include "Kans3D/Scene/Components.h"
 
+namespace Kans
+{
+    struct SkeletonData;
+}
+
 // Drawers of the built-in components, registered in ComponentEditors.cpp.
 namespace Kans::ComponentEditors
 {
@@ -24,6 +29,10 @@ namespace Kans::ComponentEditors
     void DrawMesh(Entity entity, ComponentUI& ui);
     void DrawEditableMesh(Entity entity, ComponentUI& ui);
     void DrawAnimator(Entity entity, ComponentUI& ui);
+    void DrawIK(Entity entity, ComponentUI& ui);
+    void DrawShapeKeys(Entity entity, ComponentUI& ui);
+    // A joint of `skeleton` (empty = none) as a grid row; true when changed.
+    bool JointCombo(const char* label, std::string& joint, const SkeletonData* skeleton);
     void DrawMaterialParameterDrivers(Entity entity, ComponentUI& ui);
     // Picks an entity of the scene (or one dragged from the Hierarchy); 0 = none. True when changed.
     bool        EntityField(const char* label, uint64_t& id, Scene* scene);
