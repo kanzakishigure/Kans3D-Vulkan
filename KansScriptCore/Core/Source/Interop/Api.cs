@@ -4,9 +4,31 @@ using System.Runtime.InteropServices;
 namespace Kans.Interop
 {
     [StructLayout(LayoutKind.Sequential)]
+    internal struct PropertyValue
+    {
+        public float X, Y, Z, W;
+        public long Integer;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct WidgetAddress
+    {
+        public ulong Entity;
+        public int Screen, Reserved;
+        public byte* Path;
+        public byte* Key;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct UIEventData
+    {
+        public ulong Entity;
+        public int Screen, Type, ValueKind, Reserved;
+        public PropertyValue Payload;
+        public float PositionX, PositionY, DeltaX, DeltaY;
+    }
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct NativeApi
     {
-        public const uint ApiVersion = 2;
+        public const uint ApiVersion = 3;
         public uint Version, Size;
         public delegate* unmanaged[Cdecl]<int, byte*, void> Log;
         public delegate* unmanaged[Cdecl]<ulong, uint, int> HasComponent;
@@ -18,6 +40,12 @@ namespace Kans.Interop
         public delegate* unmanaged[Cdecl]<ulong, byte*, float*, void> SetMaterialParameter;
         public delegate* unmanaged[Cdecl]<ulong, byte*, void> ClearMaterialParameter;
         public delegate* unmanaged[Cdecl]<ulong, byte*, float*, int> GetMaterialParameter;
+        internal delegate* unmanaged[Cdecl]<ulong, uint, int> AddComponent;
+        internal delegate* unmanaged[Cdecl]<ulong, int> DestroyEntity;
+        internal delegate* unmanaged[Cdecl]<ulong, uint, byte*, int, PropertyValue*, byte*, int, int> ComponentProperty;
+        internal delegate* unmanaged[Cdecl]<WidgetAddress*, byte*, int, PropertyValue*, byte*, int, int> WidgetProperty;
+        internal delegate* unmanaged[Cdecl]<int, UIEventData*, int, byte*, int, int> ReadUIEvent;
+        internal delegate* unmanaged[Cdecl]<int, WidgetAddress*, PropertyValue*, int> UIUtility;
     }
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct ManagedApi

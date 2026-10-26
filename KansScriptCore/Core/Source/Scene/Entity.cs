@@ -28,7 +28,7 @@ namespace Kans
         internal void Attach(ulong id) { ID = id; }
         internal void Create() => OnCreate();
         internal void Update(float ts) => OnUpdate(ts);
-        internal void Destroy() => OnDestroy();
+        internal void DestroyScript() => OnDestroy();
 
         /// <summary>Sets a runtime shader parameter on this rendered instance. Set it on the model root;
         /// it applies to all draws of that instance root, without changing the shared material.
@@ -84,8 +84,15 @@ namespace Kans
             if (typeof(T) == typeof(MaterialComponent)) return (T)(Component)m_Material;
             if (typeof(T) == typeof(CameraComponent)) return (T)(Component)m_Camera;
             if (typeof(T) == typeof(ScriptComponent)) return (T)(Component)m_Script;
-            return null;
+            return new T { Entity = this };
         }
+        public unsafe T AddComponent<T>() where T : Component, new()
+        {
+            if (InternalCalls.Api.AddComponent(ID, ComponentType<T>.ID) <= 0)
+                throw new InvalidOperationException($"Cannot add {typeof(T).Name} to entity {ID}.");
+            return GetComponent<T>()!;
+        }
+        public unsafe void Destroy() => InternalCalls.Api.DestroyEntity(ID);
     }
 
     internal static class ComponentType<T>
@@ -93,6 +100,11 @@ namespace Kans
         internal static readonly uint ID = typeof(T) == typeof(TransformComponent) ? ComponentIds.TransformComponent :
             typeof(T) == typeof(MaterialComponent) ? ComponentIds.MaterialComponent :
             typeof(T) == typeof(CameraComponent) ? ComponentIds.CameraComponent :
-            typeof(T) == typeof(ScriptComponent) ? ComponentIds.ScriptComponent : 0;
+            typeof(T) == typeof(ScriptComponent) ? ComponentIds.ScriptComponent :
+            typeof(T) == typeof(TextComponent) ? ComponentIds.TextComponent :
+            typeof(T) == typeof(SpriteRendererComponent) ? ComponentIds.SpriteRendererComponent :
+            typeof(T) == typeof(UIScreenComponent) ? ComponentIds.UIScreenComponent :
+            typeof(T) == typeof(UIWorldComponent) ? ComponentIds.UIWorldComponent :
+            0;
     }
 }

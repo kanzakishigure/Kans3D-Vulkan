@@ -42,7 +42,8 @@ namespace Kans.Interop
                 managed->Version != NativeApi.ApiVersion || managed->Size != sizeof(ManagedApi)) return -1;
             if (native->Log == null || native->HasComponent == null || native->GetTranslation == null ||
                 native->SetTranslation == null || native->GetRotation == null || native->SetRotation == null || native->IsKeyPressed == null ||
-                native->SetMaterialParameter == null || native->ClearMaterialParameter == null || native->GetMaterialParameter == null) return -1;
+                native->SetMaterialParameter == null || native->ClearMaterialParameter == null || native->GetMaterialParameter == null || native->AddComponent == null || native->DestroyEntity == null ||
+                native->ComponentProperty == null || native->WidgetProperty == null || native->ReadUIEvent == null || native->UIUtility == null) return -1;
             InternalCalls.Api = *native;
             *managed = new ManagedApi {
                 Version = NativeApi.ApiVersion, Size = (uint)sizeof(ManagedApi), Shutdown = &Shutdown, LoadAssembly = &LoadAssembly,
@@ -80,16 +81,19 @@ namespace Kans.Interop
 
         private static void EndInstances()
         {
-            foreach (var instance in s_Instances) Release(instance);
+            UI.SetPlaying(false);
+            foreach (var instance in s_Instances.ToArray()) Release(instance);
             s_Instances.Clear();
             s_Handles.Clear();
         }
         private static void Release(Instance instance)
         {
+            if (!instance.Root.IsAllocated) return;
             var entity = (Entity)instance.Root.Target!;
-            try { if (!instance.Disabled) entity.Destroy(); }
+            using var scope = new UI.ScriptScope(instance.Handle);
+            try { if (!instance.Disabled) entity.DestroyScript(); }
             catch (Exception e) { Error(e, entity, instance.Class); }
-            finally { instance.Root.Free(); }
+            finally { UI.RemoveOwner(instance.Handle); instance.Root.Free(); }
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -231,12 +235,13 @@ namespace Kans.Interop
                 instance = new Instance { Root = GCHandle.Alloc(entity), Handle = ++s_NextHandle, Class = className };
                 s_Instances.Add(instance);
                 s_Handles.Add(instance.Handle, instance);
+                using var scope = new UI.ScriptScope(instance.Handle);
                 entity.Create();
                 return instance.Handle;
             }
             catch (Exception e)
             {
-                if (instance != null) instance.Disabled = true;
+                if (instance != null) { instance.Disabled = true; UI.RemoveOwner(instance.Handle); }
                 Error(e, entity, className, id);
                 return instance?.Handle ?? 0;
             }
@@ -258,14 +263,17 @@ namespace Kans.Interop
             try
             {
                 if (!s_Playing) return;
+                UI.Drain();
+                if (!s_Playing) return;
                 // Native supplies handles in current scene order; dictionary lookups allocate nothing.
                 for (int i = 0; i < count; ++i)
                 {
                     if (!s_Handles.TryGetValue(handles[i], out var instance)) continue;
                     if (instance.Disabled) continue;
                     var entity = (Entity)instance.Root.Target!;
+                    using var scope = new UI.ScriptScope(instance.Handle);
                     try { entity.Update(ts); }
-                    catch (Exception e) { instance.Disabled = true; Error(e, entity, instance.Class); }
+                    catch (Exception e) { instance.Disabled = true; UI.RemoveOwner(instance.Handle); Error(e, entity, instance.Class); }
                 }
             }
             catch (Exception e) { Error(e); }
@@ -273,7 +281,12 @@ namespace Kans.Interop
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void SetPlaying(int playing)
         {
-            try { if (playing == 0) EndInstances(); s_Playing = playing != 0; }
+            try
+            {
+                s_Playing = playing != 0;
+                if (!s_Playing) EndInstances();
+                else UI.SetPlaying(true);
+            }
             catch (Exception e) { Error(e); }
         }
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

@@ -5,6 +5,7 @@
 #include "Kans3D/Scene/Entity.h"
 #include "Kans3D/Scene/Scene.h"
 #include "ScriptEngine.h"
+#include "ScriptUI.h"
 
 namespace Kans
 {
@@ -50,6 +51,14 @@ namespace Kans
                         return 0; // Retired native component.
                     case Scripting::ComponentType::CameraComponent:
                         return entity.HasComponent<CameraComponent>();
+                    case Scripting::ComponentType::TextComponent:
+                        return entity.HasComponent<TextComponent>();
+                    case Scripting::ComponentType::SpriteRendererComponent:
+                        return entity.HasComponent<SpriteRendererComponent>();
+                    case Scripting::ComponentType::UIScreenComponent:
+                        return entity.HasComponent<UIScreenComponent>();
+                    case Scripting::ComponentType::UIWorldComponent:
+                        return entity.HasComponent<UIWorldComponent>();
                     case Scripting::ComponentType::ScriptComponent:
                         return entity.HasComponent<ScriptComponent>();
                 }
@@ -179,7 +188,7 @@ namespace Kans
                 return 0;
             }
         }
-    }
+    } // namespace
     void ScriptAgent::SetTranslation(Entity entity, const glm::vec3& value)
     {
         entity.PatchComponent<TransformComponent>([&](auto& transform) { transform.Position = value; });
@@ -190,17 +199,19 @@ namespace Kans
     }
     Scripting::NativeApi ScriptAgent::CreateApi()
     {
-        return {Scripting::ApiVersion,
-                sizeof(Scripting::NativeApi),
-                &NativeLog,
-                &HasComponent,
-                &NativeGetTranslation,
-                &NativeSetTranslation,
-                &NativeGetRotation,
-                &NativeSetRotation,
-                &KeyPressed,
-                &SetMaterialParameter,
-                &ClearMaterialParameter,
-                &GetMaterialParameter};
+        Scripting::NativeApi api {Scripting::ApiVersion,
+                                  sizeof(Scripting::NativeApi),
+                                  &NativeLog,
+                                  &HasComponent,
+                                  &NativeGetTranslation,
+                                  &NativeSetTranslation,
+                                  &NativeGetRotation,
+                                  &NativeSetRotation,
+                                  &KeyPressed,
+                                  &SetMaterialParameter,
+                                  &ClearMaterialParameter,
+                                  &GetMaterialParameter};
+        ScriptUI::Install(api);
+        return api;
     }
 } // namespace Kans

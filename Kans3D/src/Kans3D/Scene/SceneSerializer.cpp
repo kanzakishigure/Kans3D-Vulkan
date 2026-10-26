@@ -737,6 +737,8 @@ namespace Kans
             YAML::Node n;
             n["UI"]          = c.UI.ToString();
             n["WorldSize"]   = UIEncode(c.WorldSize);
+            n["SortOrder"]   = c.SortOrder;
+            n["Visible"]     = c.Visible;
             n["Billboard"]   = int(c.Billboard);
             n["AlwaysOnTop"] = c.AlwaysOnTop;
             n["DoubleSided"] = c.DoubleSided;
@@ -753,10 +755,12 @@ namespace Kans
         }
         UIWorldComponent DecodeUIWorld(const YAML::Node& n)
         {
-            Keys(n, {"UI", "WorldSize", "Billboard", "AlwaysOnTop", "DoubleSided"});
+            Keys(n, {"UI", "WorldSize", "Billboard", "AlwaysOnTop", "DoubleSided", "SortOrder", "Visible"});
             UIWorldComponent c;
             c.UI          = Identity(n["UI"]);
             c.WorldSize   = UIVec2(n["WorldSize"], c.WorldSize);
+            c.SortOrder   = n["SortOrder"].as<int>(0);
+            c.Visible     = n["Visible"].as<bool>(true);
             c.Billboard   = TextBillboard(n["Billboard"].as<int>(0));
             c.AlwaysOnTop = n["AlwaysOnTop"].as<bool>(false);
             c.DoubleSided = n["DoubleSided"].as<bool>(true);

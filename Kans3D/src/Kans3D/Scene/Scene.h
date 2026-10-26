@@ -44,6 +44,7 @@ namespace Kans
         void OnUpdate(TimeStep ts);
         UIContext&       UI() { return m_UI; }
         const UIContext& UI() const { return m_UI; }
+        const UIViewport& GetUIViewport() const { return m_UIViewport; }
         void             UpdateUI(const UIInputState&, const UIViewport&, float seconds);
 
         void       OnViewportResize(uint32_t width, uint32_t height);
@@ -166,6 +167,7 @@ namespace Kans
         AudioClipRegistry m_AudioClips;
         bool              m_AudioRunning = false, m_AudioPaused = false, m_WarnedMultipleListeners = false;
         UIContext         m_UI;
+        UIViewport        m_UIViewport;
         UUID              m_AudioListener = 0;
         glm::vec3         m_CameraAudioPosition {0};
         bool              m_HasCameraAudioPosition = false;

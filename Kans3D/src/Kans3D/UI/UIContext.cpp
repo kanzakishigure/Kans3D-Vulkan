@@ -32,9 +32,13 @@ namespace Kans
     {
         if (!t)
             return;
-        UIEvent e {t, type, p, delta};
+        UIEvent e {++m_NextEvent, t, type, p, delta};
         if (auto i = t.Instance.lock())
+        {
             e.Value = i->Value(t.Path);
+            if (auto w = i->Find(t.Path))
+                e.WidgetType = w->Data.Type;
+        }
         m_Events.push_back(std::move(e));
     }
     void UIContext::Reset()
@@ -43,7 +47,8 @@ namespace Kans
         m_Hover = {};
         m_Press = {};
         m_Events.clear();
-        m_Dragging = false;
+        m_Dragging      = false;
+        m_PointerOverUI = false;
     }
     bool UIContext::SetFocus(const UITarget& t)
     {
@@ -153,8 +158,8 @@ namespace Kans
         if (!content)
             return;
         auto viewportPath = UIProperty<std::string>(w->Data, "Viewport", "");
-        auto viewport     = i->Find(w->Path + '/' + viewportPath);
-        if (!viewport)
+        auto viewport     = viewportPath.empty() ? nullptr : i->Find(w->Path + '/' + viewportPath);
+        if (!viewport && !viewportPath.empty())
             viewport = i->Find(viewportPath);
         auto extent = glm::max(glm::vec2(1), content->Size - (viewport ? viewport->Size : w->Size));
         auto d      = -delta * (dragging ? 1.f : UIProperty<float>(w->Data, "WheelSpeed", 30)) / extent;
@@ -295,6 +300,7 @@ namespace Kans
                 break;
             }
         }
+        m_PointerOverUI    = bool(hit) || blocked;
         auto capturedPoint = [&](const UITarget& target) {
             for (auto ui : order)
                 if (ui->Instance == target.Instance.lock() && ui->Screen == target.Screen &&

@@ -40,11 +40,14 @@ namespace Kans
     };
     struct UIEvent
     {
-        UITarget    Target;
-        UIEventType Type;
-        glm::vec2   Position {0}, Delta {0}; // Canvas pixels; scroll delta is wheel units.
-        int         Button = 0;
-        YAML::Node  Value; // bool, float, vec2 or UTF-8 string, depending on widget type.
+        uint64_t     Sequence = 0;
+        UITarget     Target;
+        UIEventType  Type;
+        glm::vec2    Position {0}, Delta {0}; // Canvas pixels; scroll delta is wheel units.
+        int          Button = 0;
+        YAML::Node   Value; // bool, float, vec2 or UTF-8 string, depending on widget type.
+        UIWidgetType WidgetType =
+            UIWidgetType::Panel; // Snapshot the payload type before listeners can rebuild/remove it.
     };
     class UIContext
     {
@@ -66,6 +69,7 @@ namespace Kans
             Process(input, uis, viewport.Pixels(), projectionView, seconds);
         }
         const std::vector<UIEvent>& Events() const { return m_Events; } // Replaced on Process; payloads are snapshots.
+        bool                        IsPointerOverUI() const { return m_PointerOverUI; }
         const UITarget&             Focus() const { return m_Focus; }
         bool                        SetFocus(const UITarget&);
         bool                        SetValue(const UITarget&, const YAML::Node&);
@@ -104,7 +108,8 @@ namespace Kans
         std::vector<UIEvent>         m_Events;
         UITarget                     m_Focus, m_Hover, m_Press;
         glm::vec2                    m_Down {0}, m_Last {0}, m_LastCanvas {0};
-        bool                         m_Dragging = false;
+        bool                         m_Dragging = false, m_PointerOverUI = false;
+        uint64_t                     m_NextEvent = 0;
         std::map<uint64_t, Listener> m_Listeners;
         uint64_t                     m_NextListener = 0;
         FontSystem*                  m_Fonts        = nullptr;

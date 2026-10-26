@@ -7,6 +7,13 @@ using System.Threading.Tasks;
 namespace Kans
 {
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    public struct Vector2
+    {
+        public float X, Y;
+        public Vector2(float x, float y) { X = x; Y = y; }
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     public struct Vector4
     {
         public float X, Y, Z, W;

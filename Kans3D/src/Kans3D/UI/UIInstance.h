@@ -84,6 +84,8 @@ namespace Kans
         UIAssetResolver    m_Resolver;
         std::map<AssetID, Ref<const UIAsset>>                    m_Sources;
         std::vector<UIRuntimeWidget>                             m_Widgets;
+        UIRuntimeWidget                                          m_CanvasRoot;
+        bool                                                     m_CustomCanvasRect = false;
         std::map<std::string, std::map<std::string, YAML::Node>> m_Changes;
         glm::vec2                                                m_Canvas {-1};
         float                                                    m_PixelScale = 1;

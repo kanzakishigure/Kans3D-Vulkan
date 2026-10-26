@@ -239,6 +239,11 @@ namespace Kans
                             std::pow(canvas.x / d.ReferenceResolution.x, 1 - d.Match) *
                                 std::pow(canvas.y / d.ReferenceResolution.y, d.Match);
         auto scale    = m_PixelScale;
+        if (!m_CustomCanvasRect)
+            m_CanvasRoot.Data.Rect.Size = canvas;
+        m_CanvasRoot.Size   = m_CanvasRoot.Data.Rect.Size;
+        auto canvasPosition = m_CanvasRoot.Data.Rect.Position;
+        m_CanvasRoot.Bounds = {canvasPosition, canvasPosition + m_CanvasRoot.Size};
         if (m_Dirty)
             Visit(m_Widgets, [](auto& w) { w.MeasureDirty = w.GroupDirty = true; });
         for (auto& w : m_Widgets)
@@ -320,8 +325,7 @@ namespace Kans
                 w.Clip    = clip;
                 w.Visible = visible && w.Data.Visible;
                 w.Enabled = enabled && w.Data.Enabled;
-                w.Opacity =
-                    opacity * (w.Data.Type == UIWidgetType::Panel ? UIProperty<float>(w.Data, "Opacity", 1) : 1);
+                w.Opacity = opacity * UIProperty<float>(w.Data, "Opacity", 1);
                 if (w.Data.Type == UIWidgetType::Text || w.Data.Type == UIWidgetType::InputField)
                 {
                     auto id   = AssetID::FromString(UIProperty<std::string>(w.Data, "Font", ""));
@@ -391,8 +395,8 @@ namespace Kans
                     auto content      = MutableFind(w.Path + '/' + contentPath);
                     if (!content)
                         content = MutableFind(contentPath);
-                    auto viewport = MutableFind(w.Path + '/' + viewportPath);
-                    if (!viewport)
+                    auto viewport = viewportPath.empty() ? nullptr : MutableFind(w.Path + '/' + viewportPath);
+                    if (!viewport && !viewportPath.empty())
                         viewport = MutableFind(viewportPath);
                     if (viewport)
                         viewport->Data.Properties["ClipChildren"] = true;
@@ -438,7 +442,14 @@ namespace Kans
             layoutAgain = false;
             for (auto& root : m_Widgets)
                 Measure(root, canvas, fonts, fontsByID);
-            resolve(m_Widgets, canvas, glm::mat4(1), {0, 0, canvas.x, canvas.y}, 1, true, true, m_Dirty);
+            resolve(m_Widgets,
+                    m_CanvasRoot.Size,
+                    glm::translate(glm::mat4(1), glm::vec3(canvasPosition, 0)),
+                    {0, 0, canvas.x, canvas.y},
+                    UIProperty<float>(m_CanvasRoot.Data, "Opacity", 1),
+                    m_CanvasRoot.Data.Visible,
+                    m_CanvasRoot.Data.Enabled,
+                    m_Dirty);
             m_Dirty = false;
             if (!layoutAgain)
                 break;
@@ -446,6 +457,8 @@ namespace Kans
     }
     UIRuntimeWidget* UIInstance::MutableFind(const std::string& path)
     {
+        if (path.empty())
+            return &m_CanvasRoot;
         UIRuntimeWidget* found = nullptr;
         Visit(m_Widgets, [&](auto& w) {
             if (w.Path == path)
@@ -489,7 +502,14 @@ namespace Kans
             return true;
         if (std::holds_alternative<AssetError>(UISetProperty(w->Data, p, v)))
             return false;
-        m_Changes[w->Key][p] = YAML::Clone(v);
+        if (path.empty())
+        {
+            if (p == "Rect")
+                m_CustomCanvasRect = true;
+            m_Dirty = true;
+        }
+        else
+            m_Changes[w->Key][p] = YAML::Clone(v);
         const bool layoutProperty =
             p == "Rect" || p == "Visible" || p == "Text" || p == "Font" || p == "Size" || p == "MinimumSize" ||
             p == "Language" || p == "Overflow" || p == "HorizontalAlignment" || p == "VerticalAlignment" ||

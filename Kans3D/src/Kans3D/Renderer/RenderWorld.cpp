@@ -313,6 +313,8 @@ namespace Kans
         {
             Entity e {handle, m_Scene};
             auto&  c = e.GetComponent<UIWorldComponent>();
+            if (!c.Visible)
+                continue;
             if (auto instance = GetUIInstance(e, true))
             {
                 auto          ref = instance->Data() ? instance->Data()->ReferenceResolution : glm::vec2(1920, 1080);
@@ -330,7 +332,7 @@ namespace Kans
                                   false,
                                   c.AlwaysOnTop,
                                   c.DoubleSided,
-                                  0,
+                                  c.SortOrder,
                                   e.GetUUID(),
                                   bounds.Transformed(transform)});
             }
