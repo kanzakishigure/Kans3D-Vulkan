@@ -23,6 +23,7 @@ namespace Kans
         m_FrameCount = 0;
         m_StepRequested = false;
         m_State = State::Playing;
+        scene.UI().Reset();
         scene.OnRuntimeStart();
     }
 
@@ -65,6 +66,8 @@ namespace Kans
 
         const TimeStep step = m_State == State::Paused ? TimeStep(FixedStep) : ts;
         m_StepRequested = false;
+        scene.UpdateUI(m_UIInput, m_UIViewport, step.GetSeconds());
+        m_UIInput.NextFrame();
         scene.OnUpdate(step);
         m_PlayTime += step.GetSeconds();
         ++m_FrameCount;
@@ -73,6 +76,9 @@ namespace Kans
 
     void ScenePlaySession::Reset()
     {
+        if (m_Scene)
+            m_Scene->UI().Reset();
+        m_UIInput = {};
         m_State = State::Edit;
         m_Scene = nullptr;
         m_Snapshot.reset();

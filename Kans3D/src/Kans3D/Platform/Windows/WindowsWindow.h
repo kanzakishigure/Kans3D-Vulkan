@@ -111,7 +111,7 @@ namespace Kans
         static void charCallback(GLFWwindow* window, unsigned int codepoint)
         {
             WindowsWindow& data = *(WindowsWindow*)glfwGetWindowUserPointer(window);
-            KeyTypedEvent  event((KeyCode)codepoint);
+            KeyTypedEvent  event(static_cast<char32_t>(codepoint));
             data.m_EventCallback(event);
         };
 

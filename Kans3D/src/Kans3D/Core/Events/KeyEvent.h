@@ -52,15 +52,19 @@ namespace Kans
     class KeyTypedEvent : public KeyEvent
     {
     public:
-        KeyTypedEvent(KeyCode keycode) : KeyEvent(keycode) {}
+        KeyTypedEvent(char32_t codepoint) : KeyEvent(static_cast<KeyCode>(codepoint)), m_Codepoint(codepoint) {}
+        KeyTypedEvent(KeyCode codepoint) : KeyTypedEvent(static_cast<char32_t>(codepoint)) {}
+        char32_t GetCodepoint() const { return m_Codepoint; }
 
         std::string ToString() const override
         {
             std::stringstream ss;
-            ss << "KeyTypedEvent: " << m_KeyCode;
+            ss << "KeyTypedEvent: " << static_cast<uint32_t>(m_Codepoint);
             return ss.str();
         }
         EVENT_CLASS_TYPE(KeyTyped)
+    private:
+        char32_t m_Codepoint;
     };
 
 } // namespace Kans

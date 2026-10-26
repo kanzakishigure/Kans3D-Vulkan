@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <optional>
 #include "Kans3D/Core/TimeStep.h"
+#include "Kans3D/UI/UIInput.h"
 #include "SceneSnapshot.h"
 
 namespace Kans
@@ -27,6 +28,17 @@ namespace Kans
         void Stop(Scene& scene);
         void Discard(Scene& scene);
         bool Update(Scene& scene, TimeStep ts);
+        // Feed once per application frame. Pointer is in application coordinates; viewport maps to pixels.
+        void FeedUIInput(UIInputState input, UIViewport viewport)
+        {
+            m_UIInput    = std::move(input);
+            m_UIViewport = viewport;
+        }
+        bool Update(Scene& scene, TimeStep ts, UIInputState input, UIViewport viewport)
+        {
+            FeedUIInput(std::move(input), viewport);
+            return Update(scene, ts);
+        }
 
         // Counters reset on a new Play and when returning to Edit.
         float GetPlayTime() const { return m_PlayTime; }
@@ -35,6 +47,8 @@ namespace Kans
 
     private:
         void Reset();
+        UIInputState m_UIInput;
+        UIViewport   m_UIViewport;
 
         State                       m_State = State::Edit;
         Scene*                      m_Scene = nullptr;

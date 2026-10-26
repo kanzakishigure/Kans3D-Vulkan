@@ -39,16 +39,19 @@ layout(location=2) flat in vec4 rect;
 layout(location=3) flat in vec2 metrics;
 layout(location=4) in vec3 worldPosition;
 layout(location=0) out vec4 outputColor;
+// Stay half a texel inside the glyph so bilinear taps never mix in a neighbouring glyph's channels.
+vec4 inner() { vec2 h=.5/vec2(textureSize(atlas,0)); return vec4(rect.xy+h,rect.zw-h); }
 float sdf(vec2 p)
 {
-    vec2 clampedUV = clamp(p, rect.xy, rect.zw);
+    vec4 r = inner();
+    vec2 clampedUV = clamp(p, r.xy, r.zw);
     // Extend the alpha distance beyond the glyph padding without reading a neighbouring glyph.
     return texture(atlas, clampedUV).a - length((p-clampedUV) * vec2(textureSize(atlas, 0))) / metrics.x;
 }
 void main(){
     float range=msdfScreenPixelRange(uv,vec2(textureSize(atlas,0)),metrics.x);
     float pixelsPerEm=range*metrics.y/metrics.x;
-    vec4 sampleDistance=texture(atlas,clamp(uv,rect.xy,rect.zw));
+    vec4 sampleDistance=texture(atlas,clamp(uv,inner().xy,inner().zw));
     float fill=msdfCoverage(sampleDistance,range);
     if(any(lessThan(uv,rect.xy))||any(greaterThan(uv,rect.zw))) fill=0;
     sampleDistance.a=sdf(uv);
@@ -72,7 +75,8 @@ layout(location=4) in vec3 worldPosition;
 void main(){
     if(any(lessThan(uv,rect.xy))||any(greaterThan(uv,rect.zw))) discard;
     float range=msdfScreenPixelRange(uv,vec2(textureSize(atlas,0)),metrics.x);
-    if(msdfCoverage(texture(atlas,uv),range)*color.a<0.5) discard;
+    vec2 h=.5/vec2(textureSize(atlas,0));
+    if(msdfCoverage(texture(atlas,clamp(uv,rect.xy+h,rect.zw-h)),range)*color.a<0.5) discard;
     gl_FragDepth=d.Light.w>0 ? length(worldPosition-d.Light.xyz)/d.Light.w : gl_FragCoord.z;
 }
 )";

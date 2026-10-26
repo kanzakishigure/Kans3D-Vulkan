@@ -13,8 +13,14 @@ namespace Kans
         Panel,
         Image,
         Text,
-        UIInstance
+        UIInstance,
+        Button,
+        Toggle,
+        Slider,
+        ScrollView,
+        InputField
     };
+    inline bool UIInteractive(UIWidgetType t) { return t >= UIWidgetType::Button; }
     enum class UIScaleMode
     {
         ConstantPixelSize,

@@ -11,6 +11,7 @@
 #include "Kans3D/Core/TimeStep.h"
 #include "Kans3D/Core/UUID.h"
 #include "Kans3D/Renderer/Resource/PostProcessSettings.h"
+#include "Kans3D/UI/UIContext.h"
 #include "EnvironmentSettings.h"
 
 namespace Kans
@@ -41,6 +42,9 @@ namespace Kans
         ~Scene();
 
         void OnUpdate(TimeStep ts);
+        UIContext&       UI() { return m_UI; }
+        const UIContext& UI() const { return m_UI; }
+        void             UpdateUI(const UIInputState&, const UIViewport&, float seconds);
 
         void       OnViewportResize(uint32_t width, uint32_t height);
         glm::uvec2 GetViewportSize() const { return {m_ViewportWidth, m_ViewportHeight}; }
@@ -161,6 +165,7 @@ namespace Kans
         AudioEngine*      m_AudioEngine = nullptr;
         AudioClipRegistry m_AudioClips;
         bool              m_AudioRunning = false, m_AudioPaused = false, m_WarnedMultipleListeners = false;
+        UIContext         m_UI;
         UUID              m_AudioListener = 0;
         glm::vec3         m_CameraAudioPosition {0};
         bool              m_HasCameraAudioPosition = false;

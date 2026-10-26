@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "UIRenderer.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include "Kans3D/UI/UICaret.h"
 #include "Renderer.h"
 namespace Kans
 {
@@ -45,7 +46,9 @@ layout(location=7) in vec2 canvasPosition;
 layout(location=0) out vec4 outputColor;
 vec3 linearColor(vec3 c) { return mix(c/12.92,pow((max(c,vec3(0))+.055)/1.055,vec3(2.4)),greaterThan(c,vec3(.04045))); }
 vec4 tint(vec4 c) { return vec4(d.Flags.x>0 ? linearColor(c.rgb) : c.rgb,c.a); }
-float sdf(vec2 p) { vec2 q=clamp(p,rect.xy,rect.zw); return texture(image,q).a-length((p-q)*vec2(textureSize(image,0)))/metrics.x; }
+// Stay half a texel inside the glyph so bilinear taps never mix in a neighbouring glyph's channels.
+vec4 inner() { vec2 h=.5/vec2(textureSize(image,0)); return vec4(rect.xy+h,rect.zw-h); }
+float sdf(vec2 p) { vec4 r=inner(); vec2 q=clamp(p,r.xy,r.zw); return texture(image,q).a-length((p-q)*vec2(textureSize(image,0)))/metrics.x; }
 void main() {
     if (any(lessThan(canvasPosition,d.Clip.xy)) || any(greaterThanEqual(canvasPosition,d.Clip.zw))) discard;
     vec4 c=tint(color);
@@ -55,7 +58,7 @@ void main() {
     } else {
         float range=msdfScreenPixelRange(uv,vec2(textureSize(image,0)),metrics.x);
         float pixelsPerEm=range*metrics.y/metrics.x;
-        vec4 distance=texture(image,clamp(uv,rect.xy,rect.zw));
+        vec4 distance=texture(image,clamp(uv,inner().xy,inner().zw));
         float fill=msdfCoverage(distance,range);
         if(any(lessThan(uv,rect.xy)) || any(greaterThan(uv,rect.zw))) fill=0;
         distance.a=sdf(uv);
@@ -121,9 +124,10 @@ void main() {
             ui.Instance->Update(
                 ui.Screen ? glm::vec2(viewport) : ui.Instance->Data()->ReferenceResolution, &fonts, fontsByID);
             Walk(ui.Instance->Widgets(), [&](const auto& w) {
-                if (w.Visible && w.Data.Type == UIWidgetType::Image && assets)
+                if (w.Visible && (w.Data.Type == UIWidgetType::Image || UIInteractive(w.Data.Type)) && assets)
                 {
-                    auto id = AssetID::FromString(UIProperty<std::string>(w.Data, "Texture", ""));
+                    auto id = w.HasVisualTexture ? w.VisualTexture :
+                                                   AssetID::FromString(UIProperty<std::string>(w.Data, "Texture", ""));
                     if (id.IsValid())
                         complete &=
                             assets->GetAssetManager().Request<TextureAsset>(id).State != AssetLoadState::Loading;
@@ -174,11 +178,15 @@ void main() {
                                                                        glm::vec4               outline = glm::vec4(0),
                                                                        glm::vec4               shadow  = glm::vec4(0),
                                                                        glm::vec4               effects = glm::vec4(0)) {
-            if (!texture || box.x == box.z || box.y == box.w || w.Clip.z <= w.Clip.x || w.Clip.w <= w.Clip.y)
+            auto clip = w.Clip;
+            if (w.Data.Type == UIWidgetType::InputField)
+                clip = {glm::max(glm::vec2(clip), glm::vec2(w.Bounds)),
+                        glm::min(glm::vec2(clip.z, clip.w), glm::vec2(w.Bounds.z, w.Bounds.w))};
+            if (!texture || box.x == box.z || box.y == box.w || clip.z <= clip.x || clip.w <= clip.y)
                 return;
             if (g.Batches.empty() || g.Batches.back().Texture != texture || g.Batches.back().Sampler != sampler ||
-                g.Batches.back().Clip != w.Clip)
-                g.Batches.push_back({texture, sampler, w.Clip, uint32_t(vertices.size()), 0});
+                g.Batches.back().Clip != clip)
+                g.Batches.push_back({texture, sampler, clip, uint32_t(vertices.size()), 0});
             const glm::vec2 pos[] = {{box.x, box.y}, {box.z, box.y}, {box.z, box.w}, {box.x, box.w}};
             const glm::vec2 tex[] = {{uv.x, uv.y}, {uv.z, uv.y}, {uv.z, uv.w}, {uv.x, uv.w}};
             if (metrics.z > .5f)
@@ -203,13 +211,14 @@ void main() {
             const auto& p = w.Data.Properties;
             if (w.Data.Type == UIWidgetType::Panel)
             {
-                auto c = UIVec4(p["BackgroundColor"]);
+                auto c = UIVec4(p["BackgroundColor"]) * w.Tint;
                 if (c.a > 0)
                     quad(w, {0, 0, w.Size.x, w.Size.y}, {0, 0, 1, 1}, c, m_White, m_WhiteSampler, {});
             }
-            else if (w.Data.Type == UIWidgetType::Image)
+            else if (w.Data.Type == UIWidgetType::Image || UIInteractive(w.Data.Type))
             {
-                auto id      = AssetID::FromString(UIProperty<std::string>(w.Data, "Texture", ""));
+                auto id      = w.HasVisualTexture ? w.VisualTexture :
+                                                    AssetID::FromString(UIProperty<std::string>(w.Data, "Texture", ""));
                 auto image   = assets && id.IsValid() ? assets->GetTexture(id) : Ref<Texture2D>();
                 auto texture = image ? image->GetResource() : m_White;
                 auto sampler = m_WhiteSampler;
@@ -221,7 +230,7 @@ void main() {
                     sampler = cached;
                 }
                 glm::vec2 texSize = image ? glm::vec2(image->GetWidth(), image->GetHeight()) : glm::vec2(1);
-                auto      uv = UIVec4(p["UVRect"], {0, 0, 1, 1}), color = UIVec4(p["Color"], glm::vec4(1));
+                auto      uv = UIVec4(p["UVRect"], {0, 0, 1, 1}), color = UIVec4(p["Color"], glm::vec4(1)) * w.Tint;
                 auto      mode = UIProperty<std::string>(w.Data, "DrawMode", "Simple");
                 std::swap(uv.y, uv.w); // Image UVRect is min/max in the engine bottom-left texture convention.
                 glm::vec2 min(0), max = w.Size, source = texSize * glm::abs(glm::vec2(uv.z - uv.x, uv.w - uv.y));
@@ -268,9 +277,28 @@ void main() {
                 else
                     quad(w, {min, max}, uv, color, texture, sampler, uv);
             }
-            else if (w.Data.Type == UIWidgetType::Text)
+            if (w.Data.Type == UIWidgetType::Text || w.Data.Type == UIWidgetType::InputField)
             {
                 auto style = UITextStyle(w.Data, ui.Instance->PixelScale());
+                style.Color *= w.Tint;
+                if (w.Data.Type == UIWidgetType::InputField && w.Anchor != w.Caret)
+                {
+                    auto lo = std::min(w.Anchor, w.Caret), hi = std::max(w.Anchor, w.Caret);
+                    for (size_t i = 1; i < w.Text.Carets.size(); ++i)
+                    {
+                        auto a = w.Text.Carets[i - 1], b = w.Text.Carets[i];
+                        if (a.Byte < lo || a.Byte >= hi || a.Line != b.Line)
+                            continue;
+                        auto start = a.Position - w.TextScroll, end = b.Position - w.TextScroll;
+                        quad(w,
+                             {start.x, start.y - w.Text.SizeUsed, end.x, end.y + w.Text.SizeUsed * .2f},
+                             {0, 0, 1, 1},
+                             {.2f, .45f, .9f, .45f},
+                             m_White,
+                             m_WhiteSampler,
+                             {});
+                    }
+                }
                 for (auto& q : w.Text.Glyphs)
                 {
                     if (!q.Ready || q.Position.x == q.Position.z || q.Position.y == q.Position.w)
@@ -285,7 +313,7 @@ void main() {
                     float emUV     = float(q.Font->GetData().Settings.GlyphSize) / GlyphAtlas::PageSize;
                     auto  texExtra = extra / std::max(.001f, size) * emUV;
                     quad(w,
-                         q.Position + glm::vec4(-extra, extra),
+                         q.Position + glm::vec4(-extra, extra) - glm::vec4(w.TextScroll, w.TextScroll),
                          q.UV + glm::vec4(-texExtra.x, texExtra.y, texExtra.x, -texExtra.y),
                          style.Color,
                          atlas.Pages()[q.Page],
@@ -298,6 +326,17 @@ void main() {
                          style.Outline.Color,
                          style.Shadow.Color,
                          {style.Outline.Width, style.Shadow.Softness, style.Shadow.Offset});
+                }
+                if (w.Data.Type == UIWidgetType::InputField && w.CaretVisible)
+                {
+                    auto p = UICaretPosition(w) - w.TextScroll;
+                    quad(w,
+                         {p.x, p.y - w.Text.SizeUsed, p.x + 1.5f, p.y + w.Text.SizeUsed * .2f},
+                         {0, 0, 1, 1},
+                         style.Color,
+                         m_White,
+                         m_WhiteSampler,
+                         {});
                 }
             }
         });

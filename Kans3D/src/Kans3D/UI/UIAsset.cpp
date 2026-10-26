@@ -88,8 +88,9 @@ namespace Kans
     }
     namespace
     {
-        const char* Types[] = {"Panel", "Image", "Text", "UIInstance"};
-        bool        Finite(glm::vec4 v)
+        const char* Types[] =
+            {"Panel", "Image", "Text", "UIInstance", "Button", "Toggle", "Slider", "ScrollView", "InputField"};
+        bool Finite(glm::vec4 v)
         {
             return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) && std::isfinite(v.w);
         }
@@ -115,9 +116,9 @@ namespace Kans
             w.Name      = n["Name"].as<std::string>();
             auto   type = n["Type"].as<std::string>();
             size_t t    = 0;
-            while (t < 4 && type != Types[t])
+            while (t < std::size(Types) && type != Types[t])
                 ++t;
-            if (t == 4)
+            if (t == std::size(Types))
                 throw std::runtime_error("Unknown UI widget type: " + type);
             w.Type      = UIWidgetType(t);
             w.Visible   = n["Visible"].as<bool>(true);
@@ -154,8 +155,64 @@ namespace Kans
         void CheckProperty(const UIWidget& w, const std::string& p, const YAML::Node& v, bool strict)
         {
             auto type = w.Type;
-            if (p == "Color" || p == "BackgroundColor" || p == "UVRect" || p == "Borders" || p == "OutlineColor" ||
-                p == "ShadowColor")
+            if (p == "Interactable" || p == "BlockPointer" || p == "IsOn" || p == "WholeNumbers" || p == "Horizontal" ||
+                p == "Vertical" || p == "Inertia" || p == "Multiline" || p == "IgnoreLayout" || p == "ControlWidth" ||
+                p == "ControlHeight" || p == "ForceExpandWidth" || p == "ForceExpandHeight" || p == "FitWidth" ||
+                p == "FitHeight")
+            {
+                v.as<bool>();
+                return;
+            }
+            if (p == "Min" || p == "Max" || p == "Value" || p == "Step" || p == "WheelSpeed" ||
+                p == "TransitionDuration" || p == "Spacing" || p == "MinWidth" || p == "MinHeight" ||
+                p == "PreferredWidth" || p == "PreferredHeight" || p == "FlexibleWidth" || p == "FlexibleHeight")
+            {
+                if (!std::isfinite(v.as<float>()))
+                    throw std::runtime_error("Non-finite " + p);
+                return;
+            }
+            if (p == "CharacterLimit" || p == "ConstraintCount")
+            {
+                if (v.as<int>() < 0)
+                    throw std::runtime_error("Negative " + p);
+                return;
+            }
+            if (p == "ScrollPosition" || p == "CellSize" || p == "ChildAlignment")
+            {
+                if (!Finite({UIVec2(v), 0, 0}))
+                    throw std::runtime_error("Non-finite " + p);
+                return;
+            }
+            if (p == "Padding")
+            {
+                if (!Finite(UIVec4(v)))
+                    throw std::runtime_error("Non-finite padding");
+                return;
+            }
+            if (p == "States")
+            {
+                if (!v.IsMap())
+                    throw std::runtime_error("States must be a map");
+                for (auto state : v)
+                {
+                    if (!state.second.IsMap())
+                        throw std::runtime_error("Visual state must be a map");
+                    if (state.second["Color"] && !Finite(UIVec4(state.second["Color"])))
+                        throw std::runtime_error("Non-finite state color");
+                    if (state.second["Texture"])
+                        CheckProperty(w, "Texture", state.second["Texture"], true);
+                }
+                return;
+            }
+            if (p == "Group" || p == "NavUp" || p == "NavDown" || p == "NavLeft" || p == "NavRight" || p == "Fill" ||
+                p == "Handle" || p == "Viewport" || p == "Content" || p == "Placeholder" || p == "MaskCharacter")
+            {
+                v.as<std::string>();
+                return;
+            }
+
+            if (p == "TextColor" || p == "Color" || p == "BackgroundColor" || p == "UVRect" || p == "Borders" ||
+                p == "OutlineColor" || p == "ShadowColor")
             {
                 if (!Finite(UIVec4(v)))
                     throw std::runtime_error("Non-finite colour/vector");
@@ -199,6 +256,31 @@ namespace Kans
                         return;
                 throw std::runtime_error("Invalid " + p + ": " + s);
             };
+            if (p == "Direction")
+            {
+                choice({"LeftToRight", "RightToLeft", "BottomToTop", "TopToBottom"});
+                return;
+            }
+            if (p == "Movement")
+            {
+                choice({"Clamped", "Elastic"});
+                return;
+            }
+            if (p == "ContentType")
+            {
+                choice({"Any", "Integer", "Decimal", "Alphanumeric", "Password"});
+                return;
+            }
+            if (p == "Layout")
+            {
+                choice({"None", "Horizontal", "Vertical", "Grid"});
+                return;
+            }
+            if (p == "Constraint")
+            {
+                choice({"Columns", "Rows"});
+                return;
+            }
             if (p == "DrawMode")
             {
                 choice({"Simple", "Sliced", "Tiled"});
@@ -249,7 +331,7 @@ namespace Kans
                         throw std::runtime_error("Duplicate or invalid widget ID");
                     if (w.Name.empty() || w.Name.find('/') != std::string::npos || !names.insert(w.Name).second)
                         throw std::runtime_error("Duplicate sibling name or invalid widget name: " + w.Name);
-                    if (int(w.Type) < 0 || int(w.Type) > 3)
+                    if (int(w.Type) < 0 || int(w.Type) >= int(std::size(Types)))
                         throw std::runtime_error("Invalid widget type");
                     CheckRect(w.Rect);
                     if (!w.Properties.IsMap())
@@ -352,14 +434,22 @@ namespace Kans
         std::function<void(const std::vector<UIWidget>&)> visit = [&](const std::vector<UIWidget>& nodes) {
             for (auto& w : nodes)
             {
-                const char* key = w.Type == UIWidgetType::Text  ? "Font" :
-                                  w.Type == UIWidgetType::Image ? "Texture" :
-                                                                  "UI";
-                auto        id  = AssetID::FromString(UIProperty<std::string>(w, key, ""));
-                if (id.IsValid())
-                    out[id] = w.Type == UIWidgetType::Text  ? AssetType::Font :
-                              w.Type == UIWidgetType::Image ? AssetType::Texture :
-                                                              AssetType::UI;
+                for (const auto& entry : {std::pair<const char*, AssetType> {"Font", AssetType::Font},
+                                          {"Texture", AssetType::Texture},
+                                          {"UI", AssetType::UI}})
+                {
+                    auto id = AssetID::FromString(UIProperty<std::string>(w, entry.first, ""));
+                    if (id.IsValid())
+                        out[id] = entry.second;
+                }
+                if (auto states = w.Properties["States"])
+                    for (auto state : states)
+                    {
+                        auto n  = state.second["Texture"];
+                        auto id = AssetID::FromString(n ? n.as<std::string>() : "");
+                        if (id.IsValid())
+                            out[id] = AssetType::Texture;
+                    }
                 // Asset-valued overrides are dependencies too; exact target types are validated during expansion.
                 if (w.Type == UIWidgetType::UIInstance && w.Properties["Overrides"])
                     for (auto p : w.Properties["Overrides"])
@@ -431,10 +521,10 @@ namespace Kans
     {
         auto          r = UITextRequest(w, {}, s);
         TextComponent c;
-        c.Text            = r.Text;
-        c.Language        = r.Language;
-        c.Size            = r.Size;
-        c.Color           = UIVec4(w.Properties["Color"], glm::vec4(1));
+        c.Text     = r.Text;
+        c.Language = r.Language;
+        c.Size     = r.Size;
+        c.Color    = UIVec4(w.Properties[w.Type == UIWidgetType::InputField ? "TextColor" : "Color"], glm::vec4(1));
         c.Outline.Width   = UIProperty<float>(w, "OutlineWidth", 0);
         c.Outline.Color   = UIVec4(w.Properties["OutlineColor"], {0, 0, 0, 1});
         c.Shadow.Color    = UIVec4(w.Properties["ShadowColor"], {});
