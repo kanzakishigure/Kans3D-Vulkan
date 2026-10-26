@@ -18,9 +18,11 @@ namespace Kans::ComponentEditors
         // Editor-only preview of an animator: which state is shown and where in it.
         struct Preview
         {
-            int    Layer = 0, State = 0;
-            double Time    = 0;
-            bool   Playing = false;
+            int     Layer = 0, State = 0;
+            double  Time    = 0;
+            bool    Playing = false;
+            AssetID Action; // Tried over the previewed state; the card advances it while it plays.
+            bool    TryingAction = false;
         };
         std::map<UUID, Preview>& Previews()
         {
@@ -197,6 +199,25 @@ namespace Kans::ComponentEditors
                 ImGui::ProgressBar(played, {-FLT_MIN, ImGui::GetFrameHeight()}, overlay);
                 ImGui::PopID();
             }
+            // One-shot actions playing in the slots, over the layers above.
+            for (const auto& action : a.Player->GetActions())
+            {
+                if (!action.Playing || !PropertyGrid::Row(("Slot " + action.Slot).c_str()))
+                    continue;
+                ImGui::PushID(action.Slot.c_str());
+                char overlay[160];
+                std::snprintf(overlay,
+                              sizeof(overlay),
+                              "%s%s  %.2f s%s",
+                              ICON_FA_BOLT " ",
+                              action.Section.empty() ? "Action" : action.Section.c_str(),
+                              action.Time,
+                              action.BlendingOut ? "  (blending out)" : "");
+                ImGui::ProgressBar(action.Weight, {-FLT_MIN, ImGui::GetFrameHeight()}, overlay);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Bar: the action's weight over the layer");
+                ImGui::PopID();
+            }
             // Live values of the running animator; their defaults are edited in the graph window.
             for (const auto& p : controller->Parameters)
             {
@@ -306,7 +327,44 @@ namespace Kans::ComponentEditors
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if (ImGui::SliderInt("##time", &scrub, 0, lastFrame, label))
                     seek(scrub);
-                scene->PreviewAnimation(entity, size_t(p.Layer), uint32_t(p.State), p.Time);
+                // An action from the project, tried over the previewed state through its slot.
+                const bool slots =
+                    std::any_of(c.Layers.begin(), c.Layers.end(), [](const auto& l) { return !l.Slot.empty(); });
+                if (slots)
+                {
+                    PropertyGrid::EndFree();
+                    ui.AssetPicker("Try action", AssetType::Action, p.Action);
+                    PropertyGrid::BeginFree();
+                    if (p.TryingAction)
+                    {
+                        if (ImGui::Button(ICON_FA_STOP "  Stop action", {-FLT_MIN, 0}))
+                            p.TryingAction = false, scene->ResetAnimator(entity);
+                    }
+                    else
+                    {
+                        ImGui::BeginDisabled(!p.Action.IsValid() || !a.Player);
+                        if (ImGui::Button(ICON_FA_BOLT "  Play action", {-FLT_MIN, 0}) &&
+                            a.Player->Play(size_t(p.Layer), uint32_t(p.State), p.Time))
+                        {
+                            p.TryingAction = a.Player->PlayAction(p.Action);
+                            p.Playing      = false;
+                        }
+                        ImGui::EndDisabled();
+                    }
+                    if (a.Player && a.Player->GetActionError())
+                        ImGui::TextColored(ErrorColor, "%s", a.Player->GetActionError()->Message.c_str());
+                }
+                if (p.TryingAction && a.Player)
+                {
+                    // Runs the animator itself while the action plays; root motion is not applied.
+                    a.Player->Advance(ImGui::GetIO().DeltaTime);
+                    scene->ApplyAnimatorPose(entity, a.Player->GetPose());
+                    const auto& actions = a.Player->GetActions();
+                    if (std::none_of(actions.begin(), actions.end(), [](const auto& s) { return s.Playing; }))
+                        p.TryingAction = false, scene->ResetAnimator(entity);
+                }
+                else
+                    scene->PreviewAnimation(entity, size_t(p.Layer), uint32_t(p.State), p.Time);
             }
             PropertyGrid::EndFree();
             PropertyGrid::EndGroup();

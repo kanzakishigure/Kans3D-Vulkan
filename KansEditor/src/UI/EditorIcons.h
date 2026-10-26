@@ -63,6 +63,7 @@
 #define ICON_FA_IMAGE                  "\xef\x80\xbe" // U+F03E
 #define ICON_FA_FONT "\xef\x80\xb1"                   // U+F031
 #define ICON_FA_DIAGRAM_PROJECT "\xef\x95\x82"        // U+F542
+#define ICON_FA_BOLT "\xef\x83\xa7"                   // U+F0E7
 #define ICON_FA_MICROCHIP "\xef\x8b\x9b"              // U+F2DB
 #define ICON_FA_TABLE_COLUMNS          "\xef\x83\x9b" // U+F0DB
 #define ICON_FA_FILE_LINES             "\xef\x85\x9c" // U+F15C

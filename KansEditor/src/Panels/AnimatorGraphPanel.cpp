@@ -112,7 +112,9 @@ namespace Kans
         if (ImGui::BeginTabBar("##layers"))
         {
             for (size_t i = 0; i < controller.Layers.size(); ++i)
-                if (ImGui::BeginTabItem((controller.Layers[i].Name + "##" + std::to_string(i)).c_str()))
+                if (ImGui::BeginTabItem(((controller.Layers[i].Slot.empty() ? "" : ICON_FA_BOLT " ") +
+                                         controller.Layers[i].Name + "##" + std::to_string(i))
+                                            .c_str()))
                 {
                     if (m_Layer != i)
                         m_SelectedState = m_SelectedTransition = -1, m_LinkFrom = -2;
@@ -488,6 +490,9 @@ namespace Kans
         {
             if (PropertyGrid::Row("Name"))
                 changed |= InputName("##layername", layer.Name);
+            // A slot plays one-shot actions over this layer's state machine (unique per controller).
+            if (PropertyGrid::Row("Slot", "Actions name this slot to play over the layer; empty: none"))
+                changed |= InputName("##slot", layer.Slot);
             changed |= PropertyGrid::Float("Weight", layer.Weight, 0.01f, 0.0f, 1.0f);
             const char* modes[] = {"Override", "Additive"};
             int         mode    = int(layer.Mode);
