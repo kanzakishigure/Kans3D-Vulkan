@@ -13,6 +13,59 @@ namespace Kans::Launcher
         {
             return {code, path.generic_u8string() + ": " + message};
         }
+        bool HoldsProjectFile(const fs::path& folder)
+        {
+            std::error_code ec;
+            for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+                if (it->path().extension() == ".kproj" && it->is_regular_file(ec))
+                    return true;
+            return false;
+        }
+        void FindProjects(const fs::path& folder, int depth, std::vector<std::string>& found)
+        {
+            std::error_code ec;
+            for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+            {
+                if (!it->is_directory(ec) || it->is_symlink(ec))
+                    continue;
+                if (HoldsProjectFile(it->path()))
+                    found.push_back(it->path().lexically_relative(folder).generic_u8string());
+                else if (depth > 1)
+                    for (const auto& name : [&] {
+                             std::vector<std::string> inner;
+                             FindProjects(it->path(), depth - 1, inner);
+                             return inner;
+                         }())
+                        found.push_back(it->path().filename().generic_u8string() + "/" + name);
+            }
+        }
+        // A project may neither hold other projects nor sit inside one: their asset folders and
+        // caches would overlap, and the same assets would be imported twice under one ID.
+        std::optional<AssetError> NestingProblem(const fs::path& root)
+        {
+            std::vector<std::string> inner;
+            FindProjects(root, 2, inner);
+            if (!inner.empty())
+            {
+                std::sort(inner.begin(), inner.end());
+                std::string names;
+                for (const auto& name : inner)
+                    names += (names.empty() ? "" : ", ") + name;
+                return Error(AssetErrorCode::InvalidArgument,
+                             root,
+                             "This folder holds other projects (" + names + "); open one of them instead");
+            }
+            for (auto parent = root.parent_path(); !parent.empty(); parent = parent.parent_path())
+            {
+                if (HoldsProjectFile(parent))
+                    return Error(AssetErrorCode::InvalidArgument,
+                                 root,
+                                 "This folder is inside the project at " + parent.generic_u8string());
+                if (parent == parent.parent_path())
+                    break;
+            }
+            return std::nullopt;
+        }
     } // namespace
 
     Selection ResolveSelection(const fs::path& path)
@@ -24,7 +77,12 @@ namespace Kans::Launcher
             if (auto* error = std::get_if<AssetError>(&found))
             {
                 if (error->Code == AssetErrorCode::NotFound)
-                    return MissingProjectFile {fs::absolute(path).lexically_normal()};
+                {
+                    const auto folder = fs::absolute(path).lexically_normal();
+                    if (auto problem = NestingProblem(folder))
+                        return *problem;
+                    return MissingProjectFile {folder};
+                }
                 return *error;
             }
             return ResolveSelection(std::get<fs::path>(found));
@@ -40,7 +98,10 @@ namespace Kans::Launcher
         auto loaded = LoadProjectFile(path);
         if (auto* error = std::get_if<AssetError>(&loaded))
             return *error;
-        return fs::absolute(path).lexically_normal();
+        const auto file = fs::absolute(path).lexically_normal();
+        if (auto problem = NestingProblem(file.parent_path()))
+            return *problem;
+        return file;
     }
 
     std::variant<fs::path, AssetError> CreateProjectFile(const fs::path& folder)
@@ -52,6 +113,8 @@ namespace Kans::Launcher
         auto existing = FindProjectFile(root);
         if (std::holds_alternative<fs::path>(existing))
             return Error(AssetErrorCode::InvalidArgument, root, "The folder already has a project file");
+        if (auto problem = NestingProblem(root))
+            return *problem;
         ProjectFile project;
         project.Name = name;
         std::error_code ec;
