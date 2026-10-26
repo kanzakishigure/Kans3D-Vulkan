@@ -240,3 +240,20 @@ endif()
 # ============================================================
  add_library(spdlog INTERFACE)                                                                                                                                                                                              
 target_include_directories(spdlog INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/spdlog)
+
+# CPU text dependencies. No platform font APIs or optional external backends.
+add_library(harfbuzz STATIC harfbuzz/src/harfbuzz.cc)
+target_include_directories(harfbuzz PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/harfbuzz/src)
+target_compile_definitions(harfbuzz PRIVATE HB_NO_CORETEXT HB_NO_DIRECTWRITE HB_NO_GDI)
+file(GLOB MSDFGEN_CORE CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/msdfgen/core/*.cpp)
+add_library(msdfgen-core STATIC ${MSDFGEN_CORE})
+target_include_directories(msdfgen-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/msdfgen)
+target_compile_definitions(msdfgen-core PUBLIC MSDFGEN_PUBLIC= MSDFGEN_USE_CPP11)
+foreach(text_dependency harfbuzz msdfgen-core)
+    kans_set_output_dirs(${text_dependency})
+    set_target_properties(${text_dependency} PROPERTIES FOLDER "Dependencies" CXX_STANDARD 17
+        POSITION_INDEPENDENT_CODE ON MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+    if(MSVC)
+        target_compile_options(${text_dependency} PRIVATE /utf-8 /bigobj)
+    endif()
+endforeach()

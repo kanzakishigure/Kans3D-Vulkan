@@ -21,3 +21,11 @@
 	path = test
 	url = https://github.com/kanzakishigure/Kans3D-tests.git
 	branch = main
+[submodule "Kans3D/vendor/harfbuzz"]
+	path = Kans3D/vendor/harfbuzz
+	url = https://github.com/harfbuzz/harfbuzz
+	shallow = true
+[submodule "Kans3D/vendor/msdfgen"]
+	path = Kans3D/vendor/msdfgen
+	url = https://github.com/Chlumsky/msdfgen
+	shallow = true

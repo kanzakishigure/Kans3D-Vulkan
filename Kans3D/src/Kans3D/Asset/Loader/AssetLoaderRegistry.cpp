@@ -1,10 +1,11 @@
 #include "kspch.h"
 #include "AssetLoaderRegistry.h"
+#include "Kans3D/Asset/Runtime/AudioClipData.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Asset/Runtime/ShaderData.h"
 #include "Kans3D/Asset/Runtime/TextureData.h"
-#include "Kans3D/Asset/Runtime/AudioClipData.h"
+#include "Kans3D/Text/FontAsset.h"
 
 namespace Kans
 {
@@ -46,6 +47,7 @@ namespace Kans
         registry.m_Decoders.emplace(SkeletonAsset::GetStaticType(), Decode<SkeletonAsset>);
         registry.m_Decoders.emplace(AnimationClipAsset::GetStaticType(), Decode<AnimationClipAsset>);
         registry.m_Decoders.emplace(AnimationControllerAsset::GetStaticType(), Decode<AnimationControllerAsset>);
+        registry.m_Decoders.emplace(FontAsset::GetStaticType(), Decode<FontAsset>);
         registry.m_Decoders.emplace(AudioClipAsset::GetStaticType(), Decode<AudioClipAsset>);
         return registry;
     }

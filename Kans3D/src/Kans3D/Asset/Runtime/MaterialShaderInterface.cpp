@@ -10,6 +10,10 @@ namespace Kans
         const std::map<std::string, std::string>& EngineIncludes()
         {
             static const std::map<std::string, std::string> includes = {
+                {
+                    "Kans3D/MSDF.glsl",
+#include "KansMSDFInclude.h"
+                },
                 {"Kans3D/Engine.glsl", R"(#ifndef KANS3D_ENGINE_GLSL
 #define KANS3D_ENGINE_GLSL
 #define KANS_LIGHT_COUNT 4

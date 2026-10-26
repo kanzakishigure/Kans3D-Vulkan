@@ -1431,6 +1431,43 @@ namespace Kans::RenderHardware
                         e.ImageCopy(*s, offset, *d, sub, f.Aspects, true);
                 });
             }
+            void CopyBufferToTextureRegion(const Handle<Buffer>&  source,
+                                           size_t                 offset,
+                                           const Handle<Texture>& destination,
+                                           uint32_t               x,
+                                           uint32_t               y,
+                                           uint32_t               width,
+                                           uint32_t               height,
+                                           TextureSubresource     sub) override
+            {
+                Outside();
+                auto s = Cast<VKBuffer>(source, Owner);
+                auto d = Cast<VKTexture>(destination, Owner);
+                auto f = Info(d->Desc.PixelFormat);
+                Require(Has(s->Desc.Usage, BufferUsage::CopySource) &&
+                            Has(d->Desc.Usage, TextureUsage::CopyDestination),
+                        "Texture region upload usage mismatch");
+                Require(d->Desc.Samples == 1 && f.Aspects == VK_IMAGE_ASPECT_COLOR_BIT,
+                        "Region upload requires single-sample color texture");
+                TextureBytes(d->Desc, sub); // Validate mip and face before shifting dimensions.
+                auto w = Width(d->Desc, sub.Mip), h = Height(d->Desc, sub.Mip);
+                Require(width && height && x <= w && y <= h && width <= w - x && height <= h - y,
+                        "Texture region out of bounds");
+                Require(offset % f.Bytes == 0, "Texture region offset must be texel aligned");
+                Range(s->Desc.Bytes, offset, size_t(width) * height * f.Bytes);
+                Recorded.push_back([s, d, offset, sub, x, y, width, height](Execution& e) {
+                    e.Use(*s, TransferRead);
+                    e.Use(*d, sub, TransferWrite);
+                    e.FlushBarriers();
+                    VkBufferImageCopy region {};
+                    region.bufferOffset     = offset;
+                    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, sub.Mip, sub.Face, 1};
+                    region.imageOffset      = {int32_t(x), int32_t(y), 0};
+                    region.imageExtent      = {width, height, 1};
+                    vkCmdCopyBufferToImage(
+                        e.Native, s->Native, d->Native, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                });
+            }
             void CopyTextureToBuffer(const Handle<Texture>& source,
                                      TextureSubresource     sub,
                                      const Handle<Buffer>&  destination,

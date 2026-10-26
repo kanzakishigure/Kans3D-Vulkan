@@ -43,6 +43,19 @@ namespace Kans
         bool        HasAlpha = false, LikelyNormalMap = false;
         std::string NormalMapHeuristic;
     };
+    struct InspectedFontFace
+    {
+        uint32_t                 Index = 0;
+        std::string              Name;
+        std::vector<std::string> Languages;
+    };
+    struct InspectedFont
+    {
+        std::string                    Family, Style;
+        uint32_t                       GlyphCount = 0;
+        bool                           Latin = false, CJK = false, Kana = false, Hangul = false;
+        std::vector<InspectedFontFace> Faces;
+    };
     struct SourceInventory
     {
         std::vector<InspectedMesh>             Meshes;
@@ -52,5 +65,6 @@ namespace Kans
         std::vector<InspectedClip>             Clips;
         std::vector<std::string>               MorphTargets, Warnings;
         std::optional<InspectedTexture>        Texture;
+        std::optional<InspectedFont>           Font;
     };
 } // namespace Kans

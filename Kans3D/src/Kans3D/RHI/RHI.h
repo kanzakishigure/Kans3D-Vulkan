@@ -472,6 +472,19 @@ namespace Kans::RenderHardware
                                          size_t                 offset,
                                          const Handle<Texture>& destination,
                                          TextureSubresource     subresource = {}) = 0;
+        // Tightly packed color rectangle. Bounds, offset alignment and source length
+        // are validated before recording. Depth/stencil partial uploads are unsupported.
+        virtual void CopyBufferToTextureRegion(const Handle<Buffer>&,
+                                               size_t,
+                                               const Handle<Texture>&,
+                                               uint32_t,
+                                               uint32_t,
+                                               uint32_t,
+                                               uint32_t,
+                                               TextureSubresource = {})
+        {
+            throw std::runtime_error("Partial texture upload unavailable");
+        }
         virtual void CopyTextureToBuffer(const Handle<Texture>& source,
                                          TextureSubresource     subresource,
                                          const Handle<Buffer>&  destination,

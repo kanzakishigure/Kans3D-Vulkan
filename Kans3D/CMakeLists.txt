@@ -79,9 +79,10 @@ target_link_libraries(Kans3D PUBLIC
     ImGuizmo
     assimp
     VulkanMemoryAllocator
+    harfbuzz
 )
 
-target_link_libraries(Kans3D PRIVATE miniaudio)
+target_link_libraries(Kans3D PRIVATE miniaudio msdfgen-core)
 
 # Vulkan SDK (shaderc, spirv-cross, vulkan loader)
 if(VULKAN_SDK_DIR)
@@ -114,3 +115,11 @@ else()
     target_compile_definitions(Kans3D PRIVATE KANS_HAS_DOTNET=0)
     target_link_libraries(Kans3D PRIVATE ${CMAKE_DL_LIBS})
 endif()
+
+# Embed the same renderer-agnostic include used by resource shaders into the
+# asset shader compiler; packaged games need no source-tree shader paths.
+set(KANS_MSDF_INCLUDE "${PROJECT_SOURCE_DIR}/KansEditor/Resources/Shaders/Include/MSDF.glsl")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${KANS_MSDF_INCLUDE}")
+file(READ "${KANS_MSDF_INCLUDE}" KANS_MSDF_GLSL)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/KansMSDFInclude.h" "R\"KANSMSDF(${KANS_MSDF_GLSL})KANSMSDF\"")
+target_include_directories(Kans3D PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")

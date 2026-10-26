@@ -1,6 +1,7 @@
 #include "kspch.h"
 #include "AudioImportSettings.h"
 #include "AudioImporter.h"
+#include "FontImporter.h"
 #include "ModelImporter.h"
 #include "TextureImportSettings.h"
 #include "TextureImporter.h"
@@ -304,5 +305,37 @@ namespace Kans
         if (auto* error = std::get_if<AssetError>(&parsed))
             return *error;
         return std::monostate {};
+    }
+    ImportSettingsSchema FontImporter::GetSettingsSchema() const
+    {
+        ImportSettingsSchema schema;
+        schema.Settings = {
+            Setting("face", T::Int, "0", "Collection face", "Font", "Index reported by source inspection."),
+            Setting("glyph_size",
+                    T::Enum,
+                    "48",
+                    "Glyph size",
+                    "Atlas",
+                    "Em size in atlas pixels.",
+                    {{"32", "32", {}}, {"48", "48", {}}, {"64", "64", {}}}),
+            Setting("pixel_range", T::Int, "6", "Pixel range", "Atlas", "Distance range and glyph padding in pixels."),
+            Setting("preload",
+                    T::Enum,
+                    "ascii",
+                    "Preload",
+                    "Atlas",
+                    "Glyphs baked at import time.",
+                    {{"none", "None", {}}, {"ascii", "ASCII", {}}, {"latin1", "Latin-1", {}}}),
+            Setting(
+                "preload.extra", T::String, "", "Extra characters", "Atlas", "Additional UTF-8 characters to bake."),
+            Setting("fallback.<n>", T::Asset, "", "Fallback font", "Font", "Font asset IDs in numeric order.")};
+        schema.Settings[0].Min           = 0;
+        schema.Settings[2].Min           = 2;
+        schema.Settings[2].Max           = 16;
+        schema.Settings.back().AssetKind = AssetType::Font;
+        schema.Presets                   = {
+            {"UI text", "Regular UI text.", {{"glyph_size", "48"}, {"pixel_range", "6"}}},
+            {"Large titles", "Larger atlas glyphs for titles.", {{"glyph_size", "64"}, {"pixel_range", "8"}}}};
+        return schema;
     }
 } // namespace Kans
