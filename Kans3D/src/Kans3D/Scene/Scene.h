@@ -41,11 +41,11 @@ namespace Kans
         Scene(const std::string& name = "UntitledScene");
         ~Scene();
 
-        void OnUpdate(TimeStep ts);
-        UIContext&       UI() { return m_UI; }
-        const UIContext& UI() const { return m_UI; }
+        void              OnUpdate(TimeStep ts);
+        UIContext&        UI() { return m_UI; }
+        const UIContext&  UI() const { return m_UI; }
         const UIViewport& GetUIViewport() const { return m_UIViewport; }
-        void             UpdateUI(const UIInputState&, const UIViewport&, float seconds);
+        void              UpdateUI(const UIInputState&, const UIViewport&, float seconds);
 
         void       OnViewportResize(uint32_t width, uint32_t height);
         glm::uvec2 GetViewportSize() const { return {m_ViewportWidth, m_ViewportHeight}; }
@@ -68,7 +68,7 @@ namespace Kans
         // when `parent` is the entity itself or one of its descendants.
         bool SetParent(Entity entity, Entity parent, Entity before, bool keepWorld);
         // Appends `entity` to `parent`'s children, keeping its world transform.
-        bool SetParent(Entity entity, Entity parent);
+        bool      SetParent(Entity entity, Entity parent);
         glm::mat4 GetWorldTransform(Entity entity) const;
         // Sets the local transform so the entity ends up at `world`.
         void SetWorldTransform(Entity entity, const glm::mat4& world);
@@ -76,23 +76,32 @@ namespace Kans
         Entity DuplicateEntity(Entity entity);
 
         // Nonblocking; also called by rendering and runtime updates.
-        void         SetPrefabAssetManager(AssetManager* assets);
-        RenderWorld& GetRenderWorld() const { return *m_RenderWorld; }
+        void                 SetPrefabAssetManager(AssetManager* assets);
+        RenderWorld&         GetRenderWorld() const { return *m_RenderWorld; }
         std::vector<AssetID> GetReferencedAssets() const;
         // Resolve CPU metadata, retaining prefab data while replacement assets load.
-        Ref<const MeshAsset> ResolveMesh(Entity entity) const;
+        Ref<const MeshAsset>   ResolveMesh(Entity entity) const;
         Ref<const RuntimeMesh> ResolveEditableMesh(Entity entity) const;
         uint64_t               GetEditableMeshBuildCount() const { return m_EditableMeshBuildCount; }
-        void UpdatePrefabs();
+        void                   UpdatePrefabs();
         // Nonblocking asset preparation. Pose drives prefab skeleton entities.
-        bool PrepareAnimator(Entity root);
-        void UpdateAnimations(double seconds);
-        void UpdateMaterialParameterDrivers();
-        void UpdateMaterialParameterDrivers(Entity entity);
-        bool PreviewAnimation(Entity root, size_t layer, uint32_t state, double time);
-        void ApplyAnimatorPose(Entity root, const struct AnimationPose& pose);
-        void ResetAnimator(Entity root);
-        void UpdatePrefabs(AssetManager& assets)
+        bool                           PrepareAnimator(Entity root);
+        void                           UpdateAnimations(double seconds);
+        void                           UpdateModelPoses();
+        Ref<const struct SkinningPose> GetSkinningPose(Entity entity) const;
+        Entity                         GetDeformationRoot(Entity entity) const;
+        void                           UpdateMaterialParameterDrivers();
+        void                           UpdateMaterialParameterDrivers(Entity entity);
+        bool                           PreviewAnimation(Entity root, size_t layer, uint32_t state, double time);
+        void                           ApplyAnimatorPose(Entity root, const struct AnimationPose& pose);
+        void                           ApplyModelPose(Entity root,
+                                                      const struct SkeletonData&,
+                                                      const struct AnimationPose&,
+                                                      const std::vector<UUID>& joints,
+                                                      Ref<struct SkinningPose>&,
+                                                      uint64_t& version);
+        void                           ResetAnimator(Entity root);
+        void                           UpdatePrefabs(AssetManager& assets)
         {
             SetPrefabAssetManager(&assets);
             UpdatePrefabs();
@@ -199,18 +208,18 @@ namespace Kans
             Bounds                                   Aggregate() const;
         };
         std::unordered_map<entt::entity, ChildBounds> m_ChildBounds;
-        AssetManager*     m_PrefabAssets      = nullptr;
-        uint64_t          m_NextDrawOrder     = 1;
-        bool              m_ReconcilingPrefab = false;
-        void              ExpandPrefab(Entity root);
-        entt::registry m_Registry;
-        uint32_t       m_ViewportWidth = 0, m_ViewportHeight = 0;
-        std::string    m_Name;
+        AssetManager*                                 m_PrefabAssets      = nullptr;
+        uint64_t                                      m_NextDrawOrder     = 1;
+        bool                                          m_ReconcilingPrefab = false;
+        void                                          ExpandPrefab(Entity root);
+        entt::registry                                m_Registry;
+        uint32_t                                      m_ViewportWidth = 0, m_ViewportHeight = 0;
+        std::string                                   m_Name;
         PostProcessSettings                           m_PostProcessSettings;
         EnvironmentSettings                           m_EnvironmentSettings;
         bool                                          m_HasEnvironmentSettings = false;
-        EntityMap      m_EntityMap;
-        std::vector<UUID> m_RootOrder;
+        EntityMap                                     m_EntityMap;
+        std::vector<UUID>                             m_RootOrder;
 
     private:
         friend class Entity;

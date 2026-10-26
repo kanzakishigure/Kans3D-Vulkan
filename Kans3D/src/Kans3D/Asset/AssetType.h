@@ -11,21 +11,22 @@ namespace Kans
 
     enum class AssetType : uint16_t
     {
-        None       = 0,
-        Scene      = 1,
-        Texture    = 2,
-        Material   = 3,
-        StaticMesh = 4,
-        Mesh       = 5,
-        MeshSource = 6,
-        EnvMap     = 7,
-        Model      = 8,
-        Shader     = 9,
+        None                = 0,
+        Scene               = 1,
+        Texture             = 2,
+        Material            = 3,
+        StaticMesh          = 4,
+        Mesh                = 5,
+        MeshSource          = 6,
+        EnvMap              = 7,
+        Model               = 8,
+        Shader              = 9,
         Skeleton            = 10,
         AnimationClip       = 11,
         AnimationController = 12,
         AudioClip           = 13,
         Font                = 14,
         UI                  = 15,
+        Expression          = 16,
     };
 } // namespace Kans

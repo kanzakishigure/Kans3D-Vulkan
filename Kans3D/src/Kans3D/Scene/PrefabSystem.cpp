@@ -66,7 +66,7 @@ namespace Kans
 
     Entity Scene::InstantiatePrefab(AssetID prefab, const glm::vec3& position, UUID parent)
     {
-        Entity root                                      = CreateEntity("Prefab");
+        Entity root = CreateEntity("Prefab");
         root.PatchComponent<TransformComponent>([&](auto& transform) { transform.Position = position; });
         SetParent(root, GetEntityByUUID(parent), {}, false);
         root.AddComponent<PrefabInstanceComponent>().Prefab = prefab;
@@ -159,7 +159,8 @@ namespace Kans
         auto& instance = root.GetComponent<PrefabInstanceComponent>();
         if (!instance.Source)
             return;
-        if (instance.Source->GetMeshData().Skeleton.IsValid() && !root.HasComponent<AnimatorComponent>())
+        if (instance.Source->GetMeshData().Skeleton.IsValid() && !root.HasComponent<AnimatorComponent>() &&
+            !root.HasComponent<IKComponent>() && !root.HasComponent<ShapeKeysComponent>())
             root.AddComponent<AnimatorComponent>().Skeleton = instance.Source->GetMeshData().Skeleton;
         const auto& nodes = instance.Source->GetEntities();
         // Require all CPU meshes before migration: a missing material table must not
@@ -376,6 +377,7 @@ namespace Kans
         }
         for (auto handle : m_Registry.view<AnimatorComponent>())
             PrepareAnimator({handle, this});
+        UpdateModelPoses();
         UpdateBounds();
     }
 
@@ -541,26 +543,25 @@ namespace Kans
             Bounds bounds;
             if (auto mesh = ResolveMesh(entity))
             {
-                const auto  selected  = entity.HasComponent<MeshComponent>() ?
-                                            entity.GetComponent<MeshComponent>().Section :
-                                            std::optional<uint32_t>();
-                auto        world     = GetWorldTransform(entity);
-                Bounds      animated;
+                const auto selected = entity.HasComponent<MeshComponent>() ?
+                                          entity.GetComponent<MeshComponent>().Section :
+                                          std::optional<uint32_t>();
+                auto       world    = GetWorldTransform(entity);
+                Bounds     animated;
                 if (!mesh->GetData().MorphTargets.empty())
                     animated = DeformedBounds(mesh->GetData());
-                const auto  root = GetPrefabInstanceRoot(entity);
-                if ((!mesh->GetData().Skin.empty() || !mesh->GetData().MorphTargets.empty()) && root &&
-                    root.HasComponent<AnimatorComponent>())
+                const auto root = GetDeformationRoot(entity);
+                if ((!mesh->GetData().Skin.empty() || !mesh->GetData().MorphTargets.empty()) && root)
                 {
-                    const auto& a = root.GetComponent<AnimatorComponent>();
-                    if (a.SkinPose)
+                    const auto skin = GetSkinningPose(entity);
+                    if (skin)
                     {
-                        animated = DeformedBounds(mesh->GetData(), a.SkinPose.get());
+                        animated = DeformedBounds(mesh->GetData(), skin.get());
                         if (!mesh->GetData().Skin.empty())
                             world = GetWorldTransform(root);
                     }
                 }
-                const auto& sections  = mesh->GetData().Sections;
+                const auto& sections = mesh->GetData().Sections;
                 for (size_t i = 0; i < sections.size(); ++i)
                     if (!selected || *selected == i)
                         bounds.Expand((animated.IsValid() ? animated : sections[i].LocalBounds).Transformed(world));

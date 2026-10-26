@@ -72,8 +72,27 @@ namespace Kans
                     return false;
                 a.ClipSources.emplace(motion.Clip, loaded.Asset);
             }
-        auto player = CreateRef<Animator>();
-        auto valid  = player->Prepare(a.SkeletonSource->GetData(), controller, [&](AssetID id) {
+        if (!root.HasComponent<IKComponent>() &&
+            (!controller.TwoBoneConstraints.empty() || !controller.LookAtConstraints.empty()))
+        {
+            auto& ik          = root.AddComponent<IKComponent>();
+            ik.Skeleton       = skeleton;
+            ik.SkeletonSource = a.SkeletonSource;
+            ik.ImportLegacy(controller);
+            if (!a.InlineController && Log::GetCoreLogger())
+                CORE_WARN("Controller asset {} contains legacy IK; copied to IKComponent",
+                          a.Controller.IsValid() ? a.Controller.ToString() : a.ControllerSource->assetID.ToString());
+        }
+        if (a.InlineController)
+        {
+            a.InlineController->TwoBoneConstraints.clear();
+            a.InlineController->LookAtConstraints.clear();
+        }
+        auto player                  = CreateRef<Animator>();
+        player->EvaluateControllerIK = false;
+        if (root.HasComponent<ShapeKeysComponent>())
+            player->BaseShapeKeyWeights = root.GetComponent<ShapeKeysComponent>().Weights;
+        auto valid = player->Prepare(a.SkeletonSource->GetData(), controller, [&](AssetID id) {
             auto found = a.ClipSources.find(id);
             return found == a.ClipSources.end() ? nullptr : &found->second->GetData();
         });
@@ -153,14 +172,52 @@ namespace Kans
             a.JointEntities.clear();
         }
     }
-    void Scene::ApplyAnimatorPose(Entity root, const AnimationPose& pose)
+    void Scene::ApplyAnimatorPose(Entity root, const AnimationPose& input)
     {
-        auto&      a        = root.GetComponent<AnimatorComponent>();
+        auto& a              = root.GetComponent<AnimatorComponent>();
+        a.PreviewPose        = input;
+        auto&       pose     = a.PreviewPose;
+        const auto& skeleton = a.SkeletonSource->GetData();
+        if (!a.InlineController && !a.ControllerSource)
+            for (size_t j = 0; j < skeleton.Joints.size(); ++j)
+                pose.Local[j] = skeleton.Joints[j].BindLocal;
+        if (root.HasComponent<IKComponent>())
+            EvaluateIKConstraints(skeleton,
+                                  root.GetComponent<IKComponent>(),
+                                  pose,
+                                  GetWorldTransform(root),
+                                  [this](uint64_t id, glm::mat4& world) {
+                                      auto target = GetEntityByUUID(UUID(id));
+                                      if (!target)
+                                          return false;
+                                      world = GetWorldTransform(target);
+                                      return true;
+                                  });
+        else
+            BuildModelPose(skeleton, pose);
+        ApplyModelPose(root, skeleton, pose, a.JointEntities, a.SkinPose, a.PoseVersion);
+    }
+    void Scene::ApplyModelPose(Entity                   root,
+                               const SkeletonData&      skeleton,
+                               const AnimationPose&     pose,
+                               const std::vector<UUID>& joints,
+                               Ref<SkinningPose>&       skinPose,
+                               uint64_t&                version)
+    {
+        const bool catalogChanged =
+            skinPose && (skinPose->ShapeKeys.size() != skeleton.ShapeKeys.size() ||
+                         !std::equal(skinPose->ShapeKeys.begin(),
+                                     skinPose->ShapeKeys.end(),
+                                     skeleton.ShapeKeys.begin(),
+                                     [](const auto& a, const auto& b) { return a.Name == b.Name; }));
+        if (!skinPose || catalogChanged)
+            skinPose = CreateRef<SkinningPose>();
+        skinPose->ShapeKeys = skeleton.ShapeKeys;
         const bool old      = m_ReconcilingPrefab;
         m_ReconcilingPrefab = true;
-        for (size_t j = 0; j < a.JointEntities.size() && j < pose.Local.size(); ++j)
+        for (size_t j = 0; j < joints.size() && j < pose.Local.size(); ++j)
         {
-            auto bone = GetEntityByUUID(a.JointEntities[j]);
+            auto bone = GetEntityByUUID(joints[j]);
             if (!bone)
                 continue;
             const auto&        local = pose.Local[j];
@@ -176,16 +233,19 @@ namespace Kans
             if (root.HasComponent<PrefabInstanceComponent>())
             {
                 auto& nodes = root.GetComponent<PrefabInstanceComponent>().Nodes;
-                auto  found = nodes.find(a.SkeletonSource->GetData().Joints[j].NodeKey);
+                auto  found = nodes.find(skeleton.Joints[j].NodeKey);
                 if (found != nodes.end())
                     found->second.AppliedTransform = t;
             }
         }
         m_ReconcilingPrefab = old;
-        ++a.PoseVersion;
-        a.SkinPose->Palette = pose.Palette;
-        a.SkinPose->MorphWeights = pose.MorphWeights;
-        a.SkinPose->Version = a.PoseVersion;
+        ++version;
+        skinPose->Palette = pose.Palette;
+        // Morph-only meshes use the same shader/palette layout with one identity joint.
+        if (skinPose->Palette.empty())
+            skinPose->Palette.emplace_back(1.f);
+        skinPose->MorphWeights = pose.MorphWeights;
+        skinPose->Version      = version;
         // Pose changes preserve render topology. Refresh transforms and conservative bounds in place,
         // avoiding dirty-set nodes and complete proxy reconstruction for every bone every frame.
         const auto rootWorld = GetWorldTransform(root);
@@ -196,10 +256,10 @@ namespace Kans
             {
                 auto&      r = record->second;
                 const bool skin =
-                    r.MeshSource && !r.MeshSource->GetData().Skin.empty() && r.Sort.Root == root.GetUUID();
+                    r.MeshSource && !r.MeshSource->GetData().Skin.empty() && GetDeformationRoot(entity) == root;
                 const auto geometryWorld = skin ? rootWorld : world;
                 const auto animated =
-                    r.MeshSource ? DeformedBounds(r.MeshSource->GetData(), a.SkinPose.get()) : Bounds {};
+                    r.MeshSource ? DeformedBounds(r.MeshSource->GetData(), skinPose.get()) : Bounds {};
                 if (r.Mesh)
                 {
                     r.Mesh->Transform = geometryWorld;
@@ -213,7 +273,7 @@ namespace Kans
                     draw.Transform = geometryWorld;
                     if (r.MeshSource && (skin || !r.MeshSource->GetData().MorphTargets.empty()))
                     {
-                        draw.SkinPose    = a.SkinPose;
+                        draw.SkinPose    = skinPose;
                         draw.LocalBounds = animated.IsValid() ?
                                                animated :
                                                r.MeshSource->GetData().Sections.at(draw.Section).LocalBounds;
@@ -264,6 +324,10 @@ namespace Kans
             a.Events.clear();
             if (!a.Enabled || !PrepareAnimator(root))
                 continue;
+            if (root.HasComponent<ShapeKeysComponent>())
+                a.Player->BaseShapeKeyWeights = root.GetComponent<ShapeKeysComponent>().Weights;
+            else
+                a.Player->BaseShapeKeyWeights.clear();
             a.Player->SetIKWorldTransform(GetWorldTransform(root));
             a.Player->ExtractRootMotion = a.ApplyRootMotion;
             a.Player->Speed             = a.Speed;
@@ -290,6 +354,7 @@ namespace Kans
                 });
             ApplyAnimatorPose(root, a.Player->GetPose());
         }
+        UpdateModelPoses();
         UpdateBounds();
     }
     bool Scene::PreviewAnimation(Entity root, size_t layer, uint32_t state, double time)
@@ -297,11 +362,129 @@ namespace Kans
         if (!PrepareAnimator(root))
             return false;
         auto& a = root.GetComponent<AnimatorComponent>();
-        a.Player->SetIKWorldTransform(GetWorldTransform(root));
+        if (root.HasComponent<ShapeKeysComponent>())
+            a.Player->BaseShapeKeyWeights = root.GetComponent<ShapeKeysComponent>().Weights;
         if (!a.Player->EvaluateState(layer, state, time, a.PreviewPose))
             return false;
         ApplyAnimatorPose(root, a.PreviewPose);
         UpdateBounds();
         return true;
+    }
+    Entity Scene::GetDeformationRoot(Entity entity) const
+    {
+        for (auto e = entity; e; e = GetParent(e))
+            if (e.HasComponent<AnimatorComponent>() || e.HasComponent<IKComponent>() ||
+                e.HasComponent<ShapeKeysComponent>())
+                return e;
+        return {};
+    }
+    Ref<const SkinningPose> Scene::GetSkinningPose(Entity entity) const
+    {
+        auto root = GetDeformationRoot(entity);
+        if (!root)
+            return {};
+        if (root.HasComponent<AnimatorComponent>())
+            return root.GetComponent<AnimatorComponent>().SkinPose;
+        return root.HasComponent<ModelPoseComponent>() ? root.GetComponent<ModelPoseComponent>().SkinPose :
+                                                         Ref<SkinningPose>();
+    }
+    void Scene::UpdateModelPoses()
+    {
+        // Expression references are useful with or without playback.
+        for (auto handle : m_Registry.view<ShapeKeysComponent>())
+        {
+            auto& c = m_Registry.get<ShapeKeysComponent>(handle);
+            if (c.ExpressionSource && c.ExpressionSource->assetID != c.Expression)
+                c.ExpressionSource.reset();
+            if (m_PrefabAssets && c.Expression.IsValid() && !c.ExpressionSource)
+            {
+                auto loaded = m_PrefabAssets->Request<ExpressionAsset>(c.Expression);
+                if (loaded.IsReady())
+                    c.ExpressionSource = loaded.Asset;
+            }
+        }
+        auto evaluate = [&](Entity root) {
+            if (root.HasComponent<AnimatorComponent>())
+                return;
+            AssetID                  skeletonID;
+            Ref<const SkeletonAsset> skeleton;
+            if (root.HasComponent<IKComponent>())
+            {
+                const auto& c = root.GetComponent<IKComponent>();
+                skeletonID    = c.Skeleton;
+                skeleton      = c.SkeletonSource;
+            }
+            if (root.HasComponent<ShapeKeysComponent>())
+            {
+                const auto& c = root.GetComponent<ShapeKeysComponent>();
+                if (!skeletonID.IsValid())
+                    skeletonID = c.Skeleton;
+                if (!skeleton)
+                    skeleton = c.SkeletonSource;
+            }
+            if (!skeletonID.IsValid() && root.HasComponent<PrefabInstanceComponent>())
+            {
+                const auto& c = root.GetComponent<PrefabInstanceComponent>();
+                if (c.Source)
+                    skeletonID = c.Source->GetMeshData().Skeleton;
+            }
+            if (!skeletonID.IsValid())
+                if (auto mesh = ResolveMesh(root))
+                    skeletonID = mesh->GetData().Skeleton;
+            if (!skeleton && skeletonID.IsValid())
+            {
+                if (!m_PrefabAssets)
+                    return;
+                auto loaded = m_PrefabAssets->Request<SkeletonAsset>(skeletonID);
+                if (!loaded.IsReady())
+                    return;
+                skeleton = loaded.Asset;
+            }
+            if (!skeleton)
+            {
+                SkeletonData data;
+                for (auto entity : GetMeshEntities(root))
+                    if (auto mesh = ResolveMesh(entity))
+                        for (const auto& key : mesh->GetData().MorphTargets)
+                            if (data.FindShapeKey(key.Name) < 0)
+                                data.ShapeKeys.push_back({key.Name, key.DefaultWeight});
+                if (data.ShapeKeys.empty())
+                    return;
+                skeleton = CreateRef<SkeletonAsset>(std::move(data));
+            }
+            auto& state          = m_Registry.get_or_emplace<ModelPoseComponent>(entt::entity(root));
+            state.SkeletonSource = skeleton;
+            const auto& data     = skeleton->GetData();
+            RestPose(data, state.Pose);
+            state.JointEntities.resize(data.Joints.size());
+            for (size_t j = 0; j < data.Joints.size(); ++j)
+            {
+                state.Pose.Local[j]    = data.Joints[j].BindLocal;
+                state.JointEntities[j] = PrefabEntityUUID(root.GetUUID(), data.Joints[j].NodeKey);
+            }
+            if (root.HasComponent<ShapeKeysComponent>())
+                for (const auto& [name, value] : root.GetComponent<ShapeKeysComponent>().Weights)
+                    if (const auto k = data.FindShapeKey(name); k >= 0)
+                        state.Pose.MorphWeights[k] = std::isfinite(value) ? std::clamp(value, 0.f, 1.f) : 0;
+            if (root.HasComponent<IKComponent>())
+                EvaluateIKConstraints(data,
+                                      root.GetComponent<IKComponent>(),
+                                      state.Pose,
+                                      GetWorldTransform(root),
+                                      [this](uint64_t id, glm::mat4& world) {
+                                          auto target = GetEntityByUUID(UUID(id));
+                                          if (!target)
+                                              return false;
+                                          world = GetWorldTransform(target);
+                                          return true;
+                                      });
+            else
+                BuildModelPose(data, state.Pose);
+            ApplyModelPose(root, data, state.Pose, state.JointEntities, state.SkinPose, state.PoseVersion);
+        };
+        for (auto handle : m_Registry.view<IKComponent>())
+            evaluate({handle, this});
+        for (auto handle : m_Registry.view<ShapeKeysComponent>(entt::exclude<IKComponent>))
+            evaluate({handle, this});
     }
 } // namespace Kans

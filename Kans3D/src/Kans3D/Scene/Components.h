@@ -5,9 +5,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "Kans3D/Animation/AnimatorComponent.h"
-#include "Kans3D/Audio/AudioComponents.h"
+#include "Kans3D/Animation/DeformationComponents.h"
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
+#include "Kans3D/Audio/AudioComponents.h"
 
 #include "Kans3D/Core/UUID.h"
 #include "Kans3D/Geometry/Shapes.h"
@@ -251,10 +252,10 @@ namespace Kans
 
     struct DirLightComponent
     {
-        glm::vec3 Direction {0, -1, 0};
-        glm::vec3 Diffuse_Intensity {1};
-        glm::vec3 Specular_Intensity {1};
-        glm::vec3 Ambient_Intensity {0};
+        glm::vec3      Direction {0, -1, 0};
+        glm::vec3      Diffuse_Intensity {1};
+        glm::vec3      Specular_Intensity {1};
+        glm::vec3      Ambient_Intensity {0};
         ShadowSettings Shadows;
         DirLightComponent()                         = default;
         DirLightComponent(const DirLightComponent&) = default;
@@ -262,9 +263,9 @@ namespace Kans
 
     struct PointLightComponent
     {
-        glm::vec3 Diffuse_Intensity {1};
-        glm::vec3 Specular_Intensity {1};
-        glm::vec3 Ambient_Intensity {0};
+        glm::vec3      Diffuse_Intensity {1};
+        glm::vec3      Specular_Intensity {1};
+        glm::vec3      Ambient_Intensity {0};
         ShadowSettings Shadows                          = ShadowSettings::PointDefaults();
         PointLightComponent()                           = default;
         PointLightComponent(const PointLightComponent&) = default;
@@ -297,6 +298,8 @@ namespace Kans
                                          EditableMeshComponent,
                                          PrefabInstanceComponent,
                                          AnimatorComponent,
+                                         IKComponent,
+                                         ShapeKeysComponent,
                                          MaterialParameterDriversComponent,
                                          AudioSourceComponent,
                                          AudioListenerComponent,

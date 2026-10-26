@@ -337,14 +337,14 @@ namespace Kans
     };
     struct AnimationLayer
     {
-        std::string                      Name;
-        float                            Weight = 1;
-        AnimationLayerMode               Mode   = AnimationLayerMode::Override;
+        std::string        Name;
+        float              Weight = 1;
+        AnimationLayerMode Mode   = AnimationLayerMode::Override;
         std::vector<ShapeKeyWeight>
             ShapeKeyMask; // Nonempty masks jointly select channels; a face-only mask selects no joints.
         std::vector<AvatarMaskEntry>
-            Mask; // Both masks empty = all channels; otherwise unlisted channels have zero weight.
-        uint32_t                         EntryState = 0;
+                 Mask; // Both masks empty = all channels; otherwise unlisted channels have zero weight.
+        uint32_t EntryState = 0;
         std::vector<AnimationState>      States;
         std::vector<AnimationTransition> Transitions;
     };
@@ -392,9 +392,10 @@ namespace Kans
         std::string                     RootMotionJoint;
         bool RootMotionPlanar            = false; // Model-space Y-up: entity receives XZ translation and yaw only.
         bool RootMotionKeepInitialOffset = false; // Retain each clip's first-frame root placement in the pose.
-        std::vector<ExpressionPreset>   Expressions;
-        std::vector<TwoBoneIK>          TwoBoneConstraints;
-        std::vector<LookAtIK>           LookAtConstraints;
+        // Legacy controller payloads only; scene authoring uses separate deformation components/assets.
+        std::vector<ExpressionPreset> Expressions;
+        std::vector<TwoBoneIK>        TwoBoneConstraints;
+        std::vector<LookAtIK>         LookAtConstraints;
     };
     using AnimationValidation = std::variant<std::monostate, AssetError>;
     AnimationValidation ValidateSkeleton(const SkeletonData&);
@@ -413,7 +414,12 @@ namespace Kans
     private:
         T m_Data;
     };
-    using SkeletonAsset            = AnimationDataAsset<SkeletonData, AssetType::Skeleton>;
-    using AnimationClipAsset       = AnimationDataAsset<AnimationClipData, AssetType::AnimationClip>;
+    using SkeletonAsset      = AnimationDataAsset<SkeletonData, AssetType::Skeleton>;
+    using AnimationClipAsset = AnimationDataAsset<AnimationClipData, AssetType::AnimationClip>;
+    struct ExpressionData
+    {
+        std::vector<ExpressionPreset> Presets;
+    };
+    using ExpressionAsset          = AnimationDataAsset<ExpressionData, AssetType::Expression>;
     using AnimationControllerAsset = AnimationDataAsset<AnimationControllerData, AssetType::AnimationController>;
 } // namespace Kans

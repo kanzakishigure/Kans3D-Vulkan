@@ -18,7 +18,7 @@ namespace Kans::ComponentEditors
         struct Preview
         {
             int    Layer = 0, State = 0;
-            double Time  = 0;
+            double Time    = 0;
             bool   Playing = false;
         };
         std::map<UUID, Preview>& Previews()
@@ -136,7 +136,8 @@ namespace Kans::ComponentEditors
                 ImGui::PopID();
             }
             if (ImGui::SmallButton(ICON_FA_PLUS " Parameter"))
-                c.Parameters.push_back({"Param" + std::to_string(c.Parameters.size()), AnimationParameterType::Float, 0}),
+                c.Parameters.push_back(
+                    {"Param" + std::to_string(c.Parameters.size()), AnimationParameterType::Float, 0}),
                     changed = true;
             ImGui::TreePop();
             return changed;
@@ -177,8 +178,9 @@ namespace Kans::ComponentEditors
                         const auto removed = int32_t(i);
                         layer.States.erase(layer.States.begin() + long(i));
                         for (auto it = layer.Transitions.begin(); it != layer.Transitions.end();)
-                            it = (it->Source == removed || int32_t(it->Target) == removed) ? layer.Transitions.erase(it) :
-                                                                                            std::next(it);
+                            it = (it->Source == removed || int32_t(it->Target) == removed) ?
+                                     layer.Transitions.erase(it) :
+                                     std::next(it);
                         for (auto& t : layer.Transitions)
                         {
                             if (t.Source > removed)
@@ -201,7 +203,8 @@ namespace Kans::ComponentEditors
                         {
                             if (PropertyGrid::Row("Name"))
                                 changed |= InputName("##statename", state.Name);
-                            if (state.Motion < c.Motions.size() && c.Motions[state.Motion].Type == AnimationMotionType::Clip)
+                            if (state.Motion < c.Motions.size() &&
+                                c.Motions[state.Motion].Type == AnimationMotionType::Clip)
                             {
                                 AssetID clip = c.Motions[state.Motion].Clip;
                                 if (ui.AssetPicker("Clip", AssetType::AnimationClip, clip))
@@ -222,7 +225,8 @@ namespace Kans::ComponentEditors
                 if (ImGui::SmallButton(ICON_FA_PLUS " State"))
                 {
                     c.Motions.push_back({});
-                    layer.States.push_back({"State" + std::to_string(layer.States.size()), uint32_t(c.Motions.size() - 1)});
+                    layer.States.push_back(
+                        {"State" + std::to_string(layer.States.size()), uint32_t(c.Motions.size() - 1)});
                     changed = true;
                 }
                 ImGui::TreePop();
@@ -231,7 +235,7 @@ namespace Kans::ComponentEditors
             {
                 const auto stateCombo = [&](const char* id, int& index, bool any) {
                     bool        picked = false;
-                    const char* shown  = index < 0                         ? "Any state" :
+                    const char* shown  = index < 0                        ? "Any state" :
                                          index < int(layer.States.size()) ? layer.States[index].Name.c_str() :
                                                                             "?";
                     ImGui::SetNextItemWidth(110);
@@ -309,7 +313,8 @@ namespace Kans::ComponentEditors
                             ImGui::PopID();
                         }
                         if (ImGui::SmallButton(ICON_FA_PLUS " Condition"))
-                            t.Conditions.push_back({c.Parameters.empty() ? "" : c.Parameters.front().Name}), changed = true;
+                            t.Conditions.push_back({c.Parameters.empty() ? "" : c.Parameters.front().Name}),
+                                changed = true;
                         ImGui::Unindent();
                     }
                     ImGui::PopID();
@@ -343,73 +348,77 @@ namespace Kans::ComponentEditors
             return changed;
         }
 
-        bool DrawIK(AnimationControllerData& c, const SkeletonData* skeleton, Scene* scene)
+        bool DrawIK(IKComponent& component, const SkeletonData* skeleton, Scene* scene)
         {
             bool changed = false;
             if (!ImGui::TreeNode("IK"))
                 return false;
-            for (size_t i = 0; i < c.TwoBoneConstraints.size(); ++i)
+            for (size_t i = 0; i < component.Constraints.size(); ++i)
             {
-                auto& ik = c.TwoBoneConstraints[i];
+                auto& constraint = component.Constraints[i];
                 ImGui::PushID(int(i));
-                ImGui::TextDisabled("Two-bone: %s", ik.Name.c_str());
-                changed |= RemoveButton(c.TwoBoneConstraints, i);
-                if (i < c.TwoBoneConstraints.size() && PropertyGrid::Begin("##TwoBone"))
+                ImGui::TextDisabled("%s", constraint.Name.c_str());
+                if (RemoveButton(component.Constraints, i))
+                {
+                    changed = true;
+                    ImGui::PopID();
+                    continue;
+                }
+                if (PropertyGrid::Begin("##IK"))
                 {
                     if (PropertyGrid::Row("Name"))
-                        changed |= InputName("##ikname", ik.Name);
-                    changed |= JointCombo("Root", ik.Root, skeleton);
-                    changed |= JointCombo("Middle", ik.Middle, skeleton);
-                    changed |= JointCombo("End", ik.End, skeleton);
-                    changed |= EntityField("Target entity", ik.Target.Entity, scene);
-                    if (!ik.Target.Entity)
-                        changed |= PropertyGrid::Vec3("Target", ik.Target.Position, 0.0f, 0.01f);
-                    changed |= EntityField("Pole entity", ik.PoleEntity, scene);
-                    if (!ik.PoleEntity)
-                        changed |= PropertyGrid::Vec3("Pole", ik.PoleDirection, 0.0f, 0.01f);
-                    changed |= PropertyGrid::Float("Weight", ik.Weight, 0.01f, 0.0f, 1.0f);
-                    changed |= PropertyGrid::Float("Rotation weight", ik.RotationWeight, 0.01f, 0.0f, 1.0f);
-                    changed |= PropertyGrid::Checkbox("Stretch", ik.Stretch);
+                        changed |= InputName("##name", constraint.Name);
+                    changed |= PropertyGrid::Checkbox("Enabled", constraint.Enabled);
+                    changed |= PropertyGrid::Float("Weight", constraint.Weight, .01f, 0.f, 1.f);
+                    std::visit(
+                        [&](auto& ik) {
+                            ik.Name = constraint.Name;
+                            changed |= PropertyGrid::Float("Solver weight", ik.Weight, .01f, 0.f, 1.f);
+                            if constexpr (std::is_same_v<std::decay_t<decltype(ik)>, TwoBoneIK>)
+                            {
+                                changed |= JointCombo("Root", ik.Root, skeleton);
+                                changed |= JointCombo("Middle", ik.Middle, skeleton);
+                                changed |= JointCombo("End", ik.End, skeleton);
+                                changed |= EntityField("Pole entity", ik.PoleEntity, scene);
+                                if (!ik.PoleEntity)
+                                    changed |= PropertyGrid::Vec3("Pole", ik.PoleDirection, 0.f, .01f);
+                                changed |= PropertyGrid::Float("Rotation weight", ik.RotationWeight, .01f, 0.f, 1.f);
+                                changed |= PropertyGrid::Checkbox("Stretch", ik.Stretch);
+                            }
+                            else
+                            {
+                                for (size_t b = 0; b < ik.Bones.size(); ++b)
+                                {
+                                    ImGui::PushID(int(b));
+                                    changed |= JointCombo("Bone", ik.Bones[b].Joint, skeleton);
+                                    changed |= PropertyGrid::Float("Bone weight", ik.Bones[b].Weight, .01f, 0.f, 1.f);
+                                    changed |= PropertyGrid::Vec3("Forward", ik.Bones[b].Forward, 0.f, .01f);
+                                    ImGui::PopID();
+                                }
+                                if (ImGui::SmallButton(ICON_FA_PLUS " Bone"))
+                                    ik.Bones.push_back({}), changed = true;
+                                float degrees = glm::degrees(ik.AngleLimit);
+                                if (PropertyGrid::Float("Angle limit", degrees, .5f, 0.f, 180.f, "%.0f deg"))
+                                    ik.AngleLimit = glm::radians(degrees), changed = true;
+                            }
+                            changed |= EntityField("Target entity", ik.Target.Entity, scene);
+                            if (!ik.Target.Entity)
+                                changed |= PropertyGrid::Vec3("Target", ik.Target.Position, 0.f, .01f);
+                        },
+                        constraint.Data);
                     PropertyGrid::End();
                 }
-                ImGui::PopID();
-            }
-            for (size_t i = 0; i < c.LookAtConstraints.size(); ++i)
-            {
-                auto& ik = c.LookAtConstraints[i];
-                ImGui::PushID(int(1000 + i));
-                ImGui::TextDisabled("Look-at: %s", ik.Name.c_str());
-                changed |= RemoveButton(c.LookAtConstraints, i);
-                if (i < c.LookAtConstraints.size() && PropertyGrid::Begin("##LookAt"))
-                {
-                    if (PropertyGrid::Row("Name"))
-                        changed |= InputName("##lookname", ik.Name);
-                    for (size_t b = 0; b < ik.Bones.size(); ++b)
-                    {
-                        ImGui::PushID(int(b));
-                        changed |= JointCombo("Bone", ik.Bones[b].Joint, skeleton);
-                        changed |= PropertyGrid::Float("Bone weight", ik.Bones[b].Weight, 0.01f, 0.0f, 1.0f);
-                        changed |= PropertyGrid::Vec3("Forward", ik.Bones[b].Forward, 0.0f, 0.01f);
-                        ImGui::PopID();
-                    }
-                    changed |= EntityField("Target entity", ik.Target.Entity, scene);
-                    if (!ik.Target.Entity)
-                        changed |= PropertyGrid::Vec3("Target", ik.Target.Position, 0.0f, 0.01f);
-                    changed |= PropertyGrid::Float("Weight", ik.Weight, 0.01f, 0.0f, 1.0f);
-                    float degrees = glm::degrees(ik.AngleLimit);
-                    if (PropertyGrid::Float("Angle limit", degrees, 0.5f, 0.0f, 180.0f, "%.0f deg"))
-                        ik.AngleLimit = glm::radians(degrees), changed = true;
-                    PropertyGrid::End();
-                }
-                if (i < c.LookAtConstraints.size() && ImGui::SmallButton(ICON_FA_PLUS " Bone"))
-                    ik.Bones.push_back({}), changed = true;
                 ImGui::PopID();
             }
             if (ImGui::SmallButton(ICON_FA_PLUS " Two-bone IK"))
-                c.TwoBoneConstraints.push_back({"Limb" + std::to_string(c.TwoBoneConstraints.size())}), changed = true;
+                component.Constraints.push_back(
+                    {"Limb" + std::to_string(component.Constraints.size()), true, 1, TwoBoneIK {}}),
+                    changed = true;
             ImGui::SameLine();
             if (ImGui::SmallButton(ICON_FA_PLUS " Look-at"))
-                c.LookAtConstraints.push_back({"LookAt" + std::to_string(c.LookAtConstraints.size()), {{}}}), changed = true;
+                component.Constraints.push_back(
+                    {"LookAt" + std::to_string(component.Constraints.size()), true, 1, LookAtIK {"", {{}}}}),
+                    changed = true;
             ImGui::TreePop();
             return changed;
         }
@@ -417,8 +426,8 @@ namespace Kans::ComponentEditors
 
     void DrawAnimator(Entity entity, ComponentUI& ui)
     {
-        Scene* scene = ui.GetScene();
-        auto&  a     = entity.GetComponent<AnimatorComponent>();
+        Scene*              scene    = ui.GetScene();
+        auto&               a        = entity.GetComponent<AnimatorComponent>();
         const SkeletonData* skeleton = a.SkeletonSource ? &a.SkeletonSource->GetData() : nullptr;
         if (scene && !skeleton)
             scene->PrepareAnimator(entity); // Loads the skeleton for the joint lists below.
@@ -426,9 +435,10 @@ namespace Kans::ComponentEditors
         bool changed = false;
         if (PropertyGrid::Begin("##Animator"))
         {
-            PropertyGrid::Text("Skeleton", skeleton ? std::to_string(skeleton->Joints.size()) + " joints" :
-                                           a.Skeleton.IsValid()          ? std::string("Loading...") :
-                                                                           std::string("(none)"),
+            PropertyGrid::Text("Skeleton",
+                               skeleton             ? std::to_string(skeleton->Joints.size()) + " joints" :
+                               a.Skeleton.IsValid() ? std::string("Loading...") :
+                                                      std::string("(none)"),
                                !skeleton);
             changed |= PropertyGrid::Checkbox("Enabled", a.Enabled);
             float speed = float(a.Speed);
@@ -466,7 +476,8 @@ namespace Kans::ComponentEditors
             for (size_t i = 0; i < c.Layers.size(); ++i)
             {
                 ImGui::PushID(int(i));
-                const bool open = ImGui::TreeNodeEx("##layer", ImGuiTreeNodeFlags_DefaultOpen, "Layer: %s", c.Layers[i].Name.c_str());
+                const bool open =
+                    ImGui::TreeNodeEx("##layer", ImGuiTreeNodeFlags_DefaultOpen, "Layer: %s", c.Layers[i].Name.c_str());
                 if (i > 0 && RemoveButton(c.Layers, i))
                     changed = true;
                 else if (open)
@@ -477,7 +488,17 @@ namespace Kans::ComponentEditors
             }
             if (ImGui::SmallButton(ICON_FA_PLUS " Layer"))
                 c.Layers.push_back({"Layer" + std::to_string(c.Layers.size())}), changed = true;
-            changed |= DrawIK(c, skeleton, scene);
+        }
+        // Keep the existing Animator card usable while separate component cards are added later.
+        IKComponent editableIK =
+            entity.HasComponent<IKComponent>() ? entity.GetComponent<IKComponent>() : IKComponent {};
+        if (DrawIK(editableIK, skeleton, scene))
+        {
+            if (entity.HasComponent<IKComponent>())
+                entity.SetComponent<IKComponent>(editableIK);
+            else
+                entity.AddComponent<IKComponent>(std::move(editableIK));
+            changed = true;
         }
         // Edits change the controller the animator was prepared with.
         if (changed && scene)
@@ -486,32 +507,39 @@ namespace Kans::ComponentEditors
         // Shape keys of this instance: live weights, with a preview override.
         if (a.Player && !a.Player->GetShapeKeys().empty() && ImGui::TreeNode("Shape keys"))
         {
-            const auto& keys    = a.Player->GetShapeKeys();
-            const auto& weights = a.Player->GetPose().MorphWeights;
+            const auto& keys = a.Player->GetShapeKeys();
             for (size_t k = 0; k < keys.size(); ++k)
             {
                 ImGui::PushID(int(k));
-                float weight = k < weights.size() ? weights[k] : keys[k].DefaultWeight;
+                float weight = keys[k].DefaultWeight;
+                if (entity.HasComponent<ShapeKeysComponent>())
+                    if (auto found = entity.GetComponent<ShapeKeysComponent>().Weights.find(keys[k].Name);
+                        found != entity.GetComponent<ShapeKeysComponent>().Weights.end())
+                        weight = found->second;
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
                 if (ImGui::SliderFloat(keys[k].Name.c_str(), &weight, 0.0f, 1.0f))
                 {
-                    a.Player->SetShapeKeyWeight(keys[k].Name, weight);
+                    if (!entity.HasComponent<ShapeKeysComponent>())
+                        entity.AddComponent<ShapeKeysComponent>();
+                    entity.PatchComponent<ShapeKeysComponent>([&](auto& c) { c.Weights[keys[k].Name] = weight; });
+                    a.Player->BaseShapeKeyWeights = entity.GetComponent<ShapeKeysComponent>().Weights;
                     a.Player->RebuildPose();
                     if (scene)
                         scene->ApplyAnimatorPose(entity, a.Player->GetPose());
                 }
                 ImGui::PopID();
             }
-            ImGui::TextDisabled("Sliders preview this instance only and are not saved.");
+            ImGui::TextDisabled("Saved base weights; animation overrides keys driven by active layers.");
             ImGui::TreePop();
         }
 
         // Preview: shows a state at a time without entering play mode.
-        if (a.InlineController && scene && ImGui::TreeNodeEx("Preview", ImGuiTreeNodeFlags_DefaultOpen))
+        if (a.InlineController && !a.InlineController->Layers.empty() && scene &&
+            ImGui::TreeNodeEx("Preview", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            auto& p = Previews()[entity.GetUUID()];
-            auto& c = *a.InlineController;
-            p.Layer = std::clamp(p.Layer, 0, int(c.Layers.size()) - 1);
+            auto& p           = Previews()[entity.GetUUID()];
+            auto& c           = *a.InlineController;
+            p.Layer           = std::clamp(p.Layer, 0, int(c.Layers.size()) - 1);
             const auto& layer = c.Layers[p.Layer];
             if (layer.States.empty())
                 ImGui::TextDisabled("Add a state with a clip to preview it.");
@@ -570,7 +598,8 @@ namespace Kans::ComponentEditors
                 ImGui::TextDisabled("/ %d  (%.0f fps)", lastFrame, fps);
 
                 if (p.Playing)
-                    p.Time = std::fmod(p.Time + ImGui::GetIO().DeltaTime * layer.States[p.State].Speed * a.Speed, duration);
+                    p.Time =
+                        std::fmod(p.Time + ImGui::GetIO().DeltaTime * layer.States[p.State].Speed * a.Speed, duration);
                 // Scrubbing snaps to whole frames; the label also shows seconds for long clips.
                 int  scrub = std::clamp(int(std::floor(p.Time * fps + 1e-6)), 0, lastFrame);
                 char label[48];

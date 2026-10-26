@@ -36,13 +36,13 @@ namespace Kans
             MeshComponent component;
             if (entity.HasComponent<EditableMeshComponent>())
             {
-                const auto& editable     = entity.GetComponent<EditableMeshComponent>();
-                component.Materials      = editable.Materials;
-                component.CastShadows    = editable.CastShadows;
+                const auto& editable        = entity.GetComponent<EditableMeshComponent>();
+                component.Materials         = editable.Materials;
+                component.CastShadows       = editable.CastShadows;
                 component.RenderCustomDepth = editable.RenderCustomDepth;
                 component.CustomStencil     = editable.CustomStencil;
-                component.ReceiveShadows = editable.ReceiveShadows;
-                record.Key               = MeshKey(m_Scene->ResolveEditableMesh(entity));
+                component.ReceiveShadows    = editable.ReceiveShadows;
+                record.Key                  = MeshKey(m_Scene->ResolveEditableMesh(entity));
             }
             else
             {
@@ -64,17 +64,17 @@ namespace Kans
             record.MeshSource = m_Scene->ResolveMesh(entity);
             if (record.MeshSource)
             {
-                const auto& data = record.MeshSource->GetData();
+                const auto&             data = record.MeshSource->GetData();
                 Ref<const SkinningPose> skin;
                 auto                    geometryWorld = world;
                 Bounds                  animatedBounds;
-                if ((!data.Skin.empty() || !data.MorphTargets.empty()) && root &&
-                    root.HasComponent<AnimatorComponent>())
+                auto                    poseRoot = m_Scene->GetDeformationRoot(entity);
+                if ((!data.Skin.empty() || !data.MorphTargets.empty()) && poseRoot)
                 {
-                    skin = root.GetComponent<AnimatorComponent>().SkinPose;
+                    skin = m_Scene->GetSkinningPose(entity);
                     if (skin && !data.Skin.empty())
                     {
-                        geometryWorld           = m_Scene->GetWorldTransform(root);
+                        geometryWorld           = m_Scene->GetWorldTransform(poseRoot);
                         animatedBounds          = DeformedBounds(data, skin.get());
                         record.Mesh->Transform  = geometryWorld;
                         record.OutlineTransform = geometryWorld * glm::scale(glm::mat4(1), glm::vec3(1.007f));
@@ -86,15 +86,15 @@ namespace Kans
                 {
                     if (component.Section && *component.Section != i)
                         continue;
-                    const auto& section  = data.Sections[i];
-                    const auto  slot     = section.MaterialSlot;
-                    const auto  material = slot < component.Materials.size() && component.Materials[slot].IsValid() ?
-                                               component.Materials[slot] :
-                                               data.MaterialSlots.at(slot).DefaultMaterial;
+                    const auto& section     = data.Sections[i];
+                    const auto  slot        = section.MaterialSlot;
+                    const auto  material    = slot < component.Materials.size() && component.Materials[slot].IsValid() ?
+                                                  component.Materials[slot] :
+                                                  data.MaterialSlots.at(slot).DefaultMaterial;
                     const auto  bindBounds  = !skin || data.Skin.empty() ?
                                                   section.LocalBounds :
                                                   section.LocalBounds.Transformed(data.SkinBindTransform);
-                    const auto localBounds = animatedBounds.IsValid() ? animatedBounds : bindBounds;
+                    const auto  localBounds = animatedBounds.IsValid() ? animatedBounds : bindBounds;
                     record.Draws.push_back({record.Key,
                                             material,
                                             uint32_t(i),
@@ -719,7 +719,7 @@ namespace Kans
         }
         const auto sprites =
             m_Scene->m_Registry.group_if_exists<TransformComponent>(entt::get<SpriteRendererComponent>);
-        auto       actualSprite = m_SpriteOrder.rbegin();
+        auto actualSprite = m_SpriteOrder.rbegin();
         for (auto handle : sprites)
         {
             if (actualSprite == m_SpriteOrder.rend() || actualSprite->second != handle)

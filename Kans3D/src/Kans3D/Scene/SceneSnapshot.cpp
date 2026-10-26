@@ -40,9 +40,10 @@ namespace Kans
         bool Same(const ProductModelComponent& a, const ProductModelComponent& b)
         {
             return a.Model == b.Model && a.Overrides.size() == b.Overrides.size() &&
-                   std::equal(a.Overrides.begin(), a.Overrides.end(), b.Overrides.begin(), [](const auto& x, const auto& y) {
-                       return x.Authored == y.Authored && x.Replacement == y.Replacement;
-                   });
+                   std::equal(
+                       a.Overrides.begin(), a.Overrides.end(), b.Overrides.begin(), [](const auto& x, const auto& y) {
+                           return x.Authored == y.Authored && x.Replacement == y.Replacement;
+                       });
         }
         bool Same(const UIScreenComponent& a, const UIScreenComponent& b) { return a == b; }
         bool Same(const UIWorldComponent& a, const UIWorldComponent& b) { return a == b; }
@@ -94,6 +95,8 @@ namespace Kans
                        });
         }
         bool Same(const AnimatorComponent& a, const AnimatorComponent& b) { return a == b; }
+        bool Same(const IKComponent& a, const IKComponent& b) { return a == b; }
+        bool Same(const ShapeKeysComponent& a, const ShapeKeysComponent& b) { return a == b; }
         bool Same(const ScriptComponent& a, const ScriptComponent& b) { return a.ClassName == b.ClassName; }
 
         template<typename T>
@@ -130,10 +133,10 @@ namespace Kans
                Same(a.Relationship, b.Relationship) && Same(a.Camera, b.Camera) && Same(a.Sprite, b.Sprite) &&
                Same(a.Text, b.Text) && Same(a.UIScreen, b.UIScreen) && Same(a.UIWorld, b.UIWorld) &&
                Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
-               Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) &&
-               Same(a.MaterialDrivers, b.MaterialDrivers) && Same(a.DirLight, b.DirLight) &&
-               Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) && Same(a.AudioSource, b.AudioSource) &&
-               Same(a.AudioListener, b.AudioListener);
+               Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) && Same(a.IK, b.IK) &&
+               Same(a.ShapeKeys, b.ShapeKeys) && Same(a.MaterialDrivers, b.MaterialDrivers) &&
+               Same(a.DirLight, b.DirLight) && Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) &&
+               Same(a.AudioSource, b.AudioSource) && Same(a.AudioListener, b.AudioListener);
     }
 
     bool operator==(const SceneSnapshot& a, const SceneSnapshot& b)
@@ -146,14 +149,14 @@ namespace Kans
     {
         const_cast<Scene*>(this)->UpdatePrefabs();
         SceneSnapshot snapshot;
-        snapshot.Name      = m_Name;
+        snapshot.Name        = m_Name;
         snapshot.PostProcess = m_PostProcessSettings;
         if (m_HasEnvironmentSettings)
             snapshot.Environment = m_EnvironmentSettings;
         snapshot.RootOrder = m_RootOrder;
         for (const auto& [id, value] : m_EntityMap)
         {
-            Entity         entity = value;
+            Entity entity = value;
             if (entity.HasComponent<PrefabOwnedComponent>())
                 continue;
             EntitySnapshot item;
@@ -170,6 +173,8 @@ namespace Kans
             Kans::Capture(entity, item.Editable);
             Kans::Capture(entity, item.Prefab);
             Kans::Capture(entity, item.Animator);
+            Kans::Capture(entity, item.IK);
+            Kans::Capture(entity, item.ShapeKeys);
             Kans::Capture(entity, item.MaterialDrivers);
             Kans::Capture(entity, item.AudioSource);
             Kans::Capture(entity, item.AudioListener);
@@ -235,8 +240,8 @@ namespace Kans
             ClearEnvironmentSettings();
         for (const auto& item : snapshot.Entities)
         {
-            Entity entity                                    = CreateEntityWithID(item.ID, item.Tag, false);
-            entity.GetComponent<TagComponent>().Tag          = item.Tag;
+            Entity entity                           = CreateEntityWithID(item.ID, item.Tag, false);
+            entity.GetComponent<TagComponent>().Tag = item.Tag;
             entity.SetComponent<TransformComponent>(item.Transform);
             entity.SetComponent<RelationshipComponent>(item.Relationship);
             Kans::Restore(entity, item.Camera);
@@ -247,6 +252,8 @@ namespace Kans
             Kans::Restore(entity, item.Model);
             Kans::Restore(entity, item.Editable);
             Kans::Restore(entity, item.Prefab);
+            Kans::Restore(entity, item.IK);
+            Kans::Restore(entity, item.ShapeKeys);
             Kans::Restore(entity, item.Animator);
             Kans::Restore(entity, item.MaterialDrivers);
             Kans::Restore(entity, item.AudioSource);
@@ -256,7 +263,7 @@ namespace Kans
             Kans::Restore(entity, item.PointLight);
             Kans::Restore(entity, item.Script);
         }
-        m_RootOrder = snapshot.RootOrder;
+        m_RootOrder         = snapshot.RootOrder;
         m_ReconcilingPrefab = true;
         for (auto handle : m_Registry.view<PrefabAttachmentComponent>())
         {

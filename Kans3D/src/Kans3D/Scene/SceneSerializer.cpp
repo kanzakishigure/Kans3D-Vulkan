@@ -6,6 +6,7 @@
 #include <set>
 #include <yaml-cpp/yaml.h>
 #include "Kans3D/Animation/AnimationProduct.h"
+#include "Kans3D/Animation/DeformationProduct.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
 #include "Kans3D/UI/UIAsset.h"
 #include "Entity.h"
@@ -42,7 +43,7 @@ namespace Kans
                 }
                 AddEditable(bytes, attributes, component.Materials.size());
             }
-            void     Add(size_t textBytes, const ProductModelComponent* model)
+            void Add(size_t textBytes, const ProductModelComponent* model)
             {
                 Nodes += 64;
                 TextBytes += textBytes;
@@ -174,7 +175,7 @@ namespace Kans
             return value;
         }
         std::string IdentityText(AssetID id) { return id.IsValid() ? id.ToString() : std::string(); }
-        YAML::Node EncodeModel(const ProductModelComponent& component)
+        YAML::Node  EncodeModel(const ProductModelComponent& component)
         {
             auto valid = ValidateProductModelComponent(component);
             if (auto error = std::get_if<AssetError>(&valid))
@@ -372,14 +373,14 @@ namespace Kans
         YAML::Node EncodeMesh(const MeshComponent& mesh)
         {
             YAML::Node value;
-            value["Mesh"]      = IdentityText(mesh.Mesh);
-            value["CastShadows"]    = mesh.CastShadows;
+            value["Mesh"]        = IdentityText(mesh.Mesh);
+            value["CastShadows"] = mesh.CastShadows;
             if (mesh.RenderCustomDepth)
                 value["RenderCustomDepth"] = true;
             if (mesh.CustomStencil)
                 value["CustomStencil"] = uint32_t(mesh.CustomStencil);
             value["ReceiveShadows"] = mesh.ReceiveShadows;
-            value["Materials"] = YAML::Node(YAML::NodeType::Sequence);
+            value["Materials"]      = YAML::Node(YAML::NodeType::Sequence);
             Require(mesh.Materials.size() <= 65536, "Too many mesh materials");
             for (auto material : mesh.Materials)
                 value["Materials"].push_back(IdentityText(material));
@@ -932,7 +933,7 @@ namespace Kans
                         uint32_t(input.ToneMapping) <= 1,
                     "Invalid post-process settings");
             YAML::Node node;
-            node["Exposure"]    = settings.Exposure;
+            node["Exposure"] = settings.Exposure;
             for (const auto& entry : settings.Materials)
             {
                 YAML::Node material;
@@ -1003,7 +1004,7 @@ namespace Kans
             // Written in hierarchy order, so children follow their parent in sibling order.
             if (const UUID parent = entity.GetComponent<RelationshipComponent>().Parent)
                 node["Parent"] = uint64_t(parent);
-            auto name      = entity.GetComponent<TagComponent>().Tag;
+            auto name = entity.GetComponent<TagComponent>().Tag;
             Require(name.size() <= 4096 && name.find('\0') == std::string::npos, "Invalid Scene tag");
             node["TagComponent"]["Tag"] = name;
             const auto& transform       = entity.GetComponent<TransformComponent>();
@@ -1014,10 +1015,10 @@ namespace Kans
             node["TransformComponent"]  = EncodeTransform(transform);
             if (clipboard && entity.HasComponent<PrefabOwnedComponent>())
             {
-                const auto& owned = entity.GetComponent<PrefabOwnedComponent>();
+                const auto& owned                        = entity.GetComponent<PrefabOwnedComponent>();
                 node["PrefabOwnedComponent"]["Instance"] = uint64_t(owned.Instance);
-                node["PrefabOwnedComponent"]["Node"] = owned.NodeKey;
-                node["PrefabOwnedComponent"]["Order"] = owned.Order;
+                node["PrefabOwnedComponent"]["Node"]     = owned.NodeKey;
+                node["PrefabOwnedComponent"]["Order"]    = owned.Order;
             }
             if (entity.HasComponent<PrefabInstanceComponent>())
                 node["PrefabInstanceComponent"] = EncodePrefab(entity.GetComponent<PrefabInstanceComponent>());
@@ -1058,6 +1059,19 @@ namespace Kans
                     list.push_back(item);
                 }
             }
+            if (entity.HasComponent<IKComponent>())
+                node["IKComponent"] = EncodeIKComponent(entity.GetComponent<IKComponent>());
+            if (entity.HasComponent<ShapeKeysComponent>())
+            {
+                const auto& c   = entity.GetComponent<ShapeKeysComponent>();
+                auto        v   = node["ShapeKeysComponent"];
+                v["Skeleton"]   = c.Skeleton.ToString();
+                v["Expression"] = c.Expression.ToString();
+                v["Weights"]    = c.Weights;
+                Require(c.Weights.size() <= 4096, "Too many shape-key weights");
+                for (const auto& [name, value] : c.Weights)
+                    Require(!name.empty() && std::isfinite(value), "Invalid shape-key weight");
+            }
             if (entity.HasComponent<AnimatorComponent>())
             {
                 const auto& a        = entity.GetComponent<AnimatorComponent>();
@@ -1075,7 +1089,7 @@ namespace Kans
                 if (clipboard)
                 {
                     auto joints = v["JointEntities"];
-                    joints = YAML::Node(YAML::NodeType::Sequence);
+                    joints      = YAML::Node(YAML::NodeType::Sequence);
                     for (UUID joint : a.JointEntities)
                         joints.push_back(uint64_t(joint));
                 }
@@ -1116,8 +1130,8 @@ namespace Kans
                     value["PostProcessOverride"] = EncodePostProcess(*camera.GetPostProcessOverride());
                 if (camera.GetAntiAliasing() != AntiAliasing::None)
                     value["AntiAliasing"] = uint32_t(camera.GetAntiAliasing());
-                value["Primary"]              = component.Primary;
-                value["FixedAspectRatio"]     = component.FixedAspectRatio;
+                value["Primary"]          = component.Primary;
+                value["FixedAspectRatio"] = component.FixedAspectRatio;
             }
             if (entity.HasComponent<DirLightComponent>())
             {
@@ -1191,8 +1205,8 @@ namespace Kans
             auto name = m_Scene->GetName();
             Require(name.size() <= 4096 && name.find('\0') == std::string::npos, "Invalid Scene name");
             YAML::Node root;
-            root["Version"]  = 1;
-            root["Scene"]    = name;
+            root["Version"]     = 1;
+            root["Scene"]       = name;
             root["PostProcess"] = EncodePostProcess(m_Scene->GetPostProcessSettings());
             if (m_Scene->HasEnvironmentSettings())
             {
@@ -1310,8 +1324,7 @@ namespace Kans
             return AssetError {AssetErrorCode::InvalidData, std::string(error.what()).substr(0, 2048)};
         }
     }
-    std::variant<Ref<Scene>, AssetError> SceneSerializer::DeserializeNodeChecked(const YAML::Node& root,
-                                                                             bool clipboard)
+    std::variant<Ref<Scene>, AssetError> SceneSerializer::DeserializeNodeChecked(const YAML::Node& root, bool clipboard)
     {
         try
         {
@@ -1319,7 +1332,7 @@ namespace Kans
             Require(UInt(root["Version"]) == 1, "Unsupported Scene version");
             auto entities = root["Entities"];
             Require(entities.IsSequence() && entities.size() <= 65536, "Invalid Scene entities");
-            auto                  candidate = CreateRef<Scene>(Text(root["Scene"]));
+            auto candidate = CreateRef<Scene>(Text(root["Scene"]));
             if (auto environment = root["Environment"])
             {
                 Keys(environment,
@@ -1362,6 +1375,8 @@ namespace Kans
                       "ProductModelComponent",
                       "PrefabInstanceComponent",
                       "AnimatorComponent",
+                      "IKComponent",
+                      "ShapeKeysComponent",
                       "MaterialParameterDriversComponent",
                       "AudioSourceComponent",
                       "AudioListenerComponent",
@@ -1408,7 +1423,7 @@ namespace Kans
                     const auto owned = node["PrefabOwnedComponent"];
                     Keys(owned, {"Instance", "Node", "Order"});
                     auto instance = UInt(owned["Instance"]);
-                    auto key = Text(owned["Node"]);
+                    auto key      = Text(owned["Node"]);
                     Require(instance && !key.empty(), "Invalid prefab ownership");
                     entity.AddComponent<PrefabOwnedComponent>(UUID(instance), key, SceneIndex(owned["Order"]));
                 }
@@ -1454,6 +1469,23 @@ namespace Kans
                     }
                     entity.AddComponent<MaterialParameterDriversComponent>(std::move(component));
                 }
+                if (node["IKComponent"])
+                    entity.AddComponent<IKComponent>(DecodeIKComponent(node["IKComponent"]));
+                if (node["ShapeKeysComponent"])
+                {
+                    const auto v = node["ShapeKeysComponent"];
+                    Keys(v, {"Skeleton", "Expression", "Weights"});
+                    ShapeKeysComponent c;
+                    if (v["Skeleton"])
+                        c.Skeleton = AssetID::FromString(v["Skeleton"].as<std::string>());
+                    if (v["Expression"])
+                        c.Expression = AssetID::FromString(v["Expression"].as<std::string>());
+                    Require(v["Weights"].IsMap() && v["Weights"].size() <= 4096, "Invalid shape-key weights");
+                    c.Weights = v["Weights"].as<std::map<std::string, float>>();
+                    for (const auto& [name, value] : c.Weights)
+                        Require(!name.empty() && std::isfinite(value), "Invalid shape-key weight");
+                    entity.AddComponent<ShapeKeysComponent>(std::move(c));
+                }
                 if (node["AnimatorComponent"])
                 {
                     const auto v = node["AnimatorComponent"];
@@ -1485,6 +1517,19 @@ namespace Kans
                                 "Invalid clipboard animator joints");
                         for (const auto& joint : v["JointEntities"])
                             a.JointEntities.emplace_back(UInt(joint));
+                    }
+                    if (a.InlineController)
+                    {
+                        auto& c = *a.InlineController;
+                        if (!entity.HasComponent<IKComponent>() &&
+                            (!c.TwoBoneConstraints.empty() || !c.LookAtConstraints.empty()))
+                        {
+                            auto& ik    = entity.AddComponent<IKComponent>();
+                            ik.Skeleton = a.Skeleton;
+                            ik.ImportLegacy(c);
+                        }
+                        c.TwoBoneConstraints.clear();
+                        c.LookAtConstraints.clear();
                     }
                     entity.AddComponent<AnimatorComponent>(std::move(a));
                 }
@@ -1535,9 +1580,9 @@ namespace Kans
                           "FixedAspectRatio"});
                     auto type = SceneIndex(value["ProjectionType"]);
                     Require(type <= 1, "Invalid Scene camera type");
-                    auto& component = entity.AddComponent<CameraComponent>();
-                    auto& camera    = component.SceneCamera;
-                    const auto aspect = Number(value["AspectRatio"]);
+                    auto&      component = entity.AddComponent<CameraComponent>();
+                    auto&      camera    = component.SceneCamera;
+                    const auto aspect    = Number(value["AspectRatio"]);
                     // GLM asserts on epsilon before ValidateCamera can reject it.
                     Require(aspect > 0 && aspect != std::numeric_limits<float>::epsilon(),
                             "Invalid Scene camera aspect ratio");

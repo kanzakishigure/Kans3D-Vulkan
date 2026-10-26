@@ -69,6 +69,7 @@ namespace Kans
         pose.Resize(skeleton.Joints.size());
         for (size_t j = 0; j < pose.Local.size(); ++j)
             pose.Local[j] = skeleton.Joints[j].RestLocal;
+        pose.MorphInfluence.assign(skeleton.ShapeKeys.size(), 0);
         pose.MorphWeights.resize(skeleton.ShapeKeys.size());
         for (size_t k = 0; k < pose.MorphWeights.size(); ++k)
             pose.MorphWeights[k] = skeleton.ShapeKeys[k].DefaultWeight;
@@ -89,8 +90,11 @@ namespace Kans
                     SampleAnimationJoint(pose.Local[j], binding.Clip->Tracks.at(binding.JointTracks[j]), time);
         for (size_t k = 0; k < pose.MorphWeights.size(); ++k)
             if (binding.MorphTracks.at(k) >= 0)
-                pose.MorphWeights[k] = SampleAnimationTrack(
-                    binding.Clip->MorphTracks.at(binding.MorphTracks[k]).Weight, time, pose.MorphWeights[k]);
+            {
+                const auto& track      = binding.Clip->MorphTracks.at(binding.MorphTracks[k]).Weight;
+                pose.MorphInfluence[k] = track.KeyCount() ? 1.f : 0.f;
+                pose.MorphWeights[k]   = SampleAnimationTrack(track, time, pose.MorphWeights[k]);
+            }
     }
     void BuildModelPose(const SkeletonData& skeleton, AnimationPose& pose)
     {
@@ -122,6 +126,11 @@ namespace Kans
         if (a.MorphWeights.size() != b.MorphWeights.size() ||
             (!morphMask.empty() && morphMask.size() != a.MorphWeights.size()))
             throw std::invalid_argument("Morph pose/mask size mismatch");
+        out.MorphInfluence.resize(a.MorphWeights.size());
+        for (size_t k = 0; k < a.MorphWeights.size(); ++k)
+            out.MorphInfluence[k] = glm::mix(k < a.MorphInfluence.size() ? a.MorphInfluence[k] : 0.f,
+                                             k < b.MorphInfluence.size() ? b.MorphInfluence[k] : 0.f,
+                                             std::clamp(weight * (morphMask.empty() ? 1 : morphMask[k]), 0.f, 1.f));
         out.MorphWeights.resize(a.MorphWeights.size());
         for (size_t k = 0; k < a.MorphWeights.size(); ++k)
             out.MorphWeights[k] = glm::mix(a.MorphWeights[k],
@@ -287,6 +296,7 @@ namespace Kans
                 const auto& motion = controller.Motions[i];
                 m_MotionPoses[i].Resize(skeleton.Joints.size());
                 m_MotionPoses[i].MorphWeights.resize(skeleton.ShapeKeys.size());
+                m_MotionPoses[i].MorphInfluence.resize(skeleton.ShapeKeys.size());
                 m_Weights[i].resize(motion.Children.size());
                 if (motion.Type != AnimationMotionType::Clip || (!motion.InlineClip && !motion.Clip.IsValid()))
                     continue; // Unassigned clips sample the rest pose.
@@ -313,8 +323,11 @@ namespace Kans
             work.Target.Resize(skeleton.Joints.size());
             work.Frozen.Resize(skeleton.Joints.size());
             work.Source.MorphWeights.resize(skeleton.ShapeKeys.size());
+            work.Source.MorphInfluence.resize(skeleton.ShapeKeys.size());
             work.Target.MorphWeights.resize(skeleton.ShapeKeys.size());
+            work.Target.MorphInfluence.resize(skeleton.ShapeKeys.size());
             work.Frozen.MorphWeights.resize(skeleton.ShapeKeys.size());
+            work.Frozen.MorphInfluence.resize(skeleton.ShapeKeys.size());
             work.MorphMask.assign(skeleton.ShapeKeys.size(),
                                   layer.Mask.empty() && layer.ShapeKeyMask.empty() ? 1.f : 0.f);
             for (const auto& key : layer.ShapeKeyMask)
@@ -355,6 +368,7 @@ namespace Kans
         m_Pose.Resize(skeleton.Joints.size());
         const auto count = skeleton.ShapeKeys.size();
         m_Pose.MorphWeights.resize(count);
+        m_Pose.MorphInfluence.resize(count);
         m_Overrides.assign(count, 0);
         m_Offsets.assign(count, 0);
         m_HasOverride.assign(count, 0);
@@ -362,8 +376,15 @@ namespace Kans
         m_ExpressionFrom.assign(count, 0);
         m_ExpressionTo.assign(count, 0);
         m_ExpressionElapsed = m_ExpressionDuration = 0;
-        m_RootDelta = {};
-        PrepareIK();
+        m_RootDelta                                = {};
+        if (EvaluateControllerIK)
+            PrepareIK();
+        else
+        {
+            m_TwoBone.clear();
+            m_LookAt.clear();
+            m_IKWarnings.clear();
+        }
         RebuildPose();
         return std::monostate {};
     }
@@ -433,8 +454,9 @@ namespace Kans
                 StatePose(layer, s.State, s.Time, w.Source);
             else
             {
-                w.Source.Local        = w.Frozen.Local;
-                w.Source.MorphWeights = w.Frozen.MorphWeights;
+                w.Source.Local          = w.Frozen.Local;
+                w.Source.MorphWeights   = w.Frozen.MorphWeights;
+                w.Source.MorphInfluence = w.Frozen.MorphInfluence;
             }
             StatePose(layer, s.Target, s.TargetTime, w.Target);
             BlendAnimationPoses(w.Source, w.Target, s.CrossfadeWeight(), w.Frozen);
@@ -480,8 +502,9 @@ namespace Kans
             SampleMotion(child, duration > 0 ? time * Duration(child) / duration : 0, loop, pose);
             if (total == 0)
             {
-                out.Local        = pose.Local;
-                out.MorphWeights = pose.MorphWeights;
+                out.Local          = pose.Local;
+                out.MorphWeights   = pose.MorphWeights;
+                out.MorphInfluence = pose.MorphInfluence;
             }
             else
                 BlendAnimationPoses(out, pose, weight / (total + weight), out);
@@ -502,9 +525,14 @@ namespace Kans
             return false;
         out.Resize(m_Skeleton->Joints.size());
         StatePose(layer, state, time, out);
+        for (size_t k = 0; k < out.MorphWeights.size(); ++k)
+            if (auto saved = BaseShapeKeyWeights.find(m_Skeleton->ShapeKeys[k].Name);
+                saved != BaseShapeKeyWeights.end())
+                out.MorphWeights[k] += (saved->second - m_Rest.MorphWeights[k]) * (1 - out.MorphInfluence[k]);
         if (m_Modifier)
             m_Modifier(*m_Skeleton, out);
-        EvaluateIK(out);
+        if (EvaluateControllerIK)
+            EvaluateIK(out);
         BuildModelPose(*m_Skeleton, out);
         return true;
     }
@@ -591,13 +619,13 @@ namespace Kans
             const auto& binding = m_Clips[motion];
             if (!binding.Clip)
                 return {};
-            const auto& clip    = *binding.Clip;
-            const auto  rest    = m_Skeleton->Joints[m_Root].RestLocal;
-            const auto  t       = binding.JointTracks[m_Root];
+            const auto& clip = *binding.Clip;
+            const auto  rest = m_Skeleton->Joints[m_Root].RestLocal;
+            const auto  t    = binding.JointTracks[m_Root];
             if (t < 0)
                 return {};
-            const auto parent           = m_Skeleton->Joints[m_Root].Parent;
-            const auto parentModel      = parent < 0 ? glm::mat4(1) : m_Rest.Model[parent];
+            const auto parent      = m_Skeleton->Joints[m_Root].Parent;
+            const auto parentModel = parent < 0 ? glm::mat4(1) : m_Rest.Model[parent];
             auto       reference =
                 m_Controller->RootMotionKeepInitialOffset ?
                     JointTransform::FromMatrix(
@@ -613,8 +641,8 @@ namespace Kans
                                       at >= clip.Duration ? AnimationSampleEndpoint::Last :
                                                             AnimationSampleEndpoint::Interpolated;
                 auto       local    = SampleAnimationJoint(rest, clip.Tracks[t], at, endpoint);
-                auto model  = JointTransform::FromMatrix(parentModel * local.Matrix());
-                model.Scale = glm::vec3(1);
+                auto       model    = JointTransform::FromMatrix(parentModel * local.Matrix());
+                model.Scale         = glm::vec3(1);
                 if (m_Controller->RootMotionPlanar)
                     model = PlanarRoot(model);
                 // Motion is a factor in instance model space, relative to the rest joint. This
@@ -1215,9 +1243,13 @@ namespace Kans
     {
         if (!IsPrepared())
             return;
-        m_Pose.Local = m_Rest.Local;
+        m_Pose.Local        = m_Rest.Local;
         m_Pose.MorphWeights = m_Rest.MorphWeights;
-        auto rootReference  = m_Root >= 0 ? m_Rest.Local[m_Root] : JointTransform {};
+        for (size_t k = 0; k < m_Skeleton->ShapeKeys.size(); ++k)
+            if (auto found = BaseShapeKeyWeights.find(m_Skeleton->ShapeKeys[k].Name);
+                found != BaseShapeKeyWeights.end())
+                m_Pose.MorphWeights[k] = found->second;
+        auto rootReference = m_Root >= 0 ? m_Rest.Local[m_Root] : JointTransform {};
         for (size_t l = 0; l < m_Status.size(); ++l)
         {
             const auto& s     = m_Status[l];
@@ -1241,8 +1273,9 @@ namespace Kans
             }
             if (s.Transitioning && w.UseFrozen)
             {
-                w.Source.Local        = w.Frozen.Local;
-                w.Source.MorphWeights = w.Frozen.MorphWeights;
+                w.Source.Local          = w.Frozen.Local;
+                w.Source.MorphWeights   = w.Frozen.MorphWeights;
+                w.Source.MorphInfluence = w.Frozen.MorphInfluence;
             }
             else
                 StatePose(l, s.State, s.Time, w.Source);
@@ -1254,7 +1287,18 @@ namespace Kans
             if (layer.Mode == AnimationLayerMode::Additive)
                 AddAnimationPose(m_Pose, w.Source, m_Rest, w.Weight, w.Mask, w.MorphMask);
             else
-                BlendAnimationPoses(m_Pose, w.Source, w.Weight, m_Pose, w.Mask, w.MorphMask);
+            {
+                w.DrivenMorphMask.resize(w.MorphMask.size());
+                for (size_t k = 0; k < w.MorphMask.size(); ++k)
+                {
+                    const float coverage = w.Source.MorphInfluence[k];
+                    w.DrivenMorphMask[k] = w.MorphMask[k] * coverage;
+                    if (coverage > 0)
+                        w.Source.MorphWeights[k] =
+                            (w.Source.MorphWeights[k] - m_Rest.MorphWeights[k] * (1 - coverage)) / coverage;
+                }
+                BlendAnimationPoses(m_Pose, w.Source, w.Weight, m_Pose, w.Mask, w.DrivenMorphMask);
+            }
         }
         if (ExtractRootMotion && m_Root >= 0)
         {
@@ -1289,7 +1333,8 @@ namespace Kans
         }
         if (m_Modifier)
             m_Modifier(*m_Skeleton, m_Pose);
-        EvaluateIK(m_Pose);
+        if (EvaluateControllerIK)
+            EvaluateIK(m_Pose);
         for (auto& weight : m_Pose.MorphWeights)
             weight = std::isfinite(weight) ? std::clamp(weight, 0.f, 1.f) : 0;
         BuildModelPose(*m_Skeleton, m_Pose);

@@ -258,14 +258,14 @@ namespace Kans
         // stores explicit little-endian words; small/legacy clips retain their YAML codec.
         struct ClipWriter
         {
-            std::vector<std::byte> Data;
+            std::vector<std::byte>                                   Data;
             std::unordered_map<const std::vector<double>*, uint32_t> TableIDs;
             void                                                     U16(uint16_t v)
             {
                 Data.push_back(std::byte(v & 255));
                 Data.push_back(std::byte(v >> 8));
             }
-            void                   U32(uint32_t v)
+            void U32(uint32_t v)
             {
                 for (int i = 0; i < 4; ++i)
                     Data.push_back(std::byte((v >> (i * 8)) & 255));
@@ -349,8 +349,8 @@ namespace Kans
         };
         struct ClipReader
         {
-            const std::byte* Data;
-            size_t           Size, At = 0;
+            const std::byte*                                               Data;
+            size_t                                                         Size, At = 0;
             const std::vector<std::shared_ptr<const std::vector<double>>>* Tables = nullptr;
             uint16_t                                                       U16()
             {
@@ -358,7 +358,7 @@ namespace Kans
                 const auto low = uint16_t(Data[At++]);
                 return low | (uint16_t(Data[At++]) << 8);
             }
-            uint32_t         U32()
+            uint32_t U32()
             {
                 Require(At <= Size && Size - At >= 4);
                 uint32_t v = 0;
@@ -681,7 +681,7 @@ namespace Kans
                 }
                 in.Tables = &c.TimeTables;
             }
-            auto count   = in.Count(65536, 28);
+            auto count = in.Count(65536, 28);
             c.Tracks.reserve(count);
             for (uint32_t i = 0; i < count; ++i)
             {
@@ -786,15 +786,18 @@ namespace Kans
     {
         Valid(ValidateAnimationController(c));
         YAML::Node n;
-        n["root_motion_joint"] = c.RootMotionJoint;
+        n["root_motion_joint"]               = c.RootMotionJoint;
         n["root_motion_planar"]              = c.RootMotionPlanar;
         n["root_motion_keep_initial_offset"] = c.RootMotionKeepInitialOffset;
-        n["parameters"]        = YAML::Node(YAML::NodeType::Sequence);
-        n["motions"]           = YAML::Node(YAML::NodeType::Sequence);
-        n["layers"]            = YAML::Node(YAML::NodeType::Sequence);
-        n["expressions"]       = YAML::Node(YAML::NodeType::Sequence);
-        n["two_bone_ik"]       = YAML::Node(YAML::NodeType::Sequence);
-        n["look_at_ik"]        = YAML::Node(YAML::NodeType::Sequence);
+        n["parameters"]                      = YAML::Node(YAML::NodeType::Sequence);
+        n["motions"]                         = YAML::Node(YAML::NodeType::Sequence);
+        n["layers"]                          = YAML::Node(YAML::NodeType::Sequence);
+        if (!c.Expressions.empty())
+            n["expressions"] = YAML::Node(YAML::NodeType::Sequence);
+        if (!c.TwoBoneConstraints.empty())
+            n["two_bone_ik"] = YAML::Node(YAML::NodeType::Sequence);
+        if (!c.LookAtConstraints.empty())
+            n["look_at_ik"] = YAML::Node(YAML::NodeType::Sequence);
         for (const auto& ik : c.TwoBoneConstraints)
         {
             YAML::Node v;
@@ -871,13 +874,13 @@ namespace Kans
         for (const auto& l : c.Layers)
         {
             YAML::Node v;
-            v["name"]        = l.Name;
-            v["weight"]      = l.Weight;
-            v["mode"]        = int(l.Mode);
-            v["entry"]       = l.EntryState;
-            v["mask"]        = YAML::Node(YAML::NodeType::Sequence);
-            v["states"]      = YAML::Node(YAML::NodeType::Sequence);
-            v["transitions"] = YAML::Node(YAML::NodeType::Sequence);
+            v["name"]           = l.Name;
+            v["weight"]         = l.Weight;
+            v["mode"]           = int(l.Mode);
+            v["entry"]          = l.EntryState;
+            v["mask"]           = YAML::Node(YAML::NodeType::Sequence);
+            v["states"]         = YAML::Node(YAML::NodeType::Sequence);
+            v["transitions"]    = YAML::Node(YAML::NodeType::Sequence);
             v["shape_key_mask"] = ShapeKeys(l.ShapeKeyMask);
             for (const auto& m : l.Mask)
             {
@@ -929,7 +932,7 @@ namespace Kans
     AnimationControllerData DecodeAnimationControllerNode(const YAML::Node& n)
     {
         AnimationControllerData c;
-        c.RootMotionJoint = n["root_motion_joint"].as<std::string>();
+        c.RootMotionJoint  = n["root_motion_joint"].as<std::string>();
         c.RootMotionPlanar = n["root_motion_planar"] ? n["root_motion_planar"].as<bool>() : false;
         c.RootMotionKeepInitialOffset =
             n["root_motion_keep_initial_offset"] ? n["root_motion_keep_initial_offset"].as<bool>() : false;
@@ -1006,10 +1009,10 @@ namespace Kans
         {
             AnimationLayer l;
             l.ShapeKeyMask = ReadShapeKeyWeights(v["shape_key_mask"]);
-            l.Name       = v["name"].as<std::string>();
-            l.Weight     = v["weight"].as<float>();
-            l.Mode       = AnimationLayerMode(v["mode"].as<unsigned>());
-            l.EntryState = v["entry"].as<uint32_t>();
+            l.Name         = v["name"].as<std::string>();
+            l.Weight       = v["weight"].as<float>();
+            l.Mode         = AnimationLayerMode(v["mode"].as<unsigned>());
+            l.EntryState   = v["entry"].as<uint32_t>();
             Sequence(v["mask"], 65536);
             Sequence(v["states"], 4096);
             Sequence(v["transitions"], 16384);
@@ -1044,6 +1047,8 @@ namespace Kans
             c.Layers.push_back(std::move(l));
         }
         Valid(ValidateAnimationController(c));
+        if (!c.Expressions.empty() && Log::GetCoreLogger())
+            CORE_WARN("Controller Expressions are legacy; move presets to an Expression asset");
         return c;
     }
     AnimationProductBytes EncodeSkeletonProduct(const SkeletonData& s)
@@ -1903,7 +1908,7 @@ namespace Kans
     {
         try
         {
-            auto n = Root(bytes, size, "KSKL");
+            auto         n = Root(bytes, size, "KSKL");
             SkeletonData s;
             if (n.IsMap())
             {
@@ -1956,6 +1961,61 @@ namespace Kans
         try
         {
             return DecodeAnimationControllerNode(Root(bytes, size, "KACT"));
+        }
+        catch (const std::exception& e)
+        {
+            return Error(e);
+        }
+    }
+    YAML::Node EncodeExpressionNode(const ExpressionData& data)
+    {
+        Require(data.Presets.size() <= 4096);
+        for (const auto& preset : data.Presets)
+            Require(preset.Weights.size() <= 65536);
+        AnimationControllerData c;
+        c.Expressions = data.Presets;
+        c.Motions.emplace_back().InlineClip.emplace();
+        c.Layers.emplace_back().States.push_back({"Rest", 0});
+        Valid(ValidateAnimationController(c));
+        YAML::Node n;
+        n["presets"] = YAML::Node(YAML::NodeType::Sequence);
+        for (const auto& preset : data.Presets)
+        {
+            YAML::Node p;
+            p["name"]    = preset.Name;
+            p["weights"] = ShapeKeys(preset.Weights);
+            n["presets"].push_back(p);
+        }
+        return n;
+    }
+    ExpressionData DecodeExpressionNode(const YAML::Node& n)
+    {
+        Require(n.IsMap() && n.size() == 1 && n["presets"].IsSequence() && n["presets"].size() <= 4096);
+        ExpressionData data;
+        for (const auto& p : n["presets"])
+        {
+            Require(p.IsMap() && p.size() == 2);
+            data.Presets.push_back({p["name"].as<std::string>(), ReadShapeKeyWeights(p["weights"])});
+        }
+        EncodeExpressionNode(data); // Shared validation, including duplicate names/non-finite weights.
+        return data;
+    }
+    AnimationProductBytes EncodeExpressionProduct(const ExpressionData& data)
+    {
+        try
+        {
+            return Bytes("KEXP", EncodeExpressionNode(data));
+        }
+        catch (const std::exception& e)
+        {
+            return Error(e);
+        }
+    }
+    std::variant<ExpressionData, AssetError> DecodeExpressionProduct(const std::byte* bytes, size_t size)
+    {
+        try
+        {
+            return DecodeExpressionNode(Root(bytes, size, "KEXP"));
         }
         catch (const std::exception& e)
         {

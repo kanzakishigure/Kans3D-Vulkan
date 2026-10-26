@@ -7,7 +7,8 @@ namespace Kans
     {
         std::vector<JointTransform> Local;
         std::vector<glm::mat4>      Model, Palette;
-        std::vector<float>          MorphWeights; // Logical shape-key order from SkeletonData.
+        std::vector<float>          MorphInfluence; // Authored-channel coverage through motions/fades.
+        std::vector<float>          MorphWeights;   // Logical shape-key order from SkeletonData.
         void                        Resize(size_t joints);
     };
     double AnimationSampleTime(double time, double duration, bool loop);
@@ -61,6 +62,7 @@ namespace Kans
 
     // CPU evaluator. Prepare allocates/binds once. Advance, EvaluateState and RebuildPose reuse storage.
     // Data passed to Prepare must outlive this object. Copying the evaluator is safe while data stays alive.
+    struct IKComponent;
     class Animator
     {
     public:
@@ -89,10 +91,10 @@ namespace Kans
             static const std::vector<ExpressionPreset> empty;
             return m_Controller ? m_Controller->Expressions : empty;
         }
-        bool                  SetShapeKeyWeight(const std::string&, float weight); // Absolute override until cleared.
-        bool                  AddShapeKeyWeight(const std::string&, float weight); // Persistent additive offset.
-        bool                  ClearShapeKeyOverride(const std::string&);
-        bool                  SetExpression(const std::string&, double seconds);
+        bool SetShapeKeyWeight(const std::string&, float weight); // Absolute override until cleared.
+        bool AddShapeKeyWeight(const std::string&, float weight); // Persistent additive offset.
+        bool ClearShapeKeyOverride(const std::string&);
+        bool SetExpression(const std::string&, double seconds);
         // Applies entity root motion before modifiers/IK, so world-space targets need only one solve.
         using RootMotionSink = std::function<void(const RootMotionDelta&)>;
         void Advance(double seconds, const AnimationEventSink& sink = {}, const RootMotionSink& applyMotion = {});
@@ -121,16 +123,23 @@ namespace Kans
         void SetIKWorldTransform(const glm::mat4& world) { m_IKWorld = world; }
         const std::vector<std::string>& GetIKWarnings() const { return m_IKWarnings; }
         bool                            HasIK() const { return !m_TwoBone.empty() || !m_LookAt.empty(); }
-        void   RebuildPose();
+        void                            RebuildPose();
+        bool EvaluateControllerIK = true; // Legacy standalone CPU API only; scene uses IKComponent.
+        std::map<std::string, float> BaseShapeKeyWeights;
         bool   ExtractRootMotion = false; // Removes sampled root T/R from pose; caller applies GetRootMotion().
         double Speed             = 1;
 
     private:
-        void PrepareIK();
-        void EvaluateIK(AnimationPose&);
-        void RefreshIK(const AnimationPose&, int32_t joint);
-        void RotateIK(AnimationPose&, int32_t joint, glm::quat modelRotation);
-        bool ResolveIK(const IKTarget&, glm::vec3&, glm::quat&) const;
+        friend void EvaluateIKConstraints(const SkeletonData&,
+                                          const IKComponent&,
+                                          AnimationPose&,
+                                          const glm::mat4&,
+                                          const IKEntityResolver&);
+        void        PrepareIK();
+        void        EvaluateIK(AnimationPose&);
+        void        RefreshIK(const AnimationPose&, int32_t joint);
+        void        RotateIK(AnimationPose&, int32_t joint, glm::quat modelRotation);
+        bool        ResolveIK(const IKTarget&, glm::vec3&, glm::quat&) const;
         struct BoundTwoBone
         {
             TwoBoneIK Data;
@@ -152,12 +161,12 @@ namespace Kans
         glm::mat4                 m_IKWorld {1}, m_IKInverse {1};
         glm::quat                 m_IKWorldRotation {1, 0, 0, 0};
         IKEntityResolver          m_IKResolver;
-        int32_t Parameter(const std::string&) const;
-        bool    Set(const std::string&, double, AnimationParameterType);
-        double  Value(const std::string&) const;
-        double  Duration(uint32_t motion) const;
-        void    SampleMotion(uint32_t motion, double time, bool loop, AnimationPose&);
-        void    StatePose(size_t layer, uint32_t state, double time, AnimationPose&);
+        int32_t                   Parameter(const std::string&) const;
+        bool                      Set(const std::string&, double, AnimationParameterType);
+        double                    Value(const std::string&) const;
+        double                    Duration(uint32_t motion) const;
+        void                      SampleMotion(uint32_t motion, double time, bool loop, AnimationPose&);
+        void                      StatePose(size_t layer, uint32_t state, double time, AnimationPose&);
         void MotionEvents(uint32_t motion, double from, double to, bool loop, const AnimationEventSink&, uint32_t layer)
             const;
         JointTransform  InitialRoot(uint32_t motion);
@@ -172,23 +181,23 @@ namespace Kans
             AnimationPose      Source, Target, Frozen;
             bool               UseFrozen = false;
             JointTransform     FrozenRootReference;
-            std::vector<float> Mask, MorphMask;
+            std::vector<float> Mask, MorphMask, DrivenMorphMask;
             float              Weight = 1;
         };
-        const SkeletonData*                                      m_Skeleton   = nullptr;
-        const AnimationControllerData*                           m_Controller = nullptr;
-        int32_t                                                  m_Root       = -1;
-        std::vector<double>                                      m_Parameters;
-        std::vector<BoundAnimationClip>                          m_Clips;
-        std::vector<AnimationPose>                               m_MotionPoses;
-        mutable std::vector<std::vector<float>>                  m_Weights;
-        std::vector<LayerWork>                                   m_Work;
-        std::vector<AnimatorLayerStatus>                         m_Status;
-        AnimationPose                                            m_Pose, m_Rest;
-        RootMotionDelta                                          m_RootDelta;
-        std::vector<float>   m_Overrides, m_Offsets, m_Expression, m_ExpressionFrom, m_ExpressionTo;
-        std::vector<uint8_t> m_HasOverride;
-        double               m_ExpressionElapsed = 0, m_ExpressionDuration = 0;
+        const SkeletonData*                     m_Skeleton   = nullptr;
+        const AnimationControllerData*          m_Controller = nullptr;
+        int32_t                                 m_Root       = -1;
+        std::vector<double>                     m_Parameters;
+        std::vector<BoundAnimationClip>         m_Clips;
+        std::vector<AnimationPose>              m_MotionPoses;
+        mutable std::vector<std::vector<float>> m_Weights;
+        std::vector<LayerWork>                  m_Work;
+        std::vector<AnimatorLayerStatus>        m_Status;
+        AnimationPose                           m_Pose, m_Rest;
+        RootMotionDelta                         m_RootDelta;
+        std::vector<float>                      m_Overrides, m_Offsets, m_Expression, m_ExpressionFrom, m_ExpressionTo;
+        std::vector<uint8_t>                    m_HasOverride;
+        double                                  m_ExpressionElapsed = 0, m_ExpressionDuration = 0;
         std::function<void(const SkeletonData&, AnimationPose&)> m_Modifier;
     };
 } // namespace Kans

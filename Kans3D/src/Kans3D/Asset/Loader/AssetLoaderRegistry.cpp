@@ -48,6 +48,7 @@ namespace Kans
         registry.m_Decoders.emplace(SkeletonAsset::GetStaticType(), Decode<SkeletonAsset>);
         registry.m_Decoders.emplace(AnimationClipAsset::GetStaticType(), Decode<AnimationClipAsset>);
         registry.m_Decoders.emplace(AnimationControllerAsset::GetStaticType(), Decode<AnimationControllerAsset>);
+        registry.m_Decoders.emplace(ExpressionAsset::GetStaticType(), Decode<ExpressionAsset>);
         registry.m_Decoders.emplace(FontAsset::GetStaticType(), Decode<FontAsset>);
         registry.m_Decoders.emplace(AudioClipAsset::GetStaticType(), Decode<AudioClipAsset>);
         registry.m_Decoders.emplace(UIAsset::GetStaticType(), Decode<UIAsset>);

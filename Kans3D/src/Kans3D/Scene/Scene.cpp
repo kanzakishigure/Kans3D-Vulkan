@@ -24,6 +24,12 @@ namespace Kans
             m_Registry.on_update<T>().template connect<&Scene::OnRenderComponentChanged>(this);
             m_Registry.on_destroy<T>().template connect<&Scene::OnRenderComponentChanged>(this);
         };
+        m_Registry.on_construct<IKComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_update<IKComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_destroy<IKComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_construct<ShapeKeysComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_update<ShapeKeysComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_destroy<ShapeKeysComponent>().connect<&Scene::OnTransformChanged>(this);
         connect(static_cast<MeshComponent*>(nullptr));
         connect(static_cast<TextComponent*>(nullptr));
         connect(static_cast<UIScreenComponent*>(nullptr));
@@ -201,6 +207,14 @@ namespace Kans
             const auto& c = m_Registry.get<AnimatorComponent>(handle);
             add(c.Skeleton);
             add(c.Controller);
+        }
+        for (auto handle : m_Registry.view<IKComponent>())
+            add(m_Registry.get<IKComponent>(handle).Skeleton);
+        for (auto handle : m_Registry.view<ShapeKeysComponent>())
+        {
+            const auto& c = m_Registry.get<ShapeKeysComponent>(handle);
+            add(c.Skeleton);
+            add(c.Expression);
         }
         for (const auto& entry : GetPostProcessSettings().Materials)
             add(entry.Material);
@@ -380,8 +394,8 @@ namespace Kans
     {
         auto&      relationship = entity.GetComponent<RelationshipComponent>();
         const UUID id           = entity.GetUUID();
-        Entity       parent     = relationship.Parent ? GetEntityByUUID(relationship.Parent) : Entity {};
-        auto&        siblings   = parent ? parent.GetComponent<RelationshipComponent>().Children : m_RootOrder;
+        Entity     parent       = relationship.Parent ? GetEntityByUUID(relationship.Parent) : Entity {};
+        auto&      siblings     = parent ? parent.GetComponent<RelationshipComponent>().Children : m_RootOrder;
         siblings.erase(std::remove(siblings.begin(), siblings.end(), id), siblings.end());
         if (parent)
             m_ChildBounds[entt::entity(parent)].Set(entity, {});
@@ -456,11 +470,11 @@ namespace Kans
 
     glm::mat4 Scene::GetWorldTransform(Entity entity) const
     {
-        const glm::mat4 local  = entity.GetComponent<TransformComponent>().GetTransform();
+        const glm::mat4 local = entity.GetComponent<TransformComponent>().GetTransform();
         if (entity.HasComponent<PrefabOwnedComponent>())
         {
-            const auto                       root     = GetPrefabInstanceRoot(entity);
-            auto                             relative = [&](auto&& self, Entity part) -> glm::mat4 {
+            const auto root     = GetPrefabInstanceRoot(entity);
+            auto       relative = [&](auto&& self, Entity part) -> glm::mat4 {
                 const auto parent = GetParent(part);
                 const auto matrix = part.GetComponent<TransformComponent>().GetTransform();
                 return parent && parent != root ? self(self, parent) * matrix : matrix;
@@ -468,7 +482,7 @@ namespace Kans
             // Preserve phase-2 multiplication grouping: rootWorld * modelSpace.
             return root ? GetWorldTransform(root) * relative(relative, entity) : local;
         }
-        const Entity    parent = GetParent(entity);
+        const Entity parent = GetParent(entity);
         return parent ? GetWorldTransform(parent) * local : local;
     }
 
@@ -578,6 +592,8 @@ namespace Kans
         CopyComponent<MeshComponent>(source, copy);
         CopyComponent<EditableMeshComponent>(source, copy);
         CopyComponent<AnimatorComponent>(source, copy);
+        CopyComponent<IKComponent>(source, copy);
+        CopyComponent<ShapeKeysComponent>(source, copy);
         CopyComponent<MaterialParameterDriversComponent>(source, copy);
         CopyComponent<AudioSourceComponent>(source, copy);
         CopyComponent<AudioListenerComponent>(source, copy);
@@ -616,8 +632,8 @@ namespace Kans
         const Entity parent   = GetParent(entity);
         const auto&  siblings = parent ? parent.GetComponent<RelationshipComponent>().Children : m_RootOrder;
         auto         at       = std::find(siblings.begin(), siblings.end(), entity.GetUUID());
-        const Entity next     = at != siblings.end() && at + 1 != siblings.end() ? GetEntityByUUID(*(at + 1)) : Entity {};
-        auto         copy     = CopyEntity(entity, parent, next);
+        const Entity next = at != siblings.end() && at + 1 != siblings.end() ? GetEntityByUUID(*(at + 1)) : Entity {};
+        auto         copy = CopyEntity(entity, parent, next);
         std::unordered_map<UUID, UUID> remap;
         auto                           pair = [&](auto&& self, Entity source, Entity target) -> void {
             remap.emplace(source.GetUUID(), target.GetUUID());
@@ -650,6 +666,12 @@ namespace Kans
                 for (auto& binding : copied.GetComponent<MaterialParameterDriversComponent>().Bindings)
                     if (auto found = remap.find(binding.SourceEntity); found != remap.end())
                         binding.SourceEntity = found->second;
+        for (const auto& [source, target] : remap)
+            if (auto copied = GetEntityByUUID(target); copied.HasComponent<IKComponent>())
+                copied.GetComponent<IKComponent>().RemapEntities([&](uint64_t id) {
+                    auto found = remap.find(UUID(id));
+                    return found == remap.end() ? id : uint64_t(found->second);
+                });
         return copy;
     }
 
@@ -724,6 +746,12 @@ namespace Kans
     void Scene::OnComponentAdd<MaterialParameterDriversComponent>(Entity, MaterialParameterDriversComponent&)
     {}
 
+    template<>
+    void Scene::OnComponentAdd<IKComponent>(Entity, IKComponent&)
+    {}
+    template<>
+    void Scene::OnComponentAdd<ShapeKeysComponent>(Entity, ShapeKeysComponent&)
+    {}
     template<>
     void Scene::OnComponentAdd<AnimatorComponent>(Entity, AnimatorComponent&)
     {}

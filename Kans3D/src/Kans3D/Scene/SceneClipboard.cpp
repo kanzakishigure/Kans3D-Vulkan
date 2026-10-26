@@ -308,6 +308,13 @@ namespace Kans::SceneClipboard
                 if (auto drivers = node["MaterialParameterDriversComponent"])
                     for (auto binding : drivers["Bindings"])
                         reference(binding["SourceEntity"]);
+                if (auto ik = node["IKComponent"])
+                    for (auto constraint : ik["Constraints"])
+                    {
+                        reference(constraint["Data"]["target"]["entity"]);
+                        if (constraint["Type"].as<std::string>() == "TwoBone")
+                            reference(constraint["Data"]["pole_entity"]);
+                    }
                 if (auto animator = node["AnimatorComponent"])
                 {
                     if (auto joints = animator["JointEntities"])
