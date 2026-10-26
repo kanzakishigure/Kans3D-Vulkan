@@ -9,13 +9,14 @@
 
 namespace Kans::Widgets
 {
-    bool MaterialSlotRow(ComponentUI&       ui,
-                         const std::string& title,
-                         const std::string& detail,
-                         const SlotParts&   parts,
-                         AssetID            imported,
-                         AssetID            current,
-                         AssetID&           chosen)
+    bool MaterialSlotRow(ComponentUI&                 ui,
+                         const std::string&           title,
+                         const std::string&           detail,
+                         const SlotParts&             parts,
+                         AssetID                      imported,
+                         AssetID                      current,
+                         AssetID&                     chosen,
+                         const std::function<void()>& remove)
     {
         const auto&   style    = ImGui::GetStyle();
         const auto&   colors   = EditorTheme::Colors();
@@ -124,6 +125,12 @@ namespace Kans::Widgets
                 ui.CreateMaterialInstance(current, parts);
             ImGui::SetItemTooltip("A new material with %s as its parent, used by this slot",
                                   ui.MaterialName(current).c_str());
+            if (remove)
+            {
+                ImGui::Separator();
+                if (ImGui::MenuItem(ICON_FA_TRASH "  Remove Slot"))
+                    remove();
+            }
             ImGui::EndPopup();
         }
         if (const AssetID dropped = ui.AcceptMaterialDrop(); dropped.IsValid())

@@ -1,13 +1,14 @@
-#include "EditorLayer.h"
-#include "Kans3D/ImGui/EditorTheme.h"
-#include "Kans3D/Project/RecentProjects.h"
-#include "Launcher/EditorProcess.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include "Kans3D/ImGui/EditorTheme.h"
+#include "Kans3D/Project/RecentProjects.h"
+#include "EditorLayer.h"
 #include "ImGuizmo.h"
+#include "Launcher/EditorProcess.h"
 #include "UI/EditorIcons.h"
+#include "UI/PropertyGrid.h"
 #include "UI/Widgets.h"
 
 // Editor window layout: menu bar, main toolbar, dock space with the panels, and
@@ -597,14 +598,29 @@ namespace Kans
         const ImGuiIO& io     = ImGui::GetIO();
         const auto&    result = m_Viewport->GetLastResult();
         const auto&    stats  = result.FrameStats;
-        const auto     ms     = [](const std::optional<double>& value) {
-            return value ? std::to_string(*value).substr(0, std::to_string(*value).find('.') + 4) + " ms" :
-                           std::string("-");
+        const auto     ms     = [](double value) {
+            char text[32];
+            std::snprintf(text, sizeof(text), "%.3f ms", value);
+            return std::string(text);
         };
-        if (ImGui::CollapsingHeader("Frame", ImGuiTreeNodeFlags_DefaultOpen))
+        const auto optionalMs = [&](const std::optional<double>& value) { return value ? ms(*value) : "-"; };
+        const auto count      = [](uint64_t value) { return std::to_string(value); };
+        const auto mib        = [](const std::optional<uint64_t>& bytes) {
+            return bytes ? std::to_string(*bytes / (1024 * 1024)) + " MiB" : std::string("unavailable");
+        };
+        if (!ImGui::BeginChild("##Cards", {0, 0}, ImGuiChildFlags_None))
         {
-            ImGui::Text("%.1f FPS  (%.2f ms)", io.Framerate, io.Framerate > 0.0f ? 1000.0f / io.Framerate : 0.0f);
-            // Frame time history; the line is the newest sample.
+            ImGui::EndChild();
+            return;
+        }
+
+        char fps[48];
+        std::snprintf(fps, sizeof(fps), "%.0f FPS", io.Framerate);
+        PropertyGrid::CardOptions frameCard;
+        frameCard.Note = fps;
+        if (PropertyGrid::BeginCard("Frame", ICON_FA_CHART_LINE, "Frame", frameCard))
+        {
+            // Frame time history; the right end is the newest sample.
             std::array<float, 240> ordered;
             float                  peak = 1.0f;
             for (size_t i = 0; i < ordered.size(); ++i)
@@ -613,120 +629,163 @@ namespace Kans
                 peak       = std::max(peak, ordered[i]);
             }
             const std::string overlay = "max " + std::to_string(int(peak)) + " ms";
-            ImGui::PlotLines("##frametimes", ordered.data(), int(ordered.size()), 0, overlay.c_str(), 0.0f, peak * 1.1f,
-                             {-FLT_MIN, 60.0f});
+            ImGui::PlotLines("##frametimes",
+                             ordered.data(),
+                             int(ordered.size()),
+                             0,
+                             overlay.c_str(),
+                             0.0f,
+                             peak * 1.1f,
+                             {-FLT_MIN, EditorTheme::Px(56.0f)});
+            PropertyGrid::Begin("Frame");
+            PropertyGrid::Text("Frame time", ms(io.Framerate > 0.0f ? 1000.0 / io.Framerate : 0.0));
             const auto viewport = m_Viewport->GetSize();
-            ImGui::Text("Viewport: %u x %u", viewport.x, viewport.y);
-            ImGui::Text("UI: %d vertices, %d indices", io.MetricsRenderVertices, io.MetricsRenderIndices);
+            PropertyGrid::Text("Viewport", std::to_string(viewport.x) + " x " + std::to_string(viewport.y));
+            PropertyGrid::Text("Editor UI",
+                               std::to_string(io.MetricsRenderVertices) + " vertices, " +
+                                   std::to_string(io.MetricsRenderIndices) + " indices",
+                               true);
+            PropertyGrid::End();
         }
-        if (ImGui::CollapsingHeader("Render CPU", ImGuiTreeNodeFlags_DefaultOpen))
+        PropertyGrid::EndCard();
+
+        if (PropertyGrid::BeginCard("Render", ICON_FA_LAYER_GROUP, "Render"))
         {
-            ImGui::Text("World sync / extract  %.3f ms", stats.WorldSyncExtractMilliseconds);
-            ImGui::Text("Graph build           %.3f ms", stats.GraphBuildMilliseconds);
-            ImGui::Text("Compile               %.3f ms", stats.CompileMilliseconds);
-            ImGui::Text("Execute / submit      %.3f ms", stats.ExecuteSubmitMilliseconds);
-            ImGui::Text("Total                 %.3f ms", stats.TotalMilliseconds);
-            if (stats.Draws)
-                ImGui::Text("%llu draw calls, %llu triangles", (unsigned long long)stats.Draws->DrawCalls,
-                            (unsigned long long)stats.Draws->Triangles);
-        }
-        if (ImGui::CollapsingHeader("Passes", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            if (stats.Gpu)
-                ImGui::Text("GPU passes %.3f ms (frame %llu)", stats.Gpu->PassMilliseconds,
-                            (unsigned long long)stats.Gpu->SourceFrame);
-            else
-                ImGui::TextDisabled("GPU timings arrive a few frames later.");
-            if (ImGui::BeginTable("##passes", 5,
-                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable |
-                                      ImGuiTableFlags_SizingStretchProp))
+            if (PropertyGrid::BeginGroup("CPU"))
             {
-                ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-                ImGui::TableSetupColumn("CPU");
-                ImGui::TableSetupColumn("GPU");
-                ImGui::TableSetupColumn("Draws");
-                ImGui::TableSetupColumn("Tris");
-                ImGui::TableHeadersRow();
-                for (const auto& pass : stats.Passes)
+                PropertyGrid::Text("Sync / extract", ms(stats.WorldSyncExtractMilliseconds));
+                PropertyGrid::Text("Graph build", ms(stats.GraphBuildMilliseconds));
+                PropertyGrid::Text("Compile", ms(stats.CompileMilliseconds));
+                PropertyGrid::Text("Execute / submit", ms(stats.ExecuteSubmitMilliseconds));
+                PropertyGrid::Text("Total", ms(stats.TotalMilliseconds));
+                if (stats.Draws)
                 {
-                    if (pass.Culled)
-                        continue;
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(pass.Name.c_str());
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(ms(pass.CpuRecordMilliseconds).c_str());
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(ms(pass.GpuMilliseconds).c_str());
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%llu", pass.Draws ? (unsigned long long)pass.Draws->DrawCalls : 0ull);
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%llu", pass.Draws ? (unsigned long long)pass.Draws->Triangles : 0ull);
+                    PropertyGrid::Text("Draw calls", count(stats.Draws->DrawCalls));
+                    PropertyGrid::Text("Triangles", count(stats.Draws->Triangles));
                 }
-                ImGui::EndTable();
+                PropertyGrid::EndGroup();
             }
-            if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Open Frame Graph", {-FLT_MIN, 0.0f}))
-                m_Panels.Open(PanelID::FrameGraph);
+            if (PropertyGrid::BeginGroup("Passes"))
+            {
+                if (stats.Gpu)
+                    PropertyGrid::Text("GPU total",
+                                       ms(stats.Gpu->PassMilliseconds) + "  (frame " + count(stats.Gpu->SourceFrame) +
+                                           ")");
+                else
+                    PropertyGrid::Text("GPU total", "arrives a few frames later", true);
+                PropertyGrid::BeginFree();
+                if (ImGui::BeginTable("##passes",
+                                      5,
+                                      ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                                          ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp))
+                {
+                    ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+                    ImGui::TableSetupColumn("CPU");
+                    ImGui::TableSetupColumn("GPU");
+                    ImGui::TableSetupColumn("Draws");
+                    ImGui::TableSetupColumn("Tris");
+                    ImGui::TableHeadersRow();
+                    for (const auto& pass : stats.Passes)
+                    {
+                        if (pass.Culled)
+                            continue;
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(pass.Name.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(optionalMs(pass.CpuRecordMilliseconds).c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(optionalMs(pass.GpuMilliseconds).c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(count(pass.Draws ? pass.Draws->DrawCalls : 0).c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(count(pass.Draws ? pass.Draws->Triangles : 0).c_str());
+                    }
+                    ImGui::EndTable();
+                }
+                if (ImGui::Button(ICON_FA_DRAW_POLYGON "  Open Frame Graph", {-FLT_MIN, 0.0f}))
+                    m_Panels.Open(PanelID::FrameGraph);
+                PropertyGrid::EndFree();
+                PropertyGrid::EndGroup();
+            }
         }
-        if (ImGui::CollapsingHeader("Scene", ImGuiTreeNodeFlags_DefaultOpen))
+        PropertyGrid::EndCard();
+
+        if (PropertyGrid::BeginCard("Scene", ICON_FA_CUBES, "Scene"))
         {
-            ImGui::Text("Mesh sections: %llu (%llu in view, %llu drawn)",
-                        (unsigned long long)stats.Culling.SectionProxies, (unsigned long long)stats.Culling.InFrustum,
-                        (unsigned long long)stats.Culling.Drawn);
-            ImGui::Text("Lights: %u directional, %u point (%u shadowed)", stats.DirectionalLights, stats.PointLights,
-                        stats.ShadowedLights);
-            ImGui::Text("Render world: +%llu  ~%llu  -%llu proxies", (unsigned long long)stats.ProxiesCreated,
-                        (unsigned long long)stats.ProxiesUpdated, (unsigned long long)stats.ProxiesRemoved);
+            PropertyGrid::Begin("Scene");
+            PropertyGrid::Text("Mesh sections",
+                               count(stats.Culling.SectionProxies) + "  (" + count(stats.Culling.InFrustum) +
+                                   " in view, " + count(stats.Culling.Drawn) + " drawn)");
+            PropertyGrid::Text("Lights",
+                               std::to_string(stats.DirectionalLights) + " directional, " +
+                                   std::to_string(stats.PointLights) + " point (" +
+                                   std::to_string(stats.ShadowedLights) + " shadowed)");
+            PropertyGrid::Text("Proxies",
+                               "+" + count(stats.ProxiesCreated) + "  ~" + count(stats.ProxiesUpdated) + "  -" +
+                                   count(stats.ProxiesRemoved),
+                               true);
             if (stats.BloomMipCount)
-                ImGui::Text("Bloom: %u mips", stats.BloomMipCount);
-            if (!stats.Shadows.empty() && ImGui::TreeNode("Shadow passes"))
+                PropertyGrid::Text("Bloom mips", std::to_string(stats.BloomMipCount));
+            const auto& sprites = result.SpriteStats;
+            PropertyGrid::Text(
+                "2D", std::to_string(sprites.DrawCalls) + " draws, " + std::to_string(sprites.QuadCount) + " quads");
+            PropertyGrid::End();
+            if (!stats.Shadows.empty() && PropertyGrid::BeginGroup("Shadow passes", nullptr, nullptr, false))
             {
                 for (const auto& shadow : stats.Shadows)
-                    ImGui::Text("%s: %llu casters drawn, %llu culled", shadow.Name.c_str(),
-                                (unsigned long long)shadow.CastersDrawn, (unsigned long long)shadow.CastersCulled);
-                ImGui::TreePop();
+                    PropertyGrid::Text(shadow.Name.c_str(),
+                                       count(shadow.CastersDrawn) + " drawn, " + count(shadow.CastersCulled) +
+                                           " culled");
+                PropertyGrid::EndGroup();
             }
         }
-        if (ImGui::CollapsingHeader("GPU memory", ImGuiTreeNodeFlags_DefaultOpen))
+        PropertyGrid::EndCard();
+
+        if (PropertyGrid::BeginCard("Memory", ICON_FA_MICROCHIP, "Memory"))
         {
-            const auto mib = [](const std::optional<uint64_t>& bytes) {
-                return bytes ? std::to_string(*bytes / (1024 * 1024)) + " MiB" : std::string("unavailable");
-            };
-            ImGui::Text("Textures: %s", mib(stats.DeviceTextureBytes).c_str());
-            ImGui::Text("Buffers: %s", mib(stats.DeviceBufferBytes).c_str());
-            ImGui::Text("Transient texture slots: %zu", stats.TransientTextureSlots);
+            if (PropertyGrid::BeginGroup("GPU"))
+            {
+                PropertyGrid::Text("Textures", mib(stats.DeviceTextureBytes));
+                PropertyGrid::Text("Buffers", mib(stats.DeviceBufferBytes));
+                PropertyGrid::Text("Transient slots", std::to_string(stats.TransientTextureSlots));
+                PropertyGrid::EndGroup();
+            }
+            if (PropertyGrid::BeginGroup("Assets"))
+            {
+                PropertyGrid::Text("Resident", std::to_string(m_Assets ? m_Assets->GetResidentCount() : size_t(0)));
+                if (m_AssetImports)
+                    if (auto snapshot = m_AssetImports->GetSnapshot();
+                        std::holds_alternative<EditorAssetImportSnapshot>(snapshot))
+                    {
+                        const char* states[] = {"Idle", "Building", "Succeeded", "Failed", "Cancelled"};
+                        PropertyGrid::Text(
+                            "Last import",
+                            states[static_cast<int>(std::get<EditorAssetImportSnapshot>(snapshot).State)]);
+                    }
+                PropertyGrid::EndGroup();
+            }
         }
-        if (ImGui::CollapsingHeader("Renderer 2D", ImGuiTreeNodeFlags_DefaultOpen))
+        PropertyGrid::EndCard();
+
+        if (m_ActiveScene)
         {
-            const auto& sprites = m_Viewport->GetLastResult().SpriteStats;
-            ImGui::Text("Draw calls: %d", sprites.DrawCalls);
-            ImGui::Text("Quads: %d", sprites.QuadCount);
-            ImGui::Text("Vertices: %d", sprites.GetTotalVertexCount());
+            PropertyGrid::CardOptions debugCard;
+            debugCard.DefaultOpen = false;
+            if (PropertyGrid::BeginCard("DebugRendering", ICON_FA_BUG, "Debug Rendering", debugCard))
+            {
+                auto  resource = m_ActiveScene->GetRenderWorld().Settings;
+                auto& state    = resource.Piplinestate;
+                PropertyGrid::Begin("DebugRendering");
+                PropertyGrid::Checkbox("Grid", state.EnableGridShader);
+                PropertyGrid::Checkbox("Outline", state.EnableOutline);
+                PropertyGrid::Checkbox("Stencil", state.EnableStencil);
+                PropertyGrid::Checkbox("Debug normals", state.EnableDebugNormal);
+                PropertyGrid::End();
+                m_ActiveScene->GetRenderWorld().Settings = resource;
+            }
+            PropertyGrid::EndCard();
         }
-        if (ImGui::CollapsingHeader("Assets", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            ImGui::Text("Resident CPU assets: %zu", m_Assets ? m_Assets->GetResidentCount() : size_t(0));
-            if (m_AssetImports)
-                if (auto snapshot = m_AssetImports->GetSnapshot();
-                    std::holds_alternative<EditorAssetImportSnapshot>(snapshot))
-                {
-                    const char* states[] = {"Idle", "Building", "Succeeded", "Failed", "Cancelled"};
-                    ImGui::Text("Last import: %s",
-                                states[static_cast<int>(std::get<EditorAssetImportSnapshot>(snapshot).State)]);
-                }
-        }
-        if (m_ActiveScene && ImGui::CollapsingHeader("Render Settings", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            auto  resource = m_ActiveScene->GetRenderWorld().Settings;
-            auto& state    = resource.Piplinestate;
-            ImGui::Checkbox("Grid", &state.EnableGridShader);
-            ImGui::Checkbox("Outline", &state.EnableOutline);
-            ImGui::Checkbox("Stencil", &state.EnableStencil);
-            ImGui::Checkbox("Debug normals", &state.EnableDebugNormal);
-            ImGui::Checkbox("EnableDefaultShader", &state.EnableDefaultShader);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Not used by the current renderer: models are always drawn.");
-            m_ActiveScene->GetRenderWorld().Settings = resource;
-        }
+        ImGui::EndChild();
     }
 } // namespace Kans

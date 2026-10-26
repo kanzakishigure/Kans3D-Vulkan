@@ -1,8 +1,11 @@
-#include <algorithm>
 #include <imgui.h>
-#include "ComponentEditors.h"
+#include <algorithm>
+#include <functional>
+#include <optional>
 #include "Kans3D/Scene/Components.h"
+#include "ComponentEditors.h"
 #include "UI/EditorIcons.h"
+#include "UI/MaterialSlotRow.h"
 #include "UI/PropertyGrid.h"
 
 namespace Kans::ComponentEditors
@@ -111,26 +114,40 @@ namespace Kans::ComponentEditors
         }
 
         // One slot per material index the faces use (faces pick their slot in face mode).
-        uint32_t used = 0;
+        const auto          slots = MaterialSlotCount(component);
+        std::vector<size_t> faces(slots, 0);
         for (const auto& face : component.Mesh.Faces)
-            used = std::max(used, face.Material + 1);
-        const auto slots = std::max<size_t>({used, component.Materials.size(), 1});
+            ++faces[face.Material];
         if (PropertyGrid::BeginGroup(("Materials (" + std::to_string(slots) + ")").c_str()))
         {
+            PropertyGrid::BeginFree();
+            std::optional<uint32_t> removed;
             for (uint32_t slot = 0; slot < slots; ++slot)
             {
                 ImGui::PushID(int(slot));
                 const AssetID current = slot < component.Materials.size() ? component.Materials[slot] : AssetID {};
                 AssetID       chosen;
-                const auto    label = "Slot " + std::to_string(slot) + (slot < used ? "" : " (unused)");
-                if (ui.MaterialPicker(label.c_str(), {}, current, chosen))
+                const auto detail = faces[slot] ? std::to_string(faces[slot]) + (faces[slot] > 1 ? " faces" : " face") :
+                                                  std::string("unused");
+                const auto remove =
+                    slots > 1 ? std::function<void()>([&removed, slot] { removed = slot; }) : std::function<void()>();
+                if (Widgets::MaterialSlotRow(ui,
+                                             "Slot " + std::to_string(slot),
+                                             detail,
+                                             {{entity.GetUUID(), slot}},
+                                             {},
+                                             current,
+                                             chosen,
+                                             remove))
                     entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
                         c.Materials.resize(std::max<size_t>(c.Materials.size(), slot + 1));
                         c.Materials[slot] = chosen;
                     });
                 ImGui::PopID();
             }
-            PropertyGrid::BeginFree();
+            if (removed)
+                entity.PatchComponent<EditableMeshComponent>(
+                    [&](EditableMeshComponent& c) { RemoveMaterialSlot(c, *removed); });
             if (ImGui::Button(ICON_FA_PLUS "  Add slot", {-FLT_MIN, 0.0f}))
                 entity.PatchComponent<EditableMeshComponent>([&](EditableMeshComponent& c) {
                     c.Materials.resize(std::max<size_t>(c.Materials.size(), slots) + 1);

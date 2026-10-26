@@ -147,6 +147,11 @@ namespace Kans
     bool operator==(const EditableMeshComponent& a, const EditableMeshComponent& b);
     // Explicit regeneration only. PatchComponent never interprets Shape changes.
     void RegenerateShape(EditableMeshComponent& component);
+    // Material slots: one per material index the faces use, at least one, more when Materials lists more.
+    size_t MaterialSlotCount(const EditableMeshComponent& component);
+    // Removes a slot unless it is the last one. Its faces move to the slot before it (the first slot's
+    // to the next), and later slots move down one.
+    void RemoveMaterialSlot(EditableMeshComponent& component, uint32_t slot);
 
     struct BoundsComponent
     {
