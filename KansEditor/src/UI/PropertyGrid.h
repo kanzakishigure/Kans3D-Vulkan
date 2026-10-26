@@ -33,7 +33,9 @@ namespace Kans::PropertyGrid
     void EndCard();
 
     // ---- Groups inside a card ----
-    // A heading; `enabled` adds the feature toggle on it and hides the rows while off
+
+    // A heading band; rows inside are separated by hairlines, and a group opened inside another
+    // steps in with a guide line. `enabled` adds the feature toggle on it and hides the rows while off
     // (`toggled` reports a click). Returns true when the rows are shown: then call EndGroup().
     bool BeginGroup(const char* title, bool* enabled = nullptr, bool* toggled = nullptr, bool defaultOpen = true);
     void EndGroup();

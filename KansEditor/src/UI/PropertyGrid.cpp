@@ -1,9 +1,10 @@
 #include "PropertyGrid.h"
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <vector>
 #include <glm/gtc/type_ptr.hpp>
-#include <imgui_internal.h>
 #include "Kans3D/ImGui/EditorTheme.h"
 #include "EditorIcons.h"
 
@@ -36,6 +37,15 @@ namespace Kans::PropertyGrid
             bool    CardBody      = false;
             ImVec2  CardMin;
             bool    CardOverridden = false;
+            // The outer groups' counts while a nested one is open.
+            int RowIndex = 0; // Rows so far in the current group or grid, for separators.
+            struct Frame
+            {
+                ImGuiID ID       = 0;
+                int     Modified = 0, Shown = 0, RowIndex = 0;
+                float   Indent = 0, GuideX = 0, BodyTop = 0;
+            };
+            std::vector<Frame> Groups;
         };
         State g;
 
@@ -72,6 +82,48 @@ namespace Kans::PropertyGrid
         }
 
         float ResetReserve(bool modified) { return modified ? ImGui::GetFrameHeight() + Px(4.0f) : 0.0f; }
+
+        ImVec4 Mix(ImVec4 a, ImVec4 b, float t)
+        {
+            return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t};
+        }
+
+        // Opens a group: a nested one steps in, with its guide line on the left.
+        void OpenFrame(bool decorated)
+        {
+            g.Groups.emplace_back();
+            auto& f    = g.Groups.back();
+            f.ID       = g.GroupID;
+            f.Modified = g.GroupModified;
+            f.Shown    = g.GroupShown;
+            f.RowIndex = g.RowIndex;
+            if (decorated && g.Groups.size() > 1)
+            {
+                f.Indent = Px(12.0f);
+                f.GuideX = ImGui::GetCursorScreenPos().x + Px(5.0f);
+                ImGui::Indent(f.Indent);
+            }
+        }
+
+        void CloseFrame()
+        {
+            auto&       f      = g.Groups.back();
+            const float bottom = ImGui::GetCursorScreenPos().y;
+            if (f.Indent > 0)
+            {
+                ImGui::Unindent(f.Indent);
+                if (bottom > f.BodyTop)
+                    ImGui::GetWindowDrawList()->AddLine({f.GuideX, f.BodyTop},
+                                                        {f.GuideX, bottom - Px(2.0f)},
+                                                        ImGui::GetColorU32(EditorTheme::Colors().Pressed),
+                                                        Px(2.0f));
+            }
+            g.GroupID       = f.ID;
+            g.GroupModified = f.Modified;
+            g.GroupShown    = f.Shown;
+            g.RowIndex      = f.RowIndex;
+            g.Groups.pop_back();
+        }
     } // namespace
 
     // ---------------------------------------------------------------------- filter
@@ -215,6 +267,8 @@ namespace Kans::PropertyGrid
                 ImGui::PopID();
                 return false;
             }
+            OpenFrame(false);
+            g.RowIndex      = 0;
             g.GroupModified = 0;
             g.GroupShown    = 0;
             Begin(title);
@@ -222,6 +276,7 @@ namespace Kans::PropertyGrid
             return true;
         }
 
+        OpenFrame(true);
         const auto&  p      = EditorTheme::Colors();
         const float  height = ImGui::GetFrameHeight();
         const ImVec2 top    = ImGui::GetCursorScreenPos();
@@ -236,8 +291,13 @@ namespace Kans::PropertyGrid
         }
         const bool hovered = ImGui::IsItemHovered();
         auto*      draw    = ImGui::GetWindowDrawList();
-        if (hovered)
-            draw->AddRectFilled(at, {at.x + width, at.y + height}, ImGui::GetColorU32(p.Hover), Px(3.0f));
+        {
+            // A band one step lighter than the card; nested bands step back towards it.
+            const int    level = int(g.Groups.size()) - 1;
+            const ImVec4 band  = hovered ? p.Pressed : Mix(p.Hover, p.Raised, std::min(0.6f, 0.3f * level));
+            draw->AddRectFilled(
+                {at.x - Px(4.0f), at.y}, {at.x + width + Px(4.0f), at.y + height}, ImGui::GetColorU32(band), Px(3.0f));
+        }
         const float textY = at.y + (height - ImGui::GetFontSize()) * 0.5f;
         float       x     = at.x + Px(2.0f);
         ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.75f);
@@ -271,12 +331,15 @@ namespace Kans::PropertyGrid
         }
         ImGui::SetCursorScreenPos({top.x, at.y + height});
         ImGui::Dummy({0, Px(2.0f)});
+        g.Groups.back().BodyTop = ImGui::GetCursorScreenPos().y;
 
         if (!open || (enabled && !*enabled))
         {
+            CloseFrame();
             ImGui::PopID();
             return false;
         }
+        g.RowIndex      = 0;
         g.GroupID       = 0;
         g.GroupModified = 0;
         g.GroupShown    = 0;
@@ -294,7 +357,11 @@ namespace Kans::PropertyGrid
             storage->SetInt(g.GroupID, g.GroupModified);
             storage->SetInt(ImGui::GetID("##shown"), g.GroupShown);
         }
-        g.GroupID = 0;
+        // A nested group's rows also count for the group around it.
+        const int shown = g.GroupShown, modified = g.GroupModified;
+        CloseFrame();
+        g.GroupShown += shown;
+        g.GroupModified += modified;
         ImGui::PopID();
     }
 
@@ -307,6 +374,7 @@ namespace Kans::PropertyGrid
             return true; // Nested grids share the outer one's columns.
         g.GridStart = ImGui::GetCursorScreenPos();
         g.GridX     = g.GridStart.x;
+        g.RowIndex  = 0;
         g.GridWidth = ImGui::GetContentRegionAvail().x;
         if (labelWidth > 0.0f)
             g.LabelWidth = Px(labelWidth);
@@ -371,10 +439,18 @@ namespace Kans::PropertyGrid
         const auto&  p      = EditorTheme::Colors();
         const ImVec2 start  = ImGui::GetCursorScreenPos();
         const float  height = ImGui::GetFrameHeight();
-        const float  width  = g.GridWidth > 0.0f ? g.GridWidth : ImGui::GetContentRegionAvail().x;
+        // Nested groups step in, so their rows end at the narrower region.
+        const float  width  = g.GridWidth > 0.0f ? std::min(g.GridWidth, ImGui::GetContentRegionAvail().x) :
+                                                   ImGui::GetContentRegionAvail().x;
         auto*        draw   = ImGui::GetWindowDrawList();
         // Hovered row highlight (behind the row's items, which are drawn after it).
         const ImVec2 rowMin {start.x - Px(4.0f), start.y - 1.0f}, rowMax {start.x + width + Px(4.0f), start.y + height + 1.0f};
+        // A hairline between the rows of a group or grid.
+        if (g.RowIndex++ > 0)
+        {
+            const float y = start.y - ImGui::GetStyle().ItemSpacing.y * 0.5f;
+            draw->AddLine({rowMin.x, y}, {rowMax.x, y}, ImGui::GetColorU32(Mix(p.Panel, p.App, 0.5f)), 1.0f);
+        }
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseHoveringRect(rowMin, rowMax, false))
             draw->AddRectFilled(rowMin, rowMax, ImGui::GetColorU32(Faded(p.Hover, 0.45f)), Px(3.0f));
 
