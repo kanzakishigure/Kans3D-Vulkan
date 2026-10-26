@@ -36,10 +36,7 @@ namespace Kans
                    // A free aspect ratio follows the viewport; resizing it is not an edit.
                    (!a.FixedAspectRatio || x.GetAspectRatio() == y.GetAspectRatio());
         }
-        bool Same(const SpriteRendererComponent& a, const SpriteRendererComponent& b)
-        {
-            return a.Color == b.Color && a.TilingFactor == b.TilingFactor && a.Texture == b.Texture;
-        }
+        bool Same(const SpriteRendererComponent& a, const SpriteRendererComponent& b) { return a == b; }
         bool Same(const ProductModelComponent& a, const ProductModelComponent& b)
         {
             return a.Model == b.Model && a.Overrides.size() == b.Overrides.size() &&
@@ -47,6 +44,8 @@ namespace Kans
                        return x.Authored == y.Authored && x.Replacement == y.Replacement;
                    });
         }
+        bool Same(const UIScreenComponent& a, const UIScreenComponent& b) { return a == b; }
+        bool Same(const UIWorldComponent& a, const UIWorldComponent& b) { return a == b; }
         bool Same(const TextComponent& a, const TextComponent& b) { return a == b; }
         bool Same(const MeshComponent& a, const MeshComponent& b) { return a == b; }
         bool Same(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
@@ -64,7 +63,8 @@ namespace Kans
             auto x = a.Overrides.begin(), y = b.Overrides.begin();
             for (; x != a.Overrides.end(); ++x, ++y)
                 if (x->first != y->first || x->second.Removed != y->second.Removed ||
-                    x->second.Materials != y->second.Materials ||
+                    x->second.Materials != y->second.Materials || x->second.UIScreen != y->second.UIScreen ||
+                    x->second.UIWorld != y->second.UIWorld ||
                     x->second.RenderCustomDepth != y->second.RenderCustomDepth ||
                     x->second.CustomStencil != y->second.CustomStencil ||
                     x->second.LocalTransform.has_value() != y->second.LocalTransform.has_value() ||
@@ -128,8 +128,9 @@ namespace Kans
     {
         return a.ID == b.ID && a.Tag == b.Tag && Same(a.Transform, b.Transform) &&
                Same(a.Relationship, b.Relationship) && Same(a.Camera, b.Camera) && Same(a.Sprite, b.Sprite) &&
-               Same(a.Text, b.Text) && Same(a.Model, b.Model) && Same(a.Editable, b.Editable) &&
-               Same(a.Prefab, b.Prefab) && Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) &&
+               Same(a.Text, b.Text) && Same(a.UIScreen, b.UIScreen) && Same(a.UIWorld, b.UIWorld) &&
+               Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
+               Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) &&
                Same(a.MaterialDrivers, b.MaterialDrivers) && Same(a.DirLight, b.DirLight) &&
                Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) && Same(a.AudioSource, b.AudioSource) &&
                Same(a.AudioListener, b.AudioListener);
@@ -162,6 +163,8 @@ namespace Kans
             item.Relationship = entity.GetComponent<RelationshipComponent>();
             Kans::Capture(entity, item.Camera);
             Kans::Capture(entity, item.Text);
+            Kans::Capture(entity, item.UIScreen);
+            Kans::Capture(entity, item.UIWorld);
             Kans::Capture(entity, item.Sprite);
             Kans::Capture(entity, item.Model);
             Kans::Capture(entity, item.Editable);
@@ -212,6 +215,7 @@ namespace Kans
         m_SuppressNotifications = true;
         m_Registry.clear();
         m_RenderWorld->m_TextRecords.clear();
+        m_RenderWorld->m_UIRecords.clear();
         m_EditableMeshes.clear();
         m_EditableSources.clear();
         m_SuppressNotifications = false;
@@ -237,6 +241,8 @@ namespace Kans
             entity.SetComponent<RelationshipComponent>(item.Relationship);
             Kans::Restore(entity, item.Camera);
             Kans::Restore(entity, item.Text);
+            Kans::Restore(entity, item.UIScreen);
+            Kans::Restore(entity, item.UIWorld);
             Kans::Restore(entity, item.Sprite);
             Kans::Restore(entity, item.Model);
             Kans::Restore(entity, item.Editable);

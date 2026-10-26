@@ -41,6 +41,7 @@ namespace Kans
         void PatchComponent(F&& edit)
         {
             if constexpr (std::is_same_v<T, TransformComponent> || std::is_same_v<T, MeshComponent> ||
+                          std::is_same_v<T, UIScreenComponent> || std::is_same_v<T, UIWorldComponent> ||
                           std::is_same_v<T, TextComponent> || std::is_same_v<T, EditableMeshComponent> ||
                           std::is_same_v<T, SpriteRendererComponent> || std::is_same_v<T, DirLightComponent> ||
                           std::is_same_v<T, PointLightComponent>)
@@ -104,12 +105,14 @@ namespace Kans
         {
             return a.GetTransform() == b.GetTransform();
         }
+        static bool SameRenderValue(const UIScreenComponent& a, const UIScreenComponent& b) { return a == b; }
+        static bool SameRenderValue(const UIWorldComponent& a, const UIWorldComponent& b) { return a == b; }
         static bool SameRenderValue(const TextComponent& a, const TextComponent& b) { return a == b; }
         static bool SameRenderValue(const MeshComponent& a, const MeshComponent& b) { return a == b; }
         static bool SameRenderValue(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
         static bool SameRenderValue(const SpriteRendererComponent& a, const SpriteRendererComponent& b)
         {
-            return a.Color == b.Color && a.Texture == b.Texture && a.TilingFactor == b.TilingFactor;
+            return a == b;
         }
         static bool SameRenderValue(const PointLightComponent& a, const PointLightComponent& b)
         {

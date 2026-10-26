@@ -16,6 +16,7 @@ namespace Kans
     class ViewTarget;
     class SpriteBatch;
     class TextRenderer;
+    class UIRenderer;
     struct RenderResult
     {
         RenderView       View;
@@ -56,6 +57,7 @@ namespace Kans
                                             std::vector<MeshDraw>& draws);
         SpriteBatch&      GetSpriteBatch();
         TextRenderer&     GetTextRenderer();
+        UIRenderer&       GetUIRenderer();
         SelectionOutline& GetOutlineService() { return m_Outline; }
         Renderer(const Renderer&)            = delete;
         Renderer& operator=(const Renderer&) = delete;
@@ -107,6 +109,7 @@ namespace Kans
         std::optional<GpuMesh>                                                            m_Cube;
         EntityPicker                                                                      m_Picker;
         SelectionOutline                                                                  m_Outline;
+        std::unique_ptr<UIRenderer>                                                       m_UI;
         std::unique_ptr<TextRenderer>                                                     m_Text;
         std::unique_ptr<SpriteBatch>                                                      m_Sprites;
         ToneMappingPass                                                                   m_ToneMapping;

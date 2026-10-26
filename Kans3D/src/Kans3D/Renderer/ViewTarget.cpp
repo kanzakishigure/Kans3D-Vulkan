@@ -36,7 +36,7 @@ namespace Kans
         desc.Width  = size.x;
         desc.Height = size.y;
         desc.Usage  = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::Sampled |
-                      RenderHardware::TextureUsage::CopySource;
+                      RenderHardware::TextureUsage::CopySource | RenderHardware::TextureUsage::CopyDestination;
         std::vector<Handle<RenderHardware::Texture>> colors;
         for (uint32_t i = 0; i < m_OutputCount; ++i)
             colors.push_back(m_Device->CreateTexture(desc));

@@ -13,6 +13,7 @@
 #include "Kans3D/Geometry/Shapes.h"
 #include "Kans3D/Renderer/Resource/ShadowSettings.h"
 #include "Kans3D/Text/TextComponent.h"
+#include "Kans3D/UI/UIComponents.h"
 #include "ProductModelComponent.h"
 
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
@@ -165,6 +166,8 @@ namespace Kans
     };
     struct PrefabNodeOverride
     {
+        std::optional<UIScreenComponent>  UIScreen;
+        std::optional<UIWorldComponent>   UIWorld;
         std::optional<TransformComponent> LocalTransform;
         std::map<uint32_t, AssetID>       Materials;
         bool                              Removed = false;
@@ -172,7 +175,8 @@ namespace Kans
         std::optional<uint8_t>            CustomStencil;
         bool                              Empty() const
         {
-            return !LocalTransform && Materials.empty() && !Removed && !RenderCustomDepth && !CustomStencil;
+            return !LocalTransform && Materials.empty() && !Removed && !RenderCustomDepth && !CustomStencil &&
+                   !UIScreen && !UIWorld;
         }
     };
     struct PrefabNodeState
@@ -206,26 +210,20 @@ namespace Kans
 
     struct SpriteRendererComponent
     {
-        glm::vec4      Color = {1.0f, 1.0f, 1.0f, 1.0f};
-        Ref<Texture2D> Texture;
-        float          TilingFactor = 1.0f;
-        // 目前未实现texture
-        SpriteRendererComponent()                               = default;
-        SpriteRendererComponent(const SpriteRendererComponent&) = default;
-        SpriteRendererComponent(glm::vec4 color, Ref<Texture2D> texture = nullptr) : Color(color), Texture(texture)
-        {
-            // Set The WhiteTexture
-            if (texture == nullptr)
-            {
-                TextureSpecification spec;
-                spec.Width    = 1;
-                spec.Height   = 1;
-                spec.Format   = RenderHardware::Format::RGBA8Unorm;
-                uint32_t data = 0xffffffff;
-                Texture       = Texture2D::Create(spec, Buffer(&data, sizeof(uint32_t)));
-            }
-        }
+        AssetID   Texture; // Invalid means white; no GPU resources in scene data.
+        glm::vec4 Color {1}, UVRect {0, 0, 1, 1};
+        float     TilingFactor = 1;
+        bool      FlipX = false, FlipY = false;
+        int       SortingOrder    = 0;
+        SpriteRendererComponent() = default;
+        SpriteRendererComponent(glm::vec4 color, AssetID texture = {}) : Texture(texture), Color(color) {}
     };
+    inline bool operator==(const SpriteRendererComponent& a, const SpriteRendererComponent& b)
+    {
+        return a.Texture == b.Texture && a.Color == b.Color && a.UVRect == b.UVRect &&
+               a.TilingFactor == b.TilingFactor && a.FlipX == b.FlipX && a.FlipY == b.FlipY &&
+               a.SortingOrder == b.SortingOrder;
+    }
 
     // can't be serialize
     struct NativeScriptComponent
@@ -286,6 +284,8 @@ namespace Kans
                                          TransformComponent,
                                          CameraComponent,
                                          TextComponent,
+                                         UIScreenComponent,
+                                         UIWorldComponent,
                                          SpriteRendererComponent,
                                          NativeScriptComponent,
                                          MeshComponent,

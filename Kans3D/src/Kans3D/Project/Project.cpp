@@ -518,7 +518,8 @@ namespace Kans
                     error->Code, metadata.Path.ToString() + ": " + label + product.ToString() + ": " + error->Message};
             const auto registry = m_ProductStore->Snapshot();
             const auto record   = registry->Find(product, session.Options.Target);
-            if (!record || record->Metadata.Type != type)
+            // Exposed UI asset overrides request a closure before their target property type is known.
+            if (!record || (type != AssetType::None && record->Metadata.Type != type))
                 return AssetError {AssetErrorCode::InvalidData,
                                    metadata.Path.ToString() + ": " + label + product.ToString() +
                                        " is unpublished or has the wrong Product type"};

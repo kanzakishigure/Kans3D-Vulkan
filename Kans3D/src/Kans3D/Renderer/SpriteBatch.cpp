@@ -85,6 +85,21 @@ void main() { Color = V_Color * texture(Image,V_UV * V_Tiling); }
             m_Data->Vertices.push_back({glm::vec3(transform * positions[i]), color, uv[i], tiling});
         ++m_Data->Stats.QuadCount;
     }
+    void SpriteBatch::DrawSprite(const glm::mat4&      t,
+                                 const Ref<Texture2D>& image,
+                                 const glm::vec4&      c,
+                                 float                 tiling,
+                                 glm::vec4             rect,
+                                 bool                  flipX,
+                                 bool                  flipY)
+    {
+        if (flipX)
+            std::swap(rect.x, rect.z);
+        if (flipY)
+            std::swap(rect.y, rect.w);
+        const glm::vec2 uv[] = {{rect.x, rect.y}, {rect.z, rect.y}, {rect.z, rect.w}, {rect.x, rect.w}};
+        Append(t, image, c, uv, tiling);
+    }
     void SpriteBatch::Init(std::shared_ptr<Device> device)
     {
         if (m_Data->GPU)

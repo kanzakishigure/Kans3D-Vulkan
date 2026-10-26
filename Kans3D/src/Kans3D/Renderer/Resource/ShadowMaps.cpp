@@ -222,7 +222,7 @@ namespace Kans
         // MaterialOrder has the main camera's frustum culling, independent of depth visibility.
         for (const auto& item : frame.View.MaterialOrder)
         {
-            if (item.Text)
+            if (item.Text || item.UI)
                 continue;
             const auto& draw = frame.View.Draws[item.DrawIndex];
             if (!draw.RenderCustomDepth)

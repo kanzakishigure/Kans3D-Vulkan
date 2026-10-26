@@ -102,6 +102,16 @@ namespace Kans
             render.AlphaMode = MaterialAlphaMode::Blend;
             view.MaterialOrder.push_back({i, render, glm::dot(offset, offset), true, text.Style.AlwaysOnTop});
         }
+        for (size_t i = 0; i < view.UIs.size(); ++i)
+        {
+            const auto& ui = view.UIs[i];
+            if (ui.Screen || (frustum && !frustum->Intersects(ui.WorldBounds)))
+                continue;
+            auto                offset = ui.WorldBounds.Center() - view.Scene.sceneCamera.Position;
+            MaterialRenderState render;
+            render.AlphaMode = MaterialAlphaMode::Blend;
+            view.MaterialOrder.push_back({i, render, glm::dot(offset, offset), false, ui.AlwaysOnTop, true});
+        }
         std::stable_sort(view.MaterialOrder.begin(), view.MaterialOrder.end(), [](const auto& a, const auto& b) {
             if (a.AlwaysOnTop != b.AlwaysOnTop)
                 return !a.AlwaysOnTop;
@@ -113,7 +123,7 @@ namespace Kans
         });
         for (const auto& draw : view.MaterialOrder)
         {
-            if (draw.Text)
+            if (draw.Text || draw.UI)
                 continue;
             auto& list = draw.Render.AlphaMode == MaterialAlphaMode::Blend ? view.Blend :
                          draw.Render.AlphaMode == MaterialAlphaMode::Mask  ? view.Mask :

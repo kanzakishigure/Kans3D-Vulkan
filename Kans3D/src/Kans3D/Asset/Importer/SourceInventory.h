@@ -56,6 +56,11 @@ namespace Kans
         bool                           Latin = false, CJK = false, Kana = false, Hangul = false;
         std::vector<InspectedFontFace> Faces;
     };
+    struct InspectedUI
+    {
+        uint32_t             WidgetCount = 0;
+        std::vector<AssetID> ReferencedAssets;
+    };
     struct SourceInventory
     {
         std::vector<InspectedMesh>             Meshes;
@@ -66,5 +71,6 @@ namespace Kans
         std::vector<std::string>               MorphTargets, Warnings;
         std::optional<InspectedTexture>        Texture;
         std::optional<InspectedFont>           Font;
+        std::optional<InspectedUI>             UI;
     };
 } // namespace Kans

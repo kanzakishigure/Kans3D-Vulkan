@@ -24,7 +24,8 @@ namespace Kans
             auto x = a.begin(), y = b.begin();
             for (; x != a.end(); ++x, ++y)
                 if (x->first != y->first || x->second.Removed != y->second.Removed ||
-                    x->second.Materials != y->second.Materials ||
+                    x->second.Materials != y->second.Materials || x->second.UIScreen != y->second.UIScreen ||
+                    x->second.UIWorld != y->second.UIWorld ||
                     x->second.RenderCustomDepth != y->second.RenderCustomDepth ||
                     x->second.CustomStencil != y->second.CustomStencil ||
                     x->second.LocalTransform.has_value() != y->second.LocalTransform.has_value() ||
@@ -137,6 +138,12 @@ namespace Kans
                                                mesh.CustomStencil;
                 state.AppliedMesh = mesh;
             }
+            change.UIScreen = part.HasComponent<UIScreenComponent>() ?
+                                  std::optional<UIScreenComponent>(part.GetComponent<UIScreenComponent>()) :
+                                  std::nullopt;
+            change.UIWorld  = part.HasComponent<UIWorldComponent>() ?
+                                  std::optional<UIWorldComponent>(part.GetComponent<UIWorldComponent>()) :
+                                  std::nullopt;
             if (change.Empty())
             {
                 instance.Overrides.erase(owned.NodeKey);
@@ -295,6 +302,22 @@ namespace Kans
                     mesh.Materials[slot] = material;
                 }
             }
+            if (change != instance.Overrides.end() && change->second.UIScreen)
+            {
+                if (!entity.HasComponent<UIScreenComponent>())
+                    entity.AddComponent<UIScreenComponent>();
+                entity.SetComponent<UIScreenComponent>(*change->second.UIScreen);
+            }
+            else if (entity.HasComponent<UIScreenComponent>())
+                entity.RemoveComponent<UIScreenComponent>();
+            if (change != instance.Overrides.end() && change->second.UIWorld)
+            {
+                if (!entity.HasComponent<UIWorldComponent>())
+                    entity.AddComponent<UIWorldComponent>();
+                entity.SetComponent<UIWorldComponent>(*change->second.UIWorld);
+            }
+            else if (entity.HasComponent<UIWorldComponent>())
+                entity.RemoveComponent<UIWorldComponent>();
             entity.SetComponent<TransformComponent>(transform);
             if (node.Mesh.IsValid())
             {

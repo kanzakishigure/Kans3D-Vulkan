@@ -17,6 +17,8 @@ namespace Kans
         TransformComponent                     Transform;
         RelationshipComponent                  Relationship;
         std::optional<TextComponent>             Text;
+        std::optional<UIScreenComponent>         UIScreen;
+        std::optional<UIWorldComponent>          UIWorld;
         std::optional<CameraComponent>         Camera;
         std::optional<SpriteRendererComponent> Sprite;
         std::optional<MeshComponent>             Model; // Mesh state; name retained for SceneHistory component labels.

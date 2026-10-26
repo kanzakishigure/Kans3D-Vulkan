@@ -6,6 +6,7 @@
 #include "Kans3D/Asset/Runtime/ShaderData.h"
 #include "Kans3D/Asset/Runtime/TextureData.h"
 #include "Kans3D/Text/FontAsset.h"
+#include "Kans3D/UI/UIAsset.h"
 
 namespace Kans
 {
@@ -49,6 +50,7 @@ namespace Kans
         registry.m_Decoders.emplace(AnimationControllerAsset::GetStaticType(), Decode<AnimationControllerAsset>);
         registry.m_Decoders.emplace(FontAsset::GetStaticType(), Decode<FontAsset>);
         registry.m_Decoders.emplace(AudioClipAsset::GetStaticType(), Decode<AudioClipAsset>);
+        registry.m_Decoders.emplace(UIAsset::GetStaticType(), Decode<UIAsset>);
         return registry;
     }
 } // namespace Kans

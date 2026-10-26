@@ -135,7 +135,15 @@ namespace Kans
         if (entity.HasComponent<SpriteRendererComponent>())
         {
             const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
-            record.Sprite      = {world, sprite.Texture, sprite.Color};
+            record.Sprite      = {world,
+                                  {},
+                                  sprite.Color,
+                                  sprite.TilingFactor,
+                                  sprite.UVRect,
+                                  sprite.FlipX,
+                                  sprite.FlipY,
+                                  sprite.SortingOrder,
+                                  sprite.Texture};
         }
         for (auto parent = m_Scene->GetParent(entity); parent; parent = m_Scene->GetParent(parent))
             record.Ancestors.push_back(parent.GetUUID());
@@ -257,6 +265,79 @@ namespace Kans
                               TextWorldBounds(c, layout->LocalBounds(), world)});
         }
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.EntityID < b.EntityID; });
+        return result;
+    }
+    std::shared_ptr<UIInstance> RenderWorld::GetUIInstance(Entity entity, bool world) const
+    {
+        auto assets = GetAssetManager();
+        if (!assets || !entity ||
+            (world ? !entity.HasComponent<UIWorldComponent>() : !entity.HasComponent<UIScreenComponent>()))
+            return {};
+        auto id = world ? entity.GetComponent<UIWorldComponent>().UI : entity.GetComponent<UIScreenComponent>().UI;
+        if (!id.IsValid())
+            return {};
+        auto& r = m_UIRecords[{entt::entity(entity), world}];
+        if (!r.Instance || r.ID != id)
+        {
+            r.ID       = id;
+            r.Instance = std::make_shared<UIInstance>(id, [assets](AssetID id) -> Ref<const UIAsset> {
+                auto s = assets->Request<UIAsset>(id);
+                return s.IsReady() ? s.Asset : Ref<const UIAsset>();
+            });
+        }
+        auto refreshed = r.Instance->Refresh();
+        return r.Instance;
+    }
+    std::vector<ViewUI> RenderWorld::CollectUIs(const RenderCamera& camera) const
+    {
+        std::vector<ViewUI> result;
+        if (!m_Scene)
+            return result;
+        for (auto it = m_UIRecords.begin(); it != m_UIRecords.end();)
+            if (!m_Scene->m_Registry.valid(it->first.first) ||
+                (it->first.second ? !m_Scene->m_Registry.all_of<UIWorldComponent>(it->first.first) :
+                                    !m_Scene->m_Registry.all_of<UIScreenComponent>(it->first.first)))
+                it = m_UIRecords.erase(it);
+            else
+                ++it;
+        for (auto handle : m_Scene->m_Registry.view<UIScreenComponent, IDComponent>())
+        {
+            Entity e {handle, m_Scene};
+            auto&  c = e.GetComponent<UIScreenComponent>();
+            if (!c.Visible)
+                continue;
+            if (auto instance = GetUIInstance(e))
+                result.push_back({instance, glm::mat4(1), true, true, true, c.SortOrder, e.GetUUID(), {}});
+        }
+        for (auto handle : m_Scene->m_Registry.view<UIWorldComponent, TransformComponent, IDComponent>())
+        {
+            Entity e {handle, m_Scene};
+            auto&  c = e.GetComponent<UIWorldComponent>();
+            if (auto instance = GetUIInstance(e, true))
+            {
+                auto          ref = instance->Data() ? instance->Data()->ReferenceResolution : glm::vec2(1920, 1080);
+                TextComponent style;
+                style.Billboard = c.Billboard;
+                auto transform =
+                    TextWorldTransform(style, m_Scene->GetWorldTransform(e), camera.Position, camera.viewMatrix) *
+                    glm::translate(glm::mat4(1), glm::vec3(-c.WorldSize.x * .5f, c.WorldSize.y * .5f, 0)) *
+                    glm::scale(glm::mat4(1), glm::vec3(c.WorldSize.x / ref.x, -c.WorldSize.y / ref.y, 1));
+                Bounds bounds;
+                bounds.Expand({0, 0, -.001f});
+                bounds.Expand({ref.x, ref.y, .001f});
+                result.push_back({instance,
+                                  transform,
+                                  false,
+                                  c.AlwaysOnTop,
+                                  c.DoubleSided,
+                                  0,
+                                  e.GetUUID(),
+                                  bounds.Transformed(transform)});
+            }
+        }
+        std::stable_sort(result.begin(), result.end(), [](auto& a, auto& b) {
+            return a.SortOrder != b.SortOrder ? a.SortOrder < b.SortOrder : a.EntityID < b.EntityID;
+        });
         return result;
     }
     void RenderWorld::Synchronize()
@@ -613,7 +694,12 @@ namespace Kans
             }
             if (expected.Sprite &&
                 (actual.Sprite->Transform != expected.Sprite->Transform ||
-                 actual.Sprite->Texture != expected.Sprite->Texture || actual.Sprite->Color != expected.Sprite->Color))
+                 actual.Sprite->TextureAsset != expected.Sprite->TextureAsset ||
+                 actual.Sprite->Color != expected.Sprite->Color ||
+                 actual.Sprite->TilingFactor != expected.Sprite->TilingFactor ||
+                 actual.Sprite->UVRect != expected.Sprite->UVRect || actual.Sprite->FlipX != expected.Sprite->FlipX ||
+                 actual.Sprite->FlipY != expected.Sprite->FlipY ||
+                 actual.Sprite->SortingOrder != expected.Sprite->SortingOrder))
                 stale(expected.Sort.EntityID);
             if (expected.Point && (actual.Point->Position != expected.Point->Position ||
                                    actual.Point->Diffuse_Intensity != expected.Point->Diffuse_Intensity ||

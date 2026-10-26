@@ -6,6 +6,7 @@
 #include "Resource/MaterialPass.h"
 #include "Resource/SceneShaders.h"
 #include "TextRenderer.h"
+#include "UIRenderer.h"
 namespace Kans
 {
     namespace
@@ -122,7 +123,7 @@ namespace Kans
             return false;
         for (const auto& item : view.MaterialOrder)
         {
-            if (item.Text)
+            if (item.Text || item.UI)
                 continue;
             const auto& draw = view.Draws[item.DrawIndex];
             if (!draw.Ready)
@@ -213,6 +214,18 @@ namespace Kans
         const auto           litFrame = frame;
         for (const auto& item : ready)
         {
+            if (item.UI)
+            {
+                if (!tag.empty())
+                    continue;
+                beginTarget(true);
+                Services.GetUIRenderer().Draw(*commands,
+                                              view.UIs[item.DrawIndex],
+                                              frame.ViewProjection,
+                                              SceneTarget(LoadOp::Load, true),
+                                              View.Viewport);
+                continue;
+            }
             if (item.Text)
             {
                 if (!tag.empty())

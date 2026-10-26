@@ -85,6 +85,13 @@ namespace Kans
                             const glm::vec4&      tintcolor    = glm::vec4(1.0f),
                             float                 tilingFactor = 1.0f);
 
+        void DrawSprite(const glm::mat4&,
+                        const Ref<Texture2D>&,
+                        const glm::vec4&,
+                        float     tiling,
+                        glm::vec4 uvRect,
+                        bool      flipX,
+                        bool      flipY);
         using Statistics = SpriteStatistics;
 
         void        ResetStats();

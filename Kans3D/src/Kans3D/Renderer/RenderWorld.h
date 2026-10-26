@@ -44,6 +44,8 @@ namespace Kans
         void                          Synchronize();
         std::shared_ptr<TextLayoutCache> GetTextLayout(Entity entity) const;
         std::vector<ViewTextDraw>        CollectTexts() const;
+        std::shared_ptr<UIInstance>      GetUIInstance(Entity entity, bool world = false) const;
+        std::vector<ViewUI>              CollectUIs(const RenderCamera&) const;
         void                          Extract(RenderView& output, const RenderResource& settings) const;
         void                          CollectLights(SceneInfo& output) const;
         std::vector<DrawProxy>        CollectDraws(UUID subtree = 0) const;
@@ -103,6 +105,12 @@ namespace Kans
             bool                             WarnedMissing = false;
         };
         mutable std::unordered_map<entt::entity, TextRecord> m_TextRecords;
+        struct UIRecord
+        {
+            AssetID                     ID;
+            std::shared_ptr<UIInstance> Instance;
+        };
+        mutable std::map<std::pair<entt::entity, bool>, UIRecord> m_UIRecords;
         friend class Scene;
     };
 } // namespace Kans

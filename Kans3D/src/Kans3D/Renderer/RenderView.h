@@ -5,6 +5,7 @@
 #include "Kans3D/Renderer/Resource/RenderAssetCache.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/EnvironmentSettings.h"
+#include "Kans3D/UI/UIInstance.h"
 #include "Graph/GraphCapture.h"
 #include "ImmediatePassState.h"
 #include "RenderSettings.h"
@@ -143,13 +144,27 @@ namespace Kans
         size_t              DrawIndex;
         MaterialRenderState Render;
         float               DistanceSquared;
-        bool                Text = false, AlwaysOnTop = false;
+        bool                Text = false, AlwaysOnTop = false, UI = false;
     };
     struct ViewSprite
     {
         glm::mat4      Transform;
         Ref<Texture2D> Texture;
         glm::vec4      Color;
+        float          TilingFactor = 1;
+        glm::vec4      UVRect {0, 0, 1, 1};
+        bool           FlipX = false, FlipY = false;
+        int            SortingOrder = 0;
+        AssetID        TextureAsset;
+    };
+    struct ViewUI
+    {
+        std::shared_ptr<UIInstance> Instance;
+        glm::mat4                   Transform {1}; // Canvas pixels -> world; screen canvases use pixel projection.
+        bool                        Screen = true, AlwaysOnTop = false, DoubleSided = true;
+        int                         SortOrder = 0;
+        UUID                        EntityID  = 0;
+        Bounds                      WorldBounds;
     };
     struct GridSettings
     {
@@ -248,6 +263,7 @@ namespace Kans
         ViewHighlights                       Highlights;
         std::vector<ViewShaderDraw>        Draws;
         std::vector<ViewTextDraw>            Texts;
+        std::vector<ViewUI>                  UIs;
         std::vector<ViewReadyDraw>         MaterialOrder;
         std::vector<size_t>                Opaque, Mask, Blend; // Draw indices, in their filtered execution order.
         std::vector<ViewGeometryDraw>      Geometry;

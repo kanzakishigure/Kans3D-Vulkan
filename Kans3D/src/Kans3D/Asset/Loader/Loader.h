@@ -24,6 +24,13 @@ namespace Kans
     class MaterialDataAsset;
     class TextureAsset;
     class ShaderDataAsset;
+    class UIAsset;
+    template<>
+    class Loader<UIAsset>
+    {
+    public:
+        std::variant<Ref<UIAsset>, AssetError> Load(const AssetLoadContext&) const;
+    };
     class FontAsset;
     template<>
     class Loader<FontAsset>

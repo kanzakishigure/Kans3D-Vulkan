@@ -26,6 +26,8 @@ namespace Kans
         };
         connect(static_cast<MeshComponent*>(nullptr));
         connect(static_cast<TextComponent*>(nullptr));
+        connect(static_cast<UIScreenComponent*>(nullptr));
+        connect(static_cast<UIWorldComponent*>(nullptr));
         m_Registry.on_construct<EditableMeshComponent>().connect<&Scene::OnEditableMeshChanged>(this);
         m_Registry.on_update<EditableMeshComponent>().connect<&Scene::OnEditableMeshChanged>(this);
         m_Registry.on_destroy<EditableMeshComponent>().connect<&Scene::OnEditableMeshRemoved>(this);
@@ -143,6 +145,7 @@ namespace Kans
     {
         if (m_PrefabAssets == assets)
             return;
+        m_RenderWorld->m_UIRecords.clear();
         m_PrefabAssets = assets;
         m_AssetChanges = assets ? assets->ObserveChanges() : nullptr;
         for (auto handle : m_Registry.view<PrefabInstanceComponent>())
@@ -157,6 +160,20 @@ namespace Kans
             if (id.IsValid())
                 ids.insert(id);
         };
+        for (auto handle : m_Registry.view<PrefabInstanceComponent>())
+            for (const auto& [key, change] : m_Registry.get<PrefabInstanceComponent>(handle).Overrides)
+            {
+                if (change.UIScreen)
+                    add(change.UIScreen->UI);
+                if (change.UIWorld)
+                    add(change.UIWorld->UI);
+            }
+        for (auto handle : m_Registry.view<UIScreenComponent>())
+            add(m_Registry.get<UIScreenComponent>(handle).UI);
+        for (auto handle : m_Registry.view<UIWorldComponent>())
+            add(m_Registry.get<UIWorldComponent>(handle).UI);
+        for (auto handle : m_Registry.view<SpriteRendererComponent>())
+            add(m_Registry.get<SpriteRendererComponent>(handle).Texture);
         for (auto handle : m_Registry.view<TextComponent>())
             add(m_Registry.get<TextComponent>(handle).Font);
         for (auto handle : m_Registry.view<MeshComponent>())
@@ -555,6 +572,8 @@ namespace Kans
         CopyComponent<TransformComponent>(source, copy);
         CopyComponent<CameraComponent>(source, copy);
         CopyComponent<TextComponent>(source, copy);
+        CopyComponent<UIScreenComponent>(source, copy);
+        CopyComponent<UIWorldComponent>(source, copy);
         CopyComponent<SpriteRendererComponent>(source, copy);
         CopyComponent<MeshComponent>(source, copy);
         CopyComponent<EditableMeshComponent>(source, copy);
@@ -718,6 +737,12 @@ namespace Kans
 
     template<>
     void Scene::OnComponentAdd<TransformComponent>(Entity entity, TransformComponent& component)
+    {}
+    template<>
+    void Scene::OnComponentAdd<UIScreenComponent>(Entity, UIScreenComponent&)
+    {}
+    template<>
+    void Scene::OnComponentAdd<UIWorldComponent>(Entity, UIWorldComponent&)
     {}
     template<>
     void Scene::OnComponentAdd<TextComponent>(Entity, TextComponent&)

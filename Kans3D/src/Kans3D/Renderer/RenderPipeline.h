@@ -43,6 +43,7 @@ namespace Kans
         void                  PreparePostMaterials(RenderFrame& frame);
         void                  AddPostMaterials(RenderGraph& graph, RenderFrame& frame, PostProcessStage stage);
         void BuildMSAA(RenderGraph& graph, RenderFrame& frame);
+        void                  AddScreenUI(RenderGraph&, RenderFrame&);
         void AddFXAA(RenderGraph& graph, RenderFrame& frame);
         void AddReconstructionFilter(RenderGraph& graph, RenderFrame& frame);
     };

@@ -26,5 +26,6 @@ namespace Kans
         AnimationController = 12,
         AudioClip           = 13,
         Font                = 14,
+        UI                  = 15,
     };
 } // namespace Kans

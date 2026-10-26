@@ -7,6 +7,7 @@
 #include <yaml-cpp/yaml.h>
 #include "Kans3D/Animation/AnimationProduct.h"
 #include "Kans3D/Asset/Storage/ProductFiles.h"
+#include "Kans3D/UI/UIAsset.h"
 #include "Entity.h"
 namespace Kans
 {
@@ -720,6 +721,48 @@ namespace Kans
                 throw std::runtime_error(error);
             return c;
         }
+        YAML::Node EncodeUIScreen(const UIScreenComponent& c)
+        {
+            YAML::Node n;
+            n["UI"]        = c.UI.ToString();
+            n["SortOrder"] = c.SortOrder;
+            n["Visible"]   = c.Visible;
+            return n;
+        }
+        YAML::Node EncodeUIWorld(const UIWorldComponent& c)
+        {
+            Require(std::isfinite(c.WorldSize.x) && std::isfinite(c.WorldSize.y) && c.WorldSize.x > 0 &&
+                        c.WorldSize.y > 0 && int(c.Billboard) >= 0 && int(c.Billboard) <= 2,
+                    "Invalid world UI size/billboard");
+            YAML::Node n;
+            n["UI"]          = c.UI.ToString();
+            n["WorldSize"]   = UIEncode(c.WorldSize);
+            n["Billboard"]   = int(c.Billboard);
+            n["AlwaysOnTop"] = c.AlwaysOnTop;
+            n["DoubleSided"] = c.DoubleSided;
+            return n;
+        }
+        UIScreenComponent DecodeUIScreen(const YAML::Node& n)
+        {
+            Keys(n, {"UI", "SortOrder", "Visible"});
+            UIScreenComponent c;
+            c.UI        = Identity(n["UI"]);
+            c.SortOrder = n["SortOrder"].as<int>(0);
+            c.Visible   = n["Visible"].as<bool>(true);
+            return c;
+        }
+        UIWorldComponent DecodeUIWorld(const YAML::Node& n)
+        {
+            Keys(n, {"UI", "WorldSize", "Billboard", "AlwaysOnTop", "DoubleSided"});
+            UIWorldComponent c;
+            c.UI          = Identity(n["UI"]);
+            c.WorldSize   = UIVec2(n["WorldSize"], c.WorldSize);
+            c.Billboard   = TextBillboard(n["Billboard"].as<int>(0));
+            c.AlwaysOnTop = n["AlwaysOnTop"].as<bool>(false);
+            c.DoubleSided = n["DoubleSided"].as<bool>(true);
+            EncodeUIWorld(c);
+            return c;
+        }
         YAML::Node EncodePrefab(const PrefabInstanceComponent& prefab)
         {
             YAML::Node value;
@@ -739,6 +782,10 @@ namespace Kans
                     item["RenderCustomDepth"] = *change.RenderCustomDepth;
                 if (change.CustomStencil)
                     item["CustomStencil"] = uint32_t(*change.CustomStencil);
+                if (change.UIScreen)
+                    item["UIScreen"] = EncodeUIScreen(*change.UIScreen);
+                if (change.UIWorld)
+                    item["UIWorld"] = EncodeUIWorld(*change.UIWorld);
                 if (change.LocalTransform)
                     item["Transform"] = EncodeTransform(*change.LocalTransform);
                 item["Materials"] = YAML::Node(YAML::NodeType::Sequence);
@@ -767,11 +814,23 @@ namespace Kans
             Require(overrides.IsSequence() && overrides.size() <= 65536, "Invalid prefab overrides");
             for (const auto& item : overrides)
             {
-                Keys(item, {"Node", "Removed", "Transform", "Materials", "RenderCustomDepth", "CustomStencil"});
+                Keys(item,
+                     {"Node",
+                      "Removed",
+                      "Transform",
+                      "Materials",
+                      "RenderCustomDepth",
+                      "CustomStencil",
+                      "UIScreen",
+                      "UIWorld"});
                 const auto key = Text(item["Node"]);
                 Require(!key.empty() && !prefab.Overrides.count(key), "Duplicate/empty prefab override key");
                 auto& change   = prefab.Overrides[key];
                 change.Removed = item["Removed"].as<bool>();
+                if (item["UIScreen"])
+                    change.UIScreen = DecodeUIScreen(item["UIScreen"]);
+                if (item["UIWorld"])
+                    change.UIWorld = DecodeUIWorld(item["UIWorld"]);
                 if (item["RenderCustomDepth"])
                     change.RenderCustomDepth = item["RenderCustomDepth"].as<bool>();
                 if (item["CustomStencil"])
@@ -1021,6 +1080,10 @@ namespace Kans
                     "Mesh components are mutually exclusive");
             if (entity.HasComponent<EditableMeshComponent>())
                 node["EditableMeshComponent"] = EncodeEditable(entity.GetComponent<EditableMeshComponent>());
+            if (entity.HasComponent<UIScreenComponent>())
+                node["UIScreenComponent"] = EncodeUIScreen(entity.GetComponent<UIScreenComponent>());
+            if (entity.HasComponent<UIWorldComponent>())
+                node["UIWorldComponent"] = EncodeUIWorld(entity.GetComponent<UIWorldComponent>());
             if (entity.HasComponent<TextComponent>())
                 node["TextComponent"] = EncodeText(entity.GetComponent<TextComponent>());
             if (entity.HasComponent<MeshComponent>())
@@ -1080,11 +1143,16 @@ namespace Kans
             if (entity.HasComponent<SpriteRendererComponent>())
             {
                 const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
-                Require(!sprite.Texture, "Legacy Sprite texture has no persistent Product identity");
+
                 value.reset(node["SpriteRendererComponent"]);
                 value["Color"] = Vector(sprite.Color, 4);
                 Require(std::isfinite(sprite.TilingFactor) && sprite.TilingFactor >= 0, "Invalid Sprite tiling");
                 value["TilingFactor"] = sprite.TilingFactor;
+                value["TextureAsset"] = sprite.Texture.ToString();
+                value["UVRect"]       = Vector(sprite.UVRect, 4);
+                value["FlipX"]        = sprite.FlipX;
+                value["FlipY"]        = sprite.FlipY;
+                value["SortingOrder"] = sprite.SortingOrder;
             }
             return node;
         }
@@ -1294,6 +1362,8 @@ namespace Kans
                       "AudioSourceComponent",
                       "AudioListenerComponent",
                       "TextComponent",
+                      "UIScreenComponent",
+                      "UIWorldComponent",
                       "MeshComponent",
                       "EditableMeshComponent",
                       "PrefabParent",
@@ -1418,6 +1488,10 @@ namespace Kans
                         "Mesh components are mutually exclusive");
                 if (node["EditableMeshComponent"])
                     entity.AddComponent<EditableMeshComponent>(DecodeEditable(node["EditableMeshComponent"], budget));
+                if (node["UIScreenComponent"])
+                    entity.AddComponent<UIScreenComponent>(DecodeUIScreen(node["UIScreenComponent"]));
+                if (node["UIWorldComponent"])
+                    entity.AddComponent<UIWorldComponent>(DecodeUIWorld(node["UIWorldComponent"]));
                 if (node["TextComponent"])
                     entity.AddComponent<TextComponent>(DecodeText(node["TextComponent"]));
                 if (node["MeshComponent"])
@@ -1517,11 +1591,27 @@ namespace Kans
                 if (node["SpriteRendererComponent"])
                 {
                     value.reset(node["SpriteRendererComponent"]);
-                    Keys(value, {"Color", "TilingFactor"});
+                    Keys(value,
+                         {"Color",
+                          "TilingFactor",
+                          "Texture",
+                          "TextureAsset",
+                          "UVRect",
+                          "FlipX",
+                          "FlipY",
+                          "SortingOrder"});
                     auto& sprite        = entity.AddComponent<SpriteRendererComponent>();
                     sprite.Color        = Vec4(value["Color"]);
                     sprite.TilingFactor = Number(value["TilingFactor"]);
                     Require(sprite.TilingFactor >= 0, "Invalid Sprite tiling");
+                    // Legacy Texture was a runtime object/path: only TextureAsset has persistent identity.
+                    if (value["TextureAsset"])
+                        sprite.Texture = Identity(value["TextureAsset"]);
+                    if (value["UVRect"])
+                        sprite.UVRect = Vec4(value["UVRect"]);
+                    sprite.FlipX        = value["FlipX"].as<bool>(false);
+                    sprite.FlipY        = value["FlipY"].as<bool>(false);
+                    sprite.SortingOrder = value["SortingOrder"].as<int>(0);
                 }
             }
             if (root["PostProcess"])

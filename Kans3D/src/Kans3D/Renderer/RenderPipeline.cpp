@@ -7,6 +7,7 @@
 #include "Resource/ShadowMaps.h"
 #include "SpriteBatch.h"
 #include "TextRenderer.h"
+#include "UIRenderer.h"
 
 namespace Kans
 {
@@ -355,12 +356,20 @@ namespace Kans
                     if (pass)
                         graph.OrderAfter(pass, pass - 1);
                 });
-                sprites.BeginScene(view.Scene.sceneCamera.camera, view.Scene.sceneCamera.viewMatrix);
+                ImmediatePassState spriteState;
+                spriteState.DepthCompare = CompareOp::Always;
+                sprites.BeginScene(view.Scene.sceneCamera.camera, view.Scene.sceneCamera.viewMatrix, spriteState);
                 const auto end = immediate.Count == SIZE_MAX ? view.Sprites.size() : immediate.Index + immediate.Count;
                 for (size_t i = immediate.Index; i < end; ++i)
                 {
                     const auto& sprite = view.Sprites.at(i);
-                    sprites.DrawQuad(sprite.Transform, sprite.Texture, sprite.Color);
+                    sprites.DrawSprite(sprite.Transform,
+                                       sprite.Texture,
+                                       sprite.Color,
+                                       sprite.TilingFactor,
+                                       sprite.UVRect,
+                                       sprite.FlipX,
+                                       sprite.FlipY);
                 }
                 sprites.EndScene();
                 renderer.SpriteStats.DrawCalls += sprites.GetStats().DrawCalls;
@@ -391,6 +400,8 @@ namespace Kans
         if (!view.MaterialOrder.empty())
         {
             auto uses = target;
+            for (const auto& image : renderer.Services.GetUIRenderer().Textures())
+                sampled(uses, image, "UITexture");
             for (const auto& image : renderer.Services.GetTextRenderer().Textures())
                 sampled(uses, image, "FontAtlas");
             for (const auto& image : renderer.GetMaterialEnvironment())
@@ -457,9 +468,54 @@ namespace Kans
         AddPostMaterials(graph, renderer, PostProcessStage::AfterToneMap);
         if (view.EffectiveAA == AntiAliasing::FXAA)
             AddFXAA(graph, renderer);
+        AddScreenUI(graph, renderer);
         Inject(RenderExtensionPoint::Overlay, featureContext);
     }
 
+    void ForwardPipeline::AddScreenUI(RenderGraph& graph, RenderFrame& frame)
+    {
+        using namespace RenderHardware;
+        if (std::none_of(frame.View.UIs.begin(), frame.View.UIs.end(), [](auto& ui) { return ui.Screen; }))
+            return;
+        auto output      = graph.ImportTexture("SceneColor0", frame.Output.GetColors()[0]);
+        auto desc        = frame.Output.GetColors()[0]->GetDesc();
+        desc.PixelFormat = Format::RGBA8Srgb;
+        desc.Usage       = RenderHardware::TextureUsage::RenderTarget | RenderHardware::TextureUsage::CopySource |
+                           RenderHardware::TextureUsage::CopyDestination;
+        auto srgb        = graph.CreateTexture("UI sRGB composite", desc);
+        auto append      = [&](const char* name, std::vector<GraphUse> uses, RenderGraph::Record record) {
+            auto p = graph.AddPass(name, std::move(uses), std::move(record));
+            if (p)
+                graph.OrderAfter(p, p - 1);
+        };
+        // Compatible UNORM/sRGB copies preserve encoded bytes. Hardware blending decodes/encodes sRGB.
+        append("UI background copy",
+               {{output, GraphAccess::TransferRead}, {srgb, GraphAccess::TransferWrite}},
+               [output, srgb](auto& c) { c.Commands.CopyTexture(c.Texture(output), {}, c.Texture(srgb)); });
+        std::vector<GraphUse> uses {{srgb, GraphAccess::ColorReadWrite}};
+        for (auto& image : frame.Services.GetUIRenderer().Textures())
+            uses.push_back({graph.ImportTexture("UI image/atlas", image), GraphAccess::SampledRead});
+        append("Screen UI (linear blending, sRGB output)", std::move(uses), [&frame, srgb](auto& c) {
+            RenderingDesc target;
+            target.Colors.push_back({c.Texture(srgb)});
+            target.Colors[0].Load = LoadOp::Load;
+            c.Commands.BeginRendering(target);
+            auto viewport = frame.View.Viewport;
+            c.Commands.SetViewport({0, 0, float(viewport.x), float(viewport.y)});
+            glm::mat4 projection(1);
+            projection[0][0] = 2.f / viewport.x;
+            projection[1][1] = 2.f / viewport.y;
+            projection[3][0] = -1;
+            projection[3][1] = -1;
+            for (auto& ui : frame.View.UIs)
+                if (ui.Screen)
+                    frame.Services.GetUIRenderer().Draw(c.Commands, ui, projection, target, viewport);
+            c.Commands.EndRendering();
+        });
+        append("UI display copy",
+               {{srgb, GraphAccess::TransferRead}, {output, GraphAccess::TransferWrite}},
+               [output, srgb](auto& c) { c.Commands.CopyTexture(c.Texture(srgb), {}, c.Texture(output)); });
+    }
     void ForwardPipeline::AddReconstructionFilter(RenderGraph& graph, RenderFrame& frame)
     {
         const float radius = frame.View.GetPostProcessSettings().FilterSize;
@@ -617,11 +673,14 @@ namespace Kans
                     sprites.ResetStats();
                     sprites.SetTarget(frame.GetDevice(), frame.SceneTarget(LoadOp::Load));
                     sprites.SetCommandList(&c.Commands);
-                    sprites.BeginScene(frame.View.Scene.sceneCamera.camera, frame.View.Scene.sceneCamera.viewMatrix);
+                    ImmediatePassState spriteState;
+                    spriteState.DepthCompare = CompareOp::Always;
+                    sprites.BeginScene(
+                        frame.View.Scene.sceneCamera.camera, frame.View.Scene.sceneCamera.viewMatrix, spriteState);
                     for (size_t i = immediate.Index; i < end; ++i)
                     {
                         const auto& s = frame.View.Sprites[i];
-                        sprites.DrawQuad(s.Transform, s.Texture, s.Color);
+                        sprites.DrawSprite(s.Transform, s.Texture, s.Color, s.TilingFactor, s.UVRect, s.FlipX, s.FlipY);
                     }
                     sprites.EndScene();
                     frame.SpriteStats.DrawCalls += sprites.GetStats().DrawCalls;
@@ -647,6 +706,8 @@ namespace Kans
                 if (std::none_of(uses.begin(), uses.end(), [&](auto u) { return u.Texture == id; }))
                     uses.push_back({id, GraphAccess::SampledRead});
             };
+            for (const auto& image : frame.Services.GetUIRenderer().Textures())
+                sampled(image);
             for (const auto& image : frame.Services.GetTextRenderer().Textures())
                 sampled(image);
             for (const auto& image : frame.GetMaterialEnvironment())
@@ -721,6 +782,7 @@ namespace Kans
             frame.DeferToneMapping = frame.PostProcessHDR = false;
         });
         AddPostMaterials(graph, frame, PostProcessStage::AfterToneMap);
+        AddScreenUI(graph, frame);
         Inject(RenderExtensionPoint::Overlay, postFeatures);
     }
 } // namespace Kans

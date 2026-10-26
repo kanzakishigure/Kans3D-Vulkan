@@ -14,6 +14,7 @@
 #include "Resource/SceneShaders.h"
 #include "SpriteBatch.h"
 #include "TextRenderer.h"
+#include "UIRenderer.h"
 namespace Kans
 {
     namespace
@@ -527,6 +528,33 @@ namespace Kans
         statistics.ProxiesCreated               = world.GetStats().Created;
         statistics.ProxiesUpdated               = world.GetStats().Updated;
         statistics.ProxiesRemoved               = world.GetStats().Removed;
+        if (view.ExtractWorld)
+        {
+            auto uis = world.CollectUIs(view.Scene.sceneCamera);
+            view.UIs.insert(view.UIs.end(), uis.begin(), uis.end());
+        }
+        std::stable_sort(view.UIs.begin(), view.UIs.end(), [](auto& a, auto& b) { return a.SortOrder < b.SortOrder; });
+        if (!view.UIs.empty())
+        {
+            if (texts.empty())
+                GetTextRenderer().BeginFrame();
+            result.Complete &= GetUIRenderer().Prepare(view.UIs, view.Assets.get(), view.Viewport);
+        }
+        for (auto& sprite : view.Sprites)
+            if (sprite.TextureAsset.IsValid() && view.Assets)
+            {
+                auto status = view.Assets->GetAssetManager().Request<TextureAsset>(sprite.TextureAsset);
+                result.Complete &= status.State != AssetLoadState::Loading;
+                sprite.Texture = view.Assets->GetTexture(sprite.TextureAsset);
+            }
+        // SortingOrder precedes back-to-front distance; equal distances retain submission order.
+        std::stable_sort(view.Sprites.begin(), view.Sprites.end(), [&](auto& a, auto& b) {
+            if (a.SortingOrder != b.SortingOrder)
+                return a.SortingOrder < b.SortingOrder;
+            auto da = glm::vec3(a.Transform[3]) - view.Scene.sceneCamera.Position,
+                 db = glm::vec3(b.Transform[3]) - view.Scene.sceneCamera.Position;
+            return glm::dot(da, da) > glm::dot(db, db);
+        });
         const auto buildStart                   = RenderClockMilliseconds();
         const bool sceneEnvironment = view.UseWorldEnvironment && world.Environment.has_value();
         if (view.UseWorldEnvironment)
@@ -749,6 +777,12 @@ namespace Kans
 
 namespace Kans
 {
+    UIRenderer& Renderer::GetUIRenderer()
+    {
+        if (!m_UI)
+            m_UI = std::make_unique<UIRenderer>(*this);
+        return *m_UI;
+    }
     TextRenderer& Renderer::GetTextRenderer()
     {
         if (!m_Text)

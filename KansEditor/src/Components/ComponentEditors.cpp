@@ -140,7 +140,7 @@ namespace Kans
 
         auto& sprite    = registry.Register<SpriteRendererComponent>("Sprite Renderer", ICON_FA_IMAGE, "Rendering");
         sprite.IconRank = 6;
-        sprite.Add = [](Entity e) { e.AddComponent<SpriteRendererComponent>().Texture = Renderer::GetWhiteTexture(); };
+        sprite.Add      = [](Entity e) { e.AddComponent<SpriteRendererComponent>(); };
         // Reset keeps the texture: it restores colour and tiling only.
         sprite.Reset = [](Entity e) {
             e.PatchComponent<SpriteRendererComponent>([](auto& c) {

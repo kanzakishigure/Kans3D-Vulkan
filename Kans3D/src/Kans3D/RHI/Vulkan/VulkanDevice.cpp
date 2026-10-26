@@ -1519,7 +1519,12 @@ namespace Kans::RenderHardware
                 Require(s != d && Has(s->Desc.Usage, TextureUsage::CopySource) &&
                             Has(d->Desc.Usage, TextureUsage::CopyDestination),
                         "Texture copy usage mismatch");
-                Require(s->Desc.Samples == d->Desc.Samples && s->Desc.PixelFormat == d->Desc.PixelFormat &&
+                // Vulkan permits raw copies between compatible UNORM/sRGB texel blocks.
+                const bool compatibleColor =
+                    (s->Desc.PixelFormat == Format::RGBA8Unorm && d->Desc.PixelFormat == Format::RGBA8Srgb) ||
+                    (s->Desc.PixelFormat == Format::RGBA8Srgb && d->Desc.PixelFormat == Format::RGBA8Unorm);
+                Require(s->Desc.Samples == d->Desc.Samples &&
+                            (s->Desc.PixelFormat == d->Desc.PixelFormat || compatibleColor) &&
                             TextureBytes(s->Desc, from) == TextureBytes(d->Desc, to) &&
                             Width(s->Desc, from.Mip) == Width(d->Desc, to.Mip) &&
                             Height(s->Desc, from.Mip) == Height(d->Desc, to.Mip),

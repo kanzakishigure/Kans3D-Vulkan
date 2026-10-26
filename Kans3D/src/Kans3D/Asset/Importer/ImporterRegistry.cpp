@@ -7,6 +7,7 @@
 #include "ModelImporter.h"
 #include "ShaderImporter.h"
 #include "TextureImporter.h"
+#include "UIImporter.h"
 
 namespace Kans
 {
@@ -106,6 +107,7 @@ namespace Kans
                  {{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"}, std::make_shared<TextureImporter>()}},
                 {"ShaderImporter", {{".vert", ".frag", ".comp", ".shaderprog"}, std::make_shared<ShaderImporter>()}},
                 {"MaterialImporter", {{".material"}, std::make_shared<MaterialImporter>()}},
+                {"UIImporter", {{".kui"}, std::make_shared<UIImporter>()}},
                 {"FontImporter", {{".ttf", ".otf", ".ttc", ".otc"}, std::make_shared<FontImporter>()}},
                 {"AudioImporter", {{".wav", ".ogg", ".mp3", ".flac"}, std::make_shared<AudioImporter>()}},
         };
