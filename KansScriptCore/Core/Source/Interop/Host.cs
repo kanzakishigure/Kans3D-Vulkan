@@ -43,7 +43,7 @@ namespace Kans.Interop
             if (native->Log == null || native->HasComponent == null || native->GetTranslation == null ||
                 native->SetTranslation == null || native->GetRotation == null || native->SetRotation == null || native->IsKeyPressed == null ||
                 native->SetMaterialParameter == null || native->ClearMaterialParameter == null || native->GetMaterialParameter == null || native->AddComponent == null || native->DestroyEntity == null ||
-                native->ComponentProperty == null || native->WidgetProperty == null || native->ReadUIEvent == null || native->UIUtility == null || native->AnimationCommand == null || native->ReadAnimationEvent == null) return -1;
+                native->ComponentProperty == null || native->WidgetProperty == null || native->ReadUIEvent == null || native->UIUtility == null || native->AnimationCommand == null || native->ReadAnimationEvent == null || native->TimelineCommand == null || native->ReadTimelineEvent == null) return -1;
             InternalCalls.Api = *native;
             *managed = new ManagedApi {
                 Version = NativeApi.ApiVersion, Size = (uint)sizeof(ManagedApi), Shutdown = &Shutdown, LoadAssembly = &LoadAssembly,
@@ -59,6 +59,16 @@ namespace Kans.Interop
         {
             try { Log.Error($"Script exception entity={entity?.ID ?? id} class={name ?? "<host>"}: {exception}"); }
             catch { /* No exception, including a logger failure, may cross an unmanaged boundary. */ }
+        }
+        internal static void InvokeTimeline(ulong target, string method, string payload)
+        {
+            foreach (var instance in s_Instances.ToArray())
+            {
+                if (instance.Disabled || !instance.Root.IsAllocated || instance.Root.Target is not Entity e || e.ID != target) continue;
+                using var scope = new UI.ScriptScope(instance.Handle);
+                try { s_Registry?.InvokeTimeline(e, method, payload); }
+                catch (Exception ex) { Error(ex, e, instance.Class); }
+            }
         }
         private static string Read(byte* text) => Marshal.PtrToStringUTF8((nint)text) ?? "";
 
@@ -83,6 +93,7 @@ namespace Kans.Interop
         {
             UI.SetPlaying(false);
             AnimationEvents.Reset();
+            TimelineEvents.Reset();
             foreach (var instance in s_Instances.ToArray()) Release(instance);
             s_Instances.Clear();
             s_Handles.Clear();
@@ -94,7 +105,7 @@ namespace Kans.Interop
             using var scope = new UI.ScriptScope(instance.Handle);
             try { if (!instance.Disabled) entity.DestroyScript(); }
             catch (Exception e) { Error(e, entity, instance.Class); }
-            finally { UI.RemoveOwner(instance.Handle); AnimationEvents.RemoveOwner(instance.Handle); instance.Root.Free(); }
+            finally { UI.RemoveOwner(instance.Handle); AnimationEvents.RemoveOwner(instance.Handle); TimelineEvents.RemoveOwner(instance.Handle); instance.Root.Free(); }
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -242,7 +253,7 @@ namespace Kans.Interop
             }
             catch (Exception e)
             {
-                if (instance != null) { instance.Disabled = true; UI.RemoveOwner(instance.Handle); AnimationEvents.RemoveOwner(instance.Handle); }
+                if (instance != null) { instance.Disabled = true; UI.RemoveOwner(instance.Handle); AnimationEvents.RemoveOwner(instance.Handle); TimelineEvents.RemoveOwner(instance.Handle); }
                 Error(e, entity, className, id);
                 return instance?.Handle ?? 0;
             }
@@ -266,6 +277,7 @@ namespace Kans.Interop
                 if (!s_Playing) return;
                 UI.Drain();
                 AnimationEvents.Drain();
+                TimelineEvents.Drain();
                 if (!s_Playing) return;
                 // Native supplies handles in current scene order; dictionary lookups allocate nothing.
                 for (int i = 0; i < count; ++i)
@@ -275,7 +287,7 @@ namespace Kans.Interop
                     var entity = (Entity)instance.Root.Target!;
                     using var scope = new UI.ScriptScope(instance.Handle);
                     try { entity.Update(ts); }
-                    catch (Exception e) { instance.Disabled = true; UI.RemoveOwner(instance.Handle); AnimationEvents.RemoveOwner(instance.Handle); Error(e, entity, instance.Class); }
+                    catch (Exception e) { instance.Disabled = true; UI.RemoveOwner(instance.Handle); AnimationEvents.RemoveOwner(instance.Handle); TimelineEvents.RemoveOwner(instance.Handle); Error(e, entity, instance.Class); }
                 }
             }
             catch (Exception e) { Error(e); }

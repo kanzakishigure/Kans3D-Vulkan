@@ -102,6 +102,7 @@ namespace Kans
             typeof(T) == typeof(CameraComponent) ? ComponentIds.CameraComponent :
             typeof(T) == typeof(ScriptComponent) ? ComponentIds.ScriptComponent :
             (typeof(T) == typeof(Animator) || typeof(T) == typeof(AnimatorComponent)) ? ComponentIds.AnimatorComponent :
+            (typeof(T) == typeof(TimelinePlayer) || typeof(T) == typeof(TimelinePlayerComponent)) ? ComponentIds.TimelinePlayerComponent :
             typeof(T) == typeof(TextComponent) ? ComponentIds.TextComponent :
             typeof(T) == typeof(SpriteRendererComponent) ? ComponentIds.SpriteRendererComponent :
             typeof(T) == typeof(UIScreenComponent) ? ComponentIds.UIScreenComponent :

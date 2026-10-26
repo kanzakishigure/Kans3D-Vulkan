@@ -288,6 +288,7 @@ namespace Kans
         m_Actions.assign(controller.Layers.size(), {});
         m_ActionStatus.assign(controller.Layers.size(), {});
         m_ActionEvents.clear();
+        m_TimelinePoses.clear();
         m_ActionError.reset();
         for (size_t l = 0; l < controller.Layers.size(); ++l)
             m_ActionStatus[l].Slot = controller.Layers[l].Slot;

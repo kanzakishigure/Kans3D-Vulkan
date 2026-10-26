@@ -57,7 +57,24 @@ namespace Kans.Generators
             source.Append("};\npublic global::Kans.Entity? Create(string name) => name switch {\n");
             foreach (string name in names)
                 source.Append('"').Append(name).Append("\" => new global::").Append(name).Append("(),\n");
-            source.Append("_ => null };\n[global::System.Runtime.CompilerServices.ModuleInitializer] public static void Register() => global::Kans.Interop.ScriptRegistry.Register(new ScriptRegistry());\n} }\n");
+            source.Append("_ => null };\n");
+            source.Append("public bool InvokeTimeline(global::Kans.Entity target, string method, string payload) {\n");
+            int dispatchIndex = 0;
+            foreach (var type in classes.Where(c => c != null).GroupBy(c => c!.ToDisplayString()).Select(g => g.First()!))
+            {
+
+                foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m =>
+                    m.MethodKind == MethodKind.Ordinary && m.DeclaredAccessibility == Accessibility.Public && !m.IsStatic &&
+                    !m.IsGenericMethod && m.ReturnsVoid && m.Parameters.Length == 1 &&
+                    m.Parameters[0].Type.SpecialType == SpecialType.System_String && m.Parameters[0].RefKind == RefKind.None))
+                {
+                    string variable = "e" + dispatchIndex++;
+                    source.Append("if (target is global::").Append(type.ToDisplayString()).Append(' ').Append(variable)
+                        .Append(" && method == \"").Append(method.Name).Append("\") { ").Append(variable).Append(".@")
+                        .Append(method.Name).Append("(payload); return true; }\n");
+                }
+            }
+            source.Append("return false; }\n[global::System.Runtime.CompilerServices.ModuleInitializer] public static void Register() => global::Kans.Interop.ScriptRegistry.Register(new ScriptRegistry());\n} }\n");
             output.AddSource("ScriptRegistry.g.cs", SourceText.From(source.ToString(), Encoding.UTF8));
         }
     }

@@ -9,7 +9,7 @@
 
 namespace Kans::Scripting
 {
-    constexpr uint32_t ApiVersion = 4;
+    constexpr uint32_t ApiVersion = 5;
     enum class ComponentType : uint32_t
     {
 #define KANS_COMPONENT(id, name) name = id,
@@ -46,7 +46,13 @@ namespace Kans::Scripting
         double   Time   = 0;
         int32_t  Kind = 0, Interrupted = 0;
     };
-    // ABI v4: UTF-8, NUL terminated strings; Cdecl callbacks; int32 booleans/status;
+    struct TimelineEventData
+    {
+        uint64_t Player = 0, Target = 0;
+        double   Time     = 0;
+        int32_t  Finished = 0, Reserved = 0;
+    };
+    // ABI v5: UTF-8, NUL terminated strings; Cdecl callbacks; int32 booleans/status;
     // no engine pointers cross this boundary. Handles are opaque uint64 values.
     struct NativeApi
     {
@@ -81,6 +87,8 @@ namespace Kans::Scripting
                                                     float,
                                                     float)                                                   = nullptr;
         int32_t(KANS_SCRIPT_CALL* ReadAnimationEvent)(int32_t, AnimationEventData*, int32_t, char*, int32_t) = nullptr;
+        int32_t(KANS_SCRIPT_CALL* TimelineCommand)(uint64_t, int32_t, const char*, uint64_t, double*)        = nullptr;
+        int32_t(KANS_SCRIPT_CALL* ReadTimelineEvent)(int32_t, TimelineEventData*, int32_t, char*, int32_t)   = nullptr;
     };
     struct ManagedApi
     {
@@ -102,6 +110,6 @@ namespace Kans::Scripting
     static_assert(sizeof(Vector3) == 12);
     static_assert(sizeof(Value) == 24);
     static_assert(sizeof(UIEventData) == 64);
-    static_assert(sizeof(NativeApi) == 8 + 18 * sizeof(void*));
+    static_assert(sizeof(NativeApi) == 8 + 20 * sizeof(void*));
     static_assert(sizeof(ManagedApi) == 8 + 12 * sizeof(void*));
 } // namespace Kans::Scripting

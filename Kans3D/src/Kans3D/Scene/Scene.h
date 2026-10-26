@@ -85,6 +85,11 @@ namespace Kans
         uint64_t               GetEditableMeshBuildCount() const { return m_EditableMeshBuildCount; }
         void                   UpdatePrefabs();
         // Nonblocking asset preparation. Pose drives prefab skeleton entities.
+        bool                           IsEntityActive(Entity entity) const;
+        void                           SetEntityActive(Entity entity, bool active);
+        bool                           PrepareTimeline(Entity owner);
+        void                           UpdateTimelines(double seconds);
+        AssetManager*                  GetAssetManager() const { return m_PrefabAssets; }
         bool                           PrepareAnimator(Entity root);
         void                           UpdateAnimations(double seconds);
         void                           UpdateModelPoses();

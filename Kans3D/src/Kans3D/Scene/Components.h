@@ -9,6 +9,7 @@
 #include "Kans3D/Asset/Runtime/MeshData.h"
 #include "Kans3D/Asset/Runtime/ModelData.h"
 #include "Kans3D/Audio/AudioComponents.h"
+#include "Kans3D/Timeline/Timeline.h"
 
 #include "Kans3D/Core/UUID.h"
 #include "Kans3D/Geometry/Shapes.h"
@@ -32,6 +33,12 @@ namespace Kans
         IDComponent()                   = default;
         IDComponent(const IDComponent&) = default;
     };
+
+    struct ActiveComponent
+    {
+        bool Active = true;
+    };
+    inline bool operator==(const ActiveComponent& a, const ActiveComponent& b) { return a.Active == b.Active; }
 
     struct TagComponent
     {
@@ -97,8 +104,10 @@ namespace Kans
     };
     struct MaterialParameterDriversComponent
     {
-        std::vector<MaterialParameterBinding> Bindings;
-        Ref<InstanceMaterialParameters>       Values;
+        std::vector<MaterialParameterBinding>                                         Bindings;
+        Ref<InstanceMaterialParameters>                                               Values;
+        std::map<uint32_t, std::vector<std::pair<std::string, std::array<float, 4>>>> SlotOverrides;
+        std::map<uint32_t, Ref<InstanceMaterialParameters>>                           SlotValues;
         // Runtime only, ordered by first set. Copies/snapshots retain bindings alone.
         std::vector<std::pair<std::string, std::array<float, 4>>> Overrides;
         MaterialParameterDriversComponent() = default;
@@ -110,6 +119,8 @@ namespace Kans
                 Bindings = other.Bindings;
                 Values.reset();
                 Overrides.clear();
+                SlotOverrides.clear();
+                SlotValues.clear();
             }
             return *this;
         }
@@ -298,6 +309,8 @@ namespace Kans
                                          EditableMeshComponent,
                                          PrefabInstanceComponent,
                                          AnimatorComponent,
+                                         TimelinePlayerComponent,
+                                         ActiveComponent,
                                          IKComponent,
                                          ShapeKeysComponent,
                                          MaterialParameterDriversComponent,

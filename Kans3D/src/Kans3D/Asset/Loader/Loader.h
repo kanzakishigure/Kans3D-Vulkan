@@ -4,6 +4,7 @@
 #include "Kans3D/Animation/AnimationProduct.h"
 #include "Kans3D/Asset/Asset.h"
 #include "Kans3D/Asset/AssetError.h"
+#include "Kans3D/Timeline/TimelineProduct.h"
 
 namespace Kans
 {
@@ -89,6 +90,8 @@ namespace Kans
                     return DecodeSkeletonProduct(context.Data, context.Size);
                 else if constexpr (Type == AssetType::AnimationClip)
                     return DecodeAnimationClipProduct(context.Data, context.Size);
+                else if constexpr (Type == AssetType::Timeline)
+                    return DecodeTimelineProduct(context.Data, context.Size);
                 else if constexpr (Type == AssetType::Action)
                     return DecodeActionProduct(context.Data, context.Size);
                 else if constexpr (Type == AssetType::Expression)

@@ -1,14 +1,15 @@
 #include "kspch.h"
 #include "ImporterRegistry.h"
 #include <algorithm>
+#include "ActionImporter.h"
 #include "AudioImporter.h"
 #include "ExpressionImporter.h"
-#include "ActionImporter.h"
 #include "FontImporter.h"
 #include "MaterialImporter.h"
 #include "ModelImporter.h"
 #include "ShaderImporter.h"
 #include "TextureImporter.h"
+#include "TimelineImporter.h"
 #include "UIImporter.h"
 
 namespace Kans
@@ -110,6 +111,7 @@ namespace Kans
                 {"ShaderImporter", {{".vert", ".frag", ".comp", ".shaderprog"}, std::make_shared<ShaderImporter>()}},
                 {"MaterialImporter", {{".material"}, std::make_shared<MaterialImporter>()}},
                 {"ActionImporter", {{".action"}, std::make_shared<ActionImporter>()}},
+                {"TimelineImporter", {{".timeline"}, std::make_shared<TimelineImporter>()}},
                 {"ExpressionImporter", {{".expression"}, std::make_shared<ExpressionImporter>()}},
                 {"UIImporter", {{".kui"}, std::make_shared<UIImporter>()}},
                 {"FontImporter", {{".ttf", ".otf", ".ttc", ".otc"}, std::make_shared<FontImporter>()}},

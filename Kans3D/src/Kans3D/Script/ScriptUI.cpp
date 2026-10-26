@@ -134,6 +134,8 @@ namespace Kans::ScriptUI
                         return Add<CameraComponent>(e);
                     case Scripting::ComponentType::ScriptComponent:
                         return Add<ScriptComponent>(e);
+                    case Scripting::ComponentType::TimelinePlayerComponent:
+                        return Add<TimelinePlayerComponent>(e);
                     case Scripting::ComponentType::TextComponent:
                         return Add<TextComponent>(e);
                     case Scripting::ComponentType::SpriteRendererComponent:

@@ -98,6 +98,10 @@ namespace Kans
         bool                PlayAction(AssetID, std::optional<std::string> slot = {}, float speedScale = 1);
         bool PlayClip(const std::string& slot, AssetID clip, double blendIn, double blendOut, double speed = 1);
         bool StopAction(const std::string& slot, double blendOut);
+        // Silent absolute-time overlay, sharing AN4 slot masks, layer mode and morph coverage.
+        bool SetTimelinePose(const std::string& slot, const AnimationPose&, float weight);
+        void ClearTimelinePose(const std::string& slot);
+        bool HasTimelinePose() const { return !m_TimelinePoses.empty(); }
         bool JumpToSection(const std::string& slot, const std::string& name);
         bool SetNextSection(const std::string& slot, const std::string& from, const std::string& to);
         bool IsActionPlaying(const std::string& slot) const;
@@ -232,9 +236,15 @@ namespace Kans
         void    ActionEvent(size_t, AnimationEventKind, const AnimationEvent* = nullptr, bool interrupted = false);
         void    FinishAction(size_t, bool interrupted = false);
         void    AdvanceAction(size_t, double seconds, RootMotionDelta&);
-        JointTransform                        ActionRoot(size_t, double);
-        ClipResolver                          m_ClipResolver;
-        ActionResolver                        m_ActionResolver;
+        JointTransform ActionRoot(size_t, double);
+        ClipResolver   m_ClipResolver;
+        ActionResolver m_ActionResolver;
+        struct TimelineSlotPose
+        {
+            AnimationPose Pose;
+            float         Weight = 0;
+        };
+        std::map<size_t, TimelineSlotPose>    m_TimelinePoses;
         std::vector<ActionWork>               m_Actions;
         std::vector<AnimatorActionStatus>     m_ActionStatus;
         std::vector<AnimationEventOccurrence> m_ActionEvents;

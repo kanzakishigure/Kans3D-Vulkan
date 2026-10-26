@@ -209,7 +209,7 @@ namespace Kans
         a.PreviewPose        = input;
         auto&       pose     = a.PreviewPose;
         const auto& skeleton = a.SkeletonSource->GetData();
-        if (!a.InlineController && !a.ControllerSource)
+        if (!a.InlineController && !a.ControllerSource && (!a.Player || !a.Player->HasTimelinePose()))
             for (size_t j = 0; j < skeleton.Joints.size(); ++j)
                 pose.Local[j] = skeleton.Joints[j].BindLocal;
         if (root.HasComponent<IKComponent>())
@@ -353,7 +353,7 @@ namespace Kans
             Entity root {handle, this};
             auto&  a = root.GetComponent<AnimatorComponent>();
             a.Events.clear();
-            if (!a.Enabled || !PrepareAnimator(root))
+            if (!IsEntityActive(root) || !a.Enabled || !PrepareAnimator(root))
                 continue;
             if (root.HasComponent<ShapeKeysComponent>())
                 a.Player->BaseShapeKeyWeights = root.GetComponent<ShapeKeysComponent>().Weights;
@@ -409,7 +409,7 @@ namespace Kans
     {
         for (auto e = entity; e; e = GetParent(e))
             if (e.HasComponent<AnimatorComponent>() || e.HasComponent<IKComponent>() ||
-                e.HasComponent<ShapeKeysComponent>())
+                e.HasComponent<ShapeKeysComponent>() || e.HasComponent<ModelPoseComponent>())
                 return e;
         return {};
     }

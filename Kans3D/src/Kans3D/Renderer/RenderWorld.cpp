@@ -20,7 +20,9 @@ namespace Kans
     }
     RenderWorld::Record RenderWorld::ExtractEntity(Entity entity) const
     {
-        Record     record;
+        Record record;
+        if (!m_Scene->IsEntityActive(entity))
+            return record;
         const auto id   = entity.GetUUID();
         const auto root = m_Scene->GetPrefabInstanceRoot(entity);
         record.Sort = {root ? root.GetComponent<PrefabInstanceComponent>().DrawOrder : uint64_t(uint32_t(entity)),
@@ -198,7 +200,14 @@ namespace Kans
                 auto root = m_Scene->GetEntityByUUID(order.Root ? order.Root : order.EntityID);
                 if (root && root.HasComponent<MaterialParameterDriversComponent>())
                     for (size_t i = first; i < result.size(); ++i)
-                        result[i].Parameters = root.GetComponent<MaterialParameterDriversComponent>().Values;
+                    {
+                        const auto& drivers = root.GetComponent<MaterialParameterDriversComponent>();
+                        uint32_t slot  = record.MeshSource ?
+                                             record.MeshSource->GetData().Sections.at(result[i].Section).MaterialSlot :
+                                             0;
+                        auto     found = drivers.SlotValues.find(slot);
+                        result[i].Parameters = found == drivers.SlotValues.end() ? drivers.Values : found->second;
+                    }
             }
         }
         return result;
@@ -252,7 +261,9 @@ namespace Kans
             return result;
         for (auto handle : m_Scene->m_Registry.view<TextComponent, TransformComponent, IDComponent>())
         {
-            Entity      entity {handle, m_Scene};
+            Entity entity {handle, m_Scene};
+            if (!m_Scene->IsEntityActive(entity))
+                continue;
             const auto& c      = entity.GetComponent<TextComponent>();
             auto        layout = GetTextLayout(entity);
             auto        world  = m_Scene->GetWorldTransform(entity);
@@ -304,7 +315,7 @@ namespace Kans
         {
             Entity e {handle, m_Scene};
             auto&  c = e.GetComponent<UIScreenComponent>();
-            if (!c.Visible)
+            if (!c.Visible || !m_Scene->IsEntityActive(e))
                 continue;
             if (auto instance = GetUIInstance(e))
                 result.push_back({instance, glm::mat4(1), true, true, true, c.SortOrder, e.GetUUID(), {}});
@@ -313,7 +324,7 @@ namespace Kans
         {
             Entity e {handle, m_Scene};
             auto&  c = e.GetComponent<UIWorldComponent>();
-            if (!c.Visible)
+            if (!c.Visible || !m_Scene->IsEntityActive(e))
                 continue;
             if (auto instance = GetUIInstance(e, true))
             {
@@ -380,7 +391,7 @@ namespace Kans
             const size_t oldCount = old == m_Records.end() ? 0 : old->second.Draws.size();
             const bool   valid    = m_Scene->m_Registry.valid(handle) &&
                                     m_Scene->m_Registry.all_of<TransformComponent, IDComponent>(handle);
-            Record next;
+            Record       next;
             if (valid)
                 next = ExtractEntity({handle, m_Scene});
             const bool   renderable = next.Mesh || next.Point || next.Directional || next.Sprite;
@@ -417,9 +428,10 @@ namespace Kans
                 }
             }
             const auto oldSpriteIndex = old != m_Records.end() ? old->second.SpriteIndex : SIZE_MAX;
-            if (next.Sprite)
+            if (next.Sprite || (valid && m_Scene->m_Registry.all_of<SpriteRendererComponent>(handle)))
                 next.SpriteIndex = sprites.storage<TransformComponent>().index(handle);
-            if (oldSpriteIndex != next.SpriteIndex)
+            if (oldSpriteIndex != next.SpriteIndex ||
+                (old != m_Records.end() && bool(old->second.Sprite) != bool(next.Sprite)))
             {
                 if (oldSpriteIndex != SIZE_MAX)
                     spritePositions.insert(oldSpriteIndex);
@@ -463,11 +475,15 @@ namespace Kans
             if (index < sprites.size())
             {
                 const auto handle = sprites.rbegin()[index];
-                auto&      record = m_Records.at(handle);
-                m_SpriteOrder.erase(record.SpriteIndex);
-                record.SpriteIndex = index;
-                replacements.emplace_back(index, handle);
-                ++m_Stats.SpriteOrderVisits;
+                auto       found  = m_Records.find(handle);
+                if (found != m_Records.end() && found->second.Sprite)
+                {
+                    auto& record = found->second;
+                    m_SpriteOrder.erase(record.SpriteIndex);
+                    record.SpriteIndex = index;
+                    replacements.emplace_back(index, handle);
+                    ++m_Stats.SpriteOrderVisits;
+                }
             }
             m_SpriteOrder.erase(index);
         }
@@ -587,7 +603,14 @@ namespace Kans
                     m_Scene->GetEntityByUUID(submission.InstanceRoot ? submission.InstanceRoot : submission.EntityID);
                 root && root.HasComponent<MaterialParameterDriversComponent>())
                 for (size_t i = output.Draws.size() - record.Draws.size(); i < output.Draws.size(); ++i)
-                    output.Draws[i].Parameters = root.GetComponent<MaterialParameterDriversComponent>().Values;
+                {
+                    const auto& drivers = root.GetComponent<MaterialParameterDriversComponent>();
+                    uint32_t slot = record.MeshSource ?
+                                        record.MeshSource->GetData().Sections.at(output.Draws[i].Section).MaterialSlot :
+                                        0;
+                    auto     found             = drivers.SlotValues.find(slot);
+                    output.Draws[i].Parameters = found == drivers.SlotValues.end() ? drivers.Values : found->second;
+                }
             const auto& mesh = submission.Mesh;
             if (state.EnableStencil)
                 output.Geometry.push_back(
@@ -722,6 +745,8 @@ namespace Kans
         auto actualSprite = m_SpriteOrder.rbegin();
         for (auto handle : sprites)
         {
+            if (!m_Scene->IsEntityActive(Entity {handle, m_Scene}))
+                continue;
             if (actualSprite == m_SpriteOrder.rend() || actualSprite->second != handle)
                 stale(m_Scene->m_Registry.get<IDComponent>(handle).ID);
             ++actualSprite;

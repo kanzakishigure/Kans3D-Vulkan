@@ -24,6 +24,13 @@ namespace Kans
             m_Registry.on_update<T>().template connect<&Scene::OnRenderComponentChanged>(this);
             m_Registry.on_destroy<T>().template connect<&Scene::OnRenderComponentChanged>(this);
         };
+        m_Registry.on_construct<ModelPoseComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_update<ModelPoseComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_destroy<ModelPoseComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_update<AnimatorComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_construct<ActiveComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_update<ActiveComponent>().connect<&Scene::OnTransformChanged>(this);
+        m_Registry.on_destroy<ActiveComponent>().connect<&Scene::OnTransformChanged>(this);
         m_Registry.on_construct<IKComponent>().connect<&Scene::OnTransformChanged>(this);
         m_Registry.on_update<IKComponent>().connect<&Scene::OnTransformChanged>(this);
         m_Registry.on_destroy<IKComponent>().connect<&Scene::OnTransformChanged>(this);
@@ -216,6 +223,8 @@ namespace Kans
             add(c.Skeleton);
             add(c.Expression);
         }
+        for (auto h : m_Registry.view<TimelinePlayerComponent>())
+            add(m_Registry.get<TimelinePlayerComponent>(h).Timeline);
         for (const auto& entry : GetPostProcessSettings().Materials)
             add(entry.Material);
         return {ids.begin(), ids.end()};
@@ -289,11 +298,14 @@ namespace Kans
 
         UpdatePrefabs();
         UpdateAnimations(double(ts));
+        UpdateTimelines(double(ts));
 
         // update ScripteableEntity
         {
 
             m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc) {
+                if (!IsEntityActive(Entity {entity, this}))
+                    return;
                 if (!nsc.Instance)
                 {
                     nsc.Instance           = nsc.InstantiateFunction();
@@ -350,6 +362,12 @@ namespace Kans
     }
     void Scene::DestroyEntity(Entity entity)
     {
+        if (entity.HasComponent<TimelinePlayerComponent>())
+        {
+            auto player = entity.GetComponent<TimelinePlayerComponent>().Player;
+            if (player)
+                player->Stop();
+        }
         if (!m_ReconcilingPrefab && entity.HasComponent<PrefabOwnedComponent>())
         {
             const auto owned = entity.GetComponent<PrefabOwnedComponent>();
@@ -554,6 +572,30 @@ namespace Kans
                 value.RuntimeOverride = true;
             }
         }
+        for (auto it = drivers.SlotValues.begin(); it != drivers.SlotValues.end();)
+        {
+            if (!drivers.SlotOverrides.count(it->first))
+                it = drivers.SlotValues.erase(it);
+            else
+                ++it;
+        }
+        for (const auto& [slot, overrides] : drivers.SlotOverrides)
+        {
+            auto& output = drivers.SlotValues[slot];
+            if (!output)
+                output = CreateRef<InstanceMaterialParameters>();
+            *output = values;
+            for (const auto& [name, v] : overrides)
+            {
+                auto found =
+                    std::find_if(output->begin(), output->end(), [&](const auto& p) { return p.Parameter == name; });
+                InstanceMaterialParameter parameter {name, v, true, true};
+                if (found == output->end())
+                    output->push_back(parameter);
+                else
+                    *found = parameter;
+            }
+        }
     }
 
     void Scene::SetWorldTransform(Entity entity, const glm::mat4& world)
@@ -595,6 +637,8 @@ namespace Kans
         CopyComponent<IKComponent>(source, copy);
         CopyComponent<ShapeKeysComponent>(source, copy);
         CopyComponent<MaterialParameterDriversComponent>(source, copy);
+        CopyComponent<TimelinePlayerComponent>(source, copy);
+        CopyComponent<ActiveComponent>(source, copy);
         CopyComponent<AudioSourceComponent>(source, copy);
         CopyComponent<AudioListenerComponent>(source, copy);
         if (source.HasComponent<PrefabInstanceComponent>())
@@ -667,6 +711,11 @@ namespace Kans
                     if (auto found = remap.find(binding.SourceEntity); found != remap.end())
                         binding.SourceEntity = found->second;
         for (const auto& [source, target] : remap)
+            if (auto copied = GetEntityByUUID(target); copied.HasComponent<TimelinePlayerComponent>())
+                for (auto& [binding, id] : copied.GetComponent<TimelinePlayerComponent>().Bindings)
+                    if (auto found = remap.find(id); found != remap.end())
+                        id = found->second;
+        for (const auto& [source, target] : remap)
             if (auto copied = GetEntityByUUID(target); copied.HasComponent<IKComponent>())
                 copied.GetComponent<IKComponent>().RemapEntities([&](uint64_t id) {
                     auto found = remap.find(UUID(id));
@@ -687,11 +736,18 @@ namespace Kans
     void Scene::OnRuntimeStart()
     {
         StartAudio();
-
-        // Init
-        if (!ScriptEngine::IsInitialized())
-            return;
-        ScriptEngine::OnRuntimeStart(this);
+        if (ScriptEngine::IsInitialized())
+            ScriptEngine::OnRuntimeStart(this);
+        std::vector<UUID> timelines;
+        for (auto h : m_Registry.view<TimelinePlayerComponent>())
+            timelines.push_back(m_Registry.get<IDComponent>(h).ID);
+        for (auto id : timelines)
+            if (auto e = GetEntityByUUID(id);
+                e && e.GetComponent<TimelinePlayerComponent>().PlayOnStart && PrepareTimeline(e))
+            {
+                auto player = e.GetComponent<TimelinePlayerComponent>().Player;
+                player->Play();
+            }
     }
 
     void Scene::DestroyNativeScriptInstances()
@@ -708,6 +764,12 @@ namespace Kans
 
     void Scene::OnRuntimeStop()
     {
+        std::vector<Ref<TimelinePlayer>> players;
+        for (auto h : m_Registry.view<TimelinePlayerComponent>())
+            if (auto p = m_Registry.get<TimelinePlayerComponent>(h).Player)
+                players.push_back(p);
+        for (auto& p : players)
+            p->Stop();
         StopAudio();
         DestroyNativeScriptInstances();
         if (ScriptEngine::GetSceneContext() == this)
@@ -720,7 +782,7 @@ namespace Kans
         for (auto entity : view)
         {
             auto [cameraCMP] = view.get(entity);
-            if (cameraCMP.Primary)
+            if (cameraCMP.Primary && IsEntityActive(Entity {entity, this}))
             {
                 return {entity, this};
             }
@@ -751,6 +813,17 @@ namespace Kans
     {}
     template<>
     void Scene::OnComponentAdd<ShapeKeysComponent>(Entity, ShapeKeysComponent&)
+    {}
+    template<>
+    void Scene::OnComponentAdd<TimelinePlayerComponent>(Entity, TimelinePlayerComponent&)
+    {}
+    template<>
+    void Scene::OnComponentAdd<ActiveComponent>(Entity entity, ActiveComponent&)
+    {
+        DirtySubtree(entity);
+    }
+    template<>
+    void Scene::OnComponentAdd<ModelPoseComponent>(Entity, ModelPoseComponent&)
     {}
     template<>
     void Scene::OnComponentAdd<AnimatorComponent>(Entity, AnimatorComponent&)

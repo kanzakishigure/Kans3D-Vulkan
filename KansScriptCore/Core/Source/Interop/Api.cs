@@ -33,9 +33,16 @@ namespace Kans.Interop
         public int Kind, Interrupted;
     }
     [StructLayout(LayoutKind.Sequential)]
+    internal struct TimelineEventData
+    {
+        public ulong Player, Target;
+        public double Time;
+        public int Finished, Reserved;
+    }
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct NativeApi
     {
-        public const uint ApiVersion = 4;
+        public const uint ApiVersion = 5;
         public uint Version, Size;
         public delegate* unmanaged[Cdecl]<int, byte*, void> Log;
         public delegate* unmanaged[Cdecl]<ulong, uint, int> HasComponent;
@@ -55,6 +62,8 @@ namespace Kans.Interop
         internal delegate* unmanaged[Cdecl]<int, WidgetAddress*, PropertyValue*, int> UIUtility;
         internal delegate* unmanaged[Cdecl]<ulong, int, byte*, byte*, byte*, byte*, float, float, float, int> AnimationCommand;
         internal delegate* unmanaged[Cdecl]<int, AnimationEventData*, int, byte*, int, int> ReadAnimationEvent;
+        internal delegate* unmanaged[Cdecl]<ulong, int, byte*, ulong, double*, int> TimelineCommand;
+        internal delegate* unmanaged[Cdecl]<int, TimelineEventData*, int, byte*, int, int> ReadTimelineEvent;
     }
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct ManagedApi
@@ -79,6 +88,7 @@ namespace Kans.Interop
     {
         string[] Names { get; }
         Entity? Create(string name);
+        bool InvokeTimeline(Entity target, string method, string payload) => false;
     }
     public static class ScriptRegistry
     {

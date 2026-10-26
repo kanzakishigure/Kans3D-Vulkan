@@ -143,8 +143,60 @@ namespace Kans
                 BlendAnimationPoses(a.Frozen, a.Pose, t / weight, a.Pose);
         }
     }
+    bool Animator::SetTimelinePose(const std::string& slot, const AnimationPose& pose, float weight)
+    {
+        if (!IsPrepared() || pose.Local.size() != m_Skeleton->Joints.size() || !std::isfinite(weight))
+            return false;
+        auto l = SlotLayer(slot);
+        // Older controllers have no authored slots. A runtime alias on the base layer
+        // lets the default track use AN4 blending without editing the controller asset.
+        if (l < 0 && slot == "Timeline" && IsPrepared() && !m_ActionStatus.empty() &&
+            std::all_of(m_ActionStatus.begin(), m_ActionStatus.end(), [](const auto& s) { return s.Slot.empty(); }))
+        {
+            m_ActionStatus[0].Slot = "Timeline";
+            l                      = 0;
+        }
+        if (l < 0)
+            return false;
+        m_TimelinePoses[size_t(l)] = {pose, std::clamp(weight, 0.f, 1.f)};
+        RebuildPose();
+        return true;
+    }
+    void Animator::ClearTimelinePose(const std::string& slot)
+    {
+        auto l = SlotLayer(slot);
+        if (l >= 0)
+        {
+            m_TimelinePoses.erase(size_t(l));
+            if (m_Controller->Layers[size_t(l)].Slot.empty() && !m_ActionStatus[size_t(l)].Playing)
+                m_ActionStatus[size_t(l)].Slot.clear();
+            RebuildPose();
+        }
+    }
     void Animator::ApplyAction(size_t l, AnimationPose& pose)
     {
+        if (auto found = m_TimelinePoses.find(l); found != m_TimelinePoses.end())
+        {
+            auto& t = found->second;
+            auto& w = m_Work[l];
+            if (m_Controller->Layers[l].Mode == AnimationLayerMode::Additive)
+                AddAnimationPose(pose, t.Pose, m_Rest, w.Weight * t.Weight, w.Mask, w.MorphMask);
+            else
+            {
+                auto sample = t.Pose;
+                auto mask   = w.MorphMask;
+                for (size_t k = 0; k < mask.size(); ++k)
+                {
+                    const float coverage = sample.MorphInfluence[k];
+                    mask[k] *= coverage;
+                    if (coverage > 0)
+                        sample.MorphWeights[k] =
+                            (sample.MorphWeights[k] - m_Rest.MorphWeights[k] * (1 - coverage)) / coverage;
+                }
+                BlendAnimationPoses(pose, sample, w.Weight * t.Weight, pose, w.Mask, mask);
+            }
+            return;
+        }
         auto& status = m_ActionStatus[l];
         if (!status.Playing)
             return;

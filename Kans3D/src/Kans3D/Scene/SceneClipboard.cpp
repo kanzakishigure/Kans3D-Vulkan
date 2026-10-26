@@ -315,6 +315,9 @@ namespace Kans::SceneClipboard
                         if (constraint["Type"].as<std::string>() == "TwoBone")
                             reference(constraint["Data"]["pole_entity"]);
                     }
+                if (auto timeline = node["TimelinePlayerComponent"])
+                    for (auto binding : timeline["Bindings"])
+                        reference(binding.second);
                 if (auto animator = node["AnimatorComponent"])
                 {
                     if (auto joints = animator["JointEntities"])

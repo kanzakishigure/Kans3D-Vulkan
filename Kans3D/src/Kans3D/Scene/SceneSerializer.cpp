@@ -1072,6 +1072,22 @@ namespace Kans
                 for (const auto& [name, value] : c.Weights)
                     Require(!name.empty() && std::isfinite(value), "Invalid shape-key weight");
             }
+            if (entity.HasComponent<ActiveComponent>())
+                node["ActiveComponent"] = entity.GetComponent<ActiveComponent>().Active;
+            if (entity.HasComponent<TimelinePlayerComponent>())
+            {
+                const auto& c = entity.GetComponent<TimelinePlayerComponent>();
+                YAML::Node  v;
+                v["Timeline"]    = c.Timeline.ToString();
+                v["PlayOnStart"] = c.PlayOnStart;
+                v["Loop"]        = c.Loop;
+                v["Speed"]       = c.Speed;
+                v["WrapMode"]    = c.WrapMode == TimelineWrapMode::Reset ? "Reset" : "Hold";
+                v["Bindings"]    = YAML::Node(YAML::NodeType::Map);
+                for (const auto& [id, entityID] : c.Bindings)
+                    v["Bindings"][id] = uint64_t(entityID);
+                node["TimelinePlayerComponent"] = v;
+            }
             if (entity.HasComponent<AnimatorComponent>())
             {
                 const auto& a        = entity.GetComponent<AnimatorComponent>();
@@ -1375,6 +1391,8 @@ namespace Kans
                       "ProductModelComponent",
                       "PrefabInstanceComponent",
                       "AnimatorComponent",
+                      "TimelinePlayerComponent",
+                      "ActiveComponent",
                       "IKComponent",
                       "ShapeKeysComponent",
                       "MaterialParameterDriversComponent",
@@ -1485,6 +1503,30 @@ namespace Kans
                     for (const auto& [name, value] : c.Weights)
                         Require(!name.empty() && std::isfinite(value), "Invalid shape-key weight");
                     entity.AddComponent<ShapeKeysComponent>(std::move(c));
+                }
+                if (node["ActiveComponent"])
+                    entity.AddComponent<ActiveComponent>().Active = node["ActiveComponent"].as<bool>();
+                if (node["TimelinePlayerComponent"])
+                {
+                    const auto v = node["TimelinePlayerComponent"];
+                    Keys(v, {"Timeline", "PlayOnStart", "Loop", "Speed", "WrapMode", "Bindings"});
+                    TimelinePlayerComponent c;
+                    c.Timeline    = Identity(v["Timeline"]);
+                    c.PlayOnStart = v["PlayOnStart"].as<bool>();
+                    c.Loop        = v["Loop"].as<bool>();
+                    c.Speed       = v["Speed"].as<double>();
+                    Require(std::isfinite(c.Speed) && c.Speed >= 0, "Invalid timeline speed");
+                    const auto wrap = v["WrapMode"].as<std::string>();
+                    Require(wrap == "Hold" || wrap == "Reset", "Invalid timeline wrap mode");
+                    c.WrapMode = wrap == "Reset" ? TimelineWrapMode::Reset : TimelineWrapMode::Hold;
+                    Require(v["Bindings"].IsMap() && v["Bindings"].size() <= 4096, "Invalid timeline bindings");
+                    for (const auto& b : v["Bindings"])
+                    {
+                        auto id = Text(b.first);
+                        Require(!id.empty() && !c.Bindings.count(id), "Invalid/duplicate timeline binding");
+                        c.Bindings[id] = UUID(UInt(b.second));
+                    }
+                    entity.AddComponent<TimelinePlayerComponent>(std::move(c));
                 }
                 if (node["AnimatorComponent"])
                 {

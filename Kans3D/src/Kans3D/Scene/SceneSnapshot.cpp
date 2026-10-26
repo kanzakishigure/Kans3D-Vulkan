@@ -95,6 +95,8 @@ namespace Kans
                        });
         }
         bool Same(const AnimatorComponent& a, const AnimatorComponent& b) { return a == b; }
+        bool Same(const TimelinePlayerComponent& a, const TimelinePlayerComponent& b) { return a == b; }
+        bool Same(const ActiveComponent& a, const ActiveComponent& b) { return a == b; }
         bool Same(const IKComponent& a, const IKComponent& b) { return a == b; }
         bool Same(const ShapeKeysComponent& a, const ShapeKeysComponent& b) { return a == b; }
         bool Same(const ScriptComponent& a, const ScriptComponent& b) { return a.ClassName == b.ClassName; }
@@ -134,9 +136,10 @@ namespace Kans
                Same(a.Text, b.Text) && Same(a.UIScreen, b.UIScreen) && Same(a.UIWorld, b.UIWorld) &&
                Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
                Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) && Same(a.IK, b.IK) &&
-               Same(a.ShapeKeys, b.ShapeKeys) && Same(a.MaterialDrivers, b.MaterialDrivers) &&
-               Same(a.DirLight, b.DirLight) && Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) &&
-               Same(a.AudioSource, b.AudioSource) && Same(a.AudioListener, b.AudioListener);
+               Same(a.Timeline, b.Timeline) && Same(a.Active, b.Active) && Same(a.ShapeKeys, b.ShapeKeys) &&
+               Same(a.MaterialDrivers, b.MaterialDrivers) && Same(a.DirLight, b.DirLight) &&
+               Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) && Same(a.AudioSource, b.AudioSource) &&
+               Same(a.AudioListener, b.AudioListener);
     }
 
     bool operator==(const SceneSnapshot& a, const SceneSnapshot& b)
@@ -173,6 +176,8 @@ namespace Kans
             Kans::Capture(entity, item.Editable);
             Kans::Capture(entity, item.Prefab);
             Kans::Capture(entity, item.Animator);
+            Kans::Capture(entity, item.Timeline);
+            Kans::Capture(entity, item.Active);
             Kans::Capture(entity, item.IK);
             Kans::Capture(entity, item.ShapeKeys);
             Kans::Capture(entity, item.MaterialDrivers);
@@ -255,6 +260,8 @@ namespace Kans
             Kans::Restore(entity, item.IK);
             Kans::Restore(entity, item.ShapeKeys);
             Kans::Restore(entity, item.Animator);
+            Kans::Restore(entity, item.Timeline);
+            Kans::Restore(entity, item.Active);
             Kans::Restore(entity, item.MaterialDrivers);
             Kans::Restore(entity, item.AudioSource);
             Kans::Restore(entity, item.AudioListener);
