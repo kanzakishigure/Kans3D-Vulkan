@@ -85,7 +85,26 @@ namespace Kans
             const auto offset = center - view.Scene.sceneCamera.Position;
             view.MaterialOrder.push_back({i, draw.Render, glm::dot(offset, offset)});
         }
+        for (size_t i = 0; i < view.Texts.size(); ++i)
+        {
+            const auto& text = view.Texts[i];
+            if (frustum && !frustum->Intersects(text.WorldBounds))
+                continue;
+            if (text.Style.Text.empty() || !view.Highlights.Isolate.empty())
+                continue;
+            const auto transform = TextWorldTransform(
+                text.Style, text.Transform, view.Scene.sceneCamera.Position, view.Scene.sceneCamera.viewMatrix);
+            const auto local = text.Layout->LocalBounds();
+            const auto center =
+                local.IsValid() ? glm::vec3(transform * glm::vec4(local.Center(), 1)) : glm::vec3(transform[3]);
+            const auto          offset = center - view.Scene.sceneCamera.Position;
+            MaterialRenderState render;
+            render.AlphaMode = MaterialAlphaMode::Blend;
+            view.MaterialOrder.push_back({i, render, glm::dot(offset, offset), true, text.Style.AlwaysOnTop});
+        }
         std::stable_sort(view.MaterialOrder.begin(), view.MaterialOrder.end(), [](const auto& a, const auto& b) {
+            if (a.AlwaysOnTop != b.AlwaysOnTop)
+                return !a.AlwaysOnTop;
             bool aBlend = a.Render.AlphaMode == MaterialAlphaMode::Blend;
             bool bBlend = b.Render.AlphaMode == MaterialAlphaMode::Blend;
             if (aBlend != bBlend)
@@ -94,6 +113,8 @@ namespace Kans
         });
         for (const auto& draw : view.MaterialOrder)
         {
+            if (draw.Text)
+                continue;
             auto& list = draw.Render.AlphaMode == MaterialAlphaMode::Blend ? view.Blend :
                          draw.Render.AlphaMode == MaterialAlphaMode::Mask  ? view.Mask :
                                                                              view.Opaque;

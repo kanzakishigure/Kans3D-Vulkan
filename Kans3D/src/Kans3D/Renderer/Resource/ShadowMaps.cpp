@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "Kans3D/Asset/Runtime/StandardShader.h"
 #include "Kans3D/Renderer/RenderFrame.h"
+#include "Kans3D/Renderer/TextRenderer.h"
 #include "InternalShader.h"
 #include "MaterialPass.h"
 
@@ -221,6 +222,8 @@ namespace Kans
         // MaterialOrder has the main camera's frustum culling, independent of depth visibility.
         for (const auto& item : frame.View.MaterialOrder)
         {
+            if (item.Text)
+                continue;
             const auto& draw = frame.View.Draws[item.DrawIndex];
             if (!draw.RenderCustomDepth)
                 continue;
@@ -352,14 +355,14 @@ namespace Kans
             for (auto& index : view.LightingUniforms->PointShadowIndices)
                 index = glm::vec4(-1);
         }
-        if ((!dirEnabled && selected.empty()) || !frame.Assets())
+        if (!dirEnabled && selected.empty())
         {
             // Drop full-size maps when no light uses them; submitted frames retain their own handles.
             frame.Output.GetShadowStorage().reset();
             return;
         }
         auto       device   = frame.GetDevice();
-        const auto fallback = frame.Assets()->GetShadowFallback();
+        const auto fallback = frame.Assets() ? frame.Assets()->GetShadowFallback() : CreateShadowFallback(*device);
         auto&      storage  = frame.Output.GetShadowStorage();
         if (!storage)
             storage = std::make_shared<ShadowResources>(*fallback);
@@ -411,7 +414,7 @@ namespace Kans
             uses.push_back({resource, GraphAccess::DepthReadWrite});
             for (const auto& proxy : proxies)
             {
-                if (!proxy.CastShadows)
+                if (!proxy.CastShadows || !frame.Assets())
                     continue;
                 if (!frustum.Intersects(proxy.WorldBounds))
                 {
@@ -491,6 +494,32 @@ namespace Kans
                     if (std::none_of(uses.begin(), uses.end(), [&](auto use) { return use.Texture == id; }))
                         uses.push_back({id, GraphAccess::SampledRead});
                 }
+            }
+            for (const auto& image : frame.Services.GetTextRenderer().Textures())
+            {
+                const auto id = graph.ImportTexture("Shadow font atlas", image);
+                uses.push_back({id, GraphAccess::SampledRead});
+            }
+            for (auto text : view.Texts) // Collected once per frame by RenderWorld.
+            {
+                if (!text.Style.CastShadows || !frustum.Intersects(text.WorldBounds) ||
+                    !view.Highlights.Isolate.empty())
+                    continue;
+                text.Transform = TextWorldTransform(
+                    text.Style, text.Transform, view.Scene.sceneCamera.Position, view.Scene.sceneCamera.viewMatrix);
+                frame.Services.GetTextRenderer().Draw(*commands,
+                                                      text,
+                                                      matrix,
+                                                      rendering,
+                                                      true,
+                                                      point ? position : glm::vec4(0),
+                                                      settings.ConstantBias,
+                                                      settings.SlopeBias,
+                                                      point);
+                ++view.ShadowStats.DrawCalls;
+                ++stats.CastersDrawn;
+                ++frame.Stats.DrawCalls;
+                frame.Stats.Triangles += text.Layout->Get().Glyphs.size() * 2;
             }
             commands->EndRendering();
             auto pass = graph.AddRecordedPass(

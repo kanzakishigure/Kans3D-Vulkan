@@ -23,6 +23,7 @@ namespace Kans
         std::shared_ptr<RenderHardware::Device>                      m_Device;
         Ref<const FontAsset>                                         m_Font;
         std::thread::id                                              m_Owner;
+        uint64_t                                                     m_Generation = 0;
         std::vector<RenderHardware::Handle<RenderHardware::Texture>> m_Pages;
         RenderHardware::Handle<RenderHardware::Sampler>              m_Sampler;
     };

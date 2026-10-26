@@ -542,6 +542,12 @@ namespace Kans
                     if (!selected || *selected == i)
                         bounds.Expand((animated.IsValid() ? animated : sections[i].LocalBounds).Transformed(world));
             }
+            if (entity.HasComponent<TextComponent>())
+            {
+                auto layout = m_RenderWorld->GetTextLayout(entity);
+                bounds.Expand(TextWorldBounds(
+                    entity.GetComponent<TextComponent>(), layout->LocalBounds(), GetWorldTransform(entity)));
+            }
             if (auto children = m_ChildBounds.find(entt::entity(entity)); children != m_ChildBounds.end())
                 bounds.Expand(children->second.Aggregate());
             entity.GetComponent<BoundsComponent>().World = bounds;

@@ -130,11 +130,20 @@ namespace Kans
         UUID                    EntityID = 0;
         Ref<const SkinningPose> SkinPose;
     };
+    struct ViewTextDraw
+    {
+        TextComponent                    Style;
+        glm::mat4                        Transform {1};
+        UUID                             EntityID = 0, InstanceRoot = 0;
+        std::shared_ptr<TextLayoutCache> Layout;
+        Bounds                           WorldBounds;
+    };
     struct ViewReadyDraw
     {
         size_t              DrawIndex;
         MaterialRenderState Render;
         float               DistanceSquared;
+        bool                Text = false, AlwaysOnTop = false;
     };
     struct ViewSprite
     {
@@ -238,6 +247,7 @@ namespace Kans
         std::vector<ViewMeshSubmission>    Meshes;
         ViewHighlights                       Highlights;
         std::vector<ViewShaderDraw>        Draws;
+        std::vector<ViewTextDraw>            Texts;
         std::vector<ViewReadyDraw>         MaterialOrder;
         std::vector<size_t>                Opaque, Mask, Blend; // Draw indices, in their filtered execution order.
         std::vector<ViewGeometryDraw>      Geometry;

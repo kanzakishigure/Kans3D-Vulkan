@@ -47,6 +47,7 @@ namespace Kans
                        return x.Authored == y.Authored && x.Replacement == y.Replacement;
                    });
         }
+        bool Same(const TextComponent& a, const TextComponent& b) { return a == b; }
         bool Same(const MeshComponent& a, const MeshComponent& b) { return a == b; }
         bool Same(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
         bool Same(const PrefabAttachmentComponent& a, const PrefabAttachmentComponent& b)
@@ -127,8 +128,8 @@ namespace Kans
     {
         return a.ID == b.ID && a.Tag == b.Tag && Same(a.Transform, b.Transform) &&
                Same(a.Relationship, b.Relationship) && Same(a.Camera, b.Camera) && Same(a.Sprite, b.Sprite) &&
-               Same(a.Model, b.Model) && Same(a.Editable, b.Editable) && Same(a.Prefab, b.Prefab) &&
-               Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) &&
+               Same(a.Text, b.Text) && Same(a.Model, b.Model) && Same(a.Editable, b.Editable) &&
+               Same(a.Prefab, b.Prefab) && Same(a.PrefabParent, b.PrefabParent) && Same(a.Animator, b.Animator) &&
                Same(a.MaterialDrivers, b.MaterialDrivers) && Same(a.DirLight, b.DirLight) &&
                Same(a.PointLight, b.PointLight) && Same(a.Script, b.Script) && Same(a.AudioSource, b.AudioSource) &&
                Same(a.AudioListener, b.AudioListener);
@@ -160,6 +161,7 @@ namespace Kans
             item.Transform    = entity.GetComponent<TransformComponent>();
             item.Relationship = entity.GetComponent<RelationshipComponent>();
             Kans::Capture(entity, item.Camera);
+            Kans::Capture(entity, item.Text);
             Kans::Capture(entity, item.Sprite);
             Kans::Capture(entity, item.Model);
             Kans::Capture(entity, item.Editable);
@@ -209,6 +211,7 @@ namespace Kans
             m_RenderWorld->Dirty(handle);
         m_SuppressNotifications = true;
         m_Registry.clear();
+        m_RenderWorld->m_TextRecords.clear();
         m_EditableMeshes.clear();
         m_EditableSources.clear();
         m_SuppressNotifications = false;
@@ -233,6 +236,7 @@ namespace Kans
             entity.SetComponent<TransformComponent>(item.Transform);
             entity.SetComponent<RelationshipComponent>(item.Relationship);
             Kans::Restore(entity, item.Camera);
+            Kans::Restore(entity, item.Text);
             Kans::Restore(entity, item.Sprite);
             Kans::Restore(entity, item.Model);
             Kans::Restore(entity, item.Editable);

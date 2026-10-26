@@ -138,6 +138,18 @@ void main()
                     }
                     active = variant;
                 }
+                if (draw.IgnoreDepth || !draw.DoubleSided)
+                {
+                    auto desc = active->GetDesc();
+                    if (draw.IgnoreDepth)
+                    {
+                        desc.DepthStencil.DepthTest    = true;
+                        desc.DepthStencil.DepthCompare = CompareOp::Always;
+                    }
+                    if (!draw.DoubleSided)
+                        desc.Rasterizer.Cull = CullMode::Back;
+                    active = device.CreatePipeline(desc);
+                }
                 commands.BindPipeline(active);
                 const DrawData data {projection * draw.Transform,
                                      glm::uvec4(pick ? uint32_t(i + 1) : draw.ID, 0, 0, 0)};

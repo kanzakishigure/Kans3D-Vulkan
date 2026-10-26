@@ -42,6 +42,8 @@ namespace Kans
         AssetManager*                 GetAssetManager() const;
         void                          SetAssetManager(AssetManager* assets);
         void                          Synchronize();
+        std::shared_ptr<TextLayoutCache> GetTextLayout(Entity entity) const;
+        std::vector<ViewTextDraw>        CollectTexts() const;
         void                          Extract(RenderView& output, const RenderResource& settings) const;
         void                          CollectLights(SceneInfo& output) const;
         std::vector<DrawProxy>        CollectDraws(UUID subtree = 0) const;
@@ -95,6 +97,12 @@ namespace Kans
         std::unordered_map<AssetID, std::unordered_set<entt::entity>> m_MeshUsers;
         Stats                                                         m_Stats, m_PendingStats;
         bool                                                          m_Validate = false;
+        struct TextRecord
+        {
+            std::shared_ptr<TextLayoutCache> Layout        = std::make_shared<TextLayoutCache>();
+            bool                             WarnedMissing = false;
+        };
+        mutable std::unordered_map<entt::entity, TextRecord> m_TextRecords;
         friend class Scene;
     };
 } // namespace Kans

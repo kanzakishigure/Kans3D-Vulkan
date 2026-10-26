@@ -73,6 +73,7 @@ namespace Kans
         // Nonblocking; also called by rendering and runtime updates.
         void         SetPrefabAssetManager(AssetManager* assets);
         RenderWorld& GetRenderWorld() const { return *m_RenderWorld; }
+        std::vector<AssetID> GetReferencedAssets() const;
         // Resolve CPU metadata, retaining prefab data while replacement assets load.
         Ref<const MeshAsset> ResolveMesh(Entity entity) const;
         Ref<const RuntimeMesh> ResolveEditableMesh(Entity entity) const;

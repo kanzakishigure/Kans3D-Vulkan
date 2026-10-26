@@ -12,6 +12,7 @@
 #include "Kans3D/Core/UUID.h"
 #include "Kans3D/Geometry/Shapes.h"
 #include "Kans3D/Renderer/Resource/ShadowSettings.h"
+#include "Kans3D/Text/TextComponent.h"
 #include "ProductModelComponent.h"
 
 #include "Kans3D/Renderer/Resource/SceneCamera.h"
@@ -284,6 +285,7 @@ namespace Kans
                                          TagComponent,
                                          TransformComponent,
                                          CameraComponent,
+                                         TextComponent,
                                          SpriteRendererComponent,
                                          NativeScriptComponent,
                                          MeshComponent,

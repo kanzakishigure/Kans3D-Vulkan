@@ -6,6 +6,7 @@
 #include "Resource/InternalShader.h"
 #include "Resource/ShadowMaps.h"
 #include "SpriteBatch.h"
+#include "TextRenderer.h"
 
 namespace Kans
 {
@@ -390,6 +391,8 @@ namespace Kans
         if (!view.MaterialOrder.empty())
         {
             auto uses = target;
+            for (const auto& image : renderer.Services.GetTextRenderer().Textures())
+                sampled(uses, image, "FontAtlas");
             for (const auto& image : renderer.GetMaterialEnvironment())
                 sampled(uses, image, "MaterialEnvironment");
             if (view.Shadows)
@@ -644,6 +647,8 @@ namespace Kans
                 if (std::none_of(uses.begin(), uses.end(), [&](auto u) { return u.Texture == id; }))
                     uses.push_back({id, GraphAccess::SampledRead});
             };
+            for (const auto& image : frame.Services.GetTextRenderer().Textures())
+                sampled(image);
             for (const auto& image : frame.GetMaterialEnvironment())
                 sampled(image);
             if (view.Shadows)

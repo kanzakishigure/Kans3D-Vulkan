@@ -61,6 +61,9 @@ namespace Kans
                 scene.SetPrefabMaterialOverride(root, owned.NodeKey, slot, material);
         };
 
+        auto& text = registry.Register<TextComponent>("Text", "T", "Rendering");
+        text.Draw  = [](Entity, ComponentUI&) {}; // Properties fields are supplied separately.
+
         auto& camera    = registry.Register<CameraComponent>("Camera", ICON_FA_VIDEO, "Rendering");
         camera.IconRank = 1;
         camera.Draw     = DrawCamera;

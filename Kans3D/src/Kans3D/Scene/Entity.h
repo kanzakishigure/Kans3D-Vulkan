@@ -41,8 +41,9 @@ namespace Kans
         void PatchComponent(F&& edit)
         {
             if constexpr (std::is_same_v<T, TransformComponent> || std::is_same_v<T, MeshComponent> ||
-                          std::is_same_v<T, EditableMeshComponent> || std::is_same_v<T, SpriteRendererComponent> ||
-                          std::is_same_v<T, DirLightComponent> || std::is_same_v<T, PointLightComponent>)
+                          std::is_same_v<T, TextComponent> || std::is_same_v<T, EditableMeshComponent> ||
+                          std::is_same_v<T, SpriteRendererComponent> || std::is_same_v<T, DirLightComponent> ||
+                          std::is_same_v<T, PointLightComponent>)
             {
                 auto&   component = GetComponent<T>();
                 const T before    = component;
@@ -103,6 +104,7 @@ namespace Kans
         {
             return a.GetTransform() == b.GetTransform();
         }
+        static bool SameRenderValue(const TextComponent& a, const TextComponent& b) { return a == b; }
         static bool SameRenderValue(const MeshComponent& a, const MeshComponent& b) { return a == b; }
         static bool SameRenderValue(const EditableMeshComponent& a, const EditableMeshComponent& b) { return a == b; }
         static bool SameRenderValue(const SpriteRendererComponent& a, const SpriteRendererComponent& b)

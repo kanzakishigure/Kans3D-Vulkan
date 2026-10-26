@@ -17,6 +17,7 @@ namespace Kans
         uint32_t       ID = 0; // Non-zero.
         uint32_t       Section = 0;
         RenderHardware::Handle<RenderHardware::Buffer> Palette;
+        bool                                           IgnoreDepth = false, DoubleSided = true;
     };
 
     struct PickHit

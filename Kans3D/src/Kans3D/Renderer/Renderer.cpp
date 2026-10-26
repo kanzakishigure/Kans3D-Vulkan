@@ -13,6 +13,7 @@
 #include "Resource/MeshFactory.h"
 #include "Resource/SceneShaders.h"
 #include "SpriteBatch.h"
+#include "TextRenderer.h"
 namespace Kans
 {
     namespace
@@ -482,6 +483,20 @@ namespace Kans
         }
         const auto extractStart = RenderClockMilliseconds();
         world.Synchronize();
+        auto texts = world.CollectTexts();
+        if (!texts.empty())
+        {
+            GetTextRenderer().BeginFrame();
+            for (const auto& text : texts)
+                text.Layout->Get().TouchGlyphs();
+            GetTextRenderer().Upload(texts);
+            // Rasterization can replace placeholders; only invalidated layouts are rebuilt.
+            world.Synchronize();
+            for (const auto& text : world.CollectTexts())
+                for (const auto& glyph : text.Layout->Get().Glyphs)
+                    result.Complete &=
+                        glyph.Ready || glyph.Position.x == glyph.Position.z || glyph.Position.y == glyph.Position.w;
+        }
         if (view.Assets)
             view.Assets->BeginFrame();
         if (view.ExtractWorld)
@@ -650,11 +665,13 @@ namespace Kans
         auto cache = view.Assets;
         if (!cache && world.GetAssetManager())
             cache = AcquireAssetCache(*world.GetAssetManager());
-        if (!cache && view.MeshResources.empty())
-            return;
         if (cache)
             world.SetAssetManager(&cache->GetAssetManager());
         world.Synchronize();
+        for (const auto& text : world.CollectTexts())
+            if (!text.Style.Text.empty() && view.Highlights.Isolate.empty() &&
+                world.MatchesSubtree(text.EntityID, text.InstanceRoot, entity))
+                draws.push_back(GetTextRenderer().BoundsDraw(text, view.Scene.sceneCamera, id));
         for (const auto& proxy : world.CollectDraws(entity))
         {
             const auto  resource = view.MeshResources.find(proxy.Mesh);
@@ -677,8 +694,6 @@ namespace Kans
         auto cache = view.Assets;
         if (!cache && world.GetAssetManager())
             cache = AcquireAssetCache(*world.GetAssetManager());
-        if (!cache && view.MeshResources.empty())
-            return {};
         if (cache)
             world.SetAssetManager(&cache->GetAssetManager());
         world.Synchronize();
@@ -702,13 +717,31 @@ namespace Kans
                                  cache ? cache->GetSkinningPalette(proxies[i].SkinPose, mesh) :
                                          RenderHardware::Handle<RenderHardware::Buffer>()});
         }
+        const auto texts = world.CollectTexts();
+        for (size_t i = 0; i < texts.size(); ++i)
+            if (!texts[i].Style.Text.empty() && view.Highlights.Isolate.empty())
+            {
+                auto draw =
+                    GetTextRenderer().BoundsDraw(texts[i], view.Scene.sceneCamera, uint32_t(proxies.size() + i + 1));
+                draw.IgnoreDepth = texts[i].Style.AlwaysOnTop;
+                draw.DoubleSided = texts[i].Style.DoubleSided;
+                draws.push_back(draw);
+            }
+        std::stable_partition(draws.begin(), draws.end(), [](const auto& d) { return !d.IgnoreDepth; });
         const auto hit = m_Picker.PickSurface(draws,
                                               view.Scene.sceneCamera.camera.GetProjectionMatrix() *
                                                   view.Scene.sceneCamera.viewMatrix,
                                               view.Viewport,
                                               pixel);
-        if (!hit.ID || hit.ID > proxies.size())
+        if (!hit.ID)
             return {};
+        if (hit.ID > proxies.size())
+        {
+            auto index = hit.ID - proxies.size() - 1;
+            if (index >= texts.size())
+                return {};
+            return {texts[index].EntityID, texts[index].InstanceRoot, hit.Position, {}, {}};
+        }
         const auto& proxy = proxies[hit.ID - 1];
         return {proxy.EntityID, proxy.InstanceRoot, hit.Position, hit.MaterialSlot, hit.Section};
     }
@@ -716,6 +749,12 @@ namespace Kans
 
 namespace Kans
 {
+    TextRenderer& Renderer::GetTextRenderer()
+    {
+        if (!m_Text)
+            m_Text = std::make_unique<TextRenderer>(*this);
+        return *m_Text;
+    }
     SpriteBatch& Renderer::GetSpriteBatch()
     {
         if (!m_Sprites)

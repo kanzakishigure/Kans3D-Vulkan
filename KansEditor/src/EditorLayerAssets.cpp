@@ -544,6 +544,8 @@ namespace Kans
                     add(material);
         }
         std::function<void(Entity)> visit = [&](Entity entity) {
+            if (entity.HasComponent<TextComponent>())
+                add(entity.GetComponent<TextComponent>().Font);
             if (entity.HasComponent<PrefabInstanceComponent>())
                 add(entity.GetComponent<PrefabInstanceComponent>().Prefab);
             for (Entity child : m_ActiveScene->GetChildren(entity))

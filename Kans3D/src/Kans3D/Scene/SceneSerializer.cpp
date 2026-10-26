@@ -303,6 +303,71 @@ namespace Kans
                 s.Blend = Number(n["Blend"]);
             return s.Validated();
         }
+        YAML::Node EncodeText(const TextComponent& c)
+        {
+            YAML::Node n;
+            n["Text"]           = c.Text;
+            n["Font"]           = IdentityText(c.Font);
+            n["Language"]       = c.Language;
+            n["Size"]           = c.Size;
+            n["Color"]          = Vector(c.Color, 4);
+            n["Horizontal"]     = uint32_t(c.Alignment.Horizontal);
+            n["Vertical"]       = uint32_t(c.Alignment.Vertical);
+            n["WrapWidth"]      = c.WrapWidth;
+            n["BoxHeight"]      = c.BoxHeight;
+            n["LineSpacing"]    = c.LineSpacing;
+            n["LetterSpacing"]  = c.LetterSpacing;
+            n["Overflow"]       = uint32_t(c.Overflow);
+            n["OutlineWidth"]   = c.Outline.Width;
+            n["OutlineColor"]   = Vector(c.Outline.Color, 4);
+            n["ShadowOffset"]   = Vector(c.Shadow.Offset, 2);
+            n["ShadowSoftness"] = c.Shadow.Softness;
+            n["ShadowColor"]    = Vector(c.Shadow.Color, 4);
+            n["Billboard"]      = uint32_t(c.Billboard);
+            n["AlwaysOnTop"]    = c.AlwaysOnTop;
+            n["DoubleSided"]    = c.DoubleSided;
+            n["CastShadows"]    = c.CastShadows;
+            return n;
+        }
+        TextComponent DecodeText(const YAML::Node& n)
+        {
+            Keys(n, {"Text",         "Font",         "Language",     "Size",           "Color",         "Horizontal",
+                     "Vertical",     "WrapWidth",    "BoxHeight",    "LineSpacing",    "LetterSpacing", "Overflow",
+                     "OutlineWidth", "OutlineColor", "ShadowOffset", "ShadowSoftness", "ShadowColor",   "Billboard",
+                     "AlwaysOnTop",  "DoubleSided",  "CastShadows"});
+            TextComponent c;
+            Require(n["Text"].IsScalar(), "Missing text content");
+            c.Text = n["Text"].as<std::string>();
+            Require(c.Text.size() <= 1024 * 1024 && c.Text.find('\0') == std::string::npos, "Invalid text content");
+            c.Font       = Identity(n["Font"]);
+            c.Language   = Text(n["Language"]);
+            c.Size       = Number(n["Size"]);
+            c.Color      = Vec4(n["Color"]);
+            const auto h = SceneIndex(n["Horizontal"]), v = SceneIndex(n["Vertical"]), o = SceneIndex(n["Overflow"]),
+                       b = SceneIndex(n["Billboard"]);
+            Require(h <= 2 && v <= 3 && o <= 3 && b <= 2, "Invalid text enum");
+            c.Alignment.Horizontal = TextHorizontalAlignment(h);
+            c.Alignment.Vertical   = TextPivotVertical(v);
+            c.Overflow             = TextOverflow(o);
+            c.Billboard            = TextBillboard(b);
+            c.WrapWidth            = Number(n["WrapWidth"]);
+            c.BoxHeight            = Number(n["BoxHeight"]);
+            c.LineSpacing          = Number(n["LineSpacing"]);
+            c.LetterSpacing        = Number(n["LetterSpacing"]);
+            c.Outline.Width        = Number(n["OutlineWidth"]);
+            c.Outline.Color        = Vec4(n["OutlineColor"]);
+            Require(n["ShadowOffset"].IsSequence() && n["ShadowOffset"].size() == 2, "Invalid text shadow offset");
+            c.Shadow.Offset   = {Number(n["ShadowOffset"][0]), Number(n["ShadowOffset"][1])};
+            c.Shadow.Softness = Number(n["ShadowSoftness"]);
+            c.Shadow.Color    = Vec4(n["ShadowColor"]);
+            c.AlwaysOnTop     = n["AlwaysOnTop"].as<bool>();
+            c.DoubleSided     = n["DoubleSided"].as<bool>();
+            c.CastShadows     = n["CastShadows"].as<bool>();
+            Require(c.Size > 0 && c.WrapWidth >= 0 && c.BoxHeight >= 0 && c.LineSpacing > 0 && c.Outline.Width >= 0 &&
+                        c.Shadow.Softness >= 0,
+                    "Invalid text dimensions");
+            return c;
+        }
         YAML::Node EncodeMesh(const MeshComponent& mesh)
         {
             YAML::Node value;
@@ -956,6 +1021,8 @@ namespace Kans
                     "Mesh components are mutually exclusive");
             if (entity.HasComponent<EditableMeshComponent>())
                 node["EditableMeshComponent"] = EncodeEditable(entity.GetComponent<EditableMeshComponent>());
+            if (entity.HasComponent<TextComponent>())
+                node["TextComponent"] = EncodeText(entity.GetComponent<TextComponent>());
             if (entity.HasComponent<MeshComponent>())
                 node["MeshComponent"] = EncodeMesh(entity.GetComponent<MeshComponent>());
             if (entity.HasComponent<PrefabAttachmentComponent>())
@@ -1087,6 +1154,9 @@ namespace Kans
                 Require(id && entities.emplace(id, entity).second && entities.size() <= 65536,
                         "Invalid/duplicate Scene identity");
                 auto textBytes = entity.GetComponent<TagComponent>().Tag.size();
+                if (entity.HasComponent<TextComponent>())
+                    textBytes += entity.GetComponent<TextComponent>().Text.size() +
+                                 entity.GetComponent<TextComponent>().Language.size();
                 if (entity.HasComponent<ScriptComponent>())
                     textBytes += entity.GetComponent<ScriptComponent>().ClassName.size();
                 const auto* prefab = registry.try_get<PrefabInstanceComponent>(handle);
@@ -1223,6 +1293,7 @@ namespace Kans
                       "MaterialParameterDriversComponent",
                       "AudioSourceComponent",
                       "AudioListenerComponent",
+                      "TextComponent",
                       "MeshComponent",
                       "EditableMeshComponent",
                       "PrefabParent",
@@ -1240,6 +1311,11 @@ namespace Kans
                 Keys(node["TransformComponent"], {"Position", "Rotation", "Scale", "Matrix"});
                 auto tag       = Text(node["TagComponent"]["Tag"]);
                 auto textBytes = tag.size();
+                if (node["TextComponent"])
+                {
+                    const auto text = DecodeText(node["TextComponent"]);
+                    textBytes += text.Text.size() + text.Language.size();
+                }
                 if (node["ScriptComponent"])
                     textBytes += Text(node["ScriptComponent"]["ClassName"]).size();
                 std::optional<ProductModelComponent> model;
@@ -1342,6 +1418,8 @@ namespace Kans
                         "Mesh components are mutually exclusive");
                 if (node["EditableMeshComponent"])
                     entity.AddComponent<EditableMeshComponent>(DecodeEditable(node["EditableMeshComponent"], budget));
+                if (node["TextComponent"])
+                    entity.AddComponent<TextComponent>(DecodeText(node["TextComponent"]));
                 if (node["MeshComponent"])
                     entity.AddComponent<MeshComponent>(DecodeMesh(node["MeshComponent"]));
                 if (node["PrefabParent"])

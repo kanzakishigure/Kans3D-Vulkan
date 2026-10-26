@@ -16,6 +16,7 @@ namespace Kans
         std::string                            Tag;
         TransformComponent                     Transform;
         RelationshipComponent                  Relationship;
+        std::optional<TextComponent>             Text;
         std::optional<CameraComponent>         Camera;
         std::optional<SpriteRendererComponent> Sprite;
         std::optional<MeshComponent>             Model; // Mesh state; name retained for SceneHistory component labels.

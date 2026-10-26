@@ -5,6 +5,7 @@
 #include "Resource/InternalShader.h"
 #include "Resource/MaterialPass.h"
 #include "Resource/SceneShaders.h"
+#include "TextRenderer.h"
 namespace Kans
 {
     namespace
@@ -121,6 +122,8 @@ namespace Kans
             return false;
         for (const auto& item : view.MaterialOrder)
         {
+            if (item.Text)
+                continue;
             const auto& draw = view.Draws[item.DrawIndex];
             if (!draw.Ready)
                 continue;
@@ -142,7 +145,7 @@ namespace Kans
         RenderHardware::Handle<RenderHardware::CommandList>*                               finalPost)
     {
         const auto& view = suppliedView ? *suppliedView : View;
-        if (!Assets() || view.MaterialOrder.empty())
+        if (view.MaterialOrder.empty())
             return;
         const auto&         ready    = view.MaterialOrder;
         auto*               commands = &commandList;
@@ -210,6 +213,19 @@ namespace Kans
         const auto           litFrame = frame;
         for (const auto& item : ready)
         {
+            if (item.Text)
+            {
+                if (!tag.empty())
+                    continue;
+                beginTarget(true);
+                auto text      = view.Texts[item.DrawIndex];
+                text.Transform = TextWorldTransform(
+                    text.Style, text.Transform, View.Scene.sceneCamera.Position, View.Scene.sceneCamera.viewMatrix);
+                Services.GetTextRenderer().Draw(*commands, text, frame.ViewProjection, SceneTarget(LoadOp::Load, true));
+                ++Stats.DrawCalls;
+                Stats.Triangles += text.Layout->Get().Glyphs.size() * 2;
+                continue;
+            }
             const auto& draw = view.Draws[item.DrawIndex];
             // Requests may finish during this pass. Snapshot the state used for sorting,
             // but acquire GPU resources at the draw so a cache replacement cannot dangle a queued pointer.

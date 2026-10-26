@@ -203,11 +203,81 @@ namespace Kans
                 if (m_Scene->m_Registry.valid(handle))
                     m_Scene->OnRenderComponentChanged(m_Scene->m_Registry, handle);
     }
+    std::shared_ptr<TextLayoutCache> RenderWorld::GetTextLayout(Entity entity) const
+    {
+        auto&                record = m_TextRecords[entt::entity(entity)];
+        const auto&          c      = entity.GetComponent<TextComponent>();
+        Ref<const FontAsset> font;
+        bool                 missing = c.Font.IsValid();
+        if (missing && GetAssetManager())
+        {
+            auto status = GetAssetManager()->Request<FontAsset>(c.Font);
+            if (status.IsReady())
+            {
+                font    = status.Asset;
+                missing = false;
+            }
+            else if (status.State == AssetLoadState::Loading)
+                missing = false;
+        }
+        if (missing && !record.WarnedMissing)
+        {
+            CORE_WARN("Text entity {}: missing font {}; using engine defaults",
+                      uint64_t(entity.GetUUID()),
+                      c.Font.ToString());
+            record.WarnedMissing = true;
+        }
+        auto& fonts = FontSystem::Default();
+        if (auto* assets = GetAssetManager())
+            fonts.SetResolver([assets](AssetID id) -> Ref<const FontAsset> {
+                auto status = assets->Request<FontAsset>(id);
+                return status.IsReady() ? status.Asset : Ref<const FontAsset>();
+            });
+        record.Layout->Update(c, font);
+        fonts.SetResolver({});
+        return record.Layout;
+    }
+    std::vector<ViewTextDraw> RenderWorld::CollectTexts() const
+    {
+        std::vector<ViewTextDraw> result;
+        if (!m_Scene)
+            return result;
+        for (auto handle : m_Scene->m_Registry.view<TextComponent, TransformComponent, IDComponent>())
+        {
+            Entity      entity {handle, m_Scene};
+            const auto& c      = entity.GetComponent<TextComponent>();
+            auto        layout = GetTextLayout(entity);
+            auto        world  = m_Scene->GetWorldTransform(entity);
+            auto        root   = m_Scene->GetPrefabInstanceRoot(entity);
+            result.push_back({c,
+                              world,
+                              entity.GetUUID(),
+                              root ? root.GetUUID() : UUID(0),
+                              layout,
+                              TextWorldBounds(c, layout->LocalBounds(), world)});
+        }
+        std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.EntityID < b.EntityID; });
+        return result;
+    }
     void RenderWorld::Synchronize()
     {
         if (!m_Scene)
             return;
         m_Scene->UpdatePrefabs();
+        for (auto it = m_TextRecords.begin(); it != m_TextRecords.end();)
+            if (!m_Scene->m_Registry.valid(it->first) || !m_Scene->m_Registry.all_of<TextComponent>(it->first))
+                it = m_TextRecords.erase(it);
+            else
+                ++it;
+        for (auto handle : m_Scene->m_Registry.view<TextComponent>())
+        {
+            auto previous = m_TextRecords.find(handle);
+            auto revision = previous == m_TextRecords.end() ? 0 : previous->second.Layout->Revision();
+            auto layout   = GetTextLayout({handle, m_Scene});
+            if (layout->Revision() != revision)
+                m_Scene->DirtyBounds({handle, m_Scene});
+        }
+        m_Scene->UpdateBounds();
         m_Scene->UpdateMaterialParameterDrivers();
         m_Stats           = m_PendingStats;
         m_PendingStats    = {};
@@ -376,6 +446,7 @@ namespace Kans
         if (m_Scene)
             output.Scene.PostProcess = m_Scene->GetPostProcessSettings();
         CollectLights(output.Scene);
+        output.Texts = CollectTexts();
         output.Draws.clear();
         output.Meshes.clear();
         output.Geometry.clear();

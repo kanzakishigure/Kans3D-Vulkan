@@ -22,6 +22,7 @@ namespace Kans
         const auto& pages    = atlas.Pages();
         auto        commands = m_Device->CreateCommandList();
         bool        created  = false;
+        const auto  firstNewPage = m_Pages.size();
         while (m_Pages.size() < pages.size())
         {
             RH::TextureDesc d;
@@ -38,7 +39,18 @@ namespace Kans
         }
         FontAtlasUpload stats;
         for (uint32_t p = 0; p < pages.size(); ++p)
-            for (auto rect : pages[p].Dirty)
+        {
+            auto regions = pages[p].Dirty;
+            // CPU fonts outlive a device/viewport. A fresh GPU owner must receive
+            // existing glyphs even if another owner already consumed the dirty list.
+            if (p >= firstNewPage || (regions.empty() && m_Generation != atlas.Generation()))
+            {
+                regions.clear();
+                for (const auto& [glyph, entry] : atlas.Entries())
+                    if (entry.Page == p && entry.Rect.Width && entry.Rect.Height)
+                        regions.push_back(entry.Rect);
+            }
+            for (auto rect : regions)
             {
                 size_t               bytes = size_t(rect.Width) * rect.Height * 4;
                 std::vector<uint8_t> packed(bytes);
@@ -52,6 +64,8 @@ namespace Kans
                 stats.Bytes += bytes;
                 ++stats.Regions;
             }
+        }
+        m_Generation = atlas.Generation();
         if (stats.Regions || created)
         {
             m_Device->Submit(commands);

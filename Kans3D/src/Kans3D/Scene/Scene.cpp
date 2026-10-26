@@ -1,5 +1,6 @@
 #include "kspch.h"
 
+#include <set>
 #include <glm/glm.hpp>
 #include "Kans3D/Asset/Manager/AssetManager.h"
 #include "Kans3D/Core/Math/Math.h"
@@ -24,6 +25,7 @@ namespace Kans
             m_Registry.on_destroy<T>().template connect<&Scene::OnRenderComponentChanged>(this);
         };
         connect(static_cast<MeshComponent*>(nullptr));
+        connect(static_cast<TextComponent*>(nullptr));
         m_Registry.on_construct<EditableMeshComponent>().connect<&Scene::OnEditableMeshChanged>(this);
         m_Registry.on_update<EditableMeshComponent>().connect<&Scene::OnEditableMeshChanged>(this);
         m_Registry.on_destroy<EditableMeshComponent>().connect<&Scene::OnEditableMeshRemoved>(this);
@@ -147,6 +149,45 @@ namespace Kans
             m_DirtyPrefabs.insert(handle);
         for (auto handle : m_Registry.view<MeshComponent>())
             OnRenderComponentChanged(m_Registry, handle);
+    }
+    std::vector<AssetID> Scene::GetReferencedAssets() const
+    {
+        std::set<AssetID> ids;
+        auto              add = [&](AssetID id) {
+            if (id.IsValid())
+                ids.insert(id);
+        };
+        for (auto handle : m_Registry.view<TextComponent>())
+            add(m_Registry.get<TextComponent>(handle).Font);
+        for (auto handle : m_Registry.view<MeshComponent>())
+        {
+            const auto& c = m_Registry.get<MeshComponent>(handle);
+            add(c.Mesh);
+            for (auto id : c.Materials)
+                add(id);
+        }
+        for (auto handle : m_Registry.view<EditableMeshComponent>())
+            for (auto id : m_Registry.get<EditableMeshComponent>(handle).Materials)
+                add(id);
+        for (auto handle : m_Registry.view<PrefabInstanceComponent>())
+        {
+            const auto& c = m_Registry.get<PrefabInstanceComponent>(handle);
+            add(c.Prefab);
+            for (const auto& [key, o] : c.Overrides)
+                for (const auto& [slot, id] : o.Materials)
+                    add(id);
+        }
+        for (auto handle : m_Registry.view<AudioSourceComponent>())
+            add(m_Registry.get<AudioSourceComponent>(handle).Clip);
+        for (auto handle : m_Registry.view<AnimatorComponent>())
+        {
+            const auto& c = m_Registry.get<AnimatorComponent>(handle);
+            add(c.Skeleton);
+            add(c.Controller);
+        }
+        for (const auto& entry : GetPostProcessSettings().Materials)
+            add(entry.Material);
+        return {ids.begin(), ids.end()};
     }
     void Scene::TrackPrefabAssets(Entity root)
     {
@@ -513,6 +554,7 @@ namespace Kans
         Entity copy = CreateEntity(source.GetComponent<TagComponent>().Tag);
         CopyComponent<TransformComponent>(source, copy);
         CopyComponent<CameraComponent>(source, copy);
+        CopyComponent<TextComponent>(source, copy);
         CopyComponent<SpriteRendererComponent>(source, copy);
         CopyComponent<MeshComponent>(source, copy);
         CopyComponent<EditableMeshComponent>(source, copy);
@@ -676,6 +718,9 @@ namespace Kans
 
     template<>
     void Scene::OnComponentAdd<TransformComponent>(Entity entity, TransformComponent& component)
+    {}
+    template<>
+    void Scene::OnComponentAdd<TextComponent>(Entity, TextComponent&)
     {}
     template<>
     void Scene::OnComponentAdd<MeshComponent>(Entity entity, MeshComponent& component)
