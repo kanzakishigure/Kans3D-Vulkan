@@ -4,6 +4,7 @@
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Scene/Components.h"
 #include "Kans3D/Scene/Scene.h"
+#include "Kans3D/Timeline/Timeline.h"
 #include "UI/EditorIcons.h"
 
 namespace Kans
@@ -156,6 +157,10 @@ namespace Kans
         auto& shapeKeys    = registry.Register<ShapeKeysComponent>("Shape Keys", ICON_FA_FACE_SMILE, "Animation");
         shapeKeys.IconRank = 8;
         shapeKeys.Draw     = DrawShapeKeys;
+
+        auto& timeline    = registry.Register<TimelinePlayerComponent>("Timeline Player", ICON_FA_FILM, "Animation");
+        timeline.IconRank = 7;
+        timeline.Draw     = DrawTimelinePlayer;
 
         auto& drivers = registry.Register<MaterialParameterDriversComponent>(
             "Material Parameter Drivers", ICON_FA_SLIDERS, "Rendering");

@@ -31,6 +31,7 @@ namespace Kans::ComponentEditors
     void DrawAnimator(Entity entity, ComponentUI& ui);
     void DrawIK(Entity entity, ComponentUI& ui);
     void DrawShapeKeys(Entity entity, ComponentUI& ui);
+    void DrawTimelinePlayer(Entity entity, ComponentUI& ui);
     // A joint of `skeleton` (empty = none) as a grid row; true when changed.
     bool JointCombo(const char* label, std::string& joint, const SkeletonData* skeleton);
     void DrawMaterialParameterDrivers(Entity entity, ComponentUI& ui);

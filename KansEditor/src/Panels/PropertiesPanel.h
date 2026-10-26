@@ -45,6 +45,7 @@ namespace Kans
         };
         void SetMaterialActions(MaterialActions actions) { m_MaterialActions = std::move(actions); }
         void SetOpenAnimatorGraph(std::function<void()> open) { m_OpenAnimatorGraph = std::move(open); }
+        void SetOpenTimeline(std::function<void(Entity)> open) { m_OpenTimeline = std::move(open); }
         // Adds the slot rows' hovered, highlighted and isolated parts to the viewport's highlights.
         void AppendSlotHighlights(ViewHighlights& highlights) const;
 
@@ -72,6 +73,11 @@ namespace Kans
         {
             if (m_OpenAnimatorGraph)
                 m_OpenAnimatorGraph();
+        }
+        void OpenTimeline(Entity owner) override
+        {
+            if (m_OpenTimeline)
+                m_OpenTimeline(owner);
         }
 
     private:
@@ -106,6 +112,7 @@ namespace Kans
         std::function<std::vector<std::filesystem::path>()> m_BrowserSelection;
         MaterialActions                                     m_MaterialActions;
         std::function<void()>                               m_OpenAnimatorGraph;
+        std::function<void(Entity)>                         m_OpenTimeline;
         // Slot rows' viewport feedback; pinned and isolated rows reset when the selection changes.
         SlotParts              m_HoveredSlot, m_IsolatedSlot;
         std::vector<SlotParts> m_HighlightedSlots;

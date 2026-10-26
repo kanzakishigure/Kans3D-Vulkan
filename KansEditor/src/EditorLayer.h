@@ -9,23 +9,24 @@
 
 #include "Kans3D/Editor/EditorCamera.h"
 #include "Kans3D/Editor/EditorResources.h"
-#include "Panels/ContentBrowserPanel.h"
-#include "Panels/HierarchyPanel.h"
-#include "Panels/AnimatorGraphPanel.h"
-#include "Panels/FrameGraphPanel.h"
-#include "Panels/MaterialEditorPanel.h"
-#include "Panels/ProductImportPanel.h"
-#include "Panels/PropertiesPanel.h"
-#include "Panels/ViewportPanel.h"
-#include "SceneHistory.h"
-#include "UnsavedChanges.h"
-#include "UI/SceneFileDialog.h"
-#include "Launcher/ProjectBrowser.h"
 #include "Kans3D/Renderer/MaterialPreviewRenderer.h"
 #include "Kans3D/Scene/ScenePlaySession.h"
 #include "Kans3D/Script/ScriptBuild.h"
+#include "Launcher/ProjectBrowser.h"
+#include "Panels/AnimatorGraphPanel.h"
+#include "Panels/ContentBrowserPanel.h"
+#include "Panels/FrameGraphPanel.h"
+#include "Panels/HierarchyPanel.h"
+#include "Panels/MaterialEditorPanel.h"
+#include "Panels/ProductImportPanel.h"
+#include "Panels/PropertiesPanel.h"
+#include "Panels/TimelinePanel.h"
+#include "Panels/ViewportPanel.h"
+#include "SceneHistory.h"
 #include "UI/ConsolePanel.h"
 #include "UI/PanelManager.h"
+#include "UI/SceneFileDialog.h"
+#include "UnsavedChanges.h"
 #include "ViewportClient.h"
 namespace Kans
 {
@@ -42,6 +43,7 @@ namespace Kans
         inline constexpr const char* MaterialEditor = "MaterialEditor";
         inline constexpr const char* FrameGraph     = "FrameGraph";
         inline constexpr const char* AnimatorGraph  = "AnimatorGraph";
+        inline constexpr const char* Timeline       = "Timeline";
     } // namespace PanelID
 
     class EditorLayer : public Kans::Layer
@@ -216,6 +218,7 @@ namespace Kans
         MaterialEditorPanel m_MaterialEditorPanel;
         FrameGraphPanel     m_FrameGraphPanel;
         AnimatorGraphPanel  m_AnimatorGraphPanel {m_HierarchyPanel};
+        TimelinePanel       m_TimelinePanel {m_HierarchyPanel};
         // Editor view frame times (ms) for the Stats panel's graph, oldest first.
         std::array<float, 240> m_FrameTimes {};
         size_t                 m_FrameTimeCursor = 0;

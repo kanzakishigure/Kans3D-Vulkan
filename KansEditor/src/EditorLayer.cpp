@@ -159,6 +159,8 @@ namespace Kans
         m_ContentBrowserPanel.SetExtractMaterialsCallback({});
         m_ContentBrowserPanel.SetErrorCallback({});
         m_ProductImportPanel.Bind(nullptr);
+        m_TimelinePanel.StopPreview();
+        m_TimelinePanel.Bind(nullptr);
         m_MaterialEditorPanel.Bind(nullptr);
         if (m_AssetImports)
         {
@@ -176,6 +178,7 @@ namespace Kans
             m_Viewport->SetAssetManager(nullptr);
             m_PropertiesPanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetAssetManager(nullptr);
+            m_TimelinePanel.SetAssetManager(nullptr);
             m_MaterialEditorPanel.SetUsageQuery({});
             m_MaterialEditorPanel.SetSelectCallback({});
             m_MaterialEditorPanel.SetPreviewRenderer(nullptr);
@@ -242,6 +245,7 @@ namespace Kans
 
         // The scene only runs in play mode; IK and saved shape keys of models without an
         // Animator still show while editing.
+        m_TimelinePanel.StopPreviewIfHidden();
         if (!m_Play.Update(*m_ActiveScene, ts) && !m_Play.IsActive())
             m_ActiveScene->UpdateModelPoses();
         // The viewport panel renders the scene during the UI frame.

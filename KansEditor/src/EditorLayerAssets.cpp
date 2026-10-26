@@ -63,6 +63,7 @@ namespace Kans
         m_AssetImports = std::get<Scope<EditorAssetImportService>>(std::move(controller));
         m_ProductImportPanel.Bind(m_AssetImports.get());
         m_MaterialEditorPanel.Bind(m_AssetImports.get());
+        m_TimelinePanel.Bind(m_AssetImports.get());
         m_ContentBrowserPanel.SetOpenFileCallback([this](const std::filesystem::path& path) {
             if (path.extension() == ".kans")
                 ConfirmDiscard("opening " + path.filename().u8string(), [this, path] { Record(OpenScene(path)); });
@@ -110,6 +111,7 @@ namespace Kans
         auto choices = CollectAssetChoices(*snapshot);
         m_MaterialEditorPanel.SetAssetChoices(choices);
         m_AnimatorGraphPanel.SetAssetChoices(choices);
+        m_TimelinePanel.SetAssetChoices(choices);
         m_PropertiesPanel.SetAssetChoices(std::move(choices));
         if (m_Assets)
         {
@@ -130,6 +132,7 @@ namespace Kans
         m_ThumbnailRenderer->SetResources(m_Viewport->GetAssetCache(), m_Viewport->GetEnvironment());
         m_PropertiesPanel.SetAssetManager(m_Assets.get());
         m_MaterialEditorPanel.SetAssetManager(m_Assets.get());
+        m_TimelinePanel.SetAssetManager(m_Assets.get());
         m_MaterialEditorPanel.SetUsageQuery([this](AssetID material) {
             return m_ActiveScene ? FindMaterialUses(*m_ActiveScene, material, m_Assets.get()) :
                                    std::vector<MaterialUse> {};
@@ -661,6 +664,7 @@ namespace Kans
     {
         if (m_Play.IsActive())
             return AssetError {AssetErrorCode::InvalidArgument, "Stop play mode before saving the scene"};
+        m_TimelinePanel.StopPreview(); // Saves the scene, not a previewed frame.
         auto resolved = SceneFilePath(m_AssetImports.get(), path);
         if (const auto* error = std::get_if<AssetError>(&resolved))
             return *error;

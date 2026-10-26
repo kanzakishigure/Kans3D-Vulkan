@@ -107,7 +107,9 @@ namespace Kans
     bool ViewportPanel::UsesSceneCamera() const
     {
         // Without a primary camera, play mode still shows the editor view.
-        return m_Playing && !m_UseEditorCameraInPlay && m_Scene && m_Scene->GetCameraEntity();
+        // A timeline preview can also look through the camera its cuts make primary.
+        return ((m_Playing && !m_UseEditorCameraInPlay) || m_PreviewSceneCamera) && m_Scene &&
+               m_Scene->GetCameraEntity();
     }
 
     glm::mat4 ViewportPanel::ViewProjection() const

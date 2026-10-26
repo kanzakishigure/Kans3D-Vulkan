@@ -55,6 +55,8 @@ namespace Kans
         virtual void CreateMaterialInstance(AssetID parent, const SlotParts& parts) = 0;
         // Shows the Animator graph window (for the selected model).
         virtual void OpenAnimatorGraph() {}
+        // Shows the Timeline window for this Timeline Player.
+        virtual void OpenTimeline(Entity) {}
     };
 
     // Everything the editor knows about one component type: how it is named, shown,

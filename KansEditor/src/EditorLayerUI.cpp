@@ -78,6 +78,14 @@ namespace Kans
         animatorGraph.Flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
         m_Panels.Register(animatorGraph, [this] { m_AnimatorGraphPanel.Draw(); });
         m_PropertiesPanel.SetOpenAnimatorGraph([this] { m_Panels.Open(PanelID::AnimatorGraph); });
+        m_Panels.Register(
+            spec(PanelID::Timeline, "Timeline", ICON_FA_FILM, PanelCategory::Scene, PanelDock::Bottom, false),
+            [this] { m_TimelinePanel.Draw(); });
+        m_PropertiesPanel.SetOpenTimeline([this](Entity owner) {
+            m_TimelinePanel.Open(owner);
+            m_Panels.Open(PanelID::Timeline);
+        });
+        m_TimelinePanel.SetViewThroughCamera([this](bool show) { m_ViewportPanel.SetPreviewSceneCamera(show); });
     }
 
     void EditorLayer::OpenImporter(const std::filesystem::path& file)
@@ -167,7 +175,9 @@ namespace Kans
             m_EditPending |= io.MouseReleased[button];
         for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END && !m_EditPending; ++key)
             m_EditPending |= ImGui::IsKeyReleased(ImGuiKey(key));
-        if (m_EditPending && !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing() && !ImGui::IsAnyMouseDown())
+        // A timeline preview changes the scene temporarily; it is not an edit.
+        if (m_EditPending && !m_TimelinePanel.IsPreviewing() && !ImGui::IsAnyItemActive() && !ImGuizmo::IsUsing() &&
+            !ImGui::IsAnyMouseDown())
         {
             m_History.Record(*m_ActiveScene);
             m_EditPending = false;
@@ -178,6 +188,7 @@ namespace Kans
     {
         if (!m_ActiveScene || m_Play.IsActive())
             return;
+        m_TimelinePanel.StopPreview();
         // Pending changes become a step first, so they can be undone too.
         m_History.Record(*m_ActiveScene);
         m_EditPending = false;
@@ -189,6 +200,7 @@ namespace Kans
     {
         if (!m_ActiveScene || m_Play.IsActive())
             return;
+        m_TimelinePanel.StopPreview();
         m_History.Record(*m_ActiveScene);
         m_EditPending = false;
         for (int i = 0; i < steps && m_History.Redo(*m_ActiveScene); ++i)
@@ -244,6 +256,7 @@ namespace Kans
     {
         if (!m_ActiveScene)
             return;
+        m_TimelinePanel.StopPreview(); // Play starts from the scene as saved, not a previewed frame.
         if (!m_Play.IsActive())
         {
             // Pending edits become a step first; play itself is not recorded.

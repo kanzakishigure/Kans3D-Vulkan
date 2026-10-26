@@ -20,6 +20,8 @@ namespace Kans
     class ViewportPanel
     {
     public:
+        // Shows the scene's primary camera outside play mode (timeline camera cuts in preview).
+        void SetPreviewSceneCamera(bool show) { m_PreviewSceneCamera = show; }
         // A dropped file and, for files dropped on the scene, where it should go.
         using FileDrop = std::function<void(const std::filesystem::path&, std::optional<glm::vec3>)>;
         // The published model of a dragged file (invalid when it is not one, or not imported yet).
@@ -106,7 +108,7 @@ namespace Kans
         glm::uvec2 m_Size {0, 0};
         bool       m_Hovered = false, m_Focused = false, m_ImageHovered = false;
         Navigation m_Navigation = Navigation::None;
-        bool       m_Playing = false, m_UseEditorCameraInPlay = false;
+        bool       m_Playing = false, m_UseEditorCameraInPlay = false, m_PreviewSceneCamera = false;
 
         SceneViewMode m_ViewMode  = SceneViewMode::Lit;
         GridSettings  m_Grid;
