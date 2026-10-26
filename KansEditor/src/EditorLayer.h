@@ -219,6 +219,8 @@ namespace Kans
         FrameGraphPanel     m_FrameGraphPanel;
         AnimatorGraphPanel  m_AnimatorGraphPanel {m_HierarchyPanel};
         TimelinePanel       m_TimelinePanel {m_HierarchyPanel};
+        // Keys and text typed while playing with the viewport focused, for the game's UI.
+        UIInputState m_UIInput;
         // Editor view frame times (ms) for the Stats panel's graph, oldest first.
         std::array<float, 240> m_FrameTimes {};
         size_t                 m_FrameTimeCursor = 0;

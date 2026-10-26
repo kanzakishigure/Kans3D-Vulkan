@@ -1,12 +1,13 @@
 #pragma once
+#include <imgui.h>
 #include <filesystem>
 #include <functional>
 #include <optional>
-#include <imgui.h>
 #include "Kans3D/Editor/EditorCamera.h"
-#include "ViewportClient.h"
+#include "Kans3D/UI/UIInput.h"
 #include "HierarchyPanel.h"
 #include "MeshEditTool.h"
+#include "ViewportClient.h"
 
 namespace Kans
 {
@@ -22,6 +23,11 @@ namespace Kans
     public:
         // Shows the scene's primary camera outside play mode (timeline camera cuts in preview).
         void SetPreviewSceneCamera(bool show) { m_PreviewSceneCamera = show; }
+        // Play mode: where the game image is (letterboxed at a chosen resolution) and the
+        // pointer, buttons and wheel over it, for the game's UI.
+        UIViewport GameViewport() const;
+        void       GameInput(UIInputState& input) const;
+        bool       IsFocused() const { return m_Focused; }
         // A dropped file and, for files dropped on the scene, where it should go.
         using FileDrop = std::function<void(const std::filesystem::path&, std::optional<glm::vec3>)>;
         // The published model of a dragged file (invalid when it is not one, or not imported yet).
@@ -46,7 +52,6 @@ namespace Kans
         void Draw();
 
         bool          IsHovered() const { return m_Hovered; }
-        bool          IsFocused() const { return m_Focused; }
         bool          IsNavigating() const { return m_Navigation != Navigation::None; }
         EditorCamera& GetCamera() { return m_Camera; }
         void          FocusSelection();
@@ -109,6 +114,8 @@ namespace Kans
         bool       m_Hovered = false, m_Focused = false, m_ImageHovered = false;
         Navigation m_Navigation = Navigation::None;
         bool       m_Playing = false, m_UseEditorCameraInPlay = false, m_PreviewSceneCamera = false;
+        int        m_GameResolution = 0; // Index into the game resolutions; 0 fits the panel.
+        ImVec2     m_ImageMin {0, 0}, m_ImageSize {1, 1};
 
         SceneViewMode m_ViewMode  = SceneViewMode::Lit;
         GridSettings  m_Grid;

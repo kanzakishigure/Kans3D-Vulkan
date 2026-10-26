@@ -19,6 +19,25 @@
 
 namespace Kans
 {
+    namespace
+    {
+        struct GameResolution
+        {
+            const char* Name;
+            uint32_t    Width = 0, Height = 0;
+        };
+        const std::vector<GameResolution>& GameResolutions()
+        {
+            static const std::vector<GameResolution> list {{"Fit the panel"},
+                                                           {"1920 x 1080", 1920, 1080},
+                                                           {"1280 x 720", 1280, 720},
+                                                           {"2560 x 1440", 2560, 1440},
+                                                           {"1080 x 1920 (portrait)", 1080, 1920},
+                                                           {"750 x 1334 (phone)", 750, 1334}};
+            return list;
+        }
+    } // namespace
+
     using Widgets::OverlayGroup;
     using Widgets::ToolButton;
 
@@ -41,8 +60,19 @@ namespace Kans
         const ImVec2 size = ImGui::GetContentRegionAvail();
         m_Min             = ImGui::GetCursorScreenPos();
         m_Max             = {m_Min.x + size.x, m_Min.y + size.y};
-        // Resize and render in this frame, so the image always matches the panel.
-        Resize(size);
+        // Resize and render in this frame, so the image always matches the panel. Through the game
+        // camera a chosen resolution renders at that size and is shown letterboxed.
+        m_ImageMin  = m_Min;
+        m_ImageSize = size;
+        if (const auto& r = GameResolutions()[size_t(m_GameResolution)]; UsesSceneCamera() && r.Width > 0)
+        {
+            const float scale = std::min(size.x / r.Width, size.y / r.Height);
+            m_ImageSize       = {std::max(1.0f, r.Width * scale), std::max(1.0f, r.Height * scale)};
+            m_ImageMin        = {m_Min.x + (size.x - m_ImageSize.x) * 0.5f, m_Min.y + (size.y - m_ImageSize.y) * 0.5f};
+            Resize({float(r.Width), float(r.Height)});
+        }
+        else
+            Resize(size);
         // Outline the selection with its descendants' meshes; the renderer resolves
         // them after this frame's asset updates.
         Entity selected = m_Hierarchy.GetSelected();
@@ -64,7 +94,12 @@ namespace Kans
         Render();
 
         const auto output = m_Client->GetOutput();
-        ImGui::Image(static_cast<ImTextureID>(output), size, ImVec2(0, 1), ImVec2(1, 0));
+        if (m_ImageSize.x != size.x || m_ImageSize.y != size.y)
+        {
+            ImGui::GetWindowDrawList()->AddRectFilled(m_Min, m_Max, IM_COL32(0, 0, 0, 255));
+            ImGui::SetCursorScreenPos(m_ImageMin);
+        }
+        ImGui::Image(static_cast<ImTextureID>(output), m_ImageSize, ImVec2(0, 1), ImVec2(1, 0));
         m_ImageHovered = ImGui::IsItemHovered();
         if (m_Playing)
         {
@@ -91,6 +126,30 @@ namespace Kans
         // After the overlays, so clicks on their widgets do not navigate.
         HandleNavigation();
         HandleShortcuts();
+    }
+
+    UIViewport ViewportPanel::GameViewport() const
+    {
+        // The image's screen rectangle; the scale maps it to the rendered pixels.
+        return {{m_ImageMin.x, m_ImageMin.y},
+                {m_ImageSize.x, m_ImageSize.y},
+                {float(m_Size.x) / std::max(1.0f, m_ImageSize.x), float(m_Size.y) / std::max(1.0f, m_ImageSize.y)}};
+    }
+
+    void ViewportPanel::GameInput(UIInputState& input) const
+    {
+        const ImGuiIO& io   = ImGui::GetIO();
+        input.Pointer       = {io.MousePos.x, io.MousePos.y};
+        input.PointerInside = m_ImageHovered;
+        for (int b = 0; b < int(input.Buttons.size()) && b < ImGuiMouseButton_COUNT; ++b)
+        {
+            // Presses count over the image; releases anywhere, so a drag can end outside it.
+            input.ButtonDown[b] = m_ImageHovered && io.MouseClicked[b];
+            input.ButtonUp[b]   = io.MouseReleased[b];
+            input.Buttons[b]    = io.MouseDown[b] && (input.Buttons[b] || input.ButtonDown[b]);
+        }
+        if (m_ImageHovered)
+            input.Scroll += glm::vec2(io.MouseWheelH, io.MouseWheel);
     }
 
     void ViewportPanel::Resize(ImVec2 size)
@@ -793,6 +852,15 @@ namespace Kans
                 {
                     ImGui::Separator();
                     ImGui::Checkbox("Editor camera while playing", &m_UseEditorCameraInPlay);
+                    // The game view's size, for checking screen UI at other resolutions.
+                    ImGui::SetNextItemWidth(EditorTheme::Px(180.0f));
+                    if (ImGui::BeginCombo("Game resolution", GameResolutions()[size_t(m_GameResolution)].Name))
+                    {
+                        for (size_t i = 0; i < GameResolutions().size(); ++i)
+                            if (ImGui::Selectable(GameResolutions()[i].Name, int(i) == m_GameResolution))
+                                m_GameResolution = int(i);
+                        ImGui::EndCombo();
+                    }
                 }
                 ImGui::EndPopup();
             }

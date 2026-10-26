@@ -246,6 +246,17 @@ namespace Kans
         // The scene only runs in play mode; IK and saved shape keys of models without an
         // Animator still show while editing.
         m_TimelinePanel.StopPreviewIfHidden();
+        if (m_Play.IsActive())
+        {
+            // The game's UI sees the pointer over the viewport image and the keys typed into it.
+            auto input = m_UIInput;
+            m_ViewportPanel.GameInput(input);
+            m_Play.FeedUIInput(input, m_ViewportPanel.GameViewport());
+            m_UIInput.Buttons = input.Buttons; // Held buttons carry over to the next frame.
+            m_UIInput.NextFrame();
+        }
+        else
+            m_UIInput = {};
         if (!m_Play.Update(*m_ActiveScene, ts) && !m_Play.IsActive())
             m_ActiveScene->UpdateModelPoses();
         // The viewport panel renders the scene during the UI frame.
@@ -253,8 +264,14 @@ namespace Kans
 
     void EditorLayer::OnEvent(Event& e)
     {
-        // Editor shortcuts are handled in the ImGui frame (HandleShortcuts).
-        (void)e;
+        // Editor shortcuts are handled in the ImGui frame (HandleShortcuts). While playing, keys and
+        // text typed with the viewport focused also reach the game's UI (the pointer comes from ImGui).
+        const auto type = e.GetEventType();
+        if (m_Play.IsActive() && m_ViewportPanel.IsFocused() &&
+            (type == EventType::KeyPressed || type == EventType::KeyReleased || type == EventType::KeyTyped))
+            m_UIInput.Feed(e);
+        else if (type == EventType::KeyReleased)
+            m_UIInput.Feed(e); // A key held when focus left still has to come up.
     }
 
 } // namespace Kans
