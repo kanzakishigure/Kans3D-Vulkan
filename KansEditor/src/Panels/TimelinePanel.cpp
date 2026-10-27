@@ -14,6 +14,7 @@
 #include "Kans3D/Timeline/TimelineProduct.h"
 #include "UI/EditorIcons.h"
 #include "UI/PropertyGrid.h"
+#include "UI/SourceBuild.h"
 
 namespace Kans
 {
@@ -167,29 +168,7 @@ namespace Kans
             }
         }
         m_Dirty  = false;
-        m_Status = "Saved.";
-        if (!m_Service)
-            return;
-        const auto file = Canonical(m_File);
-        for (int attempt = 0; attempt < 2; ++attempt)
-        {
-            auto sources = m_Service->GetSources();
-            if (std::holds_alternative<std::vector<SourceAssetMetadata>>(sources))
-                for (const auto& source : std::get<std::vector<SourceAssetMetadata>>(sources))
-                    if (source.Exists &&
-                        Canonical(m_Service->GetConfig().AssetDirectory / source.Path.GetPath()) == file)
-                    {
-                        AssetBuildOptions options;
-                        options.Target = EditorAssetTarget;
-                        auto started   = m_Service->Start(source.sourceAssetID, options);
-                        m_Status       = std::holds_alternative<AssetError>(started) ?
-                                             "Saved; build not started: " + std::get<AssetError>(started).Message :
-                                             "Saved; building...";
-                        return;
-                    }
-            (void)m_Service->RefreshSources();
-        }
-        m_Status = "Saved, but the file is not a project asset.";
+        m_Status = BuildSavedSource(m_Service, m_File);
     }
 
     void TimelinePanel::CreateAsset()

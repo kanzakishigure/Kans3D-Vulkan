@@ -31,6 +31,9 @@ namespace Kans
         void SetOpenFileCallback(PathCallback callback) { m_OpenFile = std::move(callback); }
         // "Create > Material" in a folder.
         void SetCreateMaterialCallback(PathCallback callback) { m_CreateMaterial = std::move(callback); }
+        // "Create > UI" and "Create > Timeline" in a folder.
+        void SetCreateUICallback(PathCallback callback) { m_CreateUI = std::move(callback); }
+        void SetCreateTimelineCallback(PathCallback callback) { m_CreateTimeline = std::move(callback); }
         // "Import" / "Reimport" of a source file.
         void SetImportCallback(PathCallback callback) { m_Import = std::move(callback); }
         // "Import Settings..." of a source file.
@@ -128,6 +131,7 @@ namespace Kans
 
         // ---- callbacks and services ----
         PathCallback m_OpenFile, m_CreateMaterial, m_Import, m_ImportSettings, m_ExtractMaterials;
+        PathCallback              m_CreateUI, m_CreateTimeline;
         MaterialThumbnailProvider m_MaterialThumbnail;
         PathCallback              m_CreateInstance;
         std::function<void(const std::string&)> m_ReportError;

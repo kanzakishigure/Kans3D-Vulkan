@@ -11,12 +11,26 @@
 #include "Kans3D/Project/ProjectFile.h"
 #include "Kans3D/Project/RecentProjects.h"
 #include "Kans3D/Scene/SceneSerializer.h"
+#include "Kans3D/Timeline/TimelineProduct.h"
 #include "Components/MaterialAssignment.h"
 #include "EditorLayer.h"
 #include "Launcher/LauncherModel.h"
 
 namespace Kans
 {
+    namespace
+    {
+        // "<stem><ext>", or "<stem>2<ext>", ... when taken.
+        std::filesystem::path
+        UniqueFile(const std::filesystem::path& directory, const std::string& stem, const char* extension)
+        {
+            auto file = directory / (stem + extension);
+            for (int i = 2; std::filesystem::exists(file); ++i)
+                file = directory / (stem + std::to_string(i) + extension);
+            return file;
+        }
+    } // namespace
+
     void EditorLayer::OpenProject()
     {
         auto loaded = LoadProjectFile(m_ProjectFile);
@@ -64,16 +78,41 @@ namespace Kans
         m_ProductImportPanel.Bind(m_AssetImports.get());
         m_MaterialEditorPanel.Bind(m_AssetImports.get());
         m_TimelinePanel.Bind(m_AssetImports.get());
+        m_UIDesignerPanel.Bind(m_AssetImports.get());
         m_ContentBrowserPanel.SetOpenFileCallback([this](const std::filesystem::path& path) {
             if (path.extension() == ".kans")
                 ConfirmDiscard("opening " + path.filename().u8string(), [this, path] { Record(OpenScene(path)); });
             else if (path.extension() == ".material")
                 OpenMaterial(path);
+            else if (path.extension() == ".kui")
+            {
+                if (m_UIDesignerPanel.Open(path))
+                    m_Panels.Open(PanelID::UIDesigner);
+            }
             else
                 OpenImporter(path);
         });
         m_ContentBrowserPanel.SetCreateMaterialCallback(
             [this](const std::filesystem::path& directory) { CreateMaterial(directory); });
+        m_ContentBrowserPanel.SetCreateUICallback([this](const std::filesystem::path& directory) {
+            // A new screen at 1920 x 1080, scaling with the screen, opened in the designer.
+            UIData data;
+            data.ScaleMode  = UIScaleMode::ScaleWithScreenSize;
+            const auto file = UniqueFile(directory, "NewUI", ".kui");
+            if (auto text = SerializeUISource(data); std::holds_alternative<std::string>(text))
+            {
+                std::ofstream(file, std::ios::binary) << std::get<std::string>(text);
+                if (m_UIDesignerPanel.Open(file))
+                    m_UIDesignerPanel.Save(), m_Panels.Open(PanelID::UIDesigner);
+            }
+        });
+        m_ContentBrowserPanel.SetCreateTimelineCallback([this](const std::filesystem::path& directory) {
+            TimelineData data;
+            data.Length = 5;
+            YAML::Emitter out;
+            out << EncodeTimelineNode(data);
+            std::ofstream(UniqueFile(directory, "NewTimeline", ".timeline"), std::ios::binary) << out.c_str() << '\n';
+        });
         m_ContentBrowserPanel.SetImportCallback([this](const std::filesystem::path& path) { ImportSource(path); });
         m_ContentBrowserPanel.SetImportSettingsCallback(
             [this](const std::filesystem::path& path) { OpenImporter(path); });
@@ -112,6 +151,7 @@ namespace Kans
         m_MaterialEditorPanel.SetAssetChoices(choices);
         m_AnimatorGraphPanel.SetAssetChoices(choices);
         m_TimelinePanel.SetAssetChoices(choices);
+        m_UIDesignerPanel.SetAssetChoices(choices);
         m_PropertiesPanel.SetAssetChoices(std::move(choices));
         if (m_Assets)
         {

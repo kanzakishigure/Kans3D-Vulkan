@@ -69,6 +69,9 @@
 #define ICON_FA_FLAG "\xef\x80\xa4"                   // U+F024
 #define ICON_FA_DESKTOP "\xef\x8e\x90"                // U+F390
 #define ICON_FA_TABLET "\xef\x8f\xba"                 // U+F3FA
+#define ICON_FA_HAND_POINTER "\xef\x89\x9a"           // U+F25A
+#define ICON_FA_SQUARE_CHECK "\xef\x85\x8a"           // U+F14A
+#define ICON_FA_I_CURSOR "\xef\x89\x86"               // U+F246
 #define ICON_FA_MICROCHIP "\xef\x8b\x9b"              // U+F2DB
 #define ICON_FA_TABLE_COLUMNS          "\xef\x83\x9b" // U+F0DB
 #define ICON_FA_FILE_LINES             "\xef\x85\x9c" // U+F15C

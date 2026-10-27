@@ -454,6 +454,10 @@ namespace Kans
                 NewFolder(m_Current);
             if (ImGui::MenuItem(Label(ICON_FA_PALETTE, "Material").c_str(), nullptr, false, bool(m_CreateMaterial)))
                 m_CreateMaterial(m_Current);
+            if (ImGui::MenuItem(Label(ICON_FA_DESKTOP, "UI").c_str(), nullptr, false, bool(m_CreateUI)))
+                m_CreateUI(m_Current), Refresh();
+            if (ImGui::MenuItem(Label(ICON_FA_FILM, "Timeline").c_str(), nullptr, false, bool(m_CreateTimeline)))
+                m_CreateTimeline(m_Current), Refresh();
             ImGui::EndPopup();
         }
         ImGui::SameLine();
@@ -1474,6 +1478,10 @@ namespace Kans
                     m_CreateMaterial(folder);
                     Refresh();
                 }
+                if (ImGui::MenuItem(Label(ICON_FA_DESKTOP, "UI").c_str()) && m_CreateUI)
+                    m_CreateUI(folder), Refresh();
+                if (ImGui::MenuItem(Label(ICON_FA_FILM, "Timeline").c_str()) && m_CreateTimeline)
+                    m_CreateTimeline(folder), Refresh();
                 ImGui::EndMenu();
             }
             if (ImGui::MenuItem(Label(ICON_FA_PASTE, "Paste").c_str(), "Ctrl+V", false, hasClipboard))

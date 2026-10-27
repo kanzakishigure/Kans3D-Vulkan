@@ -21,6 +21,7 @@
 #include "Panels/ProductImportPanel.h"
 #include "Panels/PropertiesPanel.h"
 #include "Panels/TimelinePanel.h"
+#include "Panels/UIDesignerPanel.h"
 #include "Panels/ViewportPanel.h"
 #include "SceneHistory.h"
 #include "UI/ConsolePanel.h"
@@ -44,6 +45,7 @@ namespace Kans
         inline constexpr const char* FrameGraph     = "FrameGraph";
         inline constexpr const char* AnimatorGraph  = "AnimatorGraph";
         inline constexpr const char* Timeline       = "Timeline";
+        inline constexpr const char* UIDesigner     = "UIDesigner";
     } // namespace PanelID
 
     class EditorLayer : public Kans::Layer
@@ -219,6 +221,7 @@ namespace Kans
         FrameGraphPanel     m_FrameGraphPanel;
         AnimatorGraphPanel  m_AnimatorGraphPanel {m_HierarchyPanel};
         TimelinePanel       m_TimelinePanel {m_HierarchyPanel};
+        UIDesignerPanel     m_UIDesignerPanel;
         // Keys and text typed while playing with the viewport focused, for the game's UI.
         UIInputState m_UIInput;
         // Editor view frame times (ms) for the Stats panel's graph, oldest first.

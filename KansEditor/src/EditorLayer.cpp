@@ -161,6 +161,7 @@ namespace Kans
         m_ProductImportPanel.Bind(nullptr);
         m_TimelinePanel.StopPreview();
         m_TimelinePanel.Bind(nullptr);
+        m_UIDesignerPanel.Bind(nullptr);
         m_MaterialEditorPanel.Bind(nullptr);
         if (m_AssetImports)
         {

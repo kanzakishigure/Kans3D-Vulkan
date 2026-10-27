@@ -86,6 +86,10 @@ namespace Kans
             m_Panels.Open(PanelID::Timeline);
         });
         m_TimelinePanel.SetViewThroughCamera([this](bool show) { m_ViewportPanel.SetPreviewSceneCamera(show); });
+        m_Panels.Register(
+            spec(
+                PanelID::UIDesigner, "UI Designer", ICON_FA_DESKTOP, PanelCategory::Assets, PanelDock::Floating, false),
+            [this] { m_UIDesignerPanel.Draw(); });
     }
 
     void EditorLayer::OpenImporter(const std::filesystem::path& file)
