@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <functional>
@@ -15,6 +16,11 @@ namespace Kans
     class HierarchyPanel
     {
     public:
+        // Display filter: hide model nodes without a mesh or components (bones), or all model parts.
+        void SetHideEmptyModelNodes(bool hide) { m_HideEmptyModelNodes = hide; }
+        void SetHideModelParts(bool hide) { m_HideModelParts = hide; }
+        // Whether the last Draw listed the entity (for tests).
+        bool IsListed(UUID id) const { return std::find(m_Order.begin(), m_Order.end(), id) != m_Order.end(); }
         using FileDrop = std::function<void(const std::filesystem::path& file, Entity parent)>;
 
         void   SetScene(Ref<Scene> scene);
@@ -64,6 +70,9 @@ namespace Kans
         void HandleKeyboard();
         // Marks entities whose name or descendants match the search.
         bool UpdateMatches(Entity entity);
+        // Marks entities the display filter shows: not hidden themselves, or with a shown descendant.
+        bool UpdateShown(Entity entity);
+        bool IsHiddenByFilter(Entity entity) const;
 
         Entity Create(const char* name, Entity parent);
         void   StartRename(Entity entity);
@@ -81,6 +90,11 @@ namespace Kans
 
         std::array<char, 128>              m_Search {};
         std::unordered_map<uint64_t, bool> m_Matches; // Subtree matches the search.
+        // Display filter (the search ignores it): model nodes without a mesh or other components
+        // (bones, empty groups) are hidden by default; all model parts can be hidden too.
+        bool                               m_HideEmptyModelNodes = true, m_HideModelParts = false;
+        std::unordered_map<uint64_t, bool> m_Shown;
+        size_t                             m_HiddenCount = 0;
         std::vector<UUID>                  m_Order;     // Entities as drawn, for arrow keys.
         std::vector<UUID>                  m_LastOrder; // Last frame's, for Shift ranges.
         UUID                               m_MenuEntity     = 0;

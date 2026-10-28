@@ -1,14 +1,15 @@
 #include "HierarchyPanel.h"
-#include "UI/Widgets.h"
-#include "Kans3D/Scene/SceneClipboard.h"
-#include "Components/ComponentRegistry.h"
-#include <algorithm>
-#include <cctype>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <algorithm>
+#include <cctype>
+#include "Kans3D/ImGui/EditorTheme.h"
 #include "Kans3D/Renderer/Renderer.h"
 #include "Kans3D/Scene/Components.h"
+#include "Kans3D/Scene/SceneClipboard.h"
+#include "Components/ComponentRegistry.h"
 #include "UI/EditorIcons.h"
+#include "UI/Widgets.h"
 
 namespace Kans
 {
@@ -179,18 +180,23 @@ namespace Kans
         // Deleted entities (also by undo) leave the selection.
         m_Selection.Retain([&](UUID id) { return bool(m_Scene->GetEntityByUUID(id)); });
         m_Matches.clear();
+        m_Shown.clear();
+        m_HiddenCount        = 0;
         const bool filtering = m_Search[0] != 0;
         const auto roots     = m_Scene->GetRootEntities();
         if (filtering)
             for (Entity root : roots)
                 UpdateMatches(root);
+        else
+            for (Entity root : roots)
+                UpdateShown(root);
 
         ImGui::BeginChild("##Entities");
         if (!m_Order.empty())
             m_LastOrder = m_Order;
         m_Order.clear();
         for (Entity root : roots)
-            if (!filtering || m_Matches[uint64_t(root.GetUUID())])
+            if (filtering ? m_Matches[uint64_t(root.GetUUID())] : m_Shown[uint64_t(root.GetUUID())])
                 DrawEntity(root);
         m_Reveal = 0;
         if (roots.empty())
@@ -242,8 +248,60 @@ namespace Kans
             ImGui::EndPopup();
         }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() -
+                                ImGui::GetStyle().ItemSpacing.x);
         ImGui::InputTextWithHint("##search", ICON_FA_MAGNIFYING_GLASS " Search", m_Search.data(), m_Search.size());
+        ImGui::SameLine();
+        // The display filter; its button is lit while it hides anything.
+        const bool active = m_HiddenCount > 0;
+        if (active)
+            ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Colors().Accent);
+        if (ImGui::Button(ICON_FA_FILTER, {ImGui::GetFrameHeight(), ImGui::GetFrameHeight()}))
+            ImGui::OpenPopup("##DisplayFilter");
+        if (active)
+            ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(active ? "Display filter: %zu entities hidden" : "Display filter", m_HiddenCount);
+        if (ImGui::BeginPopup("##DisplayFilter"))
+        {
+            ImGui::TextDisabled("Hide in this list (the search still finds them)");
+            ImGui::Checkbox("Bones and empty model nodes", &m_HideEmptyModelNodes);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Parts of models with no mesh or other component; still shown when they hold\n"
+                                  "something that is shown, such as an object attached to a hand bone");
+            ImGui::Checkbox("All model parts (models show as one entry)", &m_HideModelParts);
+            ImGui::EndPopup();
+        }
+    }
+
+    bool HierarchyPanel::IsHiddenByFilter(Entity entity) const
+    {
+        if (!entity.HasComponent<PrefabOwnedComponent>())
+            return false;
+        if (m_HideModelParts)
+            return true;
+        if (!m_HideEmptyModelNodes)
+            return false;
+        // Empty: no mesh and no registered component besides its transform (bones, grouping nodes).
+        if (entity.HasComponent<MeshComponent>())
+            return false;
+        for (const auto& entry : ComponentRegistry::Get().Entries())
+            if (entry.Type != std::type_index(typeid(TransformComponent)) && entry.Has && entry.Has(entity))
+                return false;
+        return true;
+    }
+
+    bool HierarchyPanel::UpdateShown(Entity entity)
+    {
+        bool shown = false;
+        for (Entity child : m_Scene->GetChildren(entity))
+            shown |= UpdateShown(child);
+        const bool hidden = IsHiddenByFilter(entity);
+        m_HiddenCount += hidden;
+        // A hidden node holding something shown stays, so that the shown entity can be reached.
+        shown |= !hidden;
+        m_Shown[uint64_t(entity.GetUUID())] = shown;
+        return shown;
     }
 
     bool HierarchyPanel::UpdateMatches(Entity entity)
@@ -268,7 +326,10 @@ namespace Kans
                                    ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_AllowOverlap;
         if (m_Selection.Contains(id))
             flags |= ImGuiTreeNodeFlags_Selected;
-        if (children.empty())
+        // A node whose children are all filtered out draws as a leaf.
+        if (std::none_of(children.begin(), children.end(), [&](Entity child) {
+                return filtering ? m_Matches[uint64_t(child.GetUUID())] : m_Shown[uint64_t(child.GetUUID())];
+            }))
             flags |= ImGuiTreeNodeFlags_Leaf;
         // Open the path to a revealed entity, and every match while searching.
         const Entity revealed = m_Reveal ? m_Scene->GetEntityByUUID(m_Reveal) : Entity {};
@@ -347,7 +408,7 @@ namespace Kans
         if (!open)
             return;
         for (Entity child : children)
-            if (!filtering || m_Matches[uint64_t(child.GetUUID())])
+            if (filtering ? m_Matches[uint64_t(child.GetUUID())] : m_Shown[uint64_t(child.GetUUID())])
                 DrawEntity(child);
         ImGui::TreePop();
     }
