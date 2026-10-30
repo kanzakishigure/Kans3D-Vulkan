@@ -10,6 +10,7 @@ namespace Kans
     public:
         inline static Ref<Texture2D> FbxFileIcon;
         inline static Ref<Texture2D> FolderIcon;
+        inline static Ref<Texture2D> FolderOpenIcon;
         inline static Ref<Texture2D> ObjFileIcon;
         inline static Ref<Texture2D> GltfFileIcon;
         inline static Ref<Texture2D> GlbFileIcon;
@@ -23,6 +24,11 @@ namespace Kans
         inline static Ref<Texture2D> MaterialFileIcon;
         inline static Ref<Texture2D> ScriptFileIcon;
         inline static Ref<Texture2D> AudioFileIcon;
+        inline static Ref<Texture2D> FontFileIcon;
+        inline static Ref<Texture2D> UIFileIcon;
+        inline static Ref<Texture2D> TimelineFileIcon;
+        inline static Ref<Texture2D> ActionFileIcon;
+        inline static Ref<Texture2D> ExpressionFileIcon;
         inline static Ref<Texture2D> FileIcon;
 
         inline static Ref<Texture2D> BorderShadow;

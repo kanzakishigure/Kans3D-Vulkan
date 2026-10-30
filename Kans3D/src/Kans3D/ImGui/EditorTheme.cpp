@@ -34,6 +34,11 @@ namespace Kans::EditorTheme
             Rgb(232, 197, 71),  // TypeScript
             Rgb(60, 200, 216),  // TypeShader
             Rgb(240, 98, 146),  // TypeAudio
+            Rgb(190, 170, 140), // TypeFont
+            Rgb(110, 122, 238), // TypeUI
+            Rgb(156, 200, 70),  // TypeTimeline
+            Rgb(52, 186, 150),  // TypeAction
+            Rgb(214, 100, 214), // TypeExpression
         };
 
         float g_Scale = 1.0f;

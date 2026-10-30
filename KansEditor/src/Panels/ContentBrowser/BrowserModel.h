@@ -21,9 +21,15 @@ namespace Kans::Browser
         Material,
         Shader,
         Scene,
+        Audio,
+        Font,
+        UI,
+        Timeline,
+        Action,
+        Expression,
         Other,
     };
-    constexpr int AssetKindCount = 7;
+    constexpr int AssetKindCount = int(AssetKind::Other) + 1;
 
     [[nodiscard]] AssetKind   KindOf(const fs::path& path, bool directory);
     [[nodiscard]] const char* KindName(AssetKind kind);
@@ -86,8 +92,9 @@ namespace Kans::Browser
 
     struct Filter
     {
+        static_assert(AssetKindCount == 13, "Every kind starts shown: extend Kinds below.");
         std::string Text; // Case-insensitive substring of the name.
-        bool        Kinds[AssetKindCount] = {true, true, true, true, true, true, true};
+        bool Kinds[AssetKindCount] = {true, true, true, true, true, true, true, true, true, true, true, true, true};
 
         bool Matches(const Entry& entry) const;
         bool IsActive() const;

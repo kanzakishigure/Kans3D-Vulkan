@@ -34,6 +34,11 @@ namespace Kans::EditorTheme
         ImVec4 TypeScript;
         ImVec4 TypeShader;
         ImVec4 TypeAudio;
+        ImVec4 TypeFont;
+        ImVec4 TypeUI;
+        ImVec4 TypeTimeline;
+        ImVec4 TypeAction;
+        ImVec4 TypeExpression;
     };
 
     const Palette& Colors();

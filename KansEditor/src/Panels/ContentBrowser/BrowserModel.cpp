@@ -18,15 +18,41 @@ namespace Kans::Browser
         if (directory)
             return AssetKind::Folder;
         const auto extension = Lowercase(path.extension().u8string());
-        static const std::map<std::string, AssetKind> kinds = {
-            {".obj", AssetKind::Model},      {".fbx", AssetKind::Model},      {".gltf", AssetKind::Model},
-            {".glb", AssetKind::Model},      {".dae", AssetKind::Model},      {".3ds", AssetKind::Model},
-            {".pmx", AssetKind::Model},      {".blend", AssetKind::Model},    {".png", AssetKind::Texture},
-            {".jpg", AssetKind::Texture},    {".jpeg", AssetKind::Texture},   {".bmp", AssetKind::Texture},
-            {".tga", AssetKind::Texture},    {".hdr", AssetKind::Texture},    {".material", AssetKind::Material},
-            {".mtl", AssetKind::Material},   {".shaderprog", AssetKind::Shader}, {".vert", AssetKind::Shader},
-            {".frag", AssetKind::Shader},    {".comp", AssetKind::Shader},    {".glsl", AssetKind::Shader},
+        static const std::map<std::string, AssetKind> kinds     = {
+            {".obj", AssetKind::Model},
+            {".fbx", AssetKind::Model},
+            {".gltf", AssetKind::Model},
+            {".glb", AssetKind::Model},
+            {".dae", AssetKind::Model},
+            {".3ds", AssetKind::Model},
+            {".pmx", AssetKind::Model},
+            {".blend", AssetKind::Model},
+            {".png", AssetKind::Texture},
+            {".jpg", AssetKind::Texture},
+            {".jpeg", AssetKind::Texture},
+            {".bmp", AssetKind::Texture},
+            {".tga", AssetKind::Texture},
+            {".hdr", AssetKind::Texture},
+            {".material", AssetKind::Material},
+            {".mtl", AssetKind::Material},
+            {".shaderprog", AssetKind::Shader},
+            {".vert", AssetKind::Shader},
+            {".frag", AssetKind::Shader},
+            {".comp", AssetKind::Shader},
+            {".glsl", AssetKind::Shader},
             {".kans", AssetKind::Scene},
+            {".wav", AssetKind::Audio},
+            {".ogg", AssetKind::Audio},
+            {".mp3", AssetKind::Audio},
+            {".flac", AssetKind::Audio},
+            {".ttf", AssetKind::Font},
+            {".otf", AssetKind::Font},
+            {".ttc", AssetKind::Font},
+            {".otc", AssetKind::Font},
+            {".kui", AssetKind::UI},
+            {".timeline", AssetKind::Timeline},
+            {".action", AssetKind::Action},
+            {".expression", AssetKind::Expression},
         };
         const auto found = kinds.find(extension);
         return found == kinds.end() ? AssetKind::Other : found->second;
@@ -48,6 +74,18 @@ namespace Kans::Browser
                 return "Shader";
             case AssetKind::Scene:
                 return "Scene";
+            case AssetKind::Audio:
+                return "Audio";
+            case AssetKind::Font:
+                return "Font";
+            case AssetKind::UI:
+                return "UI";
+            case AssetKind::Timeline:
+                return "Timeline";
+            case AssetKind::Action:
+                return "Action";
+            case AssetKind::Expression:
+                return "Expression";
             default:
                 return "File";
         }

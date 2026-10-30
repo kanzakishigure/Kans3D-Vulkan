@@ -162,17 +162,44 @@ namespace Kans
 
         std::string Label(const char* icon, const char* text) { return std::string(icon) + "  " + text; }
 
+        // Spaces at least `width` wide, leaving room in a label for an image.
+        std::string IconSpace(float width)
+        {
+            std::string space = " ";
+            while (ImGui::CalcTextSize(space.c_str()).x < width && space.size() < 64)
+                space += ' ';
+            return space;
+        }
+
         ImVec4 KindColor(Browser::AssetKind kind)
         {
             const auto& p = EditorTheme::Colors();
             switch (kind)
             {
-                case Browser::AssetKind::Model: return p.TypeModel;
-                case Browser::AssetKind::Texture: return p.TypeImage;
-                case Browser::AssetKind::Material: return p.TypeMaterial;
-                case Browser::AssetKind::Shader: return p.TypeShader;
-                case Browser::AssetKind::Scene: return p.TypeScene;
-                default: return p.TextDim;
+                case Browser::AssetKind::Model:
+                    return p.TypeModel;
+                case Browser::AssetKind::Texture:
+                    return p.TypeImage;
+                case Browser::AssetKind::Material:
+                    return p.TypeMaterial;
+                case Browser::AssetKind::Shader:
+                    return p.TypeShader;
+                case Browser::AssetKind::Scene:
+                    return p.TypeScene;
+                case Browser::AssetKind::Audio:
+                    return p.TypeAudio;
+                case Browser::AssetKind::Font:
+                    return p.TypeFont;
+                case Browser::AssetKind::UI:
+                    return p.TypeUI;
+                case Browser::AssetKind::Timeline:
+                    return p.TypeTimeline;
+                case Browser::AssetKind::Action:
+                    return p.TypeAction;
+                case Browser::AssetKind::Expression:
+                    return p.TypeExpression;
+                default:
+                    return p.TextDim;
             }
         }
 
@@ -735,9 +762,24 @@ namespace Kans
             flags |= ImGuiTreeNodeFlags_Leaf;
         if (m_RevealCurrent && directory != m_Current && Browser::IsWithin(m_Current, directory))
             ImGui::SetNextItemOpen(true);
-        const std::string id   = directory.generic_u8string();
-        const bool        open = ImGui::TreeNodeEx(
-            id.c_str(), flags, "%s  %s", directory == m_Current ? ICON_FA_FOLDER_OPEN : ICON_FA_FOLDER, label.c_str());
+        const std::string id    = directory.generic_u8string();
+        const float       icon  = ImGui::GetFontSize();
+        const float       start = ImGui::GetCursorScreenPos().x;
+        const bool        open  = ImGui::TreeNodeEx(
+            id.c_str(), flags, "%s%s", IconSpace(icon + EditorTheme::Px(6.0f)).c_str(), label.c_str());
+        // The current folder and expanded folders show the open folder.
+        const auto& image = directory == m_Current || (open && children) ? EditorResources::FolderOpenIcon :
+                                                                           EditorResources::FolderIcon;
+        if (image)
+        {
+            const ImVec2 at(start + ImGui::GetTreeNodeToLabelSpacing(),
+                            (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y - icon) * 0.5f);
+            ImGui::GetWindowDrawList()->AddImage(static_cast<ImTextureID>(uintptr_t(image->GetImGuiTextureID())),
+                                                 at,
+                                                 {at.x + icon, at.y + icon},
+                                                 {0, 1},
+                                                 {1, 0});
+        }
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
             Navigate(directory);
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
